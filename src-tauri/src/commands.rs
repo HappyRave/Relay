@@ -15,7 +15,8 @@ use uuid::Uuid;
 
 use crate::coordinator::{Cmd, CoordinatorHandle};
 use crate::ipc::{EngineMsg, Emitter};
-use crate::library::Library;
+use crate::coordinator::SessionMode;
+use crate::library::{Library, LibraryError};
 use crate::settings::{Settings, SettingsStore};
 
 type LibraryState<'a> = State<'a, Mutex<Library>>;
@@ -32,6 +33,17 @@ impl IpcError {
     }
     fn io(e: std::io::Error) -> Self {
         IpcError { code: "io", message: format!("Couldn't save: {e}") }
+    }
+}
+
+impl From<LibraryError> for IpcError {
+    fn from(e: LibraryError) -> Self {
+        let code = match e {
+            LibraryError::NotFound(_) => "not_found",
+            LibraryError::Io(_) => "io",
+            LibraryError::Format(_) => "format",
+        };
+        IpcError { code, message: e.to_string() }
     }
 }
 
@@ -113,6 +125,25 @@ pub fn set_playback_options(
     Ok(view)
 }
 
+#[tauri::command]
+pub fn duplicate_macro(lib: LibraryState<'_>, id: Uuid) -> Result<Uuid> {
+    Ok(lib.lock().unwrap().duplicate(id)?)
+}
+
+/// Moves a macro to the trash; it can be restored with [`restore_macro`].
+#[tauri::command]
+pub fn delete_macro(lib: LibraryState<'_>, mode: State<'_, SessionMode>, id: Uuid) -> Result<()> {
+    if !mode.is_idle() {
+        return Err(IpcError { code: "busy", message: "Stop the recording or playback first".into() });
+    }
+    Ok(lib.lock().unwrap().trash(id)?)
+}
+
+#[tauri::command]
+pub fn restore_macro(lib: LibraryState<'_>, id: Uuid) -> Result<()> {
+    Ok(lib.lock().unwrap().restore(id)?)
+}
+
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExportFormat {
@@ -120,15 +151,52 @@ pub enum ExportFormat {
     Json,
 }
 
-/// The file contents for an export. M5 replaces this with a native save dialog.
-#[tauri::command]
-pub fn export_text(lib: LibraryState<'_>, id: Uuid, format: ExportFormat) -> Result<String> {
-    let lib = lib.lock().unwrap();
+fn export_body(lib: &Library, id: Uuid, format: ExportFormat) -> Result<String> {
     let entry = lib.get(id).ok_or(IpcError::not_found(id))?;
     Ok(match format {
         ExportFormat::Rly => format::to_rly(&entry.macro_),
         ExportFormat::Json => format::to_export_json(&entry.macro_),
     })
+}
+
+/// The file contents for an export (the browser preview downloads these).
+#[tauri::command]
+pub fn export_text(lib: LibraryState<'_>, id: Uuid, format: ExportFormat) -> Result<String> {
+    export_body(&lib.lock().unwrap(), id, format)
+}
+
+/// Writes an export to `path` (chosen by the user in the save dialog).
+#[tauri::command]
+pub fn export_macro(lib: LibraryState<'_>, id: Uuid, format: ExportFormat, path: String) -> Result<()> {
+    let body = export_body(&lib.lock().unwrap(), id, format)?;
+    crate::storage::write_atomic(std::path::Path::new(&path), &body).map_err(IpcError::io)
+}
+
+#[derive(Debug, Serialize, TS)]
+#[ts(export)]
+pub struct ImportResult {
+    pub imported: Vec<Uuid>,
+    /// Files that couldn't be imported, with the reason.
+    pub problems: Vec<String>,
+}
+
+/// Imports `.rly` files (and Relay `.json` exports). Each file is independent:
+/// a broken one is reported and the rest still import.
+#[tauri::command]
+pub fn import_macros(lib: LibraryState<'_>, paths: Vec<String>) -> ImportResult {
+    let mut lib = lib.lock().unwrap();
+    let mut out = ImportResult { imported: Vec::new(), problems: Vec::new() };
+    for path in paths {
+        let name = std::path::Path::new(&path).file_name().map_or(path.clone(), |n| n.to_string_lossy().into_owned());
+        let parsed = std::fs::read_to_string(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|s| format::from_rly(&s).map_err(|e| e.to_string()));
+        match parsed.map(|m| lib.import(m).map_err(|e| e.to_string())) {
+            Ok(Ok(id)) => out.imported.push(id),
+            Ok(Err(e)) | Err(e) => out.problems.push(format!("{name}: {e}")),
+        }
+    }
+    out
 }
 
 // — screen —

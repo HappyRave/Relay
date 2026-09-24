@@ -1,6 +1,7 @@
 //! The macro library, persisted under the data directory: one `.rly` per
 //! macro plus `library.json` for the order and machine-local stats. A first
-//! run seeds the design's sample macros.
+//! run seeds the design's sample macros. Deleting moves a macro's file to
+//! `macros\.trash`, from where it can be restored.
 
 use std::collections::HashMap;
 use std::fs;
@@ -31,9 +32,19 @@ struct Index {
     version: u32,
     order: Vec<Uuid>,
     entries: HashMap<Uuid, IndexEntry>,
+    /// Deleted macros: their stats and where they were, for restoring.
+    #[serde(default)]
+    trash: HashMap<Uuid, TrashEntry>,
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
+struct TrashEntry {
+    position: usize,
+    #[serde(flatten)]
+    meta: IndexEntry,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 struct IndexEntry {
     runs: u32,
@@ -44,6 +55,17 @@ struct IndexEntry {
 pub struct Library {
     dir: PathBuf,
     entries: Vec<Entry>,
+    trash: HashMap<Uuid, TrashEntry>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum LibraryError {
+    #[error("no macro with id {0}")]
+    NotFound(Uuid),
+    #[error("{0}")]
+    Io(#[from] std::io::Error),
+    #[error("{0}")]
+    Format(#[from] relay_core::format::FormatError),
 }
 
 impl Library {
@@ -67,13 +89,14 @@ impl Library {
             }
         }
 
-        let mut lib = Library { dir: dir.to_path_buf(), entries: Vec::new() };
+        let mut lib = Library { dir: dir.to_path_buf(), entries: Vec::new(), trash: HashMap::new() };
         if index.is_none() && loaded.is_empty() {
             lib.seed_samples();
             return (lib, problems);
         }
 
         let index = index.unwrap_or_default();
+        lib.trash = index.trash.clone();
         let rank = |id: &Uuid| index.order.iter().position(|o| o == id).unwrap_or(usize::MAX);
         // Indexed macros in their saved order, then any unindexed files newest first.
         loaded.sort_by(|a, b| rank(&a.id).cmp(&rank(&b.id)).then(b.modified_at.cmp(&a.modified_at)));
@@ -131,6 +154,74 @@ impl Library {
         }
     }
 
+    /// Copies a macro under a new id, right after the original. Returns the copy's id.
+    pub fn duplicate(&mut self, id: Uuid) -> Result<Uuid, LibraryError> {
+        let pos = self.position(id)?;
+        let mut copy = self.entries[pos].macro_.clone();
+        copy.id = Uuid::new_v4();
+        copy.name = self.unique_name(&format!("{} (copy)", copy.name));
+        copy.created_at = Utc::now();
+        copy.modified_at = copy.created_at;
+        self.write_macro(&copy)?;
+        let new_id = copy.id;
+        let hotkey = None; // a hotkey belongs to one macro
+        self.entries.insert(pos + 1, Entry { macro_: copy, runs: 0, last_run: None, hotkey });
+        self.save_index()?;
+        Ok(new_id)
+    }
+
+    /// Moves a macro to the trash (its file to `macros\.trash`).
+    pub fn trash(&mut self, id: Uuid) -> Result<(), LibraryError> {
+        let position = self.position(id)?;
+        let trash_dir = self.dir.join("macros").join(".trash");
+        fs::create_dir_all(&trash_dir)?;
+        fs::rename(self.macro_path(id), trash_dir.join(format!("{id}.rly")))?;
+        let e = self.entries.remove(position);
+        self.trash.insert(id, TrashEntry { position, meta: IndexEntry { runs: e.runs, last_run: e.last_run, hotkey: e.hotkey } });
+        Ok(self.save_index()?)
+    }
+
+    /// Brings a trashed macro back where it was, with its stats.
+    pub fn restore(&mut self, id: Uuid) -> Result<(), LibraryError> {
+        let t = self.trash.get(&id).cloned().ok_or(LibraryError::NotFound(id))?;
+        let from = self.dir.join("macros").join(".trash").join(format!("{id}.rly"));
+        let m = format::from_rly(&fs::read_to_string(&from)?)?;
+        fs::rename(&from, self.macro_path(id))?;
+        self.trash.remove(&id);
+        let pos = t.position.min(self.entries.len());
+        self.entries.insert(pos, Entry { macro_: m, runs: t.meta.runs, last_run: t.meta.last_run, hotkey: t.meta.hotkey });
+        Ok(self.save_index()?)
+    }
+
+    /// Adds an imported macro at the top. A macro that's already in the
+    /// library is imported as a copy with a new id. Returns the id used.
+    pub fn import(&mut self, mut m: Macro) -> Result<Uuid, LibraryError> {
+        if self.get(m.id).is_some() || self.trash.contains_key(&m.id) {
+            m.id = Uuid::new_v4();
+        }
+        m.name = self.unique_name(&m.name);
+        let id = m.id;
+        self.insert_front(m)?;
+        Ok(id)
+    }
+
+    fn position(&self, id: Uuid) -> Result<usize, LibraryError> {
+        self.entries.iter().position(|e| e.macro_.id == id).ok_or(LibraryError::NotFound(id))
+    }
+
+    fn macro_path(&self, id: Uuid) -> PathBuf {
+        self.dir.join("macros").join(format!("{id}.rly"))
+    }
+
+    /// `name`, or `name 2`, `name 3`… if a macro already has it.
+    fn unique_name(&self, name: &str) -> String {
+        let taken = |n: &str| self.entries.iter().any(|e| e.macro_.name == n);
+        if !taken(name) {
+            return name.to_string();
+        }
+        (2..).map(|i| format!("{name} {i}")).find(|n| !taken(n)).expect("a free name")
+    }
+
     /// The next free "Recording N" name.
     pub fn next_recording_name(&self) -> String {
         let n = self
@@ -143,7 +234,7 @@ impl Library {
     }
 
     fn write_macro(&self, m: &Macro) -> std::io::Result<()> {
-        write_atomic(&self.dir.join("macros").join(format!("{}.rly", m.id)), &format::to_rly(m))
+        write_atomic(&self.macro_path(m.id), &format::to_rly(m))
     }
 
     fn save_index(&self) -> std::io::Result<()> {
@@ -155,6 +246,7 @@ impl Library {
                 .iter()
                 .map(|e| (e.macro_.id, IndexEntry { runs: e.runs, last_run: e.last_run, hotkey: e.hotkey.clone() }))
                 .collect(),
+            trash: self.trash.clone(),
         };
         write_atomic(&self.dir.join("library.json"), &serde_json::to_string_pretty(&index).expect("index serializes"))
     }
@@ -187,6 +279,43 @@ mod tests {
         assert_eq!(again.list()[0].id, rec_id);
         assert_eq!(again.get(invoice).unwrap().runs, 148);
         assert_eq!(again.next_recording_name(), "Recording 2");
+    }
+
+    #[test]
+    fn duplicate_trash_restore_and_import() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut lib, _) = Library::open(dir.path());
+        let invoice = lib.list()[0].id;
+
+        let copy = lib.duplicate(invoice).unwrap();
+        let names: Vec<_> = lib.list().into_iter().map(|i| i.name).collect();
+        assert_eq!(names[..2], ["Export invoice to PDF".to_string(), "Export invoice to PDF (copy)".to_string()]);
+        assert_eq!(lib.get(copy).unwrap().runs, 0);
+        assert_eq!(lib.get(copy).unwrap().hotkey, None);
+        assert_eq!(lib.get(copy).unwrap().macro_.events, lib.get(invoice).unwrap().macro_.events);
+        lib.duplicate(invoice).unwrap();
+        assert_eq!(lib.list()[1].name, "Export invoice to PDF (copy) 2");
+
+        // Trash keeps the file and the stats; restore puts it back in place.
+        lib.trash(invoice).unwrap();
+        assert!(lib.get(invoice).is_none());
+        assert!(dir.path().join("macros/.trash").join(format!("{invoice}.rly")).exists());
+        let (reopened, problems) = Library::open(dir.path());
+        assert!(problems.is_empty());
+        assert!(reopened.get(invoice).is_none(), "trashed macros stay out after a restart");
+        let (mut lib, _) = (reopened, ());
+        lib.restore(invoice).unwrap();
+        assert_eq!(lib.list()[0].id, invoice);
+        assert_eq!(lib.get(invoice).unwrap().runs, 148);
+        assert!(matches!(lib.restore(invoice), Err(LibraryError::NotFound(_))));
+
+        // Importing a macro that's already here makes a copy with a new id.
+        let exported = relay_core::format::to_rly(&lib.get(invoice).unwrap().macro_);
+        let imported = lib.import(relay_core::format::from_rly(&exported).unwrap()).unwrap();
+        assert_ne!(imported, invoice);
+        assert_eq!(lib.list()[0].id, imported);
+        assert_eq!(lib.list()[0].name, "Export invoice to PDF 2");
+        assert_eq!(lib.get(imported).unwrap().macro_.events, lib.get(invoice).unwrap().macro_.events);
     }
 
     #[test]
