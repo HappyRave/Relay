@@ -13,11 +13,11 @@
   <input
     class="name"
     aria-label="Macro name"
-    value={relay.current.name}
-    disabled={relay.recording}
+    value={relay.name}
+    disabled={relay.recording || !relay.view}
     oninput={(e) => relay.rename(e.currentTarget.value)}
   />
-  <div class="meta">{relay.view.steps.length} steps · {relay.view.moves.length} path samples</div>
+  <div class="meta">{relay.steps.length} steps · {relay.moves.length} path samples</div>
   <button class="export" onclick={() => (relay.exportOpen = true)}>Export<Icon name="export" size={15} /></button>
   <button class="icon" title="Compact player (Ctrl + Shift + M)" aria-label="Compact player" onclick={() => (relay.expanded = false)}>
     <Icon name="collapse" size={18} />

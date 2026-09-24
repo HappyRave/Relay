@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { currentStepIndex, jumpTarget, keyChips, moveSegments, pct, ruler } from "./lanes";
 import type { Step } from "../types";
 
-const keys = (t: number, combo: string): Step => ({ kind: "keys", t, end: t + 350, combo, items: [] });
+const keys = (t: number, combo: string): Step => ({ kind: "keys", t, end: t + 350, combo: combo.split(" + "), items: [] });
 const type = (t: number, text: string): Step => ({ kind: "type", t, end: t + 85 * text.length, text, chars: [], items: [] });
 
 describe("pct", () => {

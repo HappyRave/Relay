@@ -19,12 +19,15 @@ npm install
 npm run tauri dev   # the app
 npm run dev         # UI only, in a browser, on a demo desktop
 npm test            # frontend unit tests
+cargo test          # Rust tests; also regenerates the TS bindings and the browser fixture
 ```
+
+`src/lib/ipc/bindings/` (TypeScript types) and `src/lib/dev/sample-views.json` are generated from `relay-core` by `cargo test`. Commit them when they change; CI fails if they're stale.
 
 ## Roadmap
 
 - [x] M0: Scaffold and skin
-- [ ] M1: relay-core (model, steps, edits, format)
+- [x] M1: relay-core (model, steps, edits, format)
 - [ ] M2: Recording
 - [ ] M3: Playback engine
 - [ ] M4: Steps editor and pixel checks

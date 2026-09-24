@@ -53,7 +53,7 @@ export function keyChips(steps: Step[], duration: number, cur: number): KeyChip[
     return {
       l: pct(x.t, duration),
       w: Math.max(0.8, w),
-      label: x.kind === "type" ? x.text : x.combo,
+      label: x.kind === "type" ? x.text : x.combo.join(" + "),
       past: x.t <= cur,
     };
   });

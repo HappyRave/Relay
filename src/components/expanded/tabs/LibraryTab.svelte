@@ -1,25 +1,26 @@
 <script lang="ts">
   import Kbd from "../../ui/Kbd.svelte";
   import { relay } from "../../../lib/state/relay.svelte";
+  import { fmtLastRun } from "../../../lib/format";
 </script>
 
 <div class="list">
-  {#each relay.libraryItems as e (e.id)}
+  {#each relay.library as e (e.id)}
     <div
       class="item"
-      class:active={e.id === relay.current.id}
+      class:active={e.id === relay.view?.id}
       role="button"
       tabindex="0"
       onclick={() => relay.loadMacro(e.id)}
       onkeydown={(ev) => ev.key === "Enter" && relay.loadMacro(e.id)}
     >
       <div class="top">
-        <span class="name">{e.name}</span>
-        <Kbd combo={e.hotkey} muted />
+        <span class="name">{e.id === relay.view?.id ? relay.name : e.name}</span>
+        <Kbd combo={e.hotkey ?? "—"} muted />
       </div>
       <div class="meta">
-        <span>{(e.durationMs / 1000).toFixed(1)} s · {e.stepCount} events · {e.runs} runs</span>
-        <span>{e.lastRun}</span>
+        <span>{(e.duration / 1000).toFixed(1)} s · {e.step_count} steps · {e.runs} runs</span>
+        <span>{fmtLastRun(e.last_run)}</span>
       </div>
     </div>
   {/each}

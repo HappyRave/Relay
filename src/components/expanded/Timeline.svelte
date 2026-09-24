@@ -2,16 +2,17 @@
   import { relay } from "../../lib/state/relay.svelte";
   import { keyChips, moveSegments, pct, ruler } from "../../lib/timeline/lanes";
   import { seekable } from "../../lib/actions/seekable";
+  import type { StepOf } from "../../lib/types";
 
   const d = $derived(relay.duration);
   const cur = $derived(Math.min(relay.cur, d));
-  const steps = $derived(relay.view.steps);
+  const steps = $derived(relay.steps);
   const ticks = $derived(ruler(d));
-  const moves = $derived(moveSegments(relay.view.moves, d));
-  const clicks = $derived(steps.filter((s) => s.kind === "click"));
+  const moves = $derived(moveSegments(relay.moves, d));
+  const clicks = $derived(steps.filter((s): s is StepOf<"click"> => s.kind === "click"));
   const chips = $derived(keyChips(steps, d, cur));
-  const waits = $derived(steps.filter((s) => s.kind === "wait"));
-  const conds = $derived(steps.filter((s) => s.kind === "pixel"));
+  const waits = $derived(steps.filter((s): s is StepOf<"wait"> => s.kind === "wait"));
+  const conds = $derived(steps.filter((s): s is StepOf<"pixel_wait"> => s.kind === "pixel_wait"));
 </script>
 
 <div class="timeline">

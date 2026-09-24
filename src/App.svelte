@@ -9,6 +9,7 @@
 
   $effect(() => {
     relay.start();
+    relay.init();
     return () => relay.dispose();
   });
 </script>

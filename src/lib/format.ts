@@ -32,3 +32,15 @@ export function nextRunLabel(enabled: boolean, days: boolean[], time: string, no
   }
   return "No schedule";
 }
+
+/** "Today, 09:12", "Fri, 17:40", "Sep 12" or "Never", as in the Library tab. */
+export function fmtLastRun(iso: string | null, now = new Date()): string {
+  if (!iso) return "Never";
+  const d = new Date(iso);
+  const hm = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((startOfDay(now) - startOfDay(d)) / 86_400_000);
+  if (days <= 0) return `Today, ${hm}`;
+  if (days < 7) return `${d.toLocaleDateString([], { weekday: "short" })}, ${hm}`;
+  return d.toLocaleDateString([], { month: "short", day: "numeric" });
+}

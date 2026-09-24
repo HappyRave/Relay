@@ -30,8 +30,8 @@
   <div class="hint">
     <div class="kicker">Try it</div>
     <div>
-      Press <b>F9</b> or the red button, then move, click and type anywhere on this desktop. <b>F10</b> plays it back,
-      <b>Esc</b> stops.
+      A preview of Relay's UI with the design's sample macros. <b>F10</b> plays a macro back, <b>Esc</b> stops.
+      Recording and step edits run in the app (<b>npm run tauri dev</b>).
     </div>
   </div>
   <div class="wordmark">Relay.</div>

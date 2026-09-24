@@ -19,7 +19,7 @@
 <div class="list">
   <div class="section">Playback</div>
   <div class="row">
-    <div class="grow"><div class="title">Humanize</div><div class="sub">Randomize delays ±{pb.jitterMs} ms</div></div>
+    <div class="grow"><div class="title">Humanize</div><div class="sub">Randomize delays ±{pb.jitter_ms} ms</div></div>
     <Toggle label="Humanize" on={pb.humanize} onchange={(v) => relay.setPlayback({ humanize: v })} />
   </div>
   <div class="row slider">
@@ -29,8 +29,8 @@
       max="200"
       step="5"
       aria-label="Jitter"
-      value={pb.jitterMs}
-      oninput={(e) => relay.setPlayback({ jitterMs: +e.currentTarget.value })}
+      value={pb.jitter_ms}
+      oninput={(e) => relay.setPlayback({ jitter_ms: +e.currentTarget.value })}
     />
   </div>
   <div class="row">
@@ -38,13 +38,13 @@
     <Segmented
       label="Coordinates"
       options={[["screen", "Screen"], ["window", "Window"]] as [CoordMode, string][]}
-      value={pb.coordMode}
-      onchange={(v) => relay.setPlayback({ coordMode: v })}
+      value={pb.coord_mode}
+      onchange={(v) => relay.setPlayback({ coord_mode: v })}
     />
   </div>
   <div class="row">
     <div class="grow"><div class="title">Stop on key press</div><div class="sub">Any keystroke aborts playback</div></div>
-    <Toggle label="Stop on key press" on={pb.stopOnKey} onchange={(v) => relay.setPlayback({ stopOnKey: v })} />
+    <Toggle label="Stop on key press" on={pb.stop_on_key} onchange={(v) => relay.setPlayback({ stop_on_key: v })} />
   </div>
 
   <div class="section">Recording</div>

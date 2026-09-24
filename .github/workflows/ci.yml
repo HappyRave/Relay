@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "m*-*", "fix-*"]
+  pull_request:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Rust tests (also regenerates the TS bindings and browser fixture)
+        run: cargo test --workspace
+      - name: Generated files are up to date
+        run: git diff --exit-code -- src/lib/ipc/bindings src/lib/dev/sample-views.json
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: npm run check
+      - run: npm test

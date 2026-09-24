@@ -9,7 +9,7 @@
   import { seekable } from "../lib/actions/seekable";
 
   const cur = $derived(Math.min(relay.cur, relay.duration));
-  const clicks = $derived(relay.view.steps.filter((s) => s.kind === "click"));
+  const clicks = $derived(relay.steps.filter((s) => s.kind === "click"));
 </script>
 
 <div class="compact">
@@ -18,7 +18,7 @@
   <div class="info">
     <div class="row">
       <span class="badge" class:rec={relay.recording} class:play={relay.mode === "play"}>{BADGE[relay.mode]}</span>
-      <span class="name">{relay.current.name}</span>
+      <span class="name">{relay.name}</span>
       <span class="time">
         {fmtTime(cur)} <span class="of">/ {relay.mode === "rec" ? "recording" : fmtTime(relay.duration)}</span>
       </span>
