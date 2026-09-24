@@ -1,5 +1,7 @@
 <script lang="ts">
   import Icon from "../../ui/Icon.svelte";
+  import StepEditor from "./StepEditor.svelte";
+  import { tick } from "svelte";
   import { relay } from "../../../lib/state/relay.svelte";
   import { currentStepIndex } from "../../../lib/timeline/lanes";
   import { fmtTime, plural } from "../../../lib/format";
@@ -51,6 +53,22 @@
     }
   }
 
+  /** The step whose editor is open (chosen by clicking its row). */
+  let selected = $state<number | null>(null);
+  const editable = (s: Step) => ["click", "drag", "wait", "pixel_wait"].includes(s.kind);
+  // Close the editor when the list changes shape (another macro, a deletion).
+  $effect(() => {
+    if (selected != null && selected >= steps.length) selected = null;
+  });
+
+  async function choose(i: number, s: Step) {
+    relay.seek(s.t);
+    selected = selected === i ? null : i;
+    // Bring a newly opened editor into view.
+    await tick();
+    if (selected === i) list?.children[i]?.scrollIntoView({ block: "nearest" });
+  }
+
   let list: HTMLDivElement | undefined = $state();
   // Keep the active row in view while playing.
   $effect(() => {
@@ -73,31 +91,41 @@
 <div class="list" bind:this={list}>
   {#each steps as s, i (s.items[0] ?? i)}
     {@const [detail, sub] = describe(s)}
-    <div
-      class="row"
-      class:active={i === curIdx}
-      class:future={s.t > cur}
-      role="button"
-      tabindex="0"
-      onclick={() => relay.seek(s.t)}
-      onkeydown={(e) => e.key === "Enter" && relay.seek(s.t)}
-    >
-      <span class="time">{fmtTime(s.t)}</span>
-      <span class="type">{TYPE_NAME[s.kind]}</span>
-      <div class="text">
-        <div class="detail">{detail}</div>
-        <div class="sub">{sub}</div>
-      </div>
-      <button
-        class="del"
-        title="Delete step"
-        aria-label="Delete step"
-        disabled={relay.recording || !relay.editable}
-        onclick={(e) => {
-          e.stopPropagation();
-          relay.deleteStep(i);
-        }}><Icon name="x" size={14} /></button
+    <div class="item">
+      <div
+        class="row"
+        class:active={i === curIdx}
+        class:selected={i === selected}
+        class:future={s.t > cur}
+        role="button"
+        tabindex="0"
+        aria-expanded={editable(s) ? i === selected : undefined}
+        onclick={() => choose(i, s)}
+        onkeydown={(e) => e.key === "Enter" && choose(i, s)}
       >
+        <span class="time">{fmtTime(s.t)}</span>
+        <span class="type">{TYPE_NAME[s.kind]}</span>
+        <div class="text">
+          <div class="detail">
+            {#if s.kind === "pixel_wait"}<span class="swatch" style:background={s.color}></span>{/if}{detail}
+          </div>
+          <div class="sub">{sub}</div>
+        </div>
+        <button
+          class="del"
+          title="Delete step"
+          aria-label="Delete step"
+          disabled={relay.recording || !relay.editable}
+          onclick={(e) => {
+            e.stopPropagation();
+            selected = null;
+            relay.deleteStep(i);
+          }}><Icon name="x" size={14} /></button
+        >
+      </div>
+      {#if i === selected && editable(s) && relay.mode === "idle" && relay.editable}
+        <StepEditor step={s} index={i} />
+      {/if}
     </div>
   {/each}
 </div>
@@ -146,8 +174,17 @@
   .row.future {
     color: var(--color-neutral-600);
   }
-  .row.active {
+  .row.active,
+  .row.selected {
     background: var(--color-accent-100);
+  }
+  .swatch {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    margin-right: 6px;
+    border: 1px solid var(--color-text);
+    vertical-align: -1px;
   }
   .row:focus-visible {
     outline-offset: -2px;
