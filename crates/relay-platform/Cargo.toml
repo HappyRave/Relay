@@ -1,0 +1,11 @@
+[package]
+name = "relay-platform"
+description = "Relay OS integration: input hooks, injection, screen and process access"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+relay-core.workspace = true
+thiserror.workspace = true

@@ -1,0 +1,102 @@
+<script lang="ts">
+  import Grip from "../shared/Grip.svelte";
+  import Icon from "../ui/Icon.svelte";
+  import { relay } from "../../lib/state/relay.svelte";
+  import { closeWindow, isTauri } from "../../lib/platform/window";
+
+  const tauri = isTauri();
+</script>
+
+<div class="header">
+  <Grip />
+  <div class="brand"><span class="mark"></span>Relay</div>
+  <input
+    class="name"
+    aria-label="Macro name"
+    value={relay.current.name}
+    disabled={relay.recording}
+    oninput={(e) => relay.rename(e.currentTarget.value)}
+  />
+  <div class="meta">{relay.view.steps.length} steps · {relay.view.moves.length} path samples</div>
+  <button class="export" onclick={() => (relay.exportOpen = true)}>Export<Icon name="export" size={15} /></button>
+  <button class="icon" title="Compact player (Ctrl + Shift + M)" aria-label="Compact player" onclick={() => (relay.expanded = false)}>
+    <Icon name="collapse" size={18} />
+  </button>
+  {#if tauri}
+    <!-- The design has no close control; M6 turns this into hide-to-tray. -->
+    <button class="icon" title="Close" aria-label="Close" onclick={closeWindow}><Icon name="x" size={16} /></button>
+  {/if}
+</div>
+
+<style>
+  .header {
+    height: 44px;
+    display: flex;
+    align-items: stretch;
+    border-bottom: 2px solid var(--color-divider);
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 14px;
+    border-right: 2px solid var(--color-divider);
+    font-weight: 800;
+    font-size: 14px;
+  }
+  .mark {
+    width: 12px;
+    height: 12px;
+    background: var(--color-accent);
+  }
+  .name {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    font-weight: 600;
+    font-size: 14px;
+    padding: 0 14px;
+    color: var(--color-text);
+    caret-color: var(--color-accent);
+    user-select: text;
+  }
+  .name:hover:not(:disabled) {
+    background: var(--color-neutral-200);
+  }
+  .name:focus-visible {
+    outline-offset: -2px;
+  }
+  .meta {
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    font-size: 12px;
+    color: var(--color-neutral-700);
+    white-space: nowrap;
+  }
+  button {
+    border: 0;
+    border-left: 2px solid var(--color-divider);
+    background: transparent;
+    color: var(--color-text);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+  }
+  button:hover {
+    background: var(--color-neutral-200);
+  }
+  .export {
+    font: inherit;
+    font-weight: 800;
+    font-size: 13px;
+    padding: 0 14px;
+    gap: 8px;
+  }
+  .icon {
+    width: 48px;
+    justify-content: center;
+  }
+</style>
