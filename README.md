@@ -16,12 +16,14 @@ Requirements: Rust (stable, MSVC), Node 20 or later, and WebView2 (included with
 
 ```bash
 npm install
-npm run tauri dev
+npm run tauri dev   # the app
+npm run dev         # UI only, in a browser, on a demo desktop
+npm test            # frontend unit tests
 ```
 
 ## Roadmap
 
-- [ ] M0: Scaffold and skin
+- [x] M0: Scaffold and skin
 - [ ] M1: relay-core (model, steps, edits, format)
 - [ ] M2: Recording
 - [ ] M3: Playback engine
