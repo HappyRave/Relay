@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.7.0-m6: Window polish, tray, single instance
+
+- **Position:** the widget remembers where you put it and whether it was compact.
+  - It stays anchored at its bottom-center when switching modes and stays inside the monitor's work area.
+  - If its monitor is gone, it comes back on the primary one.
+- **Small screens:** the widget zooms down to fit (for example 1366×768 at 125%).
+- **Tray icon:**
+  - The menu has Show/hide, Record, Stop, Open macros folder and Quit.
+  - Left-click shows or hides the widget.
+  - The tooltip shows whether Relay is recording or playing.
+- **Close to tray:** the close button (and Alt+F4) hides Relay to the tray, so hotkeys keep working. There's a setting for this.
+- **One copy only:** starting Relay again brings the running one forward.
+- **No focus stealing:** clicking the widget during a recording or playback no longer takes the keyboard from the app you're automating.
+
 ## v0.6.0-m5: Library, settings, export and import
 
 - **Library actions:** Duplicate, and Delete with Undo, on each Library row.

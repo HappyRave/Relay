@@ -10,4 +10,8 @@ countdown: boolean,
  * Ignore input injected by other programs (remote-desktop tools inject
  * real user input, so their users may want this off).
  */
-ignore_injected: boolean, path_mode: PathMode, show_click_labels: boolean, };
+ignore_injected: boolean, path_mode: PathMode, show_click_labels: boolean, 
+/**
+ * The close button (and Alt+F4) hides Relay to the tray instead of quitting.
+ */
+close_to_tray: boolean, };

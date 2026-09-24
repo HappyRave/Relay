@@ -8,7 +8,7 @@ use relay_platform::Platform;
 use relay_core::session::Input;
 use relay_core::{EditOp, MacroListItem, MacroView, format};
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{Manager, State};
 use tauri::ipc::Channel;
 use ts_rs::TS;
 use uuid::Uuid;
@@ -231,6 +231,40 @@ pub async fn pick_pixel(platform: State<'_, Arc<Platform>>, delay_ms: u32) -> Re
     })
     .await
     .unwrap_or(Err(IpcError { code: "unavailable", message: "Couldn't read the screen".into() }))
+}
+
+// — window —
+
+/// The UI measured the widget at this size (CSS px); fit the window around it.
+#[tauri::command]
+pub fn fit_window(window: tauri::WebviewWindow, state: State<'_, crate::window_ctl::WindowState>, width: f64, height: f64, expanded: bool) {
+    crate::window_ctl::fit(&window, &state, (width, height), expanded);
+}
+
+#[derive(Debug, Serialize, TS)]
+#[ts(export)]
+pub struct WindowPrefsView {
+    pub expanded: bool,
+}
+
+#[tauri::command]
+pub fn window_prefs(state: State<'_, crate::window_ctl::WindowState>) -> WindowPrefsView {
+    WindowPrefsView { expanded: state.prefs().expanded }
+}
+
+#[tauri::command]
+pub fn hide_to_tray(window: tauri::WebviewWindow, s: State<'_, Mutex<SettingsStore>>) {
+    // Without the tray option the close button quits, like a normal window.
+    if s.lock().unwrap().current.close_to_tray {
+        let _ = window.hide();
+    } else {
+        window.app_handle().exit(0);
+    }
+}
+
+#[tauri::command]
+pub fn quit(app: tauri::AppHandle) {
+    app.exit(0);
 }
 
 // — settings —

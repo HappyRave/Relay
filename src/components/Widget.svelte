@@ -15,7 +15,7 @@
       const w = Math.round(box.inlineSize);
       const h = Math.round(box.blockSize);
       onresize?.(w, h);
-      if (isTauri()) fitWindow(w, h);
+      if (isTauri()) fitWindow(w, h, relay.expanded);
     });
     ro.observe(el);
     return () => {

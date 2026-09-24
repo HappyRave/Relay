@@ -7,15 +7,18 @@ mod library;
 mod rec_thread;
 mod settings;
 mod storage;
+mod tray;
 mod window_ctl;
 
 use std::sync::{Arc, Mutex};
 
-use tauri::Manager;
+use tauri::{Manager, WindowEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // First: a second launch just brings the running Relay forward.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| tray::show(app)))
         .plugin(hotkeys::plugin())
         .plugin(tauri_plugin_dialog::init())
         .manage(coordinator::SessionMode::default())
@@ -39,7 +42,28 @@ pub fn run() {
             commands::pick_pixel,
             commands::get_settings,
             commands::update_settings,
+            commands::fit_window,
+            commands::window_prefs,
+            commands::hide_to_tray,
+            commands::quit,
         ])
+        .on_window_event(|window, event| {
+            let app = window.app_handle();
+            let Some(main) = app.get_webview_window("main").filter(|w| w.label() == window.label()) else { return };
+            let state = app.state::<window_ctl::WindowState>();
+            match event {
+                WindowEvent::Moved(_) => window_ctl::on_moved(&main, &state),
+                WindowEvent::ScaleFactorChanged { .. } => window_ctl::replace(&main, &state),
+                // Alt+F4 and friends: keep running in the tray unless the user opted out.
+                WindowEvent::CloseRequested { api, .. }
+                    if app.state::<Mutex<settings::SettingsStore>>().lock().unwrap().current.close_to_tray =>
+                {
+                    api.prevent_close();
+                    let _ = main.hide();
+                }
+                _ => {}
+            }
+        })
         .setup(|app| {
             let dir = storage::data_dir(app.handle());
             let (library, problems) = library::Library::open(&dir);
@@ -55,9 +79,17 @@ pub fn run() {
             app.manage(platform.clone());
             app.manage(coordinator::spawn(app.handle().clone(), platform, emit));
 
+            let window_state = window_ctl::WindowState::open(&dir);
             if let Some(window) = app.get_webview_window("main") {
                 window_ctl::apply_modernist_frame(&window);
+                // Place it where it was, then show it (the window starts hidden, so it never jumps).
+                let css = if window_state.prefs().expanded { window_ctl::EXPANDED } else { window_ctl::COMPACT };
+                window_ctl::place(&window, &window_state, css);
+                window.show()?;
             }
+            app.manage(window_state);
+            window_ctl::spawn_autosave(app.handle().clone());
+            tray::create(app.handle())?;
             Ok(())
         })
         .run(tauri::generate_context!())

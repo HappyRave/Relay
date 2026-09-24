@@ -3,6 +3,7 @@
   import Segmented from "../../ui/Segmented.svelte";
   import Kbd from "../../ui/Kbd.svelte";
   import { relay } from "../../../lib/state/relay.svelte";
+  import { isTauri } from "../../../lib/platform/window";
   import type { CoordMode } from "../../../lib/types";
   import type { PathMode } from "../../../lib/ipc/bindings/PathMode";
 
@@ -91,6 +92,17 @@
       onchange={(v) => relay.updateSettings({ show_click_labels: v })}
     />
   </div>
+
+  {#if isTauri()}
+    <div class="section">Window</div>
+    <div class="row">
+      <div class="grow">
+        <div class="title">Close to tray</div>
+        <div class="sub">Keep hotkeys and triggers running; quit from the tray icon</div>
+      </div>
+      <Toggle label="Close to tray" on={st.close_to_tray} onchange={(v) => relay.updateSettings({ close_to_tray: v })} />
+    </div>
+  {/if}
 
   <div class="section">Global hotkeys</div>
   {#each HOTKEYS as [label, key] (key)}

@@ -29,6 +29,8 @@ pub struct Settings {
     pub ignore_injected: bool,
     pub path_mode: PathMode,
     pub show_click_labels: bool,
+    /// The close button (and Alt+F4) hides Relay to the tray instead of quitting.
+    pub close_to_tray: bool,
 }
 
 impl Default for Settings {
@@ -40,6 +42,7 @@ impl Default for Settings {
             ignore_injected: true,
             path_mode: PathMode::Full,
             show_click_labels: true,
+            close_to_tray: true,
         }
     }
 }
