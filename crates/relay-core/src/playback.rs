@@ -2,7 +2,8 @@
 //! speed changes, pause/resume, seeking and loops. Pure: callers pass `now` in
 //! milliseconds from any monotonic clock.
 
-use crate::model::{Ms, Repeat};
+use crate::model::{Event, Ms, Repeat};
+use crate::steps::Step;
 
 /// Macro time advances at `speed` × wall time from an anchor. Every change
 /// (speed, pause, seek) re-anchors, so there is no drift.
@@ -112,9 +113,79 @@ impl PlaySession {
     }
 }
 
+/// When each event plays, in macro milliseconds. With `jitter_ms > 0`
+/// ("Humanize") every step moves by one random offset in ±jitter, so a step's
+/// presses and releases shift together; events outside steps (the cursor
+/// path) follow the step before them. Times are kept in order, so a release
+/// never comes before its press, and never go below zero.
+pub fn plan_times(events: &[Event], steps: &[Step], jitter_ms: u32, seed: u64) -> Vec<f64> {
+    let mut offsets = vec![None; events.len()];
+    if jitter_ms > 0 {
+        let mut rng = fastrand::Rng::with_seed(seed);
+        let j = jitter_ms as f64;
+        for s in steps {
+            let o = rng.f64() * 2.0 * j - j;
+            for &i in &s.items {
+                if let Some(slot) = offsets.get_mut(i as usize) {
+                    *slot = Some(o);
+                }
+            }
+        }
+    }
+    let mut carry = 0.0;
+    let mut last = 0.0f64;
+    events
+        .iter()
+        .zip(offsets)
+        .map(|(e, o)| {
+            if let Some(o) = o {
+                carry = o;
+            }
+            last = (e.t() as f64 + carry).max(last).max(0.0);
+            last
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::keys::KeyStroke;
+    use crate::steps::{GroupOptions, group_steps};
+
+    fn key(t: Ms, code: &str, down: bool) -> Event {
+        Event::Key { t, down, key: KeyStroke::code(code), ch: None }
+    }
+
+    #[test]
+    fn plan_without_jitter_is_the_recording() {
+        let ev = [key(0, "KeyA", true), key(40, "KeyA", false), Event::Move { t: 90, x: 0, y: 0 }];
+        let steps = group_steps(&ev, GroupOptions::default());
+        assert_eq!(plan_times(&ev, &steps, 0, 1), vec![0.0, 40.0, 90.0]);
+    }
+
+    #[test]
+    fn jitter_moves_whole_steps_within_bounds_and_keeps_order() {
+        let mut ev = Vec::new();
+        for i in 0..50u32 {
+            ev.push(key(i * 100, "KeyA", true));
+            ev.push(key(i * 100 + 30, "KeyA", false));
+            ev.push(Event::Move { t: i * 100 + 60, x: 0, y: 0 });
+        }
+        let steps = group_steps(&ev, GroupOptions::default());
+        let plan = plan_times(&ev, &steps, 40, 7);
+        assert!(plan.windows(2).all(|w| w[0] <= w[1]), "ordered");
+        for (i, (p, e)) in plan.iter().zip(&ev).enumerate() {
+            // Ordering clamps can only delay an event, never beyond one step's jitter.
+            assert!((p - e.t() as f64).abs() <= 40.0 + 1e-9 || *p > e.t() as f64, "event {i}: {p}");
+        }
+        assert_ne!(plan, plan_times(&ev, &steps, 40, 8), "the seed changes the run");
+        assert_eq!(plan, plan_times(&ev, &steps, 40, 7), "and is deterministic");
+        // Both halves of a key press move by the same offset.
+        let d0 = plan[0] - 0.0;
+        assert!((plan[1] - 30.0 - d0).abs() < 1e-9 || plan[1] == plan[0]);
+    }
 
     #[test]
     fn speed_scales_macro_time() {

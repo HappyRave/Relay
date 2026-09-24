@@ -17,6 +17,7 @@ thiserror.workspace = true
 chrono = { version = "0.4.45", default-features = false, features = ["std", "clock", "serde"] }
 uuid = { version = "1.26", features = ["v4", "serde"] }
 ts-rs = { version = "12", features = ["chrono-impl", "uuid-impl", "no-serde-warnings"] }
+fastrand = "2.5"
 
 [dev-dependencies]
 chrono-tz = "0.10"
