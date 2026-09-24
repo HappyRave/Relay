@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.8.0-m7: Triggers and autostart
+
+- **Triggers:** a macro can now run on its own.
+  - **Hotkey:** any combination you capture. Clashes with Relay's own hotkeys or another macro's are refused, and one owned by another app is reported.
+  - **Weekly schedule:** handles daylight saving; a run missed while the PC slept is skipped.
+  - **App launch:** runs when a program starts, after a configurable delay.
+  - **Pixel change:** runs when a pixel turns a given color.
+- **When triggers run:** only when Relay is idle and the screen is unlocked. A trigger that fires during another run is skipped with a notice.
+- **Pausing:** the kill switch (Ctrl+Alt+End) pauses all triggers. Resume them from the tray's "Triggers active" item or the Triggers tab. The kill switch now also works while "Stop on key press" is watching the keyboard.
+- **Start with Windows:** Relay starts hidden in the tray.
+- **Safe upgrade:** old hotkey labels and the sample macros' hotkeys come in switched off, so nothing starts playing unexpectedly.
+
 ## v0.7.0-m6: Window polish, tray, single instance
 
 - **Position:** the widget remembers where you put it and whether it was compact.
