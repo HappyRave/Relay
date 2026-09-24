@@ -13,7 +13,8 @@ import type {
   Rect,
   Step,
   Tab,
-  Triggers,
+  MacroTriggers,
+  TriggerStatus,
 } from "../types";
 import type { EngineMsg } from "../ipc/bindings/EngineMsg";
 import type { Mode as EngineMode } from "../ipc/bindings/Mode";
@@ -60,13 +61,6 @@ const MODES: Record<EngineMode, Mode> = {
   paused: "pause",
 };
 
-const defaultTriggers = (hotkey: string | null): Triggers => ({
-  hotkey: { enabled: hotkey != null, combo: hotkey ?? "—" },
-  schedule: { enabled: false, days: [true, true, true, true, true, false, false], time: "09:00" },
-  appLaunch: { enabled: false, exe: "EXCEL.EXE" },
-  pixel: { enabled: false, x: 1210, y: 612, color: "#EC3013" },
-});
-
 class RelayStore {
   mode = $state<Mode>("idle");
   cur = $state(0);
@@ -90,7 +84,11 @@ class RelayStore {
   /** Set by the widget (M6 uses it for click-through during playback). */
   widgetEl: HTMLElement | null = null;
 
-  private triggersById = $state<Record<string, Triggers>>({});
+  /** The open macro's triggers, with the next scheduled run and hotkey problems. */
+  triggerStatus = $state.raw<TriggerStatus | null>(null);
+  /** Paused by the kill switch (or from the tray). */
+  triggersPaused = $state(false);
+  autostart = $state(false);
   private recMoves = $state.raw<MovePoint[]>([]);
   private recSteps = $state.raw<Step[]>([]);
   private recDesktop = $state.raw<Rect>(EMPTY_DESKTOP);
@@ -123,10 +121,7 @@ class RelayStore {
     if (r.anchor_window) out.push(r.anchor_window.rect);
     return out;
   });
-  triggers: Triggers = $derived(
-    (this.view && this.triggersById[this.view.id]) ??
-      defaultTriggers(this.library.find((m) => m.id === this.view?.id)?.hotkey ?? null),
-  );
+  triggers: MacroTriggers | null = $derived(this.triggerStatus?.triggers ?? null);
 
   // — lifecycle —
 
@@ -144,6 +139,7 @@ class RelayStore {
     }
     await this.refreshLibrary();
     if (this.library[0]) await this.loadMacro(this.library[0].id);
+    this.autostart = await backend.getAutostart().catch(() => false);
   }
 
   start() {
@@ -174,6 +170,8 @@ class RelayStore {
     switch (msg.type) {
       case "session": {
         const mode = MODES[msg.mode];
+        // A trigger started another macro: show the one that's playing.
+        if (mode === "play" && msg.macro_id && msg.macro_id !== this.view?.id) this.showMacro(msg.macro_id);
         if (mode === "rec") {
           this.recMoves = [];
           this.recSteps = [];
@@ -217,6 +215,9 @@ class RelayStore {
         break;
       case "library_changed":
         this.refreshLibrary();
+        break;
+      case "triggers_paused":
+        this.triggersPaused = msg.paused;
         break;
       case "toggle_compact":
         this.expanded = !this.expanded;
@@ -309,17 +310,35 @@ class RelayStore {
 
   loadMacro = async (id: string) => {
     if (this.recording || this.mode === "play" || this.mode === "pause") return;
+    await this.showMacro(id);
+    this.tab = "events";
+  };
+
+  /** Opens a macro in the editor (also mid-playback, when a trigger started it). */
+  private async showMacro(id: string) {
     try {
       const view = await backend.loadMacro(id);
       this.editSeq++;
       this.view = view;
       this.cur = 0;
       this.loopIdx = 0;
-      this.tab = "events";
+      await this.loadTriggers(id);
     } catch (e) {
       this.fail(e);
     }
-  };
+  }
+
+  private async loadTriggers(id: string) {
+    try {
+      const status = await backend.getTriggers(id);
+      if (this.view?.id === id) {
+        this.triggerStatus = status;
+        this.triggersPaused = status.paused;
+      }
+    } catch (e) {
+      this.fail(e);
+    }
+  }
 
   /** Applies a command's result, unless a newer command has started since. */
   private async apply(request: Promise<MacroView>) {
@@ -360,9 +379,50 @@ class RelayStore {
     return this.apply(backend.setPlaybackOptions(this.view.id, options));
   };
 
-  setTriggers = (patch: Partial<Triggers>) => {
-    if (!this.view) return;
-    this.triggersById = { ...this.triggersById, [this.view.id]: { ...this.triggers, ...patch } };
+  /** Saves the open macro's triggers; a refused hotkey puts the old triggers back. */
+  setTriggers = async (patch: Partial<MacroTriggers>) => {
+    const id = this.view?.id;
+    const current = this.triggerStatus;
+    if (!id || !current) return;
+    const next = { ...current.triggers, ...patch };
+    this.triggerStatus = { ...current, triggers: next };
+    try {
+      this.triggerStatus = await backend.setTriggers(id, next);
+      await this.refreshLibrary();
+    } catch (e) {
+      this.triggerStatus = current;
+      this.fail(e);
+    }
+  };
+
+  setTriggersPaused = async (paused: boolean) => {
+    this.triggersPaused = paused;
+    await backend.setTriggersPaused(paused).catch((e) => this.fail(e));
+  };
+
+  /** "Pick" for the pixel trigger: after 3 s, watch the pixel under the cursor. */
+  pickTriggerPixel = async () => {
+    const t = this.triggers;
+    if (!t || this.picking) return;
+    this.picking = 3;
+    const tick = setInterval(() => (this.picking = Math.max(1, this.picking - 1)), 1000);
+    try {
+      const p = await backend.pickPixel(3000);
+      await this.setTriggers({ pixel: { ...t.pixel, x: p.x, y: p.y, color: p.color } });
+    } catch (e) {
+      this.fail(e);
+    } finally {
+      clearInterval(tick);
+      this.picking = 0;
+    }
+  };
+
+  setAutostart = async (enabled: boolean) => {
+    try {
+      this.autostart = await backend.setAutostart(enabled);
+    } catch (e) {
+      this.fail(e);
+    }
   };
 
   deleteStep = (index: number) => this.edit({ op: "delete_step", index });

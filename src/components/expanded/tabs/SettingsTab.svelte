@@ -102,6 +102,13 @@
       </div>
       <Toggle label="Close to tray" on={st.close_to_tray} onchange={(v) => relay.updateSettings({ close_to_tray: v })} />
     </div>
+    <div class="row">
+      <div class="grow">
+        <div class="title">Start with Windows</div>
+        <div class="sub">Starts in the tray, so triggers run after you sign in</div>
+      </div>
+      <Toggle label="Start with Windows" on={relay.autostart} onchange={(v) => relay.setAutostart(v)} />
+    </div>
   {/if}
 
   <div class="section">Global hotkeys</div>

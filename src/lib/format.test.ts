@@ -23,10 +23,10 @@ describe("format", () => {
 
   it("labels the next scheduled run", () => {
     const now = new Date(2026, 8, 24, 8, 0); // Thursday 08:00
-    const weekdays = [true, true, true, true, true, false, false];
-    expect(nextRunLabel(true, weekdays, "09:00", now)).toBe("Next run: Today 09:00");
-    expect(nextRunLabel(true, weekdays, "07:00", now)).toBe("Next run: Tomorrow 07:00");
-    expect(nextRunLabel(true, [true, false, false, false, false, false, false], "07:00", now)).toBe("Next run: Mon 07:00");
-    expect(nextRunLabel(false, weekdays, "09:00", now)).toBe("No schedule");
+    const at = (d: number, h: number, m: number) => new Date(2026, 8, d, h, m).toISOString();
+    expect(nextRunLabel(at(24, 9, 0), now)).toBe("Next run: Today 09:00");
+    expect(nextRunLabel(at(25, 7, 0), now)).toBe("Next run: Tomorrow 07:00");
+    expect(nextRunLabel(at(28, 7, 5), now)).toBe("Next run: Mon 07:05");
+    expect(nextRunLabel(null, now)).toBe("No schedule");
   });
 });

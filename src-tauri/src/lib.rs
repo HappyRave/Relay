@@ -8,6 +8,7 @@ mod rec_thread;
 mod settings;
 mod storage;
 mod tray;
+mod triggers;
 mod window_ctl;
 
 use std::sync::{Arc, Mutex};
@@ -21,6 +22,13 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| tray::show(app)))
         .plugin(hotkeys::plugin())
         .plugin(tauri_plugin_dialog::init())
+        // Registered in HKCU\...\Run; `--autostart` starts Relay in the tray.
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--autostart"]),
+        ))
+        .manage(hotkeys::MacroHotkeys::default())
+        .manage(triggers::TriggerState::default())
         .manage(coordinator::SessionMode::default())
         .invoke_handler(tauri::generate_handler![
             commands::subscribe_engine,
@@ -42,6 +50,12 @@ pub fn run() {
             commands::pick_pixel,
             commands::get_settings,
             commands::update_settings,
+            commands::get_triggers,
+            commands::set_triggers,
+            commands::set_triggers_paused,
+            commands::list_processes,
+            commands::get_autostart,
+            commands::set_autostart,
             commands::fit_window,
             commands::window_prefs,
             commands::hide_to_tray,
@@ -77,7 +91,8 @@ pub fn run() {
             app.manage(emit.clone());
             let platform = Arc::new(relay_platform::platform());
             app.manage(platform.clone());
-            app.manage(coordinator::spawn(app.handle().clone(), platform, emit));
+            app.manage(coordinator::spawn(app.handle().clone(), platform.clone(), emit));
+            triggers::spawn(app.handle().clone(), platform);
 
             let window_state = window_ctl::WindowState::open(&dir);
             if let Some(window) = app.get_webview_window("main") {
@@ -85,7 +100,10 @@ pub fn run() {
                 // Place it where it was, then show it (the window starts hidden, so it never jumps).
                 let css = if window_state.prefs().expanded { window_ctl::EXPANDED } else { window_ctl::COMPACT };
                 window_ctl::place(&window, &window_state, css);
-                window.show()?;
+                // Started with Windows: stay in the tray until asked.
+                if !std::env::args().any(|a| a == "--autostart") {
+                    window.show()?;
+                }
             }
             app.manage(window_state);
             window_ctl::spawn_autosave(app.handle().clone());

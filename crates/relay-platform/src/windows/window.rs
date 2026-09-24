@@ -192,6 +192,22 @@ impl WindowQuery for WinWindows {
     fn self_elevated(&self) -> bool {
         token_elevated(unsafe { GetCurrentProcess() })
     }
+
+    fn input_desktop_available(&self) -> bool {
+        use windows::Win32::System::StationsAndDesktops::{
+            CloseDesktop, DESKTOP_CONTROL_FLAGS, DESKTOP_SWITCHDESKTOP, OpenInputDesktop,
+        };
+        // The secure desktop (lock screen, UAC) can't be opened from a user process.
+        match unsafe { OpenInputDesktop(DESKTOP_CONTROL_FLAGS(0), false, DESKTOP_SWITCHDESKTOP) } {
+            Ok(d) => {
+                unsafe {
+                    let _ = CloseDesktop(d);
+                }
+                true
+            }
+            Err(_) => false,
+        }
+    }
 }
 
 fn token_elevated(process: HANDLE) -> bool {

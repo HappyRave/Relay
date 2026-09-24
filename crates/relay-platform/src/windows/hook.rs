@@ -14,7 +14,7 @@ use relay_core::model::MouseBtn;
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::GetCurrentThreadId;
-use windows::Win32::UI::Input::KeyboardAndMouse::VK_ESCAPE;
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_END, VK_ESCAPE, VK_MENU};
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetForegroundWindow, GetMessageW, HHOOK, KBDLLHOOKSTRUCT, LLKHF_EXTENDED,
     LLKHF_INJECTED, LLKHF_LOWER_IL_INJECTED, LLMHF_INJECTED, LLMHF_LOWER_IL_INJECTED, MSG, MSLLHOOKSTRUCT, PM_NOREMOVE,
@@ -108,6 +108,11 @@ fn with_ctx(f: impl FnOnce(&mut Ctx) -> Option<LRESULT>) -> Option<LRESULT> {
     CTX.with(|c| c.borrow_mut().as_mut().and_then(f))
 }
 
+/// Whether a key is held right now (before the event being processed).
+fn is_down(vk: u16) -> bool {
+    unsafe { GetAsyncKeyState(vk as i32) as u16 & 0x8000 != 0 }
+}
+
 /// Shift, Ctrl, Alt (generic, left and right) and the Windows keys.
 fn is_modifier(vk: u16) -> bool {
     matches!(vk, 0x10..=0x12 | 0xA0..=0xA5 | 0x5B | 0x5C)
@@ -130,6 +135,11 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
                     let _ = ctx.tx.try_send(RawInput { time, kind: RawKind::Escape });
                 }
                 return Some(LRESULT(1));
+            }
+            // Ctrl + Alt + End is the kill switch: it must always reach its hotkey,
+            // or "stop on key press" would swallow it as an ordinary stop.
+            if vk == VK_END.0 && is_down(VK_CONTROL.0) && is_down(VK_MENU.0) {
+                return None;
             }
             if !cfg.record {
                 // Playback: any key but a modifier or a control hotkey stops it.

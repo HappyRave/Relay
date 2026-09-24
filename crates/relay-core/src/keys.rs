@@ -128,7 +128,12 @@ pub fn code_for_label(label: &str) -> String {
         "Shift" => "ShiftLeft".into(),
         "Win" => "MetaLeft".into(),
         "Esc" => "Escape".into(),
+        "PgUp" => "PageUp".into(),
+        "PgDn" => "PageDown".into(),
+        "Del" => "Delete".into(),
+        "Ins" => "Insert".into(),
         "Left" | "Right" | "Up" | "Down" => format!("Arrow{label}"),
+        l if l.starts_with("Num ") => format!("Numpad{}", &l[4..]),
         l if l.len() == 1 => {
             let c = l.chars().next().unwrap();
             if c.is_ascii_alphabetic() {
@@ -194,7 +199,7 @@ mod tests {
 
     #[test]
     fn labels_round_trip_to_codes() {
-        for l in ["Ctrl", "Alt", "Shift", "Win", "A", "7", "Enter", "Tab", "F2", "Esc", "Left", "-"] {
+        for l in ["Ctrl", "Alt", "Shift", "Win", "A", "7", "Enter", "Tab", "F2", "Esc", "Left", "-", "PgUp", "Del", "Ins", "Num 3", "Home", "Space"] {
             assert_eq!(label(&code_for_label(l)), l, "{l}");
         }
     }
