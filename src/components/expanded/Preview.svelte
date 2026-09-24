@@ -16,7 +16,7 @@
   const total = $derived(lengths.length ? lengths[lengths.length - 1] : 0);
   const moveIdx = $derived(lastIndexAtOrBefore(relay.moves, cur));
   const doneLen = $derived(moveIdx > 0 ? lengths[moveIdx] : 0);
-  const showFull = $derived(relay.settings.pathMode === "full" && relay.mode !== "rec");
+  const showFull = $derived(relay.settings.path_mode === "full" && relay.mode !== "rec");
 
   const cm = $derived(relay.cursorAt(cur));
   const jitter = $derived.by(() => {
@@ -35,7 +35,7 @@
         const age = cur - c.t;
         const ring = age >= 0 && age < 500;
         const rs = (36 + (ring ? (age / 500) * 70 : 0)) * k;
-        const label = relay.settings.showClickLabels ? c.label : "";
+        const label = relay.settings.show_click_labels ? c.label : "";
         const right = c.x > d.x + d.w - 260 * k;
         return {
           id: c.items[0],
