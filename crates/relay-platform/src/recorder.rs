@@ -103,7 +103,7 @@ impl Recorder {
                 let key = KeyStroke { code: keymap::code(scan, ext, vk), vk, scan, ext };
                 self.events.push(Event::Key { t, down, key, ch });
             }
-            RawKind::Escape => {}
+            RawKind::Escape | RawKind::StopKey => {}
         }
     }
 

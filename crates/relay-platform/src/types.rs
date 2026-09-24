@@ -18,6 +18,8 @@ pub enum RawKind {
     Key { vk: u16, scan: u16, ext: bool, down: bool },
     /// Esc was pressed during a session (and swallowed).
     Escape,
+    /// Another key was pressed during playback with "stop on key press" (swallowed).
+    StopKey,
 }
 
 /// What the hook filters. Swapped atomically while the hook runs.
@@ -33,6 +35,12 @@ pub struct HookConfig {
     pub ignore_injected: bool,
     /// Virtual keys passed through but not recorded (the control hotkeys).
     pub drop_vks: Vec<u16>,
+    /// Report input for recording. Off during playback, where the hook only
+    /// watches for Esc and, with `stop_on_key`, any other key.
+    pub record: bool,
+    /// During playback: stop on any physical key press (modifiers excepted,
+    /// so hotkeys like Ctrl + Alt + End still reach their handler).
+    pub stop_on_key: bool,
 }
 
 /// Virtual keys currently held, for character translation.

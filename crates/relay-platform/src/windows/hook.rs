@@ -108,6 +108,11 @@ fn with_ctx(f: impl FnOnce(&mut Ctx) -> Option<LRESULT>) -> Option<LRESULT> {
     CTX.with(|c| c.borrow_mut().as_mut().and_then(f))
 }
 
+/// Shift, Ctrl, Alt (generic, left and right) and the Windows keys.
+fn is_modifier(vk: u16) -> bool {
+    matches!(vk, 0x10..=0x12 | 0xA0..=0xA5 | 0x5B | 0x5C)
+}
+
 unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code >= 0 {
         let info = unsafe { &*(lparam.0 as *const KBDLLHOOKSTRUCT) };
@@ -125,6 +130,16 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
                     let _ = ctx.tx.try_send(RawInput { time, kind: RawKind::Escape });
                 }
                 return Some(LRESULT(1));
+            }
+            if !cfg.record {
+                // Playback: any key but a modifier or a control hotkey stops it.
+                if cfg.stop_on_key && !cfg.drop_vks.contains(&vk) && !is_modifier(vk) {
+                    if down {
+                        let _ = ctx.tx.try_send(RawInput { time, kind: RawKind::StopKey });
+                    }
+                    return Some(LRESULT(1));
+                }
+                return None;
             }
             if cfg.drop_vks.contains(&vk) || unsafe { GetForegroundWindow() } == HWND(cfg.own_window as _) {
                 return None;
@@ -149,6 +164,9 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
             let cfg = ctx.cfg.load();
             let injected = info.flags & (LLMHF_INJECTED | LLMHF_LOWER_IL_INJECTED) != 0;
             if info.dwExtraInfo == RELAY_MAGIC || (injected && cfg.ignore_injected) {
+                return None;
+            }
+            if !cfg.record {
                 return None;
             }
             let (x, y) = (info.pt.x, info.pt.y);

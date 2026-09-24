@@ -85,6 +85,12 @@ fn scan_code(scan: u16, ext: bool) -> Option<&'static str> {
     })
 }
 
+/// The scan code (and extended flag) of a W3C code, for replaying keys
+/// that were stored without one (migrated or hand-written macros).
+pub fn scan_for_code(code: &str) -> Option<(u16, bool)> {
+    [false, true].into_iter().find_map(|ext| (1..0x60u16).find(|&s| scan_code(s, ext) == Some(code)).map(|s| (s, ext)))
+}
+
 /// Codes for keys without a known scan code (media keys, injected input).
 fn vk_code(vk: u16) -> String {
     match vk {
@@ -134,6 +140,14 @@ mod tests {
         assert_eq!(code(0x4B, false, 0x64), "Numpad4");
         assert_eq!(code(0x43, false, 0x78), "F9");
         assert_eq!(code(0x5B, true, 0x5B), "MetaLeft");
+    }
+
+    #[test]
+    fn codes_map_back_to_scan_codes() {
+        assert_eq!(scan_for_code("KeyA"), Some((0x1E, false)));
+        assert_eq!(scan_for_code("ArrowLeft"), Some((0x4B, true)));
+        assert_eq!(scan_for_code("ControlRight"), Some((0x1D, true)));
+        assert_eq!(scan_for_code("Unidentified"), None);
     }
 
     #[test]
