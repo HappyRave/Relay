@@ -7,24 +7,26 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
-use relay_core::model::{Macro, RecordingMeta, Rect};
-use relay_core::playback::PlaySession;
+use relay_core::model::{CoordMode, Event, Macro, RecordingMeta, Rect};
 use relay_core::session::{self, Effect, FinishReason, HotkeySet, Input, Mode, SessionConfig};
+use relay_core::steps::group_steps;
 use relay_core::timeline;
 use relay_platform::recorder::{Recorder, RecorderConfig, is_meaningful};
-use relay_platform::{HookConfig, HookSession, Platform};
+use relay_platform::{HookConfig, HookSession, Platform, RawKind};
 use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
 use crate::hotkeys;
 use crate::ipc::{EngineMsg, Emitter};
 use crate::library::Library;
-use crate::player::{Player, PlayerCmd};
+use crate::engine::{self, EngineCmd, EngineHandle, PlayPlan};
 use crate::rec_thread::{RecContext, RecThread};
 use crate::settings::SettingsStore;
 
 /// F9 stops a recording through its global hotkey; keep it out of the macro.
 const VK_F9: u16 = 0x78;
+/// F10 pauses playback through its global hotkey; it must not count as "any key".
+const VK_F10: u16 = 0x79;
 
 pub enum Cmd {
     Input(Input),
@@ -33,6 +35,10 @@ pub enum Cmd {
     CountdownDone(u64),
     /// Esc, reported by the hook during a session.
     Escape,
+    /// Another key during playback with "stop on key press".
+    StopKey,
+    /// The engine finished on its own (completed, or an error).
+    EngineDone(FinishReason),
     /// The UI selected a macro.
     Select(Uuid),
     Seek(f64),
@@ -59,7 +65,11 @@ struct Coordinator {
     countdown_gen: Arc<AtomicU64>,
     hook: Option<Box<dyn HookSession>>,
     recording: Option<RecThread>,
-    player: Option<Player>,
+    engine: Option<EngineHandle>,
+    /// Why the session is being stopped, for the Finished message.
+    stop_reason: Option<FinishReason>,
+    /// Whether the window was made click-through for this playback.
+    click_through: bool,
 }
 
 pub fn spawn(app: AppHandle, platform: Arc<Platform>, emit: Arc<Emitter>) -> CoordinatorHandle {
@@ -75,7 +85,9 @@ pub fn spawn(app: AppHandle, platform: Arc<Platform>, emit: Arc<Emitter>) -> Coo
         countdown_gen: Arc::new(AtomicU64::new(0)),
         hook: None,
         recording: None,
-        player: None,
+        engine: None,
+        stop_reason: None,
+        click_through: false,
     };
     std::thread::Builder::new()
         .name("relay-coordinator".into())
@@ -94,6 +106,10 @@ impl Coordinator {
 
     fn handle(&mut self, cmd: Cmd) {
         match cmd {
+            Cmd::Input(Input::Kill) => {
+                self.stop_reason = Some(FinishReason::Killed);
+                self.input(Input::Kill);
+            }
             Cmd::Input(input) => self.input(input),
             Cmd::HotkeyPlay => self.input(Input::TogglePlay { from: self.idle_playhead.round() as u32 }),
             Cmd::CountdownDone(generation) if generation == self.countdown_gen.load(Ordering::SeqCst) => {
@@ -101,21 +117,28 @@ impl Coordinator {
             }
             Cmd::CountdownDone(_) => {}
             Cmd::Escape => self.input(Input::Stop),
+            Cmd::StopKey => {
+                self.stop_reason = Some(FinishReason::KeyPressed);
+                self.input(Input::Stop);
+            }
+            Cmd::EngineDone(reason) => {
+                self.engine = None;
+                if reason == FinishReason::Completed {
+                    self.count_run();
+                }
+                self.input(Input::PlaybackFinished(reason));
+            }
             Cmd::Select(id) => {
                 if self.mode == Mode::Idle {
                     self.current = Some(id);
                     self.idle_playhead = 0.0;
                 }
             }
-            Cmd::Seek(t) => match &self.player {
-                Some(p) => p.send(PlayerCmd::Seek(t)),
+            Cmd::Seek(t) => match &self.engine {
+                Some(e) => e.send(EngineCmd::Seek(t)),
                 None => self.idle_playhead = t,
             },
-            Cmd::Speed(v) => {
-                if let Some(p) = &self.player {
-                    p.send(PlayerCmd::Speed(v));
-                }
-            }
+            Cmd::Speed(v) => self.engine_cmd(EngineCmd::Speed(v)),
         }
     }
 
@@ -143,30 +166,61 @@ impl Coordinator {
             Effect::StartRecording => self.start_recording(),
             Effect::StopRecording { keep } => self.stop_recording(keep),
             Effect::StartPlayback { from, .. } => self.start_playback(from),
-            Effect::PausePlayback => self.player_cmd(PlayerCmd::Pause),
-            Effect::ResumePlayback => self.player_cmd(PlayerCmd::Resume),
+            Effect::PausePlayback => self.engine_cmd(EngineCmd::Pause),
+            Effect::ResumePlayback => self.engine_cmd(EngineCmd::Resume),
             Effect::StopPlayback => {
-                if let Some(p) = self.player.take() {
-                    p.stop();
+                if let Some(e) = self.engine.take() {
+                    e.stop();
                 }
-                self.emit.send(EngineMsg::Finished { reason: FinishReason::Stopped });
+                let reason = self.stop_reason.take().unwrap_or(FinishReason::Stopped);
+                self.emit.send(EngineMsg::Finished { reason, timing: None });
             }
             Effect::SetHotkeys(set) => hotkeys::apply(&self.app, set, &self.emit),
             // Triggers arrive in M7.
             Effect::PauseTriggers | Effect::TriggerSkipped(_) => {}
             Effect::EmitMode(mode) => {
                 if mode == Mode::Idle {
-                    self.player = None;
+                    self.end_playback();
+                    self.stop_reason = None;
                 }
                 self.emit.send(EngineMsg::Session { mode, macro_id: self.current });
             }
         }
     }
 
-    fn player_cmd(&self, cmd: PlayerCmd) {
-        if let Some(p) = &self.player {
-            p.send(cmd);
+    fn engine_cmd(&self, cmd: EngineCmd) {
+        if let Some(e) = &self.engine {
+            e.send(cmd);
         }
+    }
+
+    /// Undoes what playback set up: the watching hook and click-through.
+    fn end_playback(&mut self) {
+        if let Some(e) = self.engine.take() {
+            e.stop();
+        }
+        if let Some(hook) = self.hook.take() {
+            hook.stop();
+        }
+        if self.click_through {
+            self.click_through = false;
+            if let Some(w) = self.app.get_webview_window("main") {
+                let _ = w.set_ignore_cursor_events(false);
+            }
+        }
+    }
+
+    fn count_run(&mut self) {
+        let Some(id) = self.current else { return };
+        let lib = self.app.state::<Mutex<Library>>();
+        let mut lib = lib.lock().unwrap();
+        if let Some(e) = lib.get_mut(id) {
+            e.runs += 1;
+            e.last_run = Some(chrono::Utc::now());
+            let _ = lib.save(id);
+        }
+        drop(lib);
+        self.emit.send(EngineMsg::LibraryChanged);
     }
 
     fn start_countdown(&mut self, ms: u32) {
@@ -210,6 +264,8 @@ impl Coordinator {
             swallow_escape: true,
             ignore_injected: settings.ignore_injected,
             drop_vks: vec![VK_F9],
+            record: true,
+            stop_on_key: false,
         };
         let (raw_tx, raw_rx) = crossbeam_channel::bounded(8192);
         match self.platform.hook.start(hook_cfg, raw_tx) {
@@ -271,22 +327,102 @@ impl Coordinator {
 
     fn start_playback(&mut self, from: u32) {
         let lib = self.app.state::<Mutex<Library>>();
-        let session = {
-            let lib = lib.lock().unwrap();
-            self.current.and_then(|id| lib.get(id)).map(|e| {
-                let m = &e.macro_;
-                let duration = timeline::duration(&m.events);
-                let from = if from + 1 >= duration { 0 } else { from };
-                PlaySession::new(from, (self.platform.now_ms)(), m.playback.speed as f64, duration, m.playback.repeat)
-            })
+        let Some(m) = self.current.and_then(|id| lib.lock().unwrap().get(id).map(|e| e.macro_.clone())) else {
+            self.emit.error("Select a macro to play");
+            let _ = self.tx.send(Cmd::Input(Input::PlaybackFinished(FinishReason::Error)));
+            return;
         };
-        match session {
-            Some(s) => {
-                self.player = Some(Player::spawn(s, self.platform.now_ms, self.emit.clone(), self.tx.clone()));
+        let (own_rect, own_window) = self.own_window();
+        let windows = &self.platform.windows;
+
+        // Started from Relay's own button: give the keyboard back to the app
+        // the user was working in, or keystrokes would type into Relay.
+        let mut target = windows.foreground();
+        if target.is_some_and(|w| w.hwnd == own_window) {
+            target = windows.restore_previous(own_window);
+        }
+        if let Some(t) = target
+            && windows.is_elevated(t.pid)
+            && !windows.self_elevated()
+        {
+            self.emit.send(EngineMsg::Notice {
+                message: "The app in front runs as administrator, so Windows blocks Relay's input to it. \
+                          Run Relay as administrator to automate it."
+                    .into(),
+            });
+        }
+
+        let offset = self.window_offset(&m);
+        // Clicks under the always-on-top widget must reach the app beneath it.
+        let clicks_under_widget = own_rect.is_some_and(|r| {
+            m.events.iter().any(|e| matches!(e, Event::Button { x, y, .. } if r.contains(x + offset.0, y + offset.1)))
+        });
+        if clicks_under_widget && let Some(w) = self.app.get_webview_window("main") {
+            self.click_through = w.set_ignore_cursor_events(true).is_ok();
+        }
+
+        // Watch for Esc and, if enabled, any other key.
+        let (raw_tx, raw_rx) = crossbeam_channel::bounded(64);
+        let hook_cfg = HookConfig {
+            own_rect,
+            own_window,
+            swallow_escape: true,
+            ignore_injected: self.settings().ignore_injected,
+            drop_vks: vec![VK_F10],
+            record: false,
+            stop_on_key: m.playback.stop_on_key,
+        };
+        match self.platform.hook.start(hook_cfg, raw_tx) {
+            Ok(hook) => {
+                self.hook = Some(hook);
+                let tx = self.tx.clone();
+                std::thread::spawn(move || {
+                    for raw in raw_rx {
+                        let cmd = match raw.kind {
+                            RawKind::Escape => Cmd::Escape,
+                            RawKind::StopKey => Cmd::StopKey,
+                            _ => continue,
+                        };
+                        let _ = tx.send(cmd);
+                    }
+                });
             }
+            Err(e) => self.emit.error(format!("Esc won't stop playback: {e}")),
+        }
+
+        let steps = group_steps(&m.events, (&m.recording).into());
+        let plan = PlayPlan {
+            duration: timeline::duration(&m.events),
+            repeat: m.playback.repeat,
+            speed: m.playback.speed as f64,
+            jitter_ms: if m.playback.humanize { m.playback.jitter_ms } else { 0 },
+            seed: (self.platform.now_ms)().to_bits() ^ (m.id.as_u128() as u64),
+            offset,
+            from,
+            steps,
+            events: m.events,
+        };
+        self.engine = Some(engine::spawn(plan, &self.platform, self.emit.clone(), self.tx.clone()));
+    }
+
+    /// For "Window" coordinates: how far the anchor window moved since recording.
+    fn window_offset(&self, m: &Macro) -> (i32, i32) {
+        if m.playback.coord_mode != CoordMode::Window {
+            return (0, 0);
+        }
+        let Some(anchor) = &m.recording.anchor_window else {
+            self.emit.send(EngineMsg::Notice {
+                message: "This macro has no anchor window; playing at screen coordinates.".into(),
+            });
+            return (0, 0);
+        };
+        match self.platform.windows.find_window(&anchor.exe, &anchor.class) {
+            Some(now) => (now.rect.x - anchor.rect.x, now.rect.y - anchor.rect.y),
             None => {
-                self.emit.error("Select a macro to play");
-                let _ = self.tx.send(Cmd::Input(Input::PlaybackFinished(FinishReason::Error)));
+                self.emit.send(EngineMsg::Notice {
+                    message: format!("Couldn't find {}; playing at screen coordinates.", anchor.exe),
+                });
+                (0, 0)
             }
         }
     }

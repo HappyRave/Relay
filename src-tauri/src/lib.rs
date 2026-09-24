@@ -1,9 +1,9 @@
 mod commands;
 mod coordinator;
+mod engine;
 mod hotkeys;
 mod ipc;
 mod library;
-mod player;
 mod rec_thread;
 mod settings;
 mod storage;

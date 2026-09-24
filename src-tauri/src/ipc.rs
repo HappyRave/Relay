@@ -12,6 +12,8 @@ use tauri::ipc::Channel;
 use ts_rs::TS;
 use uuid::Uuid;
 
+use crate::engine::TimingStats;
+
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[ts(export)]
@@ -24,13 +26,15 @@ pub enum EngineMsg {
     RecProgress { elapsed_ms: u32, desktop: Rect, moves: Vec<MovePoint>, steps: Option<Vec<Step>> },
     /// About 30 times a second while playing; the UI extrapolates between ticks.
     PlayTick { t: f64, advancing: bool, speed: f64, loop_idx: u32, loops: Option<u32> },
-    Finished { reason: FinishReason },
+    Finished { reason: FinishReason, timing: Option<TimingStats> },
     /// A recording was saved as this macro.
     Saved { id: Uuid },
     LibraryChanged,
     /// Ctrl + Shift + M.
     ToggleCompact,
     Error { message: String },
+    /// Something worth knowing that isn't a failure (e.g. an elevated target).
+    Notice { message: String },
 }
 
 #[derive(Default)]
