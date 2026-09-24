@@ -4,6 +4,8 @@
     "last_run_ago_ms": 10800000,
     "runs": 148,
     "view": {
+      "can_redo": false,
+      "can_undo": false,
       "duration": 10150,
       "id": "00000000-0000-0000-0000-000000000001",
       "modified_at": "2026-09-01T09:00:00Z",
@@ -1824,6 +1826,8 @@
     "last_run_ago_ms": 576000000,
     "runs": 36,
     "view": {
+      "can_redo": false,
+      "can_undo": false,
       "duration": 6155,
       "id": "00000000-0000-0000-0000-000000000002",
       "modified_at": "2026-09-01T09:00:00Z",
@@ -2785,6 +2789,8 @@
     "last_run_ago_ms": 1036800000,
     "runs": 4,
     "view": {
+      "can_redo": false,
+      "can_undo": false,
       "duration": 5925,
       "id": "00000000-0000-0000-0000-000000000003",
       "modified_at": "2026-09-01T09:00:00Z",
@@ -3621,6 +3627,8 @@
     "last_run_ago_ms": 14400000,
     "runs": 212,
     "view": {
+      "can_redo": false,
+      "can_undo": false,
       "duration": 5205,
       "id": "00000000-0000-0000-0000-000000000004",
       "modified_at": "2026-09-01T09:00:00Z",

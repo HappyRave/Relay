@@ -1,6 +1,7 @@
 mod commands;
 mod coordinator;
 mod engine;
+mod history;
 mod hotkeys;
 mod ipc;
 mod library;
@@ -31,6 +32,7 @@ pub fn run() {
         .manage(hotkeys::MacroHotkeys::default())
         .manage(triggers::TriggerState::default())
         .manage(coordinator::SessionMode::default())
+        .manage(history::EditHistory::default())
         .invoke_handler(tauri::generate_handler![
             commands::subscribe_engine,
             commands::toggle_record,
@@ -40,6 +42,7 @@ pub fn run() {
             commands::list_macros,
             commands::load_macro,
             commands::edit_macro,
+            commands::undo_edit,
             commands::set_playback_options,
             commands::export_text,
             commands::export_macro,

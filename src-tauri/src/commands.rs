@@ -16,6 +16,7 @@ use uuid::Uuid;
 use crate::coordinator::{Cmd, CoordinatorHandle};
 use crate::ipc::{EngineMsg, Emitter};
 use crate::coordinator::SessionMode;
+use crate::history::EditHistory;
 use crate::library::{Library, LibraryError};
 use crate::settings::{Settings, SettingsStore};
 
@@ -89,27 +90,55 @@ pub fn list_macros(lib: LibraryState<'_>) -> Vec<MacroListItem> {
     lib.lock().unwrap().list()
 }
 
-#[tauri::command]
-pub fn load_macro(lib: LibraryState<'_>, c: State<'_, CoordinatorHandle>, id: Uuid) -> Result<MacroView> {
-    let lib = lib.lock().unwrap();
-    let entry = lib.get(id).ok_or(IpcError::not_found(id))?;
-    c.send(Cmd::Select(id));
-    Ok(MacroView::of(&entry.macro_))
+/// The UI's view of a macro, with whether it has edits to undo or redo.
+fn view_of(m: &relay_core::Macro, history: &EditHistory) -> MacroView {
+    let mut view = MacroView::of(m);
+    (view.can_undo, view.can_redo) = history.status(m.id);
+    view
 }
 
 #[tauri::command]
-pub fn edit_macro(lib: LibraryState<'_>, id: Uuid, op: EditOp) -> Result<MacroView> {
+pub fn load_macro(
+    lib: LibraryState<'_>,
+    history: State<'_, EditHistory>,
+    c: State<'_, CoordinatorHandle>,
+    id: Uuid,
+) -> Result<MacroView> {
+    let lib = lib.lock().unwrap();
+    let entry = lib.get(id).ok_or(IpcError::not_found(id))?;
+    c.send(Cmd::Select(id));
+    Ok(view_of(&entry.macro_, &history))
+}
+
+#[tauri::command]
+pub fn edit_macro(lib: LibraryState<'_>, history: State<'_, EditHistory>, id: Uuid, op: EditOp) -> Result<MacroView> {
     let mut lib = lib.lock().unwrap();
     let entry = lib.get_mut(id).ok_or(IpcError::not_found(id))?;
-    relay_core::edit::apply(&mut entry.macro_, op)?;
-    let view = MacroView::of(&entry.macro_);
+    let before = entry.macro_.clone();
+    relay_core::edit::apply(&mut entry.macro_, op.clone())?;
+    history.record(id, &before, &op);
+    let view = view_of(&entry.macro_, &history);
     lib.save(id).map_err(IpcError::io)?;
+    Ok(view)
+}
+
+/// Reverts the macro's last edit (`redo: false`) or re-applies the last undone one.
+#[tauri::command]
+pub fn undo_edit(lib: LibraryState<'_>, history: State<'_, EditHistory>, id: Uuid, redo: bool) -> Result<MacroView> {
+    let mut lib = lib.lock().unwrap();
+    let entry = lib.get_mut(id).ok_or(IpcError::not_found(id))?;
+    let changed = if redo { history.redo(id, &mut entry.macro_) } else { history.undo(id, &mut entry.macro_) };
+    let view = view_of(&entry.macro_, &history);
+    if changed {
+        lib.save(id).map_err(IpcError::io)?;
+    }
     Ok(view)
 }
 
 #[tauri::command]
 pub fn set_playback_options(
     lib: LibraryState<'_>,
+    history: State<'_, EditHistory>,
     c: State<'_, CoordinatorHandle>,
     id: Uuid,
     options: PlaybackOptions,
@@ -120,7 +149,7 @@ pub fn set_playback_options(
         c.send(Cmd::Speed(options.speed as f64));
     }
     entry.macro_.playback = options;
-    let view = MacroView::of(&entry.macro_);
+    let view = view_of(&entry.macro_, &history);
     lib.save(id).map_err(IpcError::io)?;
     Ok(view)
 }

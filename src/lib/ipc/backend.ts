@@ -25,6 +25,8 @@ export interface Backend {
   listMacros(): Promise<MacroListItem[]>;
   loadMacro(id: string): Promise<MacroView>;
   editMacro(id: string, op: EditOp): Promise<MacroView>;
+  /** Reverts the last edit, or with `redo` re-applies the last undone one. */
+  undoEdit(id: string, redo: boolean): Promise<MacroView>;
   setPlaybackOptions(id: string, options: PlaybackOptions): Promise<MacroView>;
   exportText(id: string, format: ExportFormat): Promise<string>;
   /** Asks where to save, then writes the export. Returns the path, or null if cancelled. */
@@ -72,6 +74,7 @@ const tauriBackend: Backend = {
   listMacros: () => invoke("list_macros"),
   loadMacro: (id) => invoke("load_macro", { id }),
   editMacro: (id, op) => invoke("edit_macro", { id, op }),
+  undoEdit: (id, redo) => invoke("undo_edit", { id, redo }),
   setPlaybackOptions: (id, options) => invoke("set_playback_options", { id, options }),
   exportText: (id, format) => invoke("export_text", { id, format }),
   exportMacro: async (id, format, defaultName) => {
@@ -126,6 +129,7 @@ function browserBackend(): Backend {
     capture_moves: true,
     capture_keys: true,
     countdown: true,
+    esc_stops_recording: true,
     ignore_injected: true,
     path_mode: "full",
     show_click_labels: true,
@@ -243,6 +247,7 @@ function browserBackend(): Backend {
       return current;
     },
     editMacro: async () => unavailable(),
+    undoEdit: async () => unavailable(),
     setPlaybackOptions: async (id, options) => {
       const item = await find(id);
       item.view = { ...item.view, playback: options };

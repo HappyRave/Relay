@@ -17,6 +17,8 @@
     minus: { fill: false, sw: 2.5, body: '<path d="M5 12h14"/>' },
     copy: { fill: false, sw: 2, body: '<rect x="9" y="9" width="13" height="13"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>' },
     trash: { fill: false, sw: 2, body: '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>' },
+    undo: { fill: false, sw: 2.2, body: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>' },
+    redo: { fill: false, sw: 2.2, body: '<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>' },
     import: { fill: false, sw: 2.2, body: '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M20 15v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-4"/>' },
   } as const;
   export type IconName = keyof typeof ICONS;

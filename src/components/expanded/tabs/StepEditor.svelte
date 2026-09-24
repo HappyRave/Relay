@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Inline editor under the selected step: labels, wait durations and the
-  // pixel check's position, color, tolerance and timeout.
+  // Inline editor under the selected step: the pause before it, labels, wait
+  // durations and the pixel check's position, color, tolerance and timeout.
   import { relay } from "../../../lib/state/relay.svelte";
   import type { Step } from "../../../lib/types";
 
@@ -24,9 +24,19 @@
   }
 
   const num = (e: Event) => Number((e.currentTarget as HTMLInputElement).value);
+
+  function setPause(seconds: number) {
+    if (Number.isFinite(seconds) && seconds >= 0) relay.setPause(index, seconds * 1000);
+  }
 </script>
 
 <div class="editor" role="group" aria-label="Edit step">
+  <div class="grid">
+    <label title="Idle time before this step, while only the mouse moves">
+      Pause before s
+      <input class="input" type="number" min="0" step="0.1" value={(step.pause / 1000).toFixed(1)} onchange={(e) => setPause(num(e))} />
+    </label>
+  </div>
   {#if step.kind === "pixel_wait"}
     <div class="grid">
       <label>X<input class="input" type="number" value={step.x} onchange={(e) => updatePixel({ x: num(e) })} /></label>
