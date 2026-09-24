@@ -1,0 +1,18 @@
+/* App-level rules on top of the Modernist layers. */
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  user-select: none;
+}
+input,
+textarea {
+  user-select: text;
+}
+input[type="range"] {
+  accent-color: var(--color-accent);
+}
+button:disabled {
+  cursor: not-allowed;
+}
