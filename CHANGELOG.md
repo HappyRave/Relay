@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.0.0: Hardening and release
+
+- **Hook watchdog:** Windows silently removes input hooks it considers too slow. While recording, Relay now notices the cursor moving without events and reinstalls the hook.
+- **Logs:** Relay keeps a log in `%APPDATA%\Relay\logs` (7 days) of sessions, triggers, saved recordings, playback results and crashes. What you type is never logged.
+- **Panics:** a crash during playback still releases every key and button the macro was holding.
+- **Privacy note:** Settings now says that recordings store what you type.
+- **Installer:** a per-user NSIS installer (2.2 MB, no administrator rights needed). It isn't code-signed yet, so SmartScreen may warn on first run.
+- **CI:** the Windows job now builds the installer and keeps it as an artifact, and a new Linux job tests the portable crates. A version tag produces a draft GitHub release.
+- **Soak test:** 10 minutes of continuous looping on the release build kept memory flat (about 34 MB, plus about 120 MB for the WebView2 runtime). Timing stayed accurate: 12,000 events at p99 0.008 ms late and 3 ms of drift in total.
+- **Documentation:** the README covers installing, using Relay, your data, privacy and limitations.
+
 ## v0.8.0-m7: Triggers and autostart
 
 - **Triggers:** a macro can now run on its own.
