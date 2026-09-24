@@ -22,13 +22,19 @@ npm test            # frontend unit tests
 cargo test          # Rust tests; also regenerates the TS bindings and the browser fixture
 ```
 
+Macros and settings live in `%APPDATA%\Relay`. Set `RELAY_DATA_DIR` to use another folder, for example a throwaway one while testing:
+
+```powershell
+$env:RELAY_DATA_DIR = "$env:TEMP\relay-test"; npm run tauri dev
+```
+
 `src/lib/ipc/bindings/` (TypeScript types) and `src/lib/dev/sample-views.json` are generated from `relay-core` by `cargo test`. Commit them when they change; CI fails if they're stale.
 
 ## Roadmap
 
 - [x] M0: Scaffold and skin
 - [x] M1: relay-core (model, steps, edits, format)
-- [ ] M2: Recording
+- [x] M2: Recording
 - [ ] M3: Playback engine
 - [ ] M4: Steps editor and pixel checks
 - [ ] M5: Library, settings, export and import

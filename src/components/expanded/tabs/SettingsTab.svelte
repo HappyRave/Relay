@@ -3,7 +3,8 @@
   import Segmented from "../../ui/Segmented.svelte";
   import Kbd from "../../ui/Kbd.svelte";
   import { relay } from "../../../lib/state/relay.svelte";
-  import type { CoordMode, PathMode } from "../../../lib/types";
+  import type { CoordMode } from "../../../lib/types";
+  import type { PathMode } from "../../../lib/ipc/bindings/PathMode";
 
   const HOTKEYS = [
     ["Start / stop recording", "F9"],
@@ -13,7 +14,7 @@
     ["Emergency kill switch", "Ctrl + Alt + End"],
   ];
   const pb = $derived(relay.playback);
-  const st = relay.settings;
+  const st = $derived(relay.settings);
 </script>
 
 <div class="list">
@@ -50,15 +51,26 @@
   <div class="section">Recording</div>
   <div class="row">
     <div class="grow title">Capture mouse path</div>
-    <Toggle label="Capture mouse path" on={st.captureMoves} onchange={(v) => (st.captureMoves = v)} />
+    <Toggle label="Capture mouse path" on={st.capture_moves} onchange={(v) => relay.updateSettings({ capture_moves: v })} />
   </div>
   <div class="row">
     <div class="grow title">Capture keystrokes</div>
-    <Toggle label="Capture keystrokes" on={st.captureKeys} onchange={(v) => (st.captureKeys = v)} />
+    <Toggle label="Capture keystrokes" on={st.capture_keys} onchange={(v) => relay.updateSettings({ capture_keys: v })} />
   </div>
   <div class="row">
     <div class="grow title">3-second countdown</div>
-    <Toggle label="3-second countdown" on={st.countdown} onchange={(v) => (st.countdown = v)} />
+    <Toggle label="3-second countdown" on={st.countdown} onchange={(v) => relay.updateSettings({ countdown: v })} />
+  </div>
+  <div class="row">
+    <div class="grow">
+      <div class="title">Ignore simulated input</div>
+      <div class="sub">Turn off for remote-desktop and KVM tools</div>
+    </div>
+    <Toggle
+      label="Ignore simulated input"
+      on={st.ignore_injected}
+      onchange={(v) => relay.updateSettings({ ignore_injected: v })}
+    />
   </div>
 
   <div class="section">Preview</div>
@@ -67,13 +79,17 @@
     <Segmented
       label="Mouse path"
       options={[["full", "Full path"], ["trail", "Trail only"]] as [PathMode, string][]}
-      value={st.pathMode}
-      onchange={(v) => (st.pathMode = v)}
+      value={st.path_mode}
+      onchange={(v) => relay.updateSettings({ path_mode: v })}
     />
   </div>
   <div class="row">
     <div class="grow title">Click labels</div>
-    <Toggle label="Click labels" on={st.showClickLabels} onchange={(v) => (st.showClickLabels = v)} />
+    <Toggle
+      label="Click labels"
+      on={st.show_click_labels}
+      onchange={(v) => relay.updateSettings({ show_click_labels: v })}
+    />
   </div>
 
   <div class="section">Global hotkeys</div>

@@ -244,7 +244,7 @@ pub fn group_steps(events: &[Event], opts: GroupOptions) -> Vec<Step> {
                     }
                     _ => {
                         let mut combo: Vec<String> = mods.iter().map(|m| m.label().to_string()).collect();
-                        combo.push(keys::label(&key.code));
+                        combo.push(keys::key_label(key));
                         push(&mut steps, *t, i, StepKind::Keys { combo })
                     }
                 };

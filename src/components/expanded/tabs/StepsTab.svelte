@@ -2,7 +2,7 @@
   import Icon from "../../ui/Icon.svelte";
   import { relay } from "../../../lib/state/relay.svelte";
   import { currentStepIndex } from "../../../lib/timeline/lanes";
-  import { fmtTime } from "../../../lib/format";
+  import { fmtTime, plural } from "../../../lib/format";
   import type { Step } from "../../../lib/types";
 
   const TYPE_NAME: Record<Step["kind"], string> = {
@@ -40,7 +40,7 @@
       case "keys":
         return [s.combo.join(" + "), "Key combination"];
       case "type":
-        return ["“" + s.text + "”", s.text.length + " characters"];
+        return ["“" + s.text + "”", plural(s.text.length, "character")];
       case "pixel_wait":
         return [
           `Wait for pixel ${s.x}, ${s.y} = ${s.color}`,
@@ -60,7 +60,7 @@
 </script>
 
 <div class="bar">
-  <span class="count">{steps.length} steps · {(relay.duration / 1000).toFixed(1)} s</span>
+  <span class="count">{plural(steps.length, "step")} · {(relay.duration / 1000).toFixed(1)} s</span>
   <button class="btn btn-ghost" disabled={relay.recording || !relay.editable} onclick={relay.insertWait}>+ Wait</button>
   <button
     class="btn btn-ghost"

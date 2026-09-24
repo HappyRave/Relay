@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.3.0-m2: Recording
+
+- **Recording on Windows** uses system-wide keyboard and mouse hooks (WH_KEYBOARD_LL / WH_MOUSE_LL) with high-resolution timestamps.
+  - Clicks on Relay's own window, keys typed into it and the control hotkeys are not recorded. Input injected by other programs is ignored unless you turn that off in Settings.
+  - Keys are stored by physical scan code, with the character they typed in the current layout.
+  - The window under the first click becomes the macro's anchor window.
+  - Each recording saves the monitor layout, DPI and double-click settings.
+- **Global hotkeys** (F9 record, F10 play/pause, Ctrl+Shift+M compact player, Ctrl+Alt+End kill switch) are registered according to the session state. Esc stops a session and is swallowed, but only while a session is running.
+- **Session control** moved to Rust. The coordinator runs relay-core's state machine, the 3-second countdown and live recording progress. It streams to the UI over one channel.
+- **Playback** timing comes from a Rust clock (speed, pause, seek, loops). Input injection comes in M3.
+- **Storage:** macros and settings are saved under `%APPDATA%\Relay` (`RELAY_DATA_DIR` overrides it) with atomic writes. The first run seeds the four sample macros.
+- **Per-monitor DPI awareness** (v2) is declared in the app manifest.
+
 ## v0.2.0-m1: relay-core
 
 - `relay-core` crate with no OS dependencies:

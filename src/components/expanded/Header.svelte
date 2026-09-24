@@ -3,6 +3,7 @@
   import Icon from "../ui/Icon.svelte";
   import { relay } from "../../lib/state/relay.svelte";
   import { closeWindow, isTauri } from "../../lib/platform/window";
+  import { plural } from "../../lib/format";
 
   const tauri = isTauri();
 </script>
@@ -17,7 +18,7 @@
     disabled={relay.recording || !relay.view}
     oninput={(e) => relay.rename(e.currentTarget.value)}
   />
-  <div class="meta">{relay.steps.length} steps · {relay.moves.length} path samples</div>
+  <div class="meta">{plural(relay.steps.length, "step")} · {plural(relay.moves.length, "path sample")}</div>
   <button class="export" onclick={() => (relay.exportOpen = true)}>Export<Icon name="export" size={15} /></button>
   <button class="icon" title="Compact player (Ctrl + Shift + M)" aria-label="Compact player" onclick={() => (relay.expanded = false)}>
     <Icon name="collapse" size={18} />

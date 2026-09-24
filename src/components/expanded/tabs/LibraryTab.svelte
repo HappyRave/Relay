@@ -1,7 +1,7 @@
 <script lang="ts">
   import Kbd from "../../ui/Kbd.svelte";
   import { relay } from "../../../lib/state/relay.svelte";
-  import { fmtLastRun } from "../../../lib/format";
+  import { fmtLastRun, plural } from "../../../lib/format";
 </script>
 
 <div class="list">
@@ -19,7 +19,7 @@
         <Kbd combo={e.hotkey ?? "—"} muted />
       </div>
       <div class="meta">
-        <span>{(e.duration / 1000).toFixed(1)} s · {e.step_count} steps · {e.runs} runs</span>
+        <span>{(e.duration / 1000).toFixed(1)} s · {plural(e.step_count, "step")} · {plural(e.runs, "run")}</span>
         <span>{fmtLastRun(e.last_run)}</span>
       </div>
     </div>

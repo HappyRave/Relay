@@ -44,3 +44,6 @@ export function fmtLastRun(iso: string | null, now = new Date()): string {
   if (days < 7) return `${d.toLocaleDateString([], { weekday: "short" })}, ${hm}`;
   return d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
+
+/** "1 step", "3 steps". */
+export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
