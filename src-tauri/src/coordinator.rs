@@ -195,6 +195,10 @@ impl Coordinator {
                     self.stop_reason = None;
                 }
                 *self.app.state::<SessionMode>().0.write().unwrap() = Some(mode);
+                crate::tray::set_mode(&self.app, mode);
+                if let Some(w) = self.app.get_webview_window("main") {
+                    crate::window_ctl::set_no_activate(&w, mode != Mode::Idle);
+                }
                 self.emit.send(EngineMsg::Session { mode, macro_id: self.current });
             }
         }
