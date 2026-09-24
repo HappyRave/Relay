@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.5.0-m4: Steps editor and pixel checks
+
+- **Pixel checks wait for the real screen:**
+  - Playback pauses on the IF step and samples every 30 ms until the pixel matches within tolerance, then continues.
+  - If the timeout passes first, playback stops with "Pixel check timed out at step N" and the playhead stays on that step.
+  - Time spent paused doesn't count toward the timeout.
+- **Inline step editor:** click a step to edit it.
+  - Clicks, drags, waits and pixel checks get a label.
+  - Waits get a duration.
+  - Pixel checks get position, color, tolerance and timeout, plus **Pick**, which samples the pixel under your cursor after a 3-second countdown.
+- **+ Pixel check** samples the live color at the macro's cursor position. Pixel rows show a color swatch.
+- **Preview zoom:** the preview zooms to the area the macro touches, so recordings on large or multi-monitor desktops stay readable.
+
 ## v0.4.0-m3: Playback engine
 
 - **Playback injects real input** through SendInput:
