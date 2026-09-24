@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **Documentation:** a full [user guide](docs/user-guide/README.md) (recording, editing, playback, pixel checks, triggers, the library, settings, troubleshooting and shortcuts) and an [engineering guide](docs/engineering/README.md) (architecture, each crate, IPC, the frontend, file formats and testing), with screenshots of the real app. New `CONTRIBUTING.md`.
+- **Scripts:** `scripts/cdp.mjs` runs JavaScript in the running app over DevTools for end-to-end checks, and `scripts/docs-screenshots.ps1` regenerates the documentation screenshots.
+
 ## v1.0.0: Hardening and release
 
 - **Hook watchdog:** Windows silently removes input hooks it considers too slow. While recording, Relay now notices the cursor moving without events and reinstalls the hook.

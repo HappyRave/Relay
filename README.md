@@ -1,95 +1,141 @@
-# Relay
+<h1 align="center">Relay</h1>
 
-A desktop macro recorder for Windows. Record mouse and keyboard input, edit it as a list of steps, and play it back at any speed, on a loop, from a hotkey, on a schedule, when an app launches or when a pixel changes.
+<p align="center">
+  <b>Record what you do. Edit it as steps. Play it back on cue.</b><br>
+  A macro recorder for Windows, with a timeline editor, pixel checks and triggers.
+</p>
 
-Relay lives in a small always-on-top widget with a compact player bar and an expanded editor: a preview of the mouse path, the steps, your library, triggers, settings and a four-lane timeline. The design is in [`Design/`](Design/).
+<p align="center">
+  <a href="https://github.com/HappyRave/Relay/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/HappyRave/Relay?include_prereleases&label=release&color=ec3013"></a>
+  <a href="https://github.com/HappyRave/Relay/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/HappyRave/Relay/actions/workflows/ci.yml/badge.svg"></a>
+  <img alt="Windows 10 and 11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-201e1d">
+  <img alt="Built with Rust and Tauri" src="https://img.shields.io/badge/Rust%20%2B%20Tauri%202-201e1d">
+</p>
+
+<p align="center">
+  <img src="docs/images/editor.png" alt="The Relay editor: the mouse path over the desktop, the list of steps, the transport and a four-lane timeline" width="800">
+</p>
+
+<p align="center">
+  <a href="https://github.com/HappyRave/Relay/releases"><b>Download</b></a> ·
+  <a href="docs/user-guide/01-getting-started.md"><b>Get started</b></a> ·
+  <a href="docs/user-guide/README.md">User guide</a> ·
+  <a href="docs/engineering/README.md">Engineering guide</a>
+</p>
+
+## Features
+
+| | |
+| --- | --- |
+| 🔴 **Record** | Press <kbd>F9</kbd> and work as usual. Every click, drag, scroll and keystroke is captured with its timing, across all your monitors and at any display scaling. |
+| ✏️ **Edit as steps** | Recordings become readable steps: *Click · Save*, *Ctrl + S*, *"invoice_2026"*. Label them, delete them, add waits. |
+| ▶️ **Play back** | <kbd>F10</kbd> replays it at 0.5× to 4×, once, N times or forever, with optional *Humanize* timing. Accurate to about a millisecond. |
+| 🎯 **Pixel checks** | Wait until something appears on screen before continuing, instead of guessing how long to wait. |
+| ⏰ **Triggers** | Run a macro on a hotkey, on a weekly schedule, when an app starts, or when a pixel changes color. |
+| 🛑 **Safe** | <kbd>Esc</kbd>, any key, or the <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd> kill switch stops everything. Nothing is ever left pressed. |
+| 📦 **Portable** | Macros are plain JSON `.rly` files. Export, import, back up, keep them in Git. |
+| 🔒 **Private** | Everything stays on your PC. Relay never connects to the internet. |
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/step-editor.png" alt="Editing a pixel check"><br><sub>Edit any step. Here, a pixel check.</sub></td>
+<td width="50%"><img src="docs/images/triggers.png" alt="The Triggers tab"><br><sub>Hotkeys, schedules, app launches and pixel triggers.</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/images/playing.png" alt="Playback, loop 1 of 3"><br><sub>Playback with loops and a live timeline.</sub></td>
+<td width="50%"><img src="docs/images/library.png" alt="The Library"><br><sub>Every recording saved in the Library.</sub></td>
+</tr>
+</table>
+
+<p align="center"><img src="docs/images/compact.png" alt="The compact player" width="600"><br><sub>Or keep just the compact player on screen (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd>).</sub></p>
 
 ## Install
 
-Download `Relay_x.y.z_x64-setup.exe` from the [releases](https://github.com/HappyRave/Relay/releases) and run it. It installs for your user only and needs no administrator rights. The installer isn't code-signed yet, so Windows SmartScreen may warn the first time: choose **More info → Run anyway**.
+1. Download **`Relay_x.y.z_x64-setup.exe`** from the [latest release](https://github.com/HappyRave/Relay/releases).
+2. Run it. It installs for your user only, without administrator rights.
 
-## Use
+> [!NOTE]
+> The installer isn't code-signed yet. If SmartScreen says *"Windows protected your PC"*, choose **More info → Run anyway**.
 
-| Action | How |
+Then follow [Getting started](docs/user-guide/01-getting-started.md) to make your first macro in two minutes.
+
+## Quick reference
+
+| Key | Does |
 | --- | --- |
-| Record | **F9**, or the red button. A 3-second countdown, then everything you do is captured until **F9** again. |
-| Play / pause | **F10**, or the play button. |
-| Stop | **Esc**. It only does this while recording or playing, so it's free the rest of the time. |
-| Emergency stop | **Ctrl + Alt + End** stops everything and pauses all triggers. |
-| Compact player | **Ctrl + Shift + M**, or the arrows button. |
+| <kbd>F9</kbd> | Start or stop recording |
+| <kbd>F10</kbd> | Play or pause |
+| <kbd>Esc</kbd> | Stop (only while recording or playing) |
+| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd> | Compact player ↔ editor |
+| <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd> | Kill switch: stop everything and pause triggers |
 
-- **Steps:** a recording becomes steps: clicks, drags, scrolls, key combinations, typed text, waits and pixel checks. Click a step to jump there and edit it (labels, wait length, pixel check position, color, tolerance, timeout). **+ Wait** and **+ Pixel check** insert at the playhead.
-- **Playback:** speed (0.5×–4×), repeat N times or forever, and *Humanize* (small random timing changes). *Stop on key press* aborts playback on any key and swallows it. *Window* coordinates follow the recorded window if it has moved.
-- **Triggers** (per macro): a hotkey, a weekly schedule, when an app launches, or when a pixel turns a given color. Triggers only run when Relay is idle and the screen is unlocked.
-- **Library:** every recording is saved automatically. Duplicate, delete (with Undo), export as `.rly` or `.json`, and import `.rly` files.
-- **Tray:** closing the widget keeps Relay running in the tray, so hotkeys and triggers keep working. *Start with Windows* is in Settings.
+More in [Keyboard shortcuts](docs/user-guide/keyboard-shortcuts.md).
 
-## Your data
+## Documentation
 
-Everything stays on your PC, in `%APPDATA%\Relay`:
+<table>
+<tr>
+<td width="50%" valign="top">
 
-```text
-settings.json        your settings
-library.json         order, run counts and triggers
-window.json          where the widget sits
-macros\<id>.rly      one file per macro (portable, plain JSON)
-macros\.trash\       deleted macros
-logs\relay.*.log     the last 7 days of diagnostics
-```
+**📘 [User guide](docs/user-guide/README.md)**
 
-Relay never connects to the internet.
+- [Getting started](docs/user-guide/01-getting-started.md)
+- [Recording](docs/user-guide/02-recording.md)
+- [Editing steps](docs/user-guide/03-editing.md)
+- [Playing back](docs/user-guide/04-playback.md)
+- [Pixel checks](docs/user-guide/05-pixel-checks.md)
+- [Triggers](docs/user-guide/06-triggers.md)
+- [Library, export and import](docs/user-guide/07-library.md)
+- [Settings, tray and window](docs/user-guide/08-settings.md)
+- [Troubleshooting and FAQ](docs/user-guide/09-troubleshooting.md)
 
-> **Privacy:** a recording stores what you type, passwords included. Stop recording before typing anything secret. The logs never contain what you type.
+</td>
+<td width="50%" valign="top">
 
-## Limitations
+**🛠️ [Engineering guide](docs/engineering/README.md)**
 
-- **Apps running as administrator:** Windows doesn't let a normal app control them, so Relay warns when the app in front is elevated. Run Relay as administrator to automate those apps.
-- **Lock screen and UAC:** nothing can be automated on the lock screen or while a UAC prompt is up. Triggers skip those moments.
-- **Games and anti-cheat software** may ignore or penalize simulated input.
-- **Pixel checks:** HDR and protected content (some video players) can change the colors Relay reads.
-- **Other layouts and monitors:** a macro replays physical keys and screen positions. Replaying on a different keyboard layout or monitor arrangement can give different results.
+- [Architecture](docs/engineering/architecture.md)
+- [relay-core](docs/engineering/core.md)
+- [relay-platform](docs/engineering/platform.md)
+- [The app](docs/engineering/app.md)
+- [IPC](docs/engineering/ipc.md)
+- [The frontend](docs/engineering/frontend.md)
+- [File formats](docs/engineering/file-formats.md)
+- [Testing and CI](docs/engineering/testing.md)
+- [Contributing](CONTRIBUTING.md)
 
-## Development
+</td>
+</tr>
+</table>
 
-Requirements: Rust (stable, MSVC), Node 20 or later, and WebView2 (included with Windows 11).
+## Good to know
+
+- **Apps running as administrator** can't receive input from a normal app. Relay warns you. Run Relay as administrator to automate them.
+- **Nothing runs on the lock screen** or during a UAC prompt. Triggers skip those moments.
+- **Screen positions and physical keys** are replayed. A different monitor layout or keyboard layout can change the result. *Window* coordinates help when a window moves.
+- **Recordings store what you type**, passwords included. Stop recording before typing secrets.
+- **Games with anti-cheat** may ignore or penalize simulated input.
+
+## Building from source
 
 ```bash
 npm install
-npm run tauri dev   # the app
-npm run dev         # UI only, in a browser, on a demo desktop
-npm test            # frontend unit tests
-cargo test          # Rust tests; also regenerates the TS bindings and the browser fixture
-npx tauri build     # the installer, in target/release/bundle/nsis
+npm run tauri dev     # the app, with hot reload
+npm run dev           # the UI alone in a browser, on a demo desktop
+cargo test --workspace && npm test
+npx tauri build       # the installer, in target/release/bundle/nsis
 ```
 
-`src/lib/ipc/bindings/` (TypeScript types) and `src/lib/dev/sample-views.json` are generated from `relay-core` by `cargo test`. Commit them when they change; CI fails if they're stale.
-
-Set `RELAY_DATA_DIR` to use another data folder, for example a throwaway one while testing:
-
-```powershell
-$env:RELAY_DATA_DIR = "$env:TEMP\relay-test"; npm run tauri dev
-```
-
-### Layout
-
-- `crates/relay-core`: the macro model, step grouping, edits, the `.rly` format, playback timing, schedules and the session state machine. It has no OS dependencies.
-- `crates/relay-platform`: input hooks, injection, the screen and processes behind traits. The Windows backend is in `src/windows`, with a stub for other systems.
-- `src-tauri`: the app: coordinator, recorder and engine threads, triggers, storage, window, tray.
-- `src`: the Svelte 5 UI.
-
-### Releasing
-
-Pushing a version tag such as `v1.0.0` builds the installer in GitHub Actions and attaches it to a **draft** release, to review and publish by hand. Milestone tags (`v0.x.0-mN`) don't trigger a release.
+Relay is a Rust workspace (`relay-core` for the pure logic, `relay-platform` for the OS layer, `src-tauri` for the app) with a Svelte 5 UI. See [CONTRIBUTING.md](CONTRIBUTING.md) for requirements and conventions, and the [engineering guide](docs/engineering/README.md) for how it all fits together.
 
 ## Roadmap
 
-- [x] M0: Scaffold and skin
-- [x] M1: relay-core (model, steps, edits, format)
-- [x] M2: Recording
-- [x] M3: Playback engine
-- [x] M4: Steps editor and pixel checks
-- [x] M5: Library, settings, export and import
-- [x] M6: Window polish, tray, single instance
-- [x] M7: Triggers and autostart
-- [x] M8: Hardening and release
-- [ ] Later: AutoHotkey and standalone `.exe` export, code signing, per-monitor remapping for different monitor layouts
+- [x] **1.0**: recording, step editing, playback, pixel checks, triggers, library, tray, installer
+- [ ] AutoHotkey v2 and standalone `.exe` export
+- [ ] Undo for step edits
+- [ ] Editing recorded pauses
+- [ ] Code signing
+- [ ] Remapping macros to a different monitor layout
+- [ ] macOS and Linux backends
+
+See [CHANGELOG.md](CHANGELOG.md) for what changed in each version.
