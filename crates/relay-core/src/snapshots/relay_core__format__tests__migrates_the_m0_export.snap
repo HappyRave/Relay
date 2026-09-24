@@ -1,0 +1,145 @@
+---
+source: crates/relay-core/src/format.rs
+assertion_line: 236
+expression: m.events
+---
+[
+  {
+    "type": "move",
+    "t": 0,
+    "x": 100,
+    "y": 200
+  },
+  {
+    "type": "button",
+    "t": 10,
+    "x": 100,
+    "y": 200,
+    "btn": "Left",
+    "down": true,
+    "label": "Field"
+  },
+  {
+    "type": "button",
+    "t": 70,
+    "x": 100,
+    "y": 200,
+    "btn": "Left",
+    "down": false
+  },
+  {
+    "type": "button",
+    "t": 130,
+    "x": 100,
+    "y": 200,
+    "btn": "Left",
+    "down": true
+  },
+  {
+    "type": "button",
+    "t": 190,
+    "x": 100,
+    "y": 200,
+    "btn": "Left",
+    "down": false
+  },
+  {
+    "type": "key",
+    "t": 400,
+    "down": true,
+    "key": {
+      "code": "ControlLeft"
+    }
+  },
+  {
+    "type": "key",
+    "t": 420,
+    "down": true,
+    "key": {
+      "code": "KeyA"
+    }
+  },
+  {
+    "type": "key",
+    "t": 460,
+    "down": false,
+    "key": {
+      "code": "KeyA"
+    }
+  },
+  {
+    "type": "key",
+    "t": 480,
+    "down": false,
+    "key": {
+      "code": "ControlLeft"
+    }
+  },
+  {
+    "type": "key",
+    "t": 700,
+    "down": true,
+    "key": {
+      "code": "ShiftLeft"
+    }
+  },
+  {
+    "type": "key",
+    "t": 700,
+    "down": true,
+    "key": {
+      "code": "KeyH"
+    },
+    "ch": "H"
+  },
+  {
+    "type": "key",
+    "t": 740,
+    "down": false,
+    "key": {
+      "code": "KeyH"
+    }
+  },
+  {
+    "type": "key",
+    "t": 740,
+    "down": false,
+    "key": {
+      "code": "ShiftLeft"
+    }
+  },
+  {
+    "type": "key",
+    "t": 785,
+    "down": true,
+    "key": {
+      "code": "KeyI"
+    },
+    "ch": "i"
+  },
+  {
+    "type": "key",
+    "t": 825,
+    "down": false,
+    "key": {
+      "code": "KeyI"
+    }
+  },
+  {
+    "type": "wait",
+    "t": 1100,
+    "dur": 700,
+    "label": "Dialog opens"
+  },
+  {
+    "type": "pixel_wait",
+    "t": 1800,
+    "dur": 900,
+    "x": 5,
+    "y": 6,
+    "color": "#9B9797",
+    "tolerance": 8,
+    "timeout_ms": 5000,
+    "label": "Grey"
+  }
+]

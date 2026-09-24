@@ -1,0 +1,6 @@
+---
+source: crates/relay-core/src/format.rs
+assertion_line: 204
+expression: to_rly(&fixed_macro())
+---
+{"format":"relay-macro","version":1,"id":"00000000-0000-0000-0000-000052454c59","name":"Save the file","created_at":"2026-09-24T09:00:00Z","modified_at":"2026-09-24T09:00:00Z","recording":{"os":"windows","virtual_desktop":{"x":0,"y":0,"w":1920,"h":1080},"monitors":[{"name":"\\\\.\\DISPLAY1","rect":{"x":0,"y":0,"w":1920,"h":1080},"work":{"x":0,"y":0,"w":1920,"h":1032},"dpi":96,"primary":true}],"double_click_ms":500,"double_click_px":4},"playback":{"speed":1.0,"repeat":{"count":1},"humanize":true,"jitter_ms":40,"stop_on_key":true,"coord_mode":"screen"},"events":[{"type":"move","t":0,"x":960,"y":540},{"type":"button","t":120,"x":960,"y":540,"btn":"Left","down":true,"label":"Save"},{"type":"button","t":180,"x":960,"y":540,"btn":"Left","down":false},{"type":"key","t":400,"down":true,"key":{"code":"KeyS","vk":83,"scan":31},"ch":"s"},{"type":"key","t":450,"down":false,"key":{"code":"KeyS","vk":83,"scan":31}},{"type":"pixel_wait","t":600,"dur":900,"x":10,"y":20,"color":"#EC3013","tolerance":8,"timeout_ms":5000}]}
