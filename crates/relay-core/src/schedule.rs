@@ -15,6 +15,13 @@ pub struct WeeklySchedule {
     pub time: NaiveTime,
 }
 
+impl Default for WeeklySchedule {
+    /// Weekdays at 09:00.
+    fn default() -> Self {
+        WeeklySchedule { days: [true, true, true, true, true, false, false], time: NaiveTime::from_hms_opt(9, 0, 0).unwrap() }
+    }
+}
+
 fn ser_hm<S: Serializer>(t: &NaiveTime, s: S) -> Result<S::Ok, S::Error> {
     s.serialize_str(&t.format("%H:%M").to_string())
 }

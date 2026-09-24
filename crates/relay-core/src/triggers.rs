@@ -1,5 +1,74 @@
-//! Edge detectors for the polling triggers. They are fed one sample per poll
-//! and report the moment the trigger should fire.
+//! What can start a macro on its own (a hotkey, a weekly schedule, an app
+//! launching, a pixel changing), plus the edge detectors the polling triggers
+//! use: they're fed one sample per poll and report when to fire.
+
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
+
+use crate::model::Rgb;
+use crate::schedule::WeeklySchedule;
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[serde(default)]
+#[ts(export)]
+pub struct HotkeyTrigger {
+    pub enabled: bool,
+    /// e.g. "Ctrl + Alt + 1"; empty when none is set.
+    pub combo: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[serde(default)]
+#[ts(export)]
+pub struct ScheduleTrigger {
+    pub enabled: bool,
+    pub schedule: WeeklySchedule,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default)]
+#[ts(export)]
+pub struct AppLaunchTrigger {
+    pub enabled: bool,
+    /// Executable file name, matched case-insensitively ("EXCEL.EXE").
+    pub exe: String,
+    /// Wait after the app starts, so its window is ready.
+    pub delay_ms: u32,
+}
+
+impl Default for AppLaunchTrigger {
+    fn default() -> Self {
+        AppLaunchTrigger { enabled: false, exe: String::new(), delay_ms: 2000 }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default)]
+#[ts(export)]
+pub struct PixelTrigger {
+    pub enabled: bool,
+    pub x: i32,
+    pub y: i32,
+    pub color: Rgb,
+    pub tolerance: u8,
+}
+
+impl Default for PixelTrigger {
+    fn default() -> Self {
+        PixelTrigger { enabled: false, x: 0, y: 0, color: Rgb(0xEC, 0x30, 0x13), tolerance: 8 }
+    }
+}
+
+/// All of a macro's triggers. Machine-local: kept in library.json, not in the `.rly`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[serde(default)]
+#[ts(export)]
+pub struct MacroTriggers {
+    pub hotkey: HotkeyTrigger,
+    pub schedule: ScheduleTrigger,
+    pub app_launch: AppLaunchTrigger,
+    pub pixel: PixelTrigger,
+}
 
 /// Fires when a pixel starts matching the target color: two consecutive
 /// matching samples after at least one non-matching one. Re-arms only once the
@@ -62,6 +131,14 @@ mod tests {
             .collect();
         // Matching from the start doesn't fire; a single matching sample doesn't either.
         assert_eq!(fired, [false, false, false, false, true, false, false, false, false, false, true]);
+    }
+
+    #[test]
+    fn triggers_default_to_off_and_tolerate_partial_json() {
+        let t: MacroTriggers = serde_json::from_str(r#"{"hotkey":{"enabled":true,"combo":"Ctrl + Alt + 1"}}"#).unwrap();
+        assert!(t.hotkey.enabled && !t.schedule.enabled && !t.app_launch.enabled && !t.pixel.enabled);
+        assert_eq!(t.app_launch.delay_ms, 2000);
+        assert_eq!(t.schedule.schedule.days, [true, true, true, true, true, false, false]);
     }
 
     #[test]
