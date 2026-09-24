@@ -35,7 +35,7 @@
     </div>
     <div class="file">{relay.exportName}</div>
     <div class="dialog-actions">
-      <button class="btn btn-primary save" onclick={relay.doExport}>Download</button>
+      <button class="btn btn-primary save" onclick={relay.doExport}>{relay.editable ? "Save…" : "Download"}</button>
       <button class="btn btn-ghost cancel" onclick={() => (relay.exportOpen = false)}>Cancel</button>
     </div>
   </div>
