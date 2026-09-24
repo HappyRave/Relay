@@ -37,7 +37,7 @@ $env:RELAY_DATA_DIR = "$env:TEMP\relay-test"; npm run tauri dev
 - [x] M2: Recording
 - [x] M3: Playback engine
 - [x] M4: Steps editor and pixel checks
-- [ ] M5: Library, settings, export and import
+- [x] M5: Library, settings, export and import
 - [ ] M6: Window polish, tray, single instance
 - [ ] M7: Triggers and autostart
 - [ ] M8: Hardening and release

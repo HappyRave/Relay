@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.6.0-m5: Library, settings, export and import
+
+- **Library actions:** Duplicate, and Delete with Undo, on each Library row.
+  - Deleted macros go to `macros\.trash` and keep their position and stats, so restoring puts them back exactly as they were, even after a restart.
+  - Deleting is refused while a session is running.
+- **Export** `.rly` (editable) or `.json` (pretty, with the derived steps) through the native Save dialog.
+- **Import** `.rly` or Relay `.json` files through the native Open dialog. Broken files are reported without stopping the others, and a macro that's already in the library imports as a copy.
+- **Toasts:** messages and errors appear at the bottom of the side panel, some with an action (Undo).
+- **Settings** have been saved in `settings.json` since M2.
+
 ## v0.5.0-m4: Steps editor and pixel checks
 
 - **Pixel checks wait for the real screen:**
