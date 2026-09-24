@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **License:** Relay is now open source under the MIT License.
 - **Keep on top:** a new *Settings → Window* option chooses when the widget floats above other windows: always (as before), only while recording or playing, or never.
 
 ## v1.1.0: Editing polish

@@ -6,6 +6,7 @@ members = ["crates/relay-core", "crates/relay-platform", "src-tauri"]
 version = "1.1.0"
 edition = "2024"
 authors = ["HappyRave"]
+license = "MIT"
 repository = "https://github.com/HappyRave/Relay"
 # The highest rust-version among the dependencies (sysinfo); CI checks it.
 rust-version = "1.95"

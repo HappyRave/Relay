@@ -1,6 +1,6 @@
 # Contributing to Relay
 
-Thanks for helping. This page covers setting up, the everyday commands and the conventions. For how Relay works inside, read the [engineering guide](docs/engineering/README.md), starting with [Architecture](docs/engineering/architecture.md).
+Thanks for helping. Relay is [MIT-licensed](LICENSE), and contributions are accepted under the same license. This page covers setting up, the everyday commands and the conventions. For how Relay works inside, read the [engineering guide](docs/engineering/README.md), starting with [Architecture](docs/engineering/architecture.md).
 
 - [Requirements](#requirements)
 - [First run](#first-run)
