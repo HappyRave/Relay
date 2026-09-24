@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use crossbeam_channel::Sender;
-use relay_core::model::{MonitorInfo, Rect, WindowInfo};
+use relay_core::model::{MonitorInfo, Rect, Rgb, WindowInfo};
 
 use relay_core::keys::KeyStroke;
 use relay_core::model::MouseBtn;
@@ -35,6 +35,9 @@ impl Screen for Stub {
     }
     fn double_click(&self) -> (u32, u32) {
         (500, 4)
+    }
+    fn pixel(&self, _: i32, _: i32) -> Option<Rgb> {
+        None
     }
 }
 
