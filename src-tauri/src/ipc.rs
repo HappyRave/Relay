@@ -56,7 +56,7 @@ impl Emitter {
 
     pub fn error(&self, message: impl Into<String>) {
         let message = message.into();
-        eprintln!("relay: {message}");
+        tracing::warn!("{message}");
         self.send(EngineMsg::Error { message });
     }
 }

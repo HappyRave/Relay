@@ -53,6 +53,7 @@ fn snapshot(app: &AppHandle) -> Vec<(Uuid, MacroTriggers)> {
 
 fn fire(app: &AppHandle, id: Uuid, source: RunSource) {
     if !app.state::<TriggerState>().paused() {
+        tracing::info!(%id, ?source, "trigger fired");
         app.state::<CoordinatorHandle>().send(Cmd::RunMacro { id, source });
     }
 }
@@ -81,7 +82,7 @@ fn schedule_loop(app: AppHandle) {
                 if now - due <= MISSED_AFTER {
                     fire(&app, id, RunSource::Schedule);
                 } else {
-                    eprintln!("relay: skipped a missed scheduled run of {id} (due {due})");
+                    tracing::info!(%id, %due, "skipped a missed scheduled run");
                 }
             }
         }

@@ -4,6 +4,7 @@ mod engine;
 mod hotkeys;
 mod ipc;
 mod library;
+mod logging;
 mod rec_thread;
 mod settings;
 mod storage;
@@ -80,9 +81,10 @@ pub fn run() {
         })
         .setup(|app| {
             let dir = storage::data_dir(app.handle());
+            app.manage(logging::init(&dir));
             let (library, problems) = library::Library::open(&dir);
             for p in problems {
-                eprintln!("relay: skipped a macro file: {p}");
+                tracing::warn!("skipped a macro file: {p}");
             }
             app.manage(Mutex::new(library));
             app.manage(Mutex::new(settings::SettingsStore::open(&dir)));

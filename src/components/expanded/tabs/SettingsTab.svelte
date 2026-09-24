@@ -50,6 +50,7 @@
   </div>
 
   <div class="section">Recording</div>
+  <div class="note">Recordings store what you type, passwords included. Stop recording before typing anything secret.</div>
   <div class="row">
     <div class="grow title">Capture mouse path</div>
     <Toggle label="Capture mouse path" on={st.capture_moves} onchange={(v) => relay.updateSettings({ capture_moves: v })} />
@@ -133,6 +134,12 @@
     text-transform: uppercase;
     font-weight: 600;
     color: var(--color-accent-700);
+  }
+  .note {
+    padding: 2px 12px 8px;
+    font-size: 11px;
+    color: var(--color-neutral-700);
+    border-bottom: 1px solid var(--color-neutral-300);
   }
   .section:first-child {
     padding-top: 10px;

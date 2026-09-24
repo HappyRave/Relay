@@ -1,0 +1,34 @@
+name: Release
+
+# A version tag like v1.0.0 (not the milestone tags such as v0.8.0-m7) builds
+# the installer and attaches it to a *draft* GitHub release, to be reviewed
+# and published by hand.
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: cargo test --workspace
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Relay ${{ github.ref_name }}
+          releaseBody: See CHANGELOG.md for what's new. The installer is not code-signed yet, so Windows SmartScreen may warn on first run.
+          releaseDraft: true
+          prerelease: false

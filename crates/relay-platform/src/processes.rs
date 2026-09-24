@@ -36,6 +36,9 @@ mod tests {
     fn sees_this_test_process() {
         let me = std::env::current_exe().unwrap();
         let name = me.file_name().unwrap().to_string_lossy().to_lowercase();
-        assert!(ProcessWatcher::new().running().contains(&name), "{name}");
+        // Linux reports at most 15 characters of a process name.
+        let short: String = name.chars().take(15).collect();
+        let running = ProcessWatcher::new().running();
+        assert!(running.contains(&name) || running.iter().any(|r| r.starts_with(&short)), "{name}");
     }
 }
