@@ -8,6 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
+use relay_core::triggers::{HotkeyTrigger, MacroTriggers};
 use relay_core::{Macro, MacroListItem, format, samples};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -18,12 +19,22 @@ pub struct Entry {
     pub macro_: Macro,
     pub runs: u32,
     pub last_run: Option<DateTime<Utc>>,
-    pub hotkey: Option<String>,
+    pub triggers: MacroTriggers,
 }
 
 impl Entry {
+    fn new(macro_: Macro) -> Self {
+        Entry { macro_, runs: 0, last_run: None, triggers: MacroTriggers::default() }
+    }
+
+    /// The hotkey shown in the Library, when it's on.
+    pub fn hotkey(&self) -> Option<String> {
+        let h = &self.triggers.hotkey;
+        (h.enabled && !h.combo.is_empty()).then(|| h.combo.clone())
+    }
+
     pub fn list_item(&self) -> MacroListItem {
-        MacroListItem::of(&self.macro_, self.runs, self.last_run, self.hotkey.clone())
+        MacroListItem::of(&self.macro_, self.runs, self.last_run, self.hotkey())
     }
 }
 
@@ -49,7 +60,27 @@ struct TrashEntry {
 struct IndexEntry {
     runs: u32,
     last_run: Option<DateTime<Utc>>,
+    triggers: MacroTriggers,
+    /// Before triggers existed (M2–M6) only a hotkey label was stored; it
+    /// never did anything, so it migrates as a disabled hotkey trigger.
+    #[serde(skip_serializing)]
     hotkey: Option<String>,
+}
+
+impl IndexEntry {
+    fn of(e: &Entry) -> Self {
+        IndexEntry { runs: e.runs, last_run: e.last_run, triggers: e.triggers.clone(), hotkey: None }
+    }
+
+    fn triggers(&self) -> MacroTriggers {
+        let mut t = self.triggers.clone();
+        if let Some(combo) = &self.hotkey
+            && t.hotkey.combo.is_empty()
+        {
+            t.hotkey = HotkeyTrigger { enabled: false, combo: combo.clone() };
+        }
+        t
+    }
 }
 
 pub struct Library {
@@ -107,7 +138,7 @@ impl Library {
                 Entry {
                     runs: meta.map_or(0, |e| e.runs),
                     last_run: meta.and_then(|e| e.last_run),
-                    hotkey: meta.and_then(|e| e.hotkey.clone()),
+                    triggers: meta.map(IndexEntry::triggers).unwrap_or_default(),
                     macro_: m,
                 }
             })
@@ -119,7 +150,14 @@ impl Library {
         let now = Utc::now();
         self.entries = samples::all()
             .into_iter()
-            .map(|s| Entry { last_run: s.last_run(now), runs: s.runs, hotkey: s.hotkey, macro_: s.macro_ })
+            .map(|s| {
+                let mut triggers = MacroTriggers::default();
+                // The design's hotkeys are shown but left off: they'd replay samples on your desktop.
+                if let Some(combo) = s.hotkey.clone() {
+                    triggers.hotkey = HotkeyTrigger { enabled: false, combo };
+                }
+                Entry { last_run: s.last_run(now), runs: s.runs, triggers, macro_: s.macro_ }
+            })
             .collect();
         for e in &self.entries {
             let _ = self.write_macro(&e.macro_);
@@ -142,7 +180,7 @@ impl Library {
     /// Adds a new macro at the top of the library and saves it.
     pub fn insert_front(&mut self, macro_: Macro) -> std::io::Result<()> {
         self.write_macro(&macro_)?;
-        self.entries.insert(0, Entry { macro_, runs: 0, last_run: None, hotkey: None });
+        self.entries.insert(0, Entry::new(macro_));
         self.save_index()
     }
 
@@ -164,8 +202,8 @@ impl Library {
         copy.modified_at = copy.created_at;
         self.write_macro(&copy)?;
         let new_id = copy.id;
-        let hotkey = None; // a hotkey belongs to one macro
-        self.entries.insert(pos + 1, Entry { macro_: copy, runs: 0, last_run: None, hotkey });
+        // A copy starts with no triggers: two macros on one hotkey or schedule would collide.
+        self.entries.insert(pos + 1, Entry::new(copy));
         self.save_index()?;
         Ok(new_id)
     }
@@ -177,7 +215,7 @@ impl Library {
         fs::create_dir_all(&trash_dir)?;
         fs::rename(self.macro_path(id), trash_dir.join(format!("{id}.rly")))?;
         let e = self.entries.remove(position);
-        self.trash.insert(id, TrashEntry { position, meta: IndexEntry { runs: e.runs, last_run: e.last_run, hotkey: e.hotkey } });
+        self.trash.insert(id, TrashEntry { position, meta: IndexEntry::of(&e) });
         Ok(self.save_index()?)
     }
 
@@ -189,7 +227,7 @@ impl Library {
         fs::rename(&from, self.macro_path(id))?;
         self.trash.remove(&id);
         let pos = t.position.min(self.entries.len());
-        self.entries.insert(pos, Entry { macro_: m, runs: t.meta.runs, last_run: t.meta.last_run, hotkey: t.meta.hotkey });
+        self.entries.insert(pos, Entry { macro_: m, runs: t.meta.runs, last_run: t.meta.last_run, triggers: t.meta.triggers() });
         Ok(self.save_index()?)
     }
 
@@ -222,6 +260,17 @@ impl Library {
         (2..).map(|i| format!("{name} {i}")).find(|n| !taken(n)).expect("a free name")
     }
 
+    /// Every macro's triggers, for the trigger runtime.
+    pub fn all_triggers(&self) -> Vec<(Uuid, MacroTriggers)> {
+        self.entries.iter().map(|e| (e.macro_.id, e.triggers.clone())).collect()
+    }
+
+    pub fn set_triggers(&mut self, id: Uuid, triggers: MacroTriggers) -> Result<(), LibraryError> {
+        let pos = self.position(id)?;
+        self.entries[pos].triggers = triggers;
+        Ok(self.save_index()?)
+    }
+
     /// The next free "Recording N" name.
     pub fn next_recording_name(&self) -> String {
         let n = self
@@ -244,7 +293,7 @@ impl Library {
             entries: self
                 .entries
                 .iter()
-                .map(|e| (e.macro_.id, IndexEntry { runs: e.runs, last_run: e.last_run, hotkey: e.hotkey.clone() }))
+                .map(|e| (e.macro_.id, IndexEntry::of(e)))
                 .collect(),
             trash: self.trash.clone(),
         };
@@ -291,7 +340,7 @@ mod tests {
         let names: Vec<_> = lib.list().into_iter().map(|i| i.name).collect();
         assert_eq!(names[..2], ["Export invoice to PDF".to_string(), "Export invoice to PDF (copy)".to_string()]);
         assert_eq!(lib.get(copy).unwrap().runs, 0);
-        assert_eq!(lib.get(copy).unwrap().hotkey, None);
+        assert_eq!(lib.get(copy).unwrap().hotkey(), None);
         assert_eq!(lib.get(copy).unwrap().macro_.events, lib.get(invoice).unwrap().macro_.events);
         lib.duplicate(invoice).unwrap();
         assert_eq!(lib.list()[1].name, "Export invoice to PDF (copy) 2");
@@ -316,6 +365,35 @@ mod tests {
         assert_eq!(lib.list()[0].id, imported);
         assert_eq!(lib.list()[0].name, "Export invoice to PDF 2");
         assert_eq!(lib.get(imported).unwrap().macro_.events, lib.get(invoice).unwrap().macro_.events);
+    }
+
+    #[test]
+    fn triggers_persist_and_old_hotkeys_migrate_disabled() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut lib, _) = Library::open(dir.path());
+        let invoice = lib.list()[0].id;
+        // Seeded samples show the design's hotkey but leave it off.
+        let t = lib.get(invoice).unwrap().triggers.clone();
+        assert_eq!(t.hotkey, HotkeyTrigger { enabled: false, combo: "Ctrl + Alt + 1".into() });
+        assert_eq!(lib.list()[0].hotkey, None);
+
+        let mut on = t.clone();
+        on.hotkey.enabled = true;
+        on.app_launch.enabled = true;
+        on.app_launch.exe = "notepad.exe".into();
+        lib.set_triggers(invoice, on.clone()).unwrap();
+        let (again, _) = Library::open(dir.path());
+        assert_eq!(again.get(invoice).unwrap().triggers, on);
+        assert_eq!(again.list()[0].hotkey.as_deref(), Some("Ctrl + Alt + 1"));
+
+        // An M2–M6 library.json with a bare hotkey label.
+        let path = dir.path().join("library.json");
+        let old = std::fs::read_to_string(&path).unwrap().replace(r#""triggers""#, r#""old_triggers""#);
+        let old = old.replacen(r#""runs": 148,"#, r#""runs": 148, "hotkey": "Ctrl + Alt + 9","#, 1);
+        std::fs::write(&path, old).unwrap();
+        let (migrated, _) = Library::open(dir.path());
+        let h = &migrated.get(invoice).unwrap().triggers.hotkey;
+        assert_eq!((h.enabled, h.combo.as_str()), (false, "Ctrl + Alt + 9"));
     }
 
     #[test]

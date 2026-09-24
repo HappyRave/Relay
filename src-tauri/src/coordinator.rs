@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use relay_core::model::{CoordMode, Event, Macro, RecordingMeta, Rect};
-use relay_core::session::{self, Effect, FinishReason, HotkeySet, Input, Mode, SessionConfig};
+use relay_core::session::{self, Effect, FinishReason, HotkeySet, Input, Mode, RunSource, SessionConfig};
 use relay_core::steps::group_steps;
 use relay_core::timeline;
 use relay_platform::recorder::{Recorder, RecorderConfig, is_meaningful};
@@ -22,6 +22,7 @@ use crate::library::Library;
 use crate::engine::{self, EngineCmd, EngineHandle, PlayPlan};
 use crate::rec_thread::{RecContext, RecThread};
 use crate::settings::SettingsStore;
+use crate::triggers::TriggerState;
 
 /// F9 stops a recording through its global hotkey; keep it out of the macro.
 const VK_F9: u16 = 0x78;
@@ -43,6 +44,10 @@ pub enum Cmd {
     Select(Uuid),
     Seek(f64),
     Speed(f64),
+    /// A trigger (or a macro hotkey) wants to run a macro.
+    RunMacro { id: Uuid, source: RunSource },
+    /// From the tray or the Triggers tab.
+    SetTriggersPaused(bool),
 }
 
 /// The current session mode, readable by commands (e.g. to refuse deleting
@@ -150,6 +155,8 @@ impl Coordinator {
                 None => self.idle_playhead = t,
             },
             Cmd::Speed(v) => self.engine_cmd(EngineCmd::Speed(v)),
+            Cmd::RunMacro { id, source } => self.run_triggered(id, source),
+            Cmd::SetTriggersPaused(paused) => self.set_triggers_paused(paused),
         }
     }
 
@@ -187,8 +194,15 @@ impl Coordinator {
                 self.emit.send(EngineMsg::Finished { reason, timing: None });
             }
             Effect::SetHotkeys(set) => hotkeys::apply(&self.app, set, &self.emit),
-            // Triggers arrive in M7.
-            Effect::PauseTriggers | Effect::TriggerSkipped(_) => {}
+            Effect::PauseTriggers => {
+                if !self.app.state::<TriggerState>().paused() {
+                    self.set_triggers_paused(true);
+                    self.emit.send(EngineMsg::Notice {
+                        message: "Triggers are paused. Resume them from the tray or the Triggers tab.".into(),
+                    });
+                }
+            }
+            Effect::TriggerSkipped(_) => {}
             Effect::EmitMode(mode) => {
                 if mode == Mode::Idle {
                     self.end_playback();
@@ -202,6 +216,33 @@ impl Coordinator {
                 self.emit.send(EngineMsg::Session { mode, macro_id: self.current });
             }
         }
+    }
+
+    /// A trigger fired: run its macro now if Relay is free and the screen is usable.
+    fn run_triggered(&mut self, id: Uuid, source: RunSource) {
+        if self.app.state::<TriggerState>().paused() {
+            return;
+        }
+        let name = self.app.state::<Mutex<Library>>().lock().unwrap().get(id).map(|e| e.macro_.name.clone());
+        let Some(name) = name else { return };
+        if self.mode != Mode::Idle {
+            self.emit.send(EngineMsg::Notice { message: format!("Skipped “{name}”: Relay was busy") });
+            return;
+        }
+        if !self.platform.windows.input_desktop_available() {
+            // Locked, or a UAC prompt: nothing can be clicked or typed.
+            eprintln!("relay: skipped {name} ({source:?}): the input desktop isn't available");
+            return;
+        }
+        self.current = Some(id);
+        self.idle_playhead = 0.0;
+        self.input(Input::Trigger(source));
+    }
+
+    fn set_triggers_paused(&mut self, paused: bool) {
+        self.app.state::<TriggerState>().set_paused(paused);
+        crate::tray::set_triggers_active(&self.app, !paused);
+        self.emit.send(EngineMsg::TriggersPaused { paused });
     }
 
     fn engine_cmd(&self, cmd: EngineCmd) {

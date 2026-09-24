@@ -35,6 +35,8 @@ pub enum EngineMsg {
     Error { message: String },
     /// Something worth knowing that isn't a failure (e.g. an elevated target).
     Notice { message: String },
+    /// Triggers were paused (by the kill switch) or resumed.
+    TriggersPaused { paused: bool },
 }
 
 #[derive(Default)]

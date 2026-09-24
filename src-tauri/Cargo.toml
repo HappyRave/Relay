@@ -27,6 +27,7 @@ uuid = { version = "1.26", features = ["serde"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"
+tauri-plugin-autostart = "2"
 thiserror.workspace = true
 crossbeam-channel = "0.5.17"
 ts-rs = { version = "12", features = ["chrono-impl", "uuid-impl", "no-serde-warnings"] }

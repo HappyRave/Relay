@@ -233,6 +233,92 @@ pub async fn pick_pixel(platform: State<'_, Arc<Platform>>, delay_ms: u32) -> Re
     .unwrap_or(Err(IpcError { code: "unavailable", message: "Couldn't read the screen".into() }))
 }
 
+// — triggers —
+
+#[derive(Debug, Serialize, TS)]
+#[ts(export)]
+pub struct TriggerStatus {
+    pub triggers: relay_core::triggers::MacroTriggers,
+    /// RFC 3339, local time.
+    pub next_run: Option<String>,
+    /// Why the hotkey isn't working (taken by another app, …).
+    pub hotkey_error: Option<String>,
+    pub paused: bool,
+}
+
+fn trigger_status(app: &tauri::AppHandle, id: Uuid) -> Result<TriggerStatus> {
+    let lib = app.state::<Mutex<Library>>();
+    let lib = lib.lock().unwrap();
+    let triggers = lib.get(id).ok_or(IpcError::not_found(id))?.triggers.clone();
+    Ok(TriggerStatus {
+        next_run: crate::triggers::next_scheduled(&triggers, chrono::Local::now()).map(|t| t.to_rfc3339()),
+        hotkey_error: triggers.hotkey.enabled.then(|| app.state::<crate::hotkeys::MacroHotkeys>().error(id)).flatten(),
+        paused: app.state::<crate::triggers::TriggerState>().paused(),
+        triggers,
+    })
+}
+
+#[tauri::command]
+pub fn get_triggers(app: tauri::AppHandle, id: Uuid) -> Result<TriggerStatus> {
+    trigger_status(&app, id)
+}
+
+/// Saves a macro's triggers. A hotkey that can't work (clashes with Relay's
+/// own or another macro's) is refused; one another app owns is saved and
+/// reported in `hotkey_error`.
+#[tauri::command]
+pub fn set_triggers(
+    app: tauri::AppHandle,
+    mode: State<'_, SessionMode>,
+    id: Uuid,
+    triggers: relay_core::triggers::MacroTriggers,
+) -> Result<TriggerStatus> {
+    {
+        let lib = app.state::<Mutex<Library>>();
+        let mut lib = lib.lock().unwrap();
+        if triggers.hotkey.enabled
+            && let Some(why) = crate::hotkeys::conflict(&lib, id, &triggers.hotkey.combo)
+        {
+            return Err(IpcError { code: "hotkey", message: why });
+        }
+        lib.set_triggers(id, triggers)?;
+    }
+    // Macro hotkeys are only registered while idle; a session re-registers them when it ends.
+    if mode.is_idle() {
+        let emit = app.state::<Arc<Emitter>>();
+        crate::hotkeys::apply(&app, relay_core::session::HotkeySet::Idle, &emit);
+    }
+    trigger_status(&app, id)
+}
+
+#[tauri::command]
+pub fn set_triggers_paused(c: State<'_, CoordinatorHandle>, paused: bool) {
+    c.send(Cmd::SetTriggersPaused(paused));
+}
+
+/// Running apps, for the "When app launches" picker.
+#[tauri::command]
+pub fn list_processes() -> Vec<String> {
+    let mut names: Vec<String> = relay_platform::processes::ProcessWatcher::new().running().into_iter().collect();
+    names.sort();
+    names
+}
+
+#[tauri::command]
+pub fn get_autostart(app: tauri::AppHandle) -> bool {
+    use tauri_plugin_autostart::ManagerExt;
+    app.autolaunch().is_enabled().unwrap_or(false)
+}
+
+#[tauri::command]
+pub fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<bool> {
+    use tauri_plugin_autostart::ManagerExt;
+    let al = app.autolaunch();
+    let r = if enabled { al.enable() } else { al.disable() };
+    r.map_err(|e| IpcError { code: "autostart", message: format!("Couldn't change start with Windows: {e}") })?;
+    Ok(al.is_enabled().unwrap_or(false))
+}
+
 // — window —
 
 /// The UI measured the widget at this size (CSS px); fit the window around it.
