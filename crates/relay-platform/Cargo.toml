@@ -11,6 +11,7 @@ relay-core.workspace = true
 thiserror.workspace = true
 crossbeam-channel = "0.5.17"
 arc-swap = "1.9"
+sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 
 [target.'cfg(windows)'.dependencies]
 # Same major as Tauri's copy, so the app links a single `windows` crate.
@@ -21,6 +22,7 @@ windows = { version = "0.61", features = [
     "Win32_Security",
     "Win32_System_LibraryLoader",
     "Win32_System_Performance",
+    "Win32_System_StationsAndDesktops",
     "Win32_System_Threading",
     "Win32_UI_Accessibility",
     "Win32_UI_HiDpi",

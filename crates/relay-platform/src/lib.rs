@@ -3,6 +3,7 @@
 //! key map are OS-independent so they can be tested anywhere.
 
 pub mod keymap;
+pub mod processes;
 pub mod recorder;
 pub mod types;
 
@@ -75,6 +76,8 @@ pub trait WindowQuery: Send + Sync {
     /// Whether a process runs elevated (as administrator).
     fn is_elevated(&self, pid: u32) -> bool;
     fn self_elevated(&self) -> bool;
+    /// False on the lock screen or a UAC prompt, where no input can be sent.
+    fn input_desktop_available(&self) -> bool;
 }
 
 /// Synthesizes input. Every event carries [`RELAY_MAGIC`] so Relay's own hook

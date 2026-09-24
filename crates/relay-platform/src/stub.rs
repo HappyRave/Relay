@@ -60,6 +60,9 @@ impl WindowQuery for Stub {
     fn self_elevated(&self) -> bool {
         false
     }
+    fn input_desktop_available(&self) -> bool {
+        true
+    }
 }
 
 impl Injector for Stub {
