@@ -1577,6 +1577,7 @@
           ],
           "kind": "click",
           "label": "File menu",
+          "pause": 850,
           "t": 850,
           "x": 134,
           "y": 70
@@ -1591,6 +1592,7 @@
           ],
           "kind": "click",
           "label": "Export as PDF",
+          "pause": 840,
           "t": 1750,
           "x": 230,
           "y": 324
@@ -1603,6 +1605,7 @@
           ],
           "kind": "wait",
           "label": "Dialog opens",
+          "pause": 190,
           "t": 2000
         },
         {
@@ -1617,6 +1620,7 @@
           ],
           "kind": "click",
           "label": "Filename field",
+          "pause": 800,
           "t": 3500,
           "x": 1056,
           "y": 508
@@ -1634,6 +1638,7 @@
             157
           ],
           "kind": "keys",
+          "pause": 90,
           "t": 3770
         },
         {
@@ -1717,6 +1722,7 @@
             183
           ],
           "kind": "type",
+          "pause": 240,
           "t": 4050,
           "text": "invoice_0924"
         },
@@ -1730,6 +1736,7 @@
           ],
           "kind": "click",
           "label": "Save",
+          "pause": 995,
           "t": 6020,
           "x": 1248,
           "y": 680
@@ -1743,6 +1750,7 @@
           ],
           "kind": "pixel_wait",
           "label": "Save button turns grey",
+          "pause": 190,
           "t": 6270,
           "timeout_ms": 5000,
           "tolerance": 8,
@@ -1762,6 +1770,7 @@
             237
           ],
           "kind": "keys",
+          "pause": 20,
           "t": 7190
         },
         {
@@ -1774,6 +1783,7 @@
           ],
           "kind": "click",
           "label": "Invoices folder",
+          "pause": 1440,
           "t": 8670,
           "x": 1670,
           "y": 173
@@ -1788,6 +1798,7 @@
           ],
           "kind": "click",
           "label": "Upload to portal",
+          "pause": 610,
           "t": 9340,
           "x": 1728,
           "y": 324
@@ -1802,6 +1813,7 @@
             338
           ],
           "kind": "keys",
+          "pause": 210,
           "t": 9610
         }
       ]
@@ -2570,6 +2582,7 @@
           ],
           "kind": "click",
           "label": "Mon cell",
+          "pause": 700,
           "t": 700,
           "x": 576,
           "y": 216
@@ -2587,6 +2600,7 @@
             48
           ],
           "kind": "type",
+          "pause": 190,
           "t": 950,
           "text": "8"
         },
@@ -2600,6 +2614,7 @@
             50
           ],
           "kind": "keys",
+          "pause": 265,
           "t": 1255
         },
         {
@@ -2615,6 +2630,7 @@
             52
           ],
           "kind": "type",
+          "pause": 90,
           "t": 1385,
           "text": "8"
         },
@@ -2628,6 +2644,7 @@
             54
           ],
           "kind": "keys",
+          "pause": 265,
           "t": 1690
         },
         {
@@ -2643,6 +2660,7 @@
             56
           ],
           "kind": "type",
+          "pause": 90,
           "t": 1820,
           "text": "8"
         },
@@ -2656,6 +2674,7 @@
             58
           ],
           "kind": "keys",
+          "pause": 265,
           "t": 2125
         },
         {
@@ -2683,6 +2702,7 @@
             64
           ],
           "kind": "type",
+          "pause": 90,
           "t": 2255,
           "text": "7.5"
         },
@@ -2696,6 +2716,7 @@
             66
           ],
           "kind": "keys",
+          "pause": 265,
           "t": 2730
         },
         {
@@ -2711,6 +2732,7 @@
             68
           ],
           "kind": "type",
+          "pause": 90,
           "t": 2860,
           "text": "6"
         },
@@ -2724,6 +2746,7 @@
           ],
           "kind": "click",
           "label": "Submit",
+          "pause": 1145,
           "t": 4045,
           "x": 1190,
           "y": 799
@@ -2736,6 +2759,7 @@
           ],
           "kind": "wait",
           "label": "Confirmation",
+          "pause": 190,
           "t": 4295
         },
         {
@@ -2748,6 +2772,7 @@
           ],
           "kind": "click",
           "label": "OK",
+          "pause": 500,
           "t": 5595,
           "x": 998,
           "y": 594
@@ -3428,6 +3453,7 @@
           ],
           "kind": "click",
           "label": "First photo",
+          "pause": 600,
           "t": 600,
           "x": 384,
           "y": 378
@@ -3445,6 +3471,7 @@
             44
           ],
           "kind": "keys",
+          "pause": 210,
           "t": 870
         },
         {
@@ -3457,6 +3484,7 @@
             46
           ],
           "kind": "keys",
+          "pause": 260,
           "t": 1170
         },
         {
@@ -3522,6 +3550,7 @@
             66
           ],
           "kind": "type",
+          "pause": 240,
           "t": 1450,
           "text": "trip_2026"
         },
@@ -3535,6 +3564,7 @@
             68
           ],
           "kind": "keys",
+          "pause": 265,
           "t": 2435
         },
         {
@@ -3546,6 +3576,7 @@
           ],
           "kind": "pixel_wait",
           "label": "Explorer refresh",
+          "pause": 240,
           "t": 2715,
           "timeout_ms": 5000,
           "tolerance": 8,
@@ -3562,6 +3593,7 @@
           ],
           "kind": "click",
           "label": "Sort by date",
+          "pause": 900,
           "t": 4815,
           "x": 1536,
           "y": 108
@@ -3576,6 +3608,7 @@
           ],
           "kind": "click",
           "label": "Date taken",
+          "pause": 490,
           "t": 5365,
           "x": 1574,
           "y": 216
@@ -4134,6 +4167,7 @@
             4
           ],
           "kind": "keys",
+          "pause": 20,
           "t": 20
         },
         {
@@ -4173,6 +4207,7 @@
             14
           ],
           "kind": "type",
+          "pause": 240,
           "t": 300,
           "text": "teams"
         },
@@ -4186,6 +4221,7 @@
             16
           ],
           "kind": "keys",
+          "pause": 265,
           "t": 945
         },
         {
@@ -4196,6 +4232,7 @@
           ],
           "kind": "wait",
           "label": "Teams loads",
+          "pause": 240,
           "t": 1225
         },
         {
@@ -4208,6 +4245,7 @@
           ],
           "kind": "click",
           "label": "Calendar",
+          "pause": 700,
           "t": 3425,
           "x": 192,
           "y": 432
@@ -4224,6 +4262,7 @@
           ],
           "kind": "click",
           "label": "Standup",
+          "pause": 890,
           "t": 4375,
           "x": 864,
           "y": 324
@@ -4244,6 +4283,7 @@
             117
           ],
           "kind": "keys",
+          "pause": 90,
           "t": 4645
         }
       ]

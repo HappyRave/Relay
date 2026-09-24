@@ -24,6 +24,11 @@ pub enum EditOp {
     SetWaitDuration { index: u32, dur: Ms },
     UpdatePixelWait { index: u32, x: i32, y: i32, color: Rgb, tolerance: u8, timeout_ms: Ms },
     SetLabel { index: u32, label: String },
+    /// Sets the idle time before a step (see [`Step::pause`]). Cursor moves in
+    /// the pause are retimed to fit, and everything after moves with the step.
+    SetPause { index: u32, dur: Ms },
+    /// Shortens every pause longer than `max` to `max`.
+    CapPauses { max: Ms },
 }
 
 #[derive(Debug, Error, PartialEq)]
@@ -108,15 +113,48 @@ pub fn apply(m: &mut Macro, op: EditOp) -> Result<(), EditError> {
                 _ => return Err(EditError::WrongKind(index)),
             }
         }
+
+        EditOp::SetPause { index, dur } => {
+            let step = get(index)?;
+            retime_pause(&mut m.events, step.t - step.pause, step.t, dur);
+        }
+
+        EditOp::CapPauses { max } => {
+            // Last to first: retiming a pause only moves what comes after it,
+            // so the earlier pauses stay where they were computed.
+            for s in steps.iter().rev().filter(|s| s.pause > max) {
+                retime_pause(&mut m.events, s.t - s.pause, s.t, max);
+            }
+        }
     }
     m.modified_at = Utc::now();
     Ok(())
 }
 
-/// Moves `at` just past any step it would split (a press, a drag, a wait),
-/// so a step's own release is never pushed behind the inserted wait.
+/// Turns the pause `from..to` into one of `dur` ms: events inside it (cursor
+/// moves, a shared modifier's release) are scaled to fit, events at or after
+/// `to` shift by the difference. Keeps the events in order.
+fn retime_pause(events: &mut [Event], from: Ms, to: Ms, dur: Ms) {
+    let old = to - from;
+    if old == dur {
+        return;
+    }
+    for e in events.iter_mut() {
+        let t = e.t_mut();
+        if *t >= to {
+            *t = *t - old + dur;
+        } else if *t > from {
+            *t = from + ((*t - from) as u64 * dur as u64 / old as u64) as Ms;
+        }
+    }
+}
+
+/// Moves `at` just past the step it falls on, from its start to its end (a
+/// press, a drag, a wait), so a step's own release is never pushed behind the
+/// inserted wait. Clicking a step puts the playhead on its start, so an
+/// insertion there lands after that step.
 fn snap_insertion(steps: &[Step], mut at: Ms) -> Ms {
-    while let Some(s) = steps.iter().find(|s| s.t < at && at <= s.end) {
+    while let Some(s) = steps.iter().find(|s| s.t <= at && at <= s.end) {
         at = s.end + 1;
     }
     at
@@ -220,6 +258,7 @@ pub fn check_invariants(events: &[Event]) -> Result<(), String> {
 mod tests {
     use super::*;
     use crate::model::RecordingMeta;
+    use crate::steps::group_steps;
 
     fn key(t: Ms, code: &str, down: bool) -> Event {
         Event::Key { t, down, key: KeyStroke::code(code), ch: None }
@@ -273,6 +312,45 @@ mod tests {
         assert_eq!(m.events[1].t(), 1200);
         assert_eq!(apply(&mut m, EditOp::SetWaitDuration { index: 1, dur: 5 }), Err(EditError::WrongKind(1)));
         assert_eq!(apply(&mut m, EditOp::DeleteStep { index: 9 }), Err(EditError::NoSuchStep(9)));
+    }
+
+    #[test]
+    fn inserting_at_a_step_start_goes_after_the_step() {
+        // Clicking a step puts the playhead on its start: the wait follows it.
+        let mut m = mac([click(0), click(1000)].concat());
+        apply(&mut m, EditOp::InsertWait { at: 1000, dur: 500, label: String::new() }).unwrap();
+        let ts: Vec<_> = m.events.iter().map(Event::t).collect();
+        assert_eq!(ts, [0, 80, 1000, 1080, 1081]);
+        assert!(matches!(m.events[4], Event::Wait { t: 1081, .. }));
+        check_invariants(&m.events).unwrap();
+    }
+
+    #[test]
+    fn set_pause_retimes_the_path_and_moves_what_follows() {
+        let mv = |t| Event::Move { t, x: t as i32, y: 0 };
+        let mut m = mac([click(0).to_vec(), vec![mv(500), mv(1500)], click(2080).to_vec()].concat());
+        // The second click comes after a 2000 ms pause (80..2080).
+        let steps = group_steps(&m.events, (&m.recording).into());
+        assert_eq!((steps[0].pause, steps[1].pause), (0, 2000));
+        // (Not under the double-click time: the two clicks would merge.)
+        apply(&mut m, EditOp::SetPause { index: 1, dur: 600 }).unwrap();
+        let ts: Vec<_> = m.events.iter().map(Event::t).collect();
+        assert_eq!(ts, [0, 80, 206, 506, 680, 760]);
+        // The path keeps its shape: the moves keep their positions.
+        assert!(matches!(m.events[3], Event::Move { x: 1500, .. }));
+        check_invariants(&m.events).unwrap();
+        // And back.
+        apply(&mut m, EditOp::SetPause { index: 1, dur: 2000 }).unwrap();
+        assert_eq!(m.events.last().unwrap().t(), 2160);
+    }
+
+    #[test]
+    fn cap_pauses_shortens_only_long_pauses() {
+        let mut m = mac([click(0), click(3080), click(3700), click(9000)].concat());
+        apply(&mut m, EditOp::CapPauses { max: 1000 }).unwrap();
+        let pauses: Vec<_> = group_steps(&m.events, (&m.recording).into()).iter().map(|s| s.pause).collect();
+        assert_eq!(pauses, [0, 1000, 540, 1000]);
+        check_invariants(&m.events).unwrap();
     }
 
     #[test]

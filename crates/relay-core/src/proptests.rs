@@ -86,7 +86,9 @@ fn edit(steps: usize, dur: u32) -> impl Strategy<Value = EditOp> {
             label: String::new()
         }),
         (idx.clone(), 0..3000u32).prop_map(|(index, dur)| EditOp::SetWaitDuration { index, dur }),
-        idx.prop_map(|index| EditOp::SetLabel { index, label: "x".into() }),
+        idx.clone().prop_map(|index| EditOp::SetLabel { index, label: "x".into() }),
+        (idx, 0..3000u32).prop_map(|(index, dur)| EditOp::SetPause { index, dur }),
+        (0..1500u32).prop_map(|max| EditOp::CapPauses { max }),
     ]
 }
 
