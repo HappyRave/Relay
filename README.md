@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/HappyRave/Relay/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/HappyRave/Relay?include_prereleases&label=release&color=ec3013"></a>
+  <a href="https://github.com/HappyRave/Relay/releases"><img alt="Latest version" src="https://img.shields.io/github/v/tag/HappyRave/Relay?sort=semver&filter=!*-m*&label=version&color=ec3013"></a>
   <a href="https://github.com/HappyRave/Relay/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/HappyRave/Relay/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-201e1d">
   <img alt="Built with Rust and Tauri" src="https://img.shields.io/badge/Rust%20%2B%20Tauri%202-201e1d">
@@ -28,7 +28,7 @@
 | | |
 | --- | --- |
 | 🔴 **Record** | Press <kbd>F9</kbd> and work as usual. Every click, drag, scroll and keystroke is captured with its timing, across all your monitors and at any display scaling. |
-| ✏️ **Edit as steps** | Recordings become readable steps: *Click · Save*, *Ctrl + S*, *"invoice_2026"*. Label them, delete them, add waits. |
+| ✏️ **Edit as steps** | Recordings become readable steps: *Click · Save*, *Ctrl + S*, *"invoice_2026"*. Label them, delete them, add waits, trim the pauses. Undo anything. |
 | ▶️ **Play back** | <kbd>F10</kbd> replays it at 0.5× to 4×, once, N times or forever, with optional *Humanize* timing. Accurate to about a millisecond. |
 | 🎯 **Pixel checks** | Wait until something appears on screen before continuing, instead of guessing how long to wait. |
 | ⏰ **Triggers** | Run a macro on a hotkey, on a weekly schedule, when an app starts, or when a pixel changes color. |
@@ -131,9 +131,8 @@ Relay is a Rust workspace (`relay-core` for the pure logic, `relay-platform` for
 ## Roadmap
 
 - [x] **1.0**: recording, step editing, playback, pixel checks, triggers, library, tray, installer
+- [x] **1.1**: undo and redo, editing and trimming pauses, waits inserted after the selected step, recording Esc
 - [ ] AutoHotkey v2 and standalone `.exe` export
-- [ ] Undo for step edits
-- [ ] Editing recorded pauses
 - [ ] Code signing
 - [ ] Remapping macros to a different monitor layout
 - [ ] macOS and Linux backends

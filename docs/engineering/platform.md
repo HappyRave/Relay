@@ -80,7 +80,7 @@ flowchart TD
 | --- | --- | --- |
 | `record` | `true` | `false`: nothing is reported except Esc and stop keys |
 | `own_rect`, `own_window` | Relay's window, to drop UI clicks and keys | The same |
-| `swallow_escape` | `true` | `true` |
+| `swallow_escape` | From settings (*Esc stops recording*, default `true`). Off, Esc is recorded like any key. | `true` |
 | `ignore_injected` | From settings (default `true`) | The same |
 | `drop_vks` | `[F9]` | `[F10]` |
 | `stop_on_key` | `false` | From the macro |

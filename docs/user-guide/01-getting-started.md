@@ -9,7 +9,7 @@ This page takes you from downloading Relay to replaying your first macro.
 
 ## Install
 
-1. Download **`Relay_1.0.0_x64-setup.exe`** from the [releases page](https://github.com/HappyRave/Relay/releases).
+1. Download **`Relay_<version>_x64-setup.exe`** from the [releases page](https://github.com/HappyRave/Relay/releases).
 2. Run it. Relay installs for your Windows user only, so it doesn't ask for administrator rights.
 3. Start **Relay** from the Start menu.
 

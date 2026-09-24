@@ -6,7 +6,9 @@ Relay doesn't show you a thousand raw mouse events. It groups them into **steps*
 - [The steps list](#the-steps-list)
 - [The step editor](#the-step-editor)
 - [Waits](#waits)
+- [Pauses](#pauses)
 - [Deleting steps](#deleting-steps)
+- [Undo and redo](#undo-and-redo)
 - [The preview](#the-preview)
 - [The timeline](#the-timeline)
 - [Renaming a macro](#renaming-a-macro)
@@ -35,8 +37,9 @@ Mouse movement between steps isn't a step: it's the path the cursor follows to g
 Each row shows the **time** the step starts, its **type** tag, what it does and a detail line (the position of a click, how many characters were typed…).
 
 - The row under the playhead is **highlighted**, and rows not yet reached are dimmed. During playback, the list scrolls to follow along.
-- **Click a row** to move the playhead there. For clicks, drags, waits and pixel checks this also opens the step editor. Click the row again to close it.
-- The bar above the list shows the step count and the total length, with **+ Wait** and **+ Pixel check**.
+- **Click a row** to move the playhead there and open the step editor. Click the row again to close it.
+- A striped line such as **1.4 s pause** above a row marks a long [pause](#pauses) before that step.
+- The bar above the list shows the step count, with **+ Wait**, **+ Pixel check** and **Trim pauses**.
 
 You can only edit while nothing is recording or playing.
 
@@ -46,6 +49,7 @@ You can only edit while nothing is recording or playing.
 
 | Step | What you can change |
 | --- | --- |
+| Every step | **Pause before**: the idle time before the step, in seconds. See [Pauses](#pauses). |
 | Click, drag | **Label**, for example *Save button*. Labels appear in the list and, if **Click labels** is on, in the preview. |
 | Wait | **Duration** in seconds, and a **label**. |
 | Pixel check | **X**, **Y**, **Color**, **Tolerance**, **Timeout** and a **label**, or **Pick** a pixel on screen. See [Pixel checks](05-pixel-checks.md). |
@@ -54,14 +58,26 @@ Changes save as soon as you leave a field or press <kbd>Enter</kbd>. There's no 
 
 ## Waits
 
-**+ Wait** inserts a 0.5-second pause **at the playhead**. Everything after it moves later by the same amount.
+**+ Wait** inserts a 0.5-second wait **after the step under the playhead**. Everything after it moves later by the same amount.
 
-To put the wait in the right place, **click the step it should come before**: that moves the playhead to the start of the step. Then press **+ Wait**. You can also drag the playhead anywhere on the timeline. If the playhead is in the middle of a step, such as between the press and the release of a drag, the wait goes right after that step, so the step never gets split.
+So to put a wait in the right place, **click the step it should come after**, then press **+ Wait**. You can also drag the playhead into the gap between two steps: the wait goes exactly there. A step is never split: if the playhead is in the middle of one, such as between the press and the release of a drag, the wait goes right after it.
 
 Then open the wait to set its length. Making a wait longer or shorter moves everything after it too.
 
 > [!TIP]
 > A wait is fine when an app always takes about the same time. When the delay varies (a page loading, a file exporting), use a [pixel check](05-pixel-checks.md) instead: it waits exactly as long as needed.
+
+## Pauses
+
+A **pause** is the time you spent between two steps while recording: reading the screen, waiting for a window, reaching for the mouse. Only the cursor moves during a pause. Pauses of a second or more are marked in the steps list, like **1.4 s pause**.
+
+- **Change one pause**: open the step after it and set **Pause before**. The mouse movement during the pause is sped up or slowed down to fit, so the cursor still follows the same path. Everything after the step moves earlier or later.
+- **Shorten them all**: **Trim pauses** shortens every pause longer than 1 second to 1 second. Relay tells you how many it changed, with an **Undo** button.
+
+A pause is different from a [wait](#waits): a wait is a step you added on purpose, a pause is the recorded time between steps.
+
+> [!NOTE]
+> Two clicks on the same spot less than your double-click time apart (usually half a second) are a double click, to Windows as much as to Relay. If you shorten the pause between two such clicks that far, they merge into one **Double click** step.
 
 ## Deleting steps
 
@@ -71,8 +87,21 @@ Hover a row and click its **×**. The whole step goes: a click's press and relea
 - Deleting any other step leaves the timing of the rest alone.
 - Relay makes sure nothing stays pressed. If you delete a press, its release goes too.
 
-> [!IMPORTANT]
-> There's no undo for step edits in v1. If you're about to make big changes, [duplicate](07-library.md#duplicate) the macro first.
+After you delete a step, the message at the bottom of the panel has an **Undo** button.
+
+## Undo and redo
+
+Every change you make to a macro (deleting, inserting, pauses, waits, pixel checks, labels, the name) can be undone:
+
+| To… | Press |
+| --- | --- |
+| Undo | **Undo** in the header, or <kbd>Ctrl</kbd>+<kbd>Z</kbd> |
+| Redo | **Redo** in the header, or <kbd>Ctrl</kbd>+<kbd>Y</kbd> (or <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd>) |
+
+- Each macro has its own history of up to 100 changes. It lasts until you quit Relay.
+- Typing a new name counts as one change, not one per letter.
+- In a text field, <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes your typing in that field instead.
+- Playback options (speed, repeat, Humanize…) and triggers are settings, not edits, and aren't part of the history.
 
 ## The preview
 

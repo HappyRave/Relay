@@ -39,12 +39,12 @@ Set `PROPTEST_CASES=2000` for a longer property-test run than the default.
 
 ## relay-core
 
-About 56 tests, all pure, so they also run on Linux.
+About 85 tests, all pure, so they also run on Linux.
 
 | Area | What's tested |
 | --- | --- |
 | `steps` | Click vs. drag at the slop boundary, double and triple clicks by time and distance, scroll merging and direction changes, typing gaps, Ctrl combos vs. AltGr text, modifier ownership, auto-repeat |
-| `edit` | Each `EditOp`, insertion snapping out of a press, deleting a wait closes the gap, `normalize` on orphan releases and unreleased presses |
+| `edit` | Each `EditOp`, inserting after the step under the playhead and never inside one, deleting a wait closes the gap, retiming a pause and trimming pauses, `normalize` on orphan releases and unreleased presses |
 | `format` | Round trips, `NotRelay` and `TooNew`, the v0 migration |
 | `playback` | The clock under speed changes, pause, seek and loops. Humanize stays within bounds, keeps whole steps together and keeps order. |
 | `session` | Every transition and its effects, including the ignored inputs |
@@ -59,7 +59,7 @@ About 56 tests, all pure, so they also run on Linux.
 | --- | --- |
 | `recordings_satisfy_the_invariants` | Any generated recording, normalized, is sorted, balanced and has nothing inside waits |
 | `steps_own_disjoint_valid_events` | Every step's items are valid indices, and no event belongs to two steps |
-| `edits_preserve_the_invariants` | Any sequence of inserts, deletes, duration changes and label changes keeps the invariants |
+| `edits_preserve_the_invariants` | Any sequence of inserts, deletes, duration, pause and label changes and pause trimming keeps the invariants |
 | `deleting_every_step_leaves_only_moves` | Deleting steps until none are left leaves only cursor moves |
 
 When proptest finds a failure, it shrinks it to a minimal case and saves it in `proptest-regressions/`. Commit that file, so the case is retried forever.
@@ -81,6 +81,7 @@ When proptest finds a failure, it shrinks it to a minimal case and saves it in `
 | Module | What's tested |
 | --- | --- |
 | `engine` | With a fake clock, a recording injector and a fake screen: injection on schedule and lateness stats, speed, pause/seek/speed changes, loops releasing between loops, releasing a button when dropped mid-drag, pixel checks waiting, timing out with their step number, and pausing during a check, and the window offset |
+| `history` | Undo and redo, a new edit clearing redo, typed renames as one step |
 | `hotkeys` | Parsing UI combos, conflicts with Relay's own and other macros' hotkeys |
 | `library` | Seeding on first run, persistence, duplicate/trash/restore/import, triggers and the pre-trigger hotkey migration, broken files reported without failing |
 | `settings` | Persistence and partial files |
@@ -150,6 +151,7 @@ What automated tests can't cover well:
 | --- | --- |
 | **windows** | `npm ci` → `cargo test --workspace` → **generated files are up to date** (`git diff --exit-code` on the bindings and the browser fixture) → `cargo clippy -D warnings` → `npm run check` → `npm test` → `npx tauri build` → upload the installer as an artifact |
 | **linux** | `cargo test` and `clippy -D warnings` for `relay-core` and `relay-platform`, which keeps them portable |
+| **msrv** | `cargo check --workspace` with Rust 1.95, the `rust-version` in `Cargo.toml` (the highest any dependency needs, from `sysinfo`) |
 
 ## Releases
 

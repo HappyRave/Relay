@@ -23,7 +23,8 @@
 | [`rec_thread.rs`](../../src-tauri/src/rec_thread.rs) | 158 | The recorder thread and the hook watchdog |
 | [`hotkeys.rs`](../../src-tauri/src/hotkeys.rs) | 195 | Global and macro hotkeys |
 | [`triggers.rs`](../../src-tauri/src/triggers.rs) | 157 | Schedule, app-launch and pixel threads |
-| [`commands.rs`](../../src-tauri/src/commands.rs) | 368 | Tauri commands |
+| [`commands.rs`](../../src-tauri/src/commands.rs) | 397 | Tauri commands |
+| [`history.rs`](../../src-tauri/src/history.rs) | 149 | Undo and redo of macro edits |
 | [`ipc.rs`](../../src-tauri/src/ipc.rs) | 62 | `EngineMsg` and the `Emitter` |
 | [`library.rs`](../../src-tauri/src/library.rs) | 408 | Macros on disk, trash, import |
 | [`settings.rs`](../../src-tauri/src/settings.rs) | 87 | `settings.json` |
@@ -72,6 +73,7 @@ Tauri's `app.manage` holds everything shared. Commands get it with `State<'_, T>
 | Session mode | `SessionMode` (`RwLock<Option<Mode>>`) | Commands that must refuse while busy |
 | Macro hotkeys | `MacroHotkeys` | Hotkey handler, `set_triggers` |
 | Trigger pause | `TriggerState` (`AtomicBool`) | Triggers, coordinator, tray |
+| Edit history | `EditHistory` | `edit_macro`, `undo_edit`, and every command that returns a `MacroView` |
 | Window | `WindowState` | Window commands and events |
 
 Locks are held briefly and never across a blocking call or while sending to another thread that might take the same lock.
@@ -97,7 +99,7 @@ pub enum Cmd {
 Every `Input` goes through `session::step`, and the coordinator performs the returned effects in order (see [the state machine](core.md#the-session-state-machine)). A few effects in detail:
 
 **StartRecording**
-1. Build a `HookConfig` with Relay's window rect and handle, `drop_vks: [F9]`, `record: true`, and start the hook with a bounded channel of 8,192 events.
+1. Build a `HookConfig` with Relay's window rect and handle, `drop_vks: [F9]`, `record: true`, `swallow_escape` from the *Esc stops recording* setting, and start the hook with a bounded channel of 8,192 events.
 2. Read the double-click settings, create a `Recorder`, and spawn the recorder thread.
 3. If the hook fails, report the error and queue `Input::Stop` so the transition in progress completes first.
 
@@ -221,6 +223,16 @@ The kill switch's `PauseTriggers` effect sets `TriggerState`, unchecks the tray'
 `Library::open` loads every `.rly` in `macros/` (skipping and logging broken files), orders them by `library.json` (files it doesn't list go last, newest first), and attaches stats and triggers. With no index and no files, it **seeds the four samples**, with their design hotkeys present but disabled.
 
 [`storage.rs`](../../src-tauri/src/storage.rs): the data directory is `%APPDATA%\Relay`, or `RELAY_DATA_DIR` if set. `write_atomic` writes a temp file and renames it over the target, so a crash never leaves a half-written file.
+
+## Undo history
+
+[`history.rs`](../../src-tauri/src/history.rs): `EditHistory` keeps, per macro id, an undo and a redo stack of snapshots (the `name` and `events`, the only things edits change), up to 100 deep, in memory only.
+
+- `edit_macro` clones the macro, applies the `EditOp`, and on success calls `record(id, &before, &op)`, which pushes the snapshot and clears the redo stack. Renames less than 2 s apart are one entry, since the UI saves the name as it's typed.
+- `undo_edit(id, redo)` swaps the current state with the top of one stack, pushes it on the other, and saves the `.rly`.
+- `view_of(macro, history)` fills `MacroView.can_undo` and `can_redo`, so every view the UI gets knows whether its buttons are enabled.
+
+Playback options and triggers aren't edits and bypass the history.
 
 ## Settings
 
