@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.4.0-m3: Playback engine
+
+- **Playback injects real input** through SendInput:
+  - The cursor moves to the exact pixel on the virtual desktop.
+  - All mouse buttons and the wheel are replayed.
+  - Keys replay by recorded scan code. When none was recorded they use the virtual key, which keeps AZERTY and other layouts correct.
+  - Relay's own hook ignores its injected input.
+- **Timing** uses a high-resolution waitable timer plus a short spin, on a high-priority thread with Windows power throttling turned off. Measured lateness was under 1 ms at p99 in testing.
+- **Controls:** speed (0.5×–4×), repeat N times or forever, and Humanize (seeded per-step jitter, with presses and releases shifted together). Pause, resume and seeking re-anchor the clock without drift.
+- **Stopping:** Esc, "Stop on key press" (the key is swallowed so it doesn't type into the target), the Ctrl+Alt+End kill switch and the Stop button. Every key and button the engine holds is released on stop, seek, loop end and drop, so nothing gets stuck.
+- **Focus:** pressing Play in Relay's window hands focus back to the app you were using, via a foreground tracker.
+- **"Window" coordinates** follow the anchor window if it has moved.
+- **Warnings** appear for an elevated (administrator) target, which Windows won't let Relay control.
+- **Click-through:** the widget lets clicks through while a macro clicks under it.
+- **Runs:** completed runs are counted, with the last-run time, in the library.
+
 ## v0.3.0-m2: Recording
 
 - **Recording on Windows** uses system-wide keyboard and mouse hooks (WH_KEYBOARD_LL / WH_MOUSE_LL) with high-resolution timestamps.

@@ -7,7 +7,13 @@ use std::time::Instant;
 use crossbeam_channel::Sender;
 use relay_core::model::{MonitorInfo, Rect, WindowInfo};
 
-use crate::{CharTranslator, HeldKeys, HookConfig, HookSession, InputHook, Platform, PlatformError, RawInput, Result, Screen, WindowQuery};
+use relay_core::keys::KeyStroke;
+use relay_core::model::MouseBtn;
+
+use crate::{
+    CharTranslator, HeldKeys, HookConfig, HookSession, InputHook, Injector, Platform, PlatformError, RawInput, Result,
+    Screen, Timer, WindowQuery, WindowRef,
+};
 
 struct Stub;
 
@@ -36,6 +42,67 @@ impl WindowQuery for Stub {
     fn root_window_at(&self, _: i32, _: i32) -> Option<WindowInfo> {
         None
     }
+    fn foreground(&self) -> Option<WindowRef> {
+        None
+    }
+    fn restore_previous(&self, _: isize) -> Option<WindowRef> {
+        None
+    }
+    fn find_window(&self, _: &str, _: &str) -> Option<WindowInfo> {
+        None
+    }
+    fn is_elevated(&self, _: u32) -> bool {
+        false
+    }
+    fn self_elevated(&self) -> bool {
+        false
+    }
+}
+
+impl Injector for Stub {
+    fn move_to(&mut self, _: i32, _: i32) -> Result<()> {
+        Err(PlatformError::Unsupported)
+    }
+    fn button(&mut self, _: MouseBtn, _: bool) -> Result<()> {
+        Err(PlatformError::Unsupported)
+    }
+    fn wheel(&mut self, _: i32, _: bool) -> Result<()> {
+        Err(PlatformError::Unsupported)
+    }
+    fn key(&mut self, _: &KeyStroke, _: bool, _: Option<&str>) -> Result<()> {
+        Err(PlatformError::Unsupported)
+    }
+}
+
+/// A plain sleeping timer.
+struct SleepTimer(Arc<(std::sync::Mutex<bool>, std::sync::Condvar)>);
+
+impl Timer for SleepTimer {
+    fn now_ms(&self) -> f64 {
+        now_ms()
+    }
+    fn wait_until(&mut self, deadline: f64) -> bool {
+        let (lock, cv) = &*self.0;
+        let mut woken = lock.lock().unwrap();
+        loop {
+            if *woken {
+                *woken = false;
+                return true;
+            }
+            let left = deadline - now_ms();
+            if left <= 0.0 {
+                return false;
+            }
+            woken = cv.wait_timeout(woken, std::time::Duration::from_secs_f64(left / 1000.0)).unwrap().0;
+        }
+    }
+    fn waker(&self) -> Arc<dyn Fn() + Send + Sync> {
+        let pair = self.0.clone();
+        Arc::new(move || {
+            *pair.0.lock().unwrap() = true;
+            pair.1.notify_all();
+        })
+    }
 }
 
 impl CharTranslator for Stub {
@@ -55,6 +122,8 @@ pub fn platform() -> Platform {
         screen: Arc::new(Stub),
         windows: Arc::new(Stub),
         translator: || Box::new(Stub),
+        injector: || Box::new(Stub),
+        timer: || Box::new(SleepTimer(Arc::default())),
         now_ms,
     }
 }

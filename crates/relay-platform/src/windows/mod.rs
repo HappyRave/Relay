@@ -2,8 +2,10 @@
 //! coordinate here is a physical pixel on the virtual desktop.
 
 mod hook;
+mod inject;
 mod screen;
 mod text;
+mod timer;
 mod window;
 
 use std::sync::{Arc, OnceLock};
@@ -34,8 +36,10 @@ pub fn platform() -> Platform {
     Platform {
         hook: Box::new(hook::LowLevelHook),
         screen: Arc::new(screen::WinScreen),
-        windows: Arc::new(window::WinWindows),
+        windows: Arc::new(window::WinWindows::new()),
         translator: || Box::new(text::ToUnicodeTranslator),
+        injector: || Box::new(inject::SendInputInjector),
+        timer: timer::new,
         now_ms,
     }
 }

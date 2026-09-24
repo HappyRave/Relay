@@ -35,7 +35,7 @@ $env:RELAY_DATA_DIR = "$env:TEMP\relay-test"; npm run tauri dev
 - [x] M0: Scaffold and skin
 - [x] M1: relay-core (model, steps, edits, format)
 - [x] M2: Recording
-- [ ] M3: Playback engine
+- [x] M3: Playback engine
 - [ ] M4: Steps editor and pixel checks
 - [ ] M5: Library, settings, export and import
 - [ ] M6: Window polish, tray, single instance
