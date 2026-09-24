@@ -32,7 +32,7 @@
 
 <div class="editor" role="group" aria-label="Edit step">
   <div class="grid">
-    <label title="Idle time before this step, while only the mouse moves">
+    <label class="pause" title="Idle time before this step, while only the mouse moves">
       Pause before s
       <input class="input" type="number" min="0" step="0.1" value={(step.pause / 1000).toFixed(1)} onchange={(e) => setPause(num(e))} />
     </label>
@@ -92,6 +92,14 @@
 </div>
 
 <style>
+  /* Two columns for the label, one for the field, like the fields below. */
+  .pause {
+    grid-column: span 2;
+    white-space: nowrap;
+  }
+  .pause input {
+    width: calc(50% - 4px);
+  }
   .editor {
     display: flex;
     flex-direction: column;
