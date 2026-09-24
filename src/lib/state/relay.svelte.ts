@@ -20,7 +20,7 @@ import type { Mode as EngineMode } from "../ipc/bindings/Mode";
 import type { Settings } from "../ipc/bindings/Settings";
 import type { TimingStats } from "../ipc/bindings/TimingStats";
 import { backend, type IpcError } from "../ipc/backend";
-import { isTauri } from "../platform/window";
+import { isTauri, savedExpanded } from "../platform/window";
 import { lastIndexAtOrBefore } from "../preview/geometry";
 import { jumpTarget } from "../timeline/lanes";
 import { slug } from "../format";
@@ -50,6 +50,7 @@ const DEFAULT_SETTINGS: Settings = {
   ignore_injected: true,
   path_mode: "full",
   show_click_labels: true,
+  close_to_tray: true,
 };
 const MODES: Record<EngineMode, Mode> = {
   idle: "idle",
@@ -129,7 +130,12 @@ class RelayStore {
 
   // — lifecycle —
 
+  /** False until the saved window mode is known (so the widget never flashes the wrong size). */
+  ready = $state(false);
+
   async init() {
+    this.expanded = await savedExpanded().catch(() => true);
+    this.ready = true;
     await backend.subscribe(this.onEngine);
     try {
       this.settings = await backend.getSettings();

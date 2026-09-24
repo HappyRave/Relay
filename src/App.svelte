@@ -15,7 +15,7 @@
 </script>
 
 {#if tauri}
-  <Widget />
+  {#if relay.ready}<Widget />{/if}
 {:else}
   <DevDesktop />
 {/if}

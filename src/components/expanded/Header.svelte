@@ -2,7 +2,7 @@
   import Grip from "../shared/Grip.svelte";
   import Icon from "../ui/Icon.svelte";
   import { relay } from "../../lib/state/relay.svelte";
-  import { closeWindow, isTauri } from "../../lib/platform/window";
+  import { hideToTray, isTauri } from "../../lib/platform/window";
   import { plural } from "../../lib/format";
 
   const tauri = isTauri();
@@ -24,8 +24,13 @@
     <Icon name="collapse" size={18} />
   </button>
   {#if tauri}
-    <!-- The design has no close control; M6 turns this into hide-to-tray. -->
-    <button class="icon" title="Close" aria-label="Close" onclick={closeWindow}><Icon name="x" size={16} /></button>
+    <!-- The design has no close control: this hides Relay to the tray (Quit is in the tray menu). -->
+    <button
+      class="icon"
+      title={relay.settings.close_to_tray ? "Hide to tray" : "Quit"}
+      aria-label={relay.settings.close_to_tray ? "Hide to tray" : "Quit"}
+      onclick={hideToTray}><Icon name="x" size={16} /></button
+    >
   {/if}
 </div>
 

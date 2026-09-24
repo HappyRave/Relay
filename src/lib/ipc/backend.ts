@@ -113,6 +113,7 @@ function browserBackend(): Backend {
     ignore_injected: true,
     path_mode: "full",
     show_click_labels: true,
+    close_to_tray: true,
   };
   const find = async (id: string) => {
     await ready;
