@@ -9,6 +9,8 @@ import type { Mode } from "./bindings/Mode";
 import type { Settings } from "./bindings/Settings";
 import type { PickedPixel } from "./bindings/PickedPixel";
 import type { ImportResult } from "./bindings/ImportResult";
+import type { MacroTriggers } from "./bindings/MacroTriggers";
+import type { TriggerStatus } from "./bindings/TriggerStatus";
 import { isTauri } from "../platform/window";
 
 export interface Backend {
@@ -40,6 +42,14 @@ export interface Backend {
   samplePixel(x: number, y: number): Promise<string | null>;
   /** After `delayMs`, the position and color under the cursor. */
   pickPixel(delayMs: number): Promise<PickedPixel>;
+  getTriggers(id: string): Promise<TriggerStatus>;
+  /** Rejects a hotkey that clashes with Relay's own or another macro's. */
+  setTriggers(id: string, triggers: MacroTriggers): Promise<TriggerStatus>;
+  setTriggersPaused(paused: boolean): Promise<void>;
+  /** Running executables, for the "When app launches" suggestions. */
+  listProcesses(): Promise<string[]>;
+  getAutostart(): Promise<boolean>;
+  setAutostart(enabled: boolean): Promise<boolean>;
 }
 
 /** Errors from Rust commands arrive as `{ code, message }`. */
@@ -85,6 +95,12 @@ const tauriBackend: Backend = {
   updateSettings: (settings) => invoke("update_settings", { settings }),
   samplePixel: (x, y) => invoke("sample_pixel", { x, y }),
   pickPixel: (delayMs) => invoke("pick_pixel", { delayMs }),
+  getTriggers: (id) => invoke("get_triggers", { id }),
+  setTriggers: (id, triggers) => invoke("set_triggers", { id, triggers }),
+  setTriggersPaused: (paused) => invoke("set_triggers_paused", { paused }),
+  listProcesses: () => invoke("list_processes"),
+  getAutostart: () => invoke("get_autostart"),
+  setAutostart: (enabled) => invoke("set_autostart", { enabled }),
 };
 
 interface FixtureItem {
@@ -121,6 +137,14 @@ function browserBackend(): Backend {
     if (!item) throw { code: "not_found", message: `no macro with id ${id}` } satisfies IpcError;
     return item;
   };
+  const browserTriggers = new Map<string, MacroTriggers>();
+  const triggersFor = (id: string): MacroTriggers =>
+    browserTriggers.get(id) ?? {
+      hotkey: { enabled: false, combo: items.find((i) => i.view.id === id)?.hotkey ?? "" },
+      schedule: { enabled: false, schedule: { days: [true, true, true, true, true, false, false], time: "09:00" } },
+      app_launch: { enabled: false, exe: "", delay_ms: 2000 },
+      pixel: { enabled: false, x: 0, y: 0, color: "#EC3013", tolerance: 8 },
+    };
   const unavailable = (): never => {
     throw { code: "unavailable", message: "This needs the Relay app (npm run tauri dev)" } satisfies IpcError;
   };
@@ -248,6 +272,16 @@ function browserBackend(): Backend {
     updateSettings: async (s) => (settings = s),
     samplePixel: async () => null,
     pickPixel: async () => unavailable(),
+    // Triggers only live in memory here, so the tab can be tried out.
+    getTriggers: async (id) => ({ triggers: triggersFor(id), next_run: null, hotkey_error: null, paused: false }),
+    setTriggers: async (id, t) => {
+      browserTriggers.set(id, t);
+      return { triggers: t, next_run: null, hotkey_error: null, paused: false };
+    },
+    setTriggersPaused: async () => {},
+    listProcesses: async () => ["chrome.exe", "excel.exe", "notepad.exe"],
+    getAutostart: async () => false,
+    setAutostart: async () => false,
   };
 }
 

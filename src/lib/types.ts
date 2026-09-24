@@ -20,11 +20,6 @@ export type Mode = "idle" | "count" | "rec" | "play" | "pause";
 export type Tab = "events" | "lib" | "trig" | "options";
 export type ExportFormat = "rly" | "json";
 
-/** Per-macro triggers; UI-only until M7 stores them in library.json. */
-export interface Triggers {
-  hotkey: { enabled: boolean; combo: string };
-  schedule: { enabled: boolean; days: boolean[]; time: string };
-  appLaunch: { enabled: boolean; exe: string };
-  pixel: { enabled: boolean; x: number; y: number; color: string };
-}
+export type { MacroTriggers } from "./ipc/bindings/MacroTriggers";
+export type { TriggerStatus } from "./ipc/bindings/TriggerStatus";
 
