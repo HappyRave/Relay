@@ -26,6 +26,12 @@ import { jumpTarget } from "../timeline/lanes";
 import { slug } from "../format";
 
 const RENAME_DEBOUNCE_MS = 250;
+
+export interface Toast {
+  kind: "error" | "info";
+  message: string;
+  action?: { label: string; run: () => void };
+}
 /** How far past the last tick the playhead may run before the next one arrives. */
 const MAX_EXTRAPOLATION_MS = 100;
 const EMPTY_DESKTOP: Rect = { x: 0, y: 0, w: 1920, h: 1080 };
@@ -72,8 +78,10 @@ class RelayStore {
   settings = $state<Settings>(DEFAULT_SETTINGS);
   library = $state.raw<MacroListItem[]>([]);
   view = $state.raw<MacroView | null>(null);
-  /** The last failed command or engine notice, shown briefly in the Steps tab. */
-  error = $state<string | null>(null);
+  /** A short message at the bottom of the side panel, optionally with an action (Undo). */
+  toast = $state<Toast | null>(null);
+  /** The current error message, if the toast is an error (for tests and debugging). */
+  error = $derived(this.toast?.kind === "error" ? this.toast.message : null);
   /** Injection timing of the last completed playback (for diagnostics). */
   lastTiming: TimingStats | null = null;
   readonly editable = backend.editable;
@@ -92,7 +100,7 @@ class RelayStore {
   private editSeq = 0;
   private renameTimer: ReturnType<typeof setTimeout> | undefined;
   private pendingName: string | null = null;
-  private errorTimer: ReturnType<typeof setTimeout> | undefined;
+  private toastTimer: ReturnType<typeof setTimeout> | undefined;
   /** A just-saved recording to open once the session is back to idle. */
   private pendingLoad: string | null = null;
 
@@ -208,8 +216,10 @@ class RelayStore {
         this.expanded = !this.expanded;
         break;
       case "error":
-      case "notice":
         this.fail({ code: msg.type, message: msg.message });
+        break;
+      case "notice":
+        this.notify(msg.message, undefined, 6000);
         break;
     }
   };
@@ -391,28 +401,98 @@ class RelayStore {
     }
   };
 
+  private show(toast: Toast, ms: number) {
+    this.toast = toast;
+    clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => (this.toast = null), ms);
+  }
+
+  notify(message: string, action?: Toast["action"], ms = 5000) {
+    this.show({ kind: "info", message, action }, action ? Math.max(ms, 8000) : ms);
+  }
+
+  dismissToast = () => {
+    clearTimeout(this.toastTimer);
+    this.toast = null;
+  };
+
   private fail(e: unknown) {
     const message = (e as IpcError)?.message ?? String(e);
     console.error("Relay:", e);
-    this.error = message;
-    clearTimeout(this.errorTimer);
-    this.errorTimer = setTimeout(() => (this.error = null), 4000);
+    this.show({ kind: "error", message }, 5000);
   }
 
-  // — export (M5 replaces the download with a native save dialog) —
+  // — library management —
+
+  duplicateMacro = async (id: string) => {
+    try {
+      const copy = await backend.duplicateMacro(id);
+      await this.refreshLibrary();
+      await this.loadMacro(copy);
+      this.tab = "lib";
+    } catch (e) {
+      this.fail(e);
+    }
+  };
+
+  /** Moves a macro to the trash, with Undo. Opens a neighbour if it was the open one. */
+  deleteMacro = async (id: string) => {
+    const idx = this.library.findIndex((m) => m.id === id);
+    const name = this.library[idx]?.name ?? "macro";
+    try {
+      await backend.deleteMacro(id);
+      await this.refreshLibrary();
+      if (this.view?.id === id) {
+        const next = this.library[Math.min(idx, this.library.length - 1)];
+        if (next) await this.loadMacro(next.id);
+        else this.view = null;
+        this.tab = "lib";
+      }
+      this.notify(`Moved “${name}” to the trash`, { label: "Undo", run: () => this.restoreMacro(id) });
+    } catch (e) {
+      this.fail(e);
+    }
+  };
+
+  restoreMacro = async (id: string) => {
+    this.dismissToast();
+    try {
+      await backend.restoreMacro(id);
+      await this.refreshLibrary();
+      await this.loadMacro(id);
+      this.tab = "lib";
+    } catch (e) {
+      this.fail(e);
+    }
+  };
+
+  importMacros = async () => {
+    try {
+      const result = await backend.importMacros();
+      if (!result) return;
+      await this.refreshLibrary();
+      if (result.imported[0]) await this.loadMacro(result.imported[0]);
+      this.tab = "lib";
+      const n = result.imported.length;
+      const done = n ? `Imported ${n} macro${n === 1 ? "" : "s"}` : "Nothing imported";
+      if (result.problems.length) this.fail({ code: "import", message: `${done}. ${result.problems.join("; ")}` });
+      else this.notify(done);
+    } catch (e) {
+      this.fail(e);
+    }
+  };
+
+  // — export —
 
   exportName = $derived(slug(this.name) + "." + this.exportFmt);
 
   doExport = async () => {
     if (!this.view) return;
     try {
-      const text = await backend.exportText(this.view.id, this.exportFmt);
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(new Blob([text], { type: "application/json" }));
-      a.download = this.exportName;
-      a.click();
-      URL.revokeObjectURL(a.href);
+      const path = await backend.exportMacro(this.view.id, this.exportFmt, this.exportName);
+      if (!path) return; // cancelled: keep the dialog open
       this.exportOpen = false;
+      this.notify(`Saved ${path.split(/[\\/]/).pop()}`);
     } catch (e) {
       this.fail(e);
     }

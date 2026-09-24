@@ -45,6 +45,17 @@ pub enum Cmd {
     Speed(f64),
 }
 
+/// The current session mode, readable by commands (e.g. to refuse deleting
+/// a macro while it plays).
+#[derive(Default)]
+pub struct SessionMode(std::sync::RwLock<Option<Mode>>);
+
+impl SessionMode {
+    pub fn is_idle(&self) -> bool {
+        matches!(*self.0.read().unwrap(), None | Some(Mode::Idle))
+    }
+}
+
 #[derive(Clone)]
 pub struct CoordinatorHandle(Sender<Cmd>);
 
@@ -183,6 +194,7 @@ impl Coordinator {
                     self.end_playback();
                     self.stop_reason = None;
                 }
+                *self.app.state::<SessionMode>().0.write().unwrap() = Some(mode);
                 self.emit.send(EngineMsg::Session { mode, macro_id: self.current });
             }
         }

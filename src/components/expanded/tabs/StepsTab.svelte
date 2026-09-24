@@ -87,7 +87,6 @@
     onclick={relay.insertPixelCheck}>+ Pixel check</button
   >
 </div>
-{#if relay.error}<div class="error" role="alert">{relay.error}</div>{/if}
 <div class="list" bind:this={list}>
   {#each steps as s, i (s.items[0] ?? i)}
     {@const [detail, sub] = describe(s)}
@@ -146,13 +145,6 @@
   .bar .btn {
     font-size: 12px;
     padding: 4px 6px;
-  }
-  .error {
-    padding: 6px 12px;
-    font-size: 12px;
-    background: var(--color-accent-100);
-    color: var(--color-accent-800);
-    border-bottom: 1px solid var(--color-divider);
   }
   .list {
     flex: 1;

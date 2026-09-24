@@ -1,5 +1,6 @@
 <script lang="ts">
   import Kbd from "../../ui/Kbd.svelte";
+  import Icon from "../../ui/Icon.svelte";
   import { relay } from "../../../lib/state/relay.svelte";
   import { fmtLastRun, plural } from "../../../lib/format";
 </script>
@@ -16,6 +17,26 @@
     >
       <div class="top">
         <span class="name">{e.id === relay.view?.id ? relay.name : e.name}</span>
+        {#if relay.editable && relay.mode === "idle"}
+          <span class="actions">
+            <button
+              title="Duplicate"
+              aria-label="Duplicate {e.name}"
+              onclick={(ev) => {
+                ev.stopPropagation();
+                relay.duplicateMacro(e.id);
+              }}><Icon name="copy" size={13} /></button
+            >
+            <button
+              title="Delete"
+              aria-label="Delete {e.name}"
+              onclick={(ev) => {
+                ev.stopPropagation();
+                relay.deleteMacro(e.id);
+              }}><Icon name="trash" size={13} /></button
+            >
+          </span>
+        {/if}
         <Kbd combo={e.hotkey ?? "—"} muted />
       </div>
       <div class="meta">
@@ -24,7 +45,12 @@
       </div>
     </div>
   {/each}
-  <div class="note">New recordings are saved here automatically.</div>
+  <div class="footer">
+    <span class="note">New recordings are saved here automatically.</span>
+    {#if relay.editable}
+      <button class="btn btn-ghost import" onclick={relay.importMacros}>Import…<Icon name="import" size={13} /></button>
+    {/if}
+  </div>
 </div>
 
 <style>
@@ -71,9 +97,42 @@
     font-size: 11px;
     color: var(--color-neutral-700);
   }
+  .footer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 8px 8px 12px;
+  }
   .note {
-    padding: 10px 12px;
+    flex: 1;
     font-size: 11px;
     color: var(--color-neutral-600);
+  }
+  .import {
+    font-size: 12px;
+    padding: 4px 6px;
+  }
+  .actions {
+    display: none;
+    gap: 2px;
+  }
+  .item:hover .actions,
+  .item:focus-within .actions {
+    display: flex;
+  }
+  .actions button {
+    width: 22px;
+    height: 22px;
+    border: 0;
+    background: transparent;
+    color: var(--color-neutral-700);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+  .actions button:hover {
+    color: var(--color-accent);
   }
 </style>

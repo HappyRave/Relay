@@ -17,6 +17,8 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .plugin(hotkeys::plugin())
+        .plugin(tauri_plugin_dialog::init())
+        .manage(coordinator::SessionMode::default())
         .invoke_handler(tauri::generate_handler![
             commands::subscribe_engine,
             commands::toggle_record,
@@ -28,6 +30,11 @@ pub fn run() {
             commands::edit_macro,
             commands::set_playback_options,
             commands::export_text,
+            commands::export_macro,
+            commands::import_macros,
+            commands::duplicate_macro,
+            commands::delete_macro,
+            commands::restore_macro,
             commands::sample_pixel,
             commands::pick_pixel,
             commands::get_settings,

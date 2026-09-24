@@ -2,11 +2,13 @@
 // engine's message stream in the app, or a read-only simulation in a plain
 // browser (`npm run dev`).
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import type { EditOp, ExportFormat, MacroListItem, MacroView, PlaybackOptions } from "../types";
 import type { EngineMsg } from "./bindings/EngineMsg";
 import type { Mode } from "./bindings/Mode";
 import type { Settings } from "./bindings/Settings";
 import type { PickedPixel } from "./bindings/PickedPixel";
+import type { ImportResult } from "./bindings/ImportResult";
 import { isTauri } from "../platform/window";
 
 export interface Backend {
@@ -23,6 +25,15 @@ export interface Backend {
   editMacro(id: string, op: EditOp): Promise<MacroView>;
   setPlaybackOptions(id: string, options: PlaybackOptions): Promise<MacroView>;
   exportText(id: string, format: ExportFormat): Promise<string>;
+  /** Asks where to save, then writes the export. Returns the path, or null if cancelled. */
+  exportMacro(id: string, format: ExportFormat, defaultName: string): Promise<string | null>;
+  /** Asks for files, then imports them. Returns null if cancelled. */
+  importMacros(): Promise<ImportResult | null>;
+  /** Returns the copy's id. */
+  duplicateMacro(id: string): Promise<string>;
+  /** Moves a macro to the trash. */
+  deleteMacro(id: string): Promise<void>;
+  restoreMacro(id: string): Promise<void>;
   getSettings(): Promise<Settings>;
   updateSettings(settings: Settings): Promise<Settings>;
   /** The color of a screen pixel as "#RRGGBB", or null if unreadable. */
@@ -53,6 +64,23 @@ const tauriBackend: Backend = {
   editMacro: (id, op) => invoke("edit_macro", { id, op }),
   setPlaybackOptions: (id, options) => invoke("set_playback_options", { id, options }),
   exportText: (id, format) => invoke("export_text", { id, format }),
+  exportMacro: async (id, format, defaultName) => {
+    const path = await save({
+      defaultPath: defaultName,
+      filters: [{ name: format === "rly" ? "Relay macro" : "JSON events", extensions: [format] }],
+    });
+    if (!path) return null;
+    await invoke("export_macro", { id, format, path });
+    return path;
+  },
+  importMacros: async () => {
+    const picked = await open({ multiple: true, filters: [{ name: "Relay macros", extensions: ["rly", "json"] }] });
+    if (!picked) return null;
+    return invoke("import_macros", { paths: Array.isArray(picked) ? picked : [picked] });
+  },
+  duplicateMacro: (id) => invoke("duplicate_macro", { id }),
+  deleteMacro: (id) => invoke("delete_macro", { id }),
+  restoreMacro: (id) => invoke("restore_macro", { id }),
   getSettings: () => invoke("get_settings"),
   updateSettings: (settings) => invoke("update_settings", { settings }),
   samplePixel: (x, y) => invoke("sample_pixel", { x, y }),
@@ -201,6 +229,20 @@ function browserBackend(): Backend {
       return item.view;
     },
     exportText: async (id) => JSON.stringify((await find(id)).view, null, 2),
+    // The browser can't write files where it likes, so the export downloads.
+    exportMacro: async (id, _format, defaultName) => {
+      const text = JSON.stringify((await find(id)).view, null, 2);
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+      a.download = defaultName;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      return defaultName;
+    },
+    importMacros: async () => unavailable(),
+    duplicateMacro: async () => unavailable(),
+    deleteMacro: async () => unavailable(),
+    restoreMacro: async () => unavailable(),
     getSettings: async () => settings,
     updateSettings: async (s) => (settings = s),
     samplePixel: async () => null,
