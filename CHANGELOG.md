@@ -6,6 +6,7 @@
 - **Pauses:** the time you spent between steps while recording can now be edited. Every step has a *Pause before* field, pauses of a second or more are marked in the steps list, and **Trim pauses** shortens every pause over a second at once. The cursor path in a pause is retimed to fit.
 - **Inserting:** **+ Wait** and **+ Pixel check** now go *after* the step you clicked, instead of before it.
 - **Recording Esc:** turn off *Settings → Recording → Esc stops recording* to record Esc like any key, and stop with F9.
+- **Portable .exe:** each release now also has `Relay_x.y.z_x64-portable.exe`, which runs without installing.
 - **Rust:** the minimum Rust version is now stated correctly (1.95, required by `sysinfo`), and CI builds with it.
 - **Documentation:** a full [user guide](docs/user-guide/README.md) (recording, editing, playback, pixel checks, triggers, the library, settings, troubleshooting and shortcuts) and an [engineering guide](docs/engineering/README.md) (architecture, each crate, IPC, the frontend, file formats and testing), with screenshots of the real app. New `CONTRIBUTING.md`.
 - **Scripts:** `scripts/cdp.mjs` runs JavaScript in the running app over DevTools for end-to-end checks, and `scripts/docs-screenshots.ps1` regenerates the documentation screenshots.

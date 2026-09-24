@@ -1,20 +1,34 @@
 name: Release
 
 # A version tag like v1.0.0 (not the milestone tags such as v0.8.0-m7) builds
-# the installer and attaches it to a *draft* GitHub release, to be reviewed
-# and published by hand.
+# the installer and the portable .exe and attaches them to a *draft* GitHub
+# release, to be reviewed and published by hand.
+#
+# Run it by hand (Actions → Release → Run workflow) with an existing tag to
+# build that tag and add its portable .exe to its release, e.g. for releases
+# made before the portable .exe existed.
 on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to add the portable .exe to (e.g. v1.0.0)"
+        required: true
 
 permissions:
   contents: write
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
@@ -23,12 +37,31 @@ jobs:
           cache: npm
       - run: npm ci
       - run: cargo test --workspace
-      - uses: tauri-apps/tauri-action@v0
+      - name: Build, and create the draft release with the installer
+        if: github.event_name == 'push'
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: Relay ${{ github.ref_name }}
-          releaseBody: See CHANGELOG.md for what's new. The installer is not code-signed yet, so Windows SmartScreen may warn on first run.
+          tagName: ${{ env.TAG }}
+          releaseName: Relay ${{ env.TAG }}
+          releaseBody: |
+            See [CHANGELOG.md](https://github.com/HappyRave/Relay/blob/main/CHANGELOG.md) for what's new.
+
+            - **`Relay_…_x64-setup.exe`**: the installer (per user, no administrator rights needed). Recommended.
+            - **`Relay_…_x64-portable.exe`**: the app on its own, nothing to install. Needs the WebView2 runtime, which Windows 11 includes. Macros and settings are still kept in `%APPDATA%\Relay`.
+
+            Neither is code-signed yet, so Windows SmartScreen may warn on first run: choose **More info → Run anyway**.
           releaseDraft: true
           prerelease: false
+      - name: Build (adding to an existing release)
+        if: github.event_name == 'workflow_dispatch'
+        run: npx tauri build
+      - name: Attach the portable .exe
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $name = "Relay_$($env:TAG.TrimStart('v'))_x64-portable.exe"
+          Copy-Item target/release/relay.exe $name
+          gh release upload $env:TAG $name --clobber --repo $env:GITHUB_REPOSITORY

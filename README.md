@@ -51,11 +51,15 @@
 
 ## Install
 
-1. Download **`Relay_x.y.z_x64-setup.exe`** from the [latest release](https://github.com/HappyRave/Relay/releases).
-2. Run it. It installs for your user only, without administrator rights.
+Get the [latest release](https://github.com/HappyRave/Relay/releases) in one of two forms:
+
+| Download | What it is |
+| --- | --- |
+| **`Relay_x.y.z_x64-setup.exe`** | The installer. Installs for your user only, without administrator rights, and adds Relay to the Start menu. **Recommended.** |
+| **`Relay_x.y.z_x64-portable.exe`** | The app on its own: nothing to install, run it from anywhere (a USB stick, a tools folder). Needs the WebView2 runtime, which Windows 11 includes. |
 
 > [!NOTE]
-> The installer isn't code-signed yet. If SmartScreen says *"Windows protected your PC"*, choose **More info → Run anyway**.
+> Neither is code-signed yet. If SmartScreen says *"Windows protected your PC"*, choose **More info → Run anyway**.
 
 Then follow [Getting started](docs/user-guide/01-getting-started.md) to make your first macro in two minutes.
 

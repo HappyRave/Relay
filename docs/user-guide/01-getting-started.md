@@ -13,8 +13,16 @@ This page takes you from downloading Relay to replaying your first macro.
 2. Run it. Relay installs for your Windows user only, so it doesn't ask for administrator rights.
 3. Start **Relay** from the Start menu.
 
+### Or use the portable .exe
+
+**`Relay_<version>_x64-portable.exe`**, on the same page, is Relay on its own: no installer, no Start menu entry. Put it anywhere and double-click it.
+
+- It needs the Microsoft WebView2 runtime. Windows 11 includes it, and most Windows 10 PCs get it with Microsoft Edge. The installer adds it if it's missing, the portable .exe can't.
+- Your macros and settings are still kept in `%APPDATA%\Relay`, so the portable and the installed Relay share the same Library.
+- To update, replace the file with a newer one. **Start with Windows** remembers where the file is, so turn it off and on again if you move it.
+
 > [!NOTE]
-> The installer isn't code-signed yet, so Windows SmartScreen may show *"Windows protected your PC"*. Click **More info → Run anyway**. The source and the build scripts are all in this repository if you'd like to check what you're running.
+> Relay isn't code-signed yet, so Windows SmartScreen may show *"Windows protected your PC"*. Click **More info → Run anyway**. The source and the build scripts are all in this repository if you'd like to check what you're running.
 
 **Requirements:** Windows 10 or 11 (64-bit), with the WebView2 runtime. Windows 11 includes it, and the installer adds it on Windows 10 if it's missing.
 

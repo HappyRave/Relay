@@ -95,7 +95,7 @@ If you report a problem, attaching the log of that day helps a lot.
 
 ## Uninstall
 
-Uninstall Relay from **Settings → Apps → Installed apps**. Your macros and settings in `%APPDATA%\Relay` are left in place, in case you reinstall. Delete that folder to remove them too.
+Uninstall Relay from **Settings → Apps → Installed apps**. For the portable .exe, just delete the file. Your macros and settings in `%APPDATA%\Relay` are left in place, in case you reinstall. Delete that folder to remove them too.
 
 ---
 
