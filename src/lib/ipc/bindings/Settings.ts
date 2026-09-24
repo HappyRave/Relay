@@ -7,6 +7,11 @@ export type Settings = { capture_moves: boolean, capture_keys: boolean,
  */
 countdown: boolean, 
 /**
+ * Esc stops a recording (and is left out of it). Off, Esc is recorded
+ * like any key and F9 stops. Esc always stops playback.
+ */
+esc_stops_recording: boolean, 
+/**
  * Ignore input injected by other programs (remote-desktop tools inject
  * real user input, so their users may want this off).
  */

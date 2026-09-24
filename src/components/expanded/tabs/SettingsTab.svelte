@@ -65,6 +65,17 @@
   </div>
   <div class="row">
     <div class="grow">
+      <div class="title">Esc stops recording</div>
+      <div class="sub">Turn off to record Esc; stop with F9</div>
+    </div>
+    <Toggle
+      label="Esc stops recording"
+      on={st.esc_stops_recording}
+      onchange={(v) => relay.updateSettings({ esc_stops_recording: v })}
+    />
+  </div>
+  <div class="row">
+    <div class="grow">
       <div class="title">Ignore simulated input</div>
       <div class="sub">Turn off for remote-desktop and KVM tools</div>
     </div>
