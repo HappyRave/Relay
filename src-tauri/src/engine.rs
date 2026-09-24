@@ -399,6 +399,7 @@ pub fn spawn(plan: PlayPlan, platform: &Platform, emit: Arc<Emitter>, coordinato
                     });
                 }
                 if let Some(reason) = finished {
+                    tracing::info!(?reason, timing = ?engine.stats(), "playback finished");
                     if reason == FinishReason::PixelTimeout {
                         let step = engine.timed_out_step.map_or(String::new(), |n| format!(" at step {n}"));
                         emit.send(EngineMsg::Notice { message: format!("Pixel check timed out{step}; playback stopped.") });

@@ -48,6 +48,8 @@ pub enum Cmd {
     RunMacro { id: Uuid, source: RunSource },
     /// From the tray or the Triggers tab.
     SetTriggersPaused(bool),
+    /// The recorder's watchdog saw the cursor move without hook events.
+    HookLost,
 }
 
 /// The current session mode, readable by commands (e.g. to refuse deleting
@@ -81,6 +83,8 @@ struct Coordinator {
     countdown_gen: Arc<AtomicU64>,
     hook: Option<Box<dyn HookSession>>,
     recording: Option<RecThread>,
+    /// How the recording hook was started, to reinstall it if Windows drops it.
+    rec_hook: Option<(HookConfig, crossbeam_channel::Sender<relay_platform::RawInput>)>,
     engine: Option<EngineHandle>,
     /// Why the session is being stopped, for the Finished message.
     stop_reason: Option<FinishReason>,
@@ -101,6 +105,7 @@ pub fn spawn(app: AppHandle, platform: Arc<Platform>, emit: Arc<Emitter>) -> Coo
         countdown_gen: Arc::new(AtomicU64::new(0)),
         hook: None,
         recording: None,
+        rec_hook: None,
         engine: None,
         stop_reason: None,
         click_through: false,
@@ -157,6 +162,7 @@ impl Coordinator {
             Cmd::Speed(v) => self.engine_cmd(EngineCmd::Speed(v)),
             Cmd::RunMacro { id, source } => self.run_triggered(id, source),
             Cmd::SetTriggersPaused(paused) => self.set_triggers_paused(paused),
+            Cmd::HookLost => self.reinstall_hook(),
         }
     }
 
@@ -164,7 +170,10 @@ impl Coordinator {
         let cfg = SessionConfig {
             record_countdown_ms: if self.settings().countdown { 3000 } else { 0 },
         };
-        let (mode, effects) = session::step(self.mode, input, &cfg);
+        let (mode, effects) = session::step(self.mode, input.clone(), &cfg);
+        if mode != self.mode {
+            tracing::info!(from = ?self.mode, to = ?mode, ?input, "session");
+        }
         self.mode = mode;
         for e in effects {
             self.effect(e);
@@ -231,7 +240,7 @@ impl Coordinator {
         }
         if !self.platform.windows.input_desktop_available() {
             // Locked, or a UAC prompt: nothing can be clicked or typed.
-            eprintln!("relay: skipped {name} ({source:?}): the input desktop isn't available");
+            tracing::info!(%id, ?source, "trigger skipped: the input desktop isn't available (locked?)");
             return;
         }
         self.current = Some(id);
@@ -325,6 +334,7 @@ impl Coordinator {
             stop_on_key: false,
         };
         let (raw_tx, raw_rx) = crossbeam_channel::bounded(8192);
+        self.rec_hook = Some((hook_cfg.clone(), raw_tx.clone()));
         match self.platform.hook.start(hook_cfg, raw_tx) {
             Ok(hook) => self.hook = Some(hook),
             Err(e) => {
@@ -341,6 +351,7 @@ impl Coordinator {
             (self.platform.translator)(),
         );
         let ctx = RecContext {
+            screen: self.platform.screen.clone(),
             desktop: self.platform.screen.virtual_desktop(),
             group: relay_core::steps::GroupOptions { double_click_ms: ms, double_click_px: px.max(4) },
             now_ms: self.platform.now_ms,
@@ -350,7 +361,30 @@ impl Coordinator {
         self.recording = Some(RecThread::spawn(recorder, raw_rx, ctx));
     }
 
+    /// Windows removes low-level hooks it thinks are too slow, without telling
+    /// anyone. Put a fresh one in place, feeding the same recorder.
+    fn reinstall_hook(&mut self) {
+        if self.mode != Mode::Recording {
+            return;
+        }
+        let Some((cfg, tx)) = self.rec_hook.clone() else { return };
+        if let Some(hook) = self.hook.take() {
+            hook.stop();
+        }
+        tracing::warn!("the input hook stopped delivering events; reinstalling it");
+        match self.platform.hook.start(cfg, tx) {
+            Ok(hook) => {
+                self.hook = Some(hook);
+                self.emit.send(EngineMsg::Notice {
+                    message: "Windows dropped Relay's input hook; it was restarted. Check the last steps.".into(),
+                });
+            }
+            Err(e) => self.emit.error(format!("Recording lost its input hook and couldn't restart it: {e}")),
+        }
+    }
+
     fn stop_recording(&mut self, keep: bool) {
+        self.rec_hook = None;
         if let Some(hook) = self.hook.take() {
             hook.stop();
         }
@@ -371,6 +405,7 @@ impl Coordinator {
         };
         let lib = self.app.state::<Mutex<Library>>();
         let mut lib = lib.lock().unwrap();
+        tracing::info!(events = recording.events.len(), ms = recording.duration_ms, "recording saved");
         let m = Macro::new(lib.next_recording_name(), meta, recording.events);
         let id = m.id;
         if let Err(e) = lib.insert_front(m) {
