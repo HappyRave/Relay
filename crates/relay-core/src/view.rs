@@ -30,6 +30,10 @@ pub struct MacroView {
     /// Cursor positions over time (moves and presses), for the preview path.
     pub moves: Vec<MovePoint>,
     pub duration: Ms,
+    /// Whether the app has edits of this macro to undo or redo (filled in by
+    /// the app, which keeps the history; always false from [`MacroView::of`]).
+    pub can_undo: bool,
+    pub can_redo: bool,
 }
 
 impl MacroView {
@@ -43,6 +47,8 @@ impl MacroView {
             steps: group_steps(&m.events, (&m.recording).into()),
             moves: cursor_path(&m.events),
             duration: timeline::duration(&m.events),
+            can_undo: false,
+            can_redo: false,
         }
     }
 }

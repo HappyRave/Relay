@@ -42,6 +42,7 @@
 
 <button
   class="capture"
+  data-captures-keys
   class:capturing
   {disabled}
   title="Click, then press the keys (Backspace clears, Esc cancels)"

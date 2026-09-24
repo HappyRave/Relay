@@ -5,6 +5,11 @@ import type { TypedChar } from "./TypedChar";
 
 export type Step = { t: number, end: number, 
 /**
+ * Idle time before the step: since the previous steps ended (or the
+ * start), during which only the cursor moves. 0 when steps overlap.
+ */
+pause: number, 
+/**
  * Indices into the macro's events.
  */
 items: Array<number>, } & ({ "kind": "click", x: number, y: number, btn: MouseBtn, count: number, label: string, } | { "kind": "drag", x: number, y: number, to_x: number, to_y: number, btn: MouseBtn, label: string, } | { "kind": "scroll", x: number, y: number, delta: number, horizontal: boolean, } | { "kind": "keys", combo: Array<string>, } | { "kind": "type", text: string, chars: Array<TypedChar>, } | { "kind": "wait", dur: number, label: string, } | { "kind": "pixel_wait", dur: number, x: number, y: number, color: Rgb, tolerance: number, timeout_ms: number, label: string, });

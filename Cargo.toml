@@ -3,11 +3,12 @@ resolver = "3"
 members = ["crates/relay-core", "crates/relay-platform", "src-tauri"]
 
 [workspace.package]
-version = "1.0.0"
+version = "1.1.0"
 edition = "2024"
 authors = ["HappyRave"]
 repository = "https://github.com/HappyRave/Relay"
-rust-version = "1.85"
+# The highest rust-version among the dependencies (sysinfo); CI checks it.
+rust-version = "1.95"
 
 [workspace.dependencies]
 relay-core = { path = "crates/relay-core" }

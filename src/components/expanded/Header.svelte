@@ -19,6 +19,14 @@
     oninput={(e) => relay.rename(e.currentTarget.value)}
   />
   <div class="meta">{plural(relay.steps.length, "step")} · {plural(relay.moves.length, "path sample")}</div>
+  {#if relay.editable}
+    <button class="icon" title="Undo (Ctrl + Z)" aria-label="Undo" disabled={!relay.canUndo} onclick={relay.undo}>
+      <Icon name="undo" size={17} />
+    </button>
+    <button class="icon" title="Redo (Ctrl + Y)" aria-label="Redo" disabled={!relay.canRedo} onclick={relay.redo}>
+      <Icon name="redo" size={17} />
+    </button>
+  {/if}
   <button class="export" onclick={() => (relay.exportOpen = true)}>Export<Icon name="export" size={15} /></button>
   <button class="icon" title="Compact player (Ctrl + Shift + M)" aria-label="Compact player" onclick={() => (relay.expanded = false)}>
     <Icon name="collapse" size={18} />
@@ -91,8 +99,11 @@
     display: flex;
     align-items: center;
   }
-  button:hover {
+  button:hover:not(:disabled) {
     background: var(--color-neutral-200);
+  }
+  button:disabled {
+    color: var(--color-neutral-500);
   }
   .export {
     font: inherit;

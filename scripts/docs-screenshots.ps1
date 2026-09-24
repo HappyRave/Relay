@@ -54,11 +54,12 @@ Js 'window.__relay.seek(4200); return true' | Out-Null
 Shot "editor.png"
 
 # 2. Playing, with the loop badge and the red trail. The samples were recorded
-# on a 1920x1080 desktop, so this really clicks there: keep the screen clear.
-Js 'await window.__relay.setPlayback({ repeat: { count: 3 } }); window.__relay.seek(0); await window.__relay.togglePlay(); return true' | Out-Null
-Start-Sleep -Milliseconds 5600
+# on a 1920x1080 desktop and would really click there, so this plays only
+# inside a pause (stretched to 5 s, then undone), where the cursor just moves.
+Js 'const r = window.__relay; const i = r.steps.findIndex(s => s.pause >= 1000); await r.setPause(i, 5000); await r.setPlayback({ repeat: { count: 3 } }); const s = r.steps[i]; r.seek(s.t - s.pause + 200); await r.togglePlay(); return i' | Out-Null
+Start-Sleep -Milliseconds 1200
 Shot "playing.png"
-Js 'await window.__relay.stop(); return true' | Out-Null
+Js 'const r = window.__relay; await r.stop(); while (r.mode !== "idle") await new Promise(res => setTimeout(res, 50)); await r.undo(); r.seek(0); return r.duration' | Out-Null
 
 # 3. The step editor on the pixel check.
 Js 'const i = window.__relay.steps.findIndex(s => s.kind === "pixel_wait"); document.querySelectorAll(".list .row")[i].click(); await new Promise(r => setTimeout(r, 400)); return i' | Out-Null

@@ -12,7 +12,7 @@ Relay lives in a small window that stays on top of your other windows. It has tw
 
 | Part | What it does |
 | --- | --- |
-| **Header** | Drag the dotted grip to move the widget. Click the name to rename the macro. **Export** saves it as a file, and **×** hides Relay to the tray. |
+| **Header** | Drag the dotted grip to move the widget. Click the name to rename the macro. **Undo** and **Redo** step back and forward through your edits, **Export** saves the macro as a file, and **×** hides Relay to the tray. |
 | **Preview** | The mouse path over a sketch of your screen. Numbered squares are clicks, and the part already played turns red. The bottom-left corner shows keys and typed text as they happen. |
 | **Steps** | The macro as a list: clicks, key combinations, typed text, waits and pixel checks. Click a step to jump to it and edit it. |
 | **Library** | All your macros. New recordings are saved here automatically. |

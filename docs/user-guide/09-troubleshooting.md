@@ -57,6 +57,20 @@ The message at the bottom of the panel says why:
 </details>
 
 <details>
+<summary><b>The macro is slower than it needs to be</b></summary>
+
+It replays the pauses you made while recording. Press **Trim pauses** in the Steps tab to shorten every pause over a second, or set **Pause before** on a single step. See [Pauses](03-editing.md#pauses).
+
+</details>
+
+<details>
+<summary><b>I deleted or changed the wrong step</b></summary>
+
+Press **Undo** in the header or <kbd>Ctrl</kbd>+<kbd>Z</kbd>. See [Undo and redo](03-editing.md#undo-and-redo). The history lasts until you quit Relay.
+
+</details>
+
+<details>
 <summary><b>Timing feels a little off</b></summary>
 
 *Humanize* is on by default and shifts steps by up to ±40 ms. Turn it off in Settings → Playback to replay the exact timing. Relay's own timing is precise to about a millisecond.
@@ -69,7 +83,7 @@ The message at the bottom of the panel says why:
 <summary><b>Some clicks or keys are missing from the recording</b></summary>
 
 - **Clicks on the Relay widget** are never recorded. Move the widget out of the way before recording.
-- **<kbd>Esc</kbd>, <kbd>F9</kbd> and the kill switch** are never recorded. See [What doesn't get recorded](02-recording.md#what-doesnt-get-recorded).
+- **<kbd>F9</kbd> and the kill switch** are never recorded, and neither is <kbd>Esc</kbd> unless you turn off **Settings → Recording → Esc stops recording**. See [What doesn't get recorded](02-recording.md#what-doesnt-get-recorded).
 - **Using remote desktop, a KVM switch or software like Synergy or Barrier?** They send your input as *simulated* input, which Relay ignores by default. Turn off **Settings → Recording → Ignore simulated input**.
 - **Typing in an app that runs as administrator?** Windows hides that input from normal apps. Run Relay as administrator.
 

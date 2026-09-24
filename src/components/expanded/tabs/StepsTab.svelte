@@ -55,7 +55,8 @@
 
   /** The step whose editor is open (chosen by clicking its row). */
   let selected = $state<number | null>(null);
-  const editable = (s: Step) => ["click", "drag", "wait", "pixel_wait"].includes(s.kind);
+  /** Pauses at least this long get a marker above their step. */
+  const SHOW_PAUSE_MS = 1000;
   // Close the editor when the list changes shape (another macro, a deletion).
   $effect(() => {
     if (selected != null && selected >= steps.length) selected = null;
@@ -78,7 +79,7 @@
 </script>
 
 <div class="bar">
-  <span class="count">{plural(steps.length, "step")} · {(relay.duration / 1000).toFixed(1)} s</span>
+  <span class="count">{plural(steps.length, "step")}</span>
   <button class="btn btn-ghost" disabled={relay.recording || !relay.editable} onclick={relay.insertWait}>+ Wait</button>
   <button
     class="btn btn-ghost"
@@ -86,11 +87,20 @@
     title="Wait until the pixel under the cursor matches"
     onclick={relay.insertPixelCheck}>+ Pixel check</button
   >
+  <button
+    class="btn btn-ghost"
+    disabled={relay.recording || !relay.editable || relay.longPauses === 0}
+    title="Shorten every pause longer than 1 s to 1 s"
+    onclick={relay.trimPauses}>Trim pauses</button
+  >
 </div>
 <div class="list" bind:this={list}>
   {#each steps as s, i (s.items[0] ?? i)}
     {@const [detail, sub] = describe(s)}
     <div class="item">
+      {#if s.pause >= SHOW_PAUSE_MS && relay.mode !== "rec"}
+        <div class="pause" aria-hidden="true">{(s.pause / 1000).toFixed(1)} s pause</div>
+      {/if}
       <div
         class="row"
         class:active={i === curIdx}
@@ -98,7 +108,7 @@
         class:future={s.t > cur}
         role="button"
         tabindex="0"
-        aria-expanded={editable(s) ? i === selected : undefined}
+        aria-expanded={i === selected}
         onclick={() => choose(i, s)}
         onkeydown={(e) => e.key === "Enter" && choose(i, s)}
       >
@@ -122,7 +132,7 @@
           }}><Icon name="x" size={14} /></button
         >
       </div>
-      {#if i === selected && editable(s) && relay.mode === "idle" && relay.editable}
+      {#if i === selected && relay.mode === "idle" && relay.editable}
         <StepEditor step={s} index={i} />
       {/if}
     </div>
@@ -207,6 +217,15 @@
   .sub {
     font-size: 11px;
     color: var(--color-neutral-600);
+  }
+  .pause {
+    padding: 2px 12px 2px 130px;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-neutral-600);
+    background: repeating-linear-gradient(-45deg, transparent 0 6px, var(--color-neutral-200) 6px 8px);
+    border-bottom: 1px solid var(--color-neutral-300);
   }
   .del {
     width: 24px;

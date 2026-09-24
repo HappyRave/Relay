@@ -327,7 +327,7 @@ impl Coordinator {
         let hook_cfg = HookConfig {
             own_rect,
             own_window,
-            swallow_escape: true,
+            swallow_escape: settings.esc_stops_recording,
             ignore_injected: settings.ignore_injected,
             drop_vks: vec![VK_F9],
             record: true,

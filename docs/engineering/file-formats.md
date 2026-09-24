@@ -137,10 +137,10 @@ jq '[.steps[] | select(.kind == "click")] | length' export-invoice-to-pdf.json
 A step looks like:
 
 ```json
-{ "t": 120, "end": 180, "items": [1, 2], "kind": "click", "x": 960, "y": 540, "btn": "Left", "count": 1, "label": "Save" }
+{ "t": 120, "end": 180, "pause": 120, "items": [1, 2], "kind": "click", "x": 960, "y": 540, "btn": "Left", "count": 1, "label": "Save" }
 ```
 
-`items` are indices into `events`. Importing a `.json` export ignores `steps` and rebuilds them from the events.
+`items` are indices into `events`, and `pause` is the idle time before the step. Importing a `.json` export ignores `steps` and rebuilds them from the events.
 
 ## Versioning and migrations
 
@@ -208,6 +208,7 @@ Before triggers existed (up to M6), entries had a plain `hotkey` label. It's rea
   "capture_moves": true,
   "capture_keys": true,
   "countdown": true,
+  "esc_stops_recording": true,
   "ignore_injected": true,
   "path_mode": "full",
   "show_click_labels": true,

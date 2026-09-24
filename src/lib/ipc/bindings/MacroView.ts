@@ -8,4 +8,9 @@ export type MacroView = { id: string, name: string, modified_at: string, recordi
 /**
  * Cursor positions over time (moves and presses), for the preview path.
  */
-moves: Array<MovePoint>, duration: number, };
+moves: Array<MovePoint>, duration: number, 
+/**
+ * Whether the app has edits of this macro to undo or redo (filled in by
+ * the app, which keeps the history; always false from [`MacroView::of`]).
+ */
+can_undo: boolean, can_redo: boolean, };

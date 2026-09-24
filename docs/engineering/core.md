@@ -78,7 +78,7 @@ pub struct KeyStroke { pub code: String, pub vk: u16, pub scan: u16, pub ext: bo
 
 ## Step grouping
 
-`group_steps(events, GroupOptions { double_click_ms, double_click_px })` makes one pass over the events and produces the editor's steps. Each `Step` has a start `t`, an `end`, the `items` (indices of the events it owns) and a `kind`:
+`group_steps(events, GroupOptions { double_click_ms, double_click_px })` makes one pass over the events and produces the editor's steps. Each `Step` has a start `t`, an `end`, a `pause`, the `items` (indices of the events it owns) and a `kind`:
 
 | Kind | Rule |
 | --- | --- |
@@ -95,6 +95,7 @@ Details that matter:
 - **Auto-repeat** of a held key extends its step instead of creating new ones (and adds characters to a `Type` step).
 - **Modifier presses** are tracked separately. A modifier's down and up events are attached to the step they wrapped, if they wrapped exactly one. A modifier tapped alone (like the Win key) becomes its own `Keys` step. A modifier held across several steps belongs to none.
 - **Releases** join the step of their press, and extend its `end`.
+- **`pause`** is computed last: the time between the latest `end` of all earlier steps (or 0) and this step's `t`, or 0 when they overlap. It's the recorded idle time, when only the cursor moves.
 
 Every non-move event belongs to **at most one** step. That's what makes "delete this step" well-defined: delete its `items`.
 
@@ -106,11 +107,13 @@ The UI edits macros only through `EditOp`, applied by `edit::apply(&mut Macro, o
 | --- | --- |
 | `Rename { name }` | Sets the name (the UI debounces typing) |
 | `DeleteStep { index }` | Removes the step's items. For a wait or pixel check, shifts everything after it earlier by its duration. Then `normalize`. |
-| `InsertWait { at, dur, label }` | Snaps `at` out of any step it would split (to that step's `end + 1`), shifts every event at or after `at` later by `dur`, inserts. |
+| `InsertWait { at, dur, label }` | Snaps `at` past any step with `t ≤ at ≤ end` (to its `end + 1`), shifts every event at or after `at` later by `dur`, inserts. Since clicking a step seeks to its `t`, this means "insert after the selected step", and a step is never split. |
 | `InsertPixelWait { … }` | The same, with a `PixelWait` |
 | `SetWaitDuration { index, dur }` | Shifts everything after the wait by the difference |
 | `UpdatePixelWait { index, x, y, color, tolerance, timeout_ms }` | Replaces the check's parameters. Its time and duration don't change. |
 | `SetLabel { index, label }` | On a click or drag (stored on the button-down event), a wait or a pixel check |
+| `SetPause { index, dur }` | Retimes the pause before the step, from `t − pause` to `t`: events inside it (cursor moves, a shared modifier's release) are scaled linearly to fit the new length, events at or after `t` shift by the difference. The mapping is monotone, so order and balance are kept. |
+| `CapPauses { max }` | `SetPause` to `max` for every pause above it, from last to first so the precomputed pauses stay valid |
 
 Steps are addressed by index into `group_steps` of the current events. The UI always re-renders from the `MacroView` an edit returns, so indices can't go stale.
 

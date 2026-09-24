@@ -24,6 +24,9 @@ pub struct Settings {
     pub capture_keys: bool,
     /// 3-second countdown before recording.
     pub countdown: bool,
+    /// Esc stops a recording (and is left out of it). Off, Esc is recorded
+    /// like any key and F9 stops. Esc always stops playback.
+    pub esc_stops_recording: bool,
     /// Ignore input injected by other programs (remote-desktop tools inject
     /// real user input, so their users may want this off).
     pub ignore_injected: bool,
@@ -39,6 +42,7 @@ impl Default for Settings {
             capture_moves: true,
             capture_keys: true,
             countdown: true,
+            esc_stops_recording: true,
             ignore_injected: true,
             path_mode: PathMode::Full,
             show_click_labels: true,

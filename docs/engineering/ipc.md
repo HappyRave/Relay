@@ -52,7 +52,8 @@ Session commands only send a `Cmd` to the coordinator and return right away. The
 | --- | --- | --- |
 | `list_macros` | | `MacroListItem[]` |
 | `load_macro` | `id` | `MacroView`, and tells the coordinator it's selected |
-| `edit_macro` | `id, op: EditOp` | The new `MacroView` |
+| `edit_macro` | `id, op: EditOp` | The new `MacroView`. Records the edit for undo. |
+| `undo_edit` | `id, redo: bool` | The `MacroView` after undoing (or redoing) the last edit |
 | `set_playback_options` | `id, options: PlaybackOptions` | The new `MacroView`. A speed change also goes to a running engine. |
 | `duplicate_macro` | `id` | The copy's id |
 | `delete_macro` | `id` | Refused with `busy` while a session runs |
@@ -158,6 +159,8 @@ sequenceDiagram
         S->>S: drop this result
     end
 ```
+
+Every `MacroView` carries `can_undo` and `can_redo`, which enable the header's Undo and Redo buttons.
 
 The sequence number makes out-of-order responses harmless. Renames are debounced by 250 ms, and a pending name is kept over any `MacroView` that arrives in the meantime, so typing is never overwritten.
 

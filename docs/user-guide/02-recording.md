@@ -15,7 +15,7 @@ A recording captures your mouse and keyboard until you stop it. Relay saves it t
 | To… | Press |
 | --- | --- |
 | Start recording | <kbd>F9</kbd>, the red **record** button, or **Record** in the tray menu |
-| Stop and keep the recording | <kbd>F9</kbd> again, <kbd>Esc</kbd>, or the **stop** button |
+| Stop and keep the recording | <kbd>F9</kbd> again, <kbd>Esc</kbd> (unless you [record Esc](#recording-esc)), or the **stop** button |
 | Cancel the countdown | <kbd>F9</kbd> again or the **stop** button |
 | Stop everything | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd> (the [kill switch](04-playback.md#the-kill-switch)) |
 
@@ -52,13 +52,14 @@ Relay leaves out anything that would break the macro or loop back into itself:
 - **Clicks and scrolls on the Relay widget.** You can press stop or look at the steps without them ending up in the macro.
 - **Keys typed while Relay's own window is focused.**
 - **<kbd>F9</kbd>**, the key that stops the recording.
-- **<kbd>Esc</kbd>.** It stops the recording and is swallowed, so the app you're recording doesn't see it either.
+- **<kbd>Esc</kbd>**, by default. It stops the recording and is swallowed, so the app you're recording doesn't see it either. You can [record it instead](#recording-esc).
 - **The kill switch** (<kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd>), including the <kbd>Ctrl</kbd> and <kbd>Alt</kbd> you pressed for it.
 - **Relay's own playback,** always.
 - **Input simulated by other programs,** unless you turn off [Ignore simulated input](#recording-options).
 
-> [!TIP]
-> Need to close a dialog in your macro? Since <kbd>Esc</kbd> can't be recorded, click the dialog's **Cancel** or **×** button instead. This is a known limitation of v1.
+### Recording Esc
+
+Need <kbd>Esc</kbd> in your macro, for example to close a dialog? Turn off **Settings → Recording → Esc stops recording**. <kbd>Esc</kbd> is then recorded like any other key, and you stop the recording with <kbd>F9</kbd> or the stop button. <kbd>Esc</kbd> still stops playback either way.
 
 ## While you record
 
@@ -78,13 +79,14 @@ These are in **Settings → Recording** and apply to new recordings.
 | **Capture mouse path** | On | Records the cursor's movement between clicks. Off records only where you clicked, and playback jumps straight there. |
 | **Capture keystrokes** | On | Off records the mouse only. |
 | **3-second countdown** | On | Off starts recording the moment you press <kbd>F9</kbd>. |
+| **Esc stops recording** | On | Off records <kbd>Esc</kbd> like any key. Stop with <kbd>F9</kbd> instead. |
 | **Ignore simulated input** | On | Leaves out input other programs generate. **Turn it off for remote-desktop and KVM tools** (such as Synergy, Barrier or some RDP setups): they deliver your real typing as simulated input, and it would be missing otherwise. |
 
 ## Tips for recordings that replay well
 
 1. **Start from a known state.** Open the window you'll work in, in the same place and size it will be when the macro runs.
 2. **Prefer the keyboard over the mouse** where you can. <kbd>Ctrl</kbd>+<kbd>S</kbd> works wherever the Save button is.
-3. **Don't rush.** The macro replays your timing. If an app needs a moment to open a dialog, give it that moment while recording, or add a [wait](03-editing.md#waits) or a [pixel check](05-pixel-checks.md) afterwards.
+3. **Don't rush, and don't worry about being slow.** The macro replays your timing. If an app needs a moment to open a dialog, give it that moment while recording, or add a [pixel check](05-pixel-checks.md) afterwards. Pauses where you hesitated can be [shortened](03-editing.md#pauses) later.
 4. **Keep the widget out of the way.** Clicks that land on the widget aren't recorded, so drag it aside before you start if you need to click where it is.
 5. **Trim afterwards.** Delete stray clicks and extra steps in the [editor](03-editing.md) rather than recording again.
 

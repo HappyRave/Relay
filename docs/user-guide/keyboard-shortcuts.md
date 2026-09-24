@@ -8,12 +8,14 @@ These work from any app, even when the widget is hidden.
 | --- | --- | --- | --- |
 | <kbd>F9</kbd> | Start recording | Stop recording | *Stops playback¹* |
 | <kbd>F10</kbd> | Play from the playhead | *(recorded like any key)* | Pause / resume |
-| <kbd>Esc</kbd> | *(reaches your app)* | Stop recording | Stop playback |
+| <kbd>Esc</kbd> | *(reaches your app)* | Stop recording² | Stop playback |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd> | Compact player ↔ editor | *(recorded like any key)* | *Stops playback¹* |
 | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd> | Pause triggers | Stop, keep the recording, pause triggers | Stop, pause triggers |
 | Your macro hotkeys | Run that macro | *(recorded like any key)* | *Stops playback¹* |
 
 ¹ With **Stop on key press** on (the default), **any** key stops playback and is swallowed, except <kbd>F10</kbd>, the kill switch, and <kbd>Shift</kbd>, <kbd>Ctrl</kbd>, <kbd>Alt</kbd> or <kbd>Win</kbd> on their own. With it off, these keys reach your app.
+
+² Unless **Esc stops recording** is off in Settings: then <kbd>Esc</kbd> is recorded like any key.
 
 Relay only holds on to a key while it needs it. For example, <kbd>F10</kbd> belongs to your apps while you record, and <kbd>Esc</kbd> belongs to your apps when Relay is idle.
 
@@ -21,6 +23,8 @@ Relay only holds on to a key while it needs it. For example, <kbd>F10</kbd> belo
 
 | Where | Key | Does |
 | --- | --- | --- |
+| Anywhere but a text field | <kbd>Ctrl</kbd>+<kbd>Z</kbd> | Undo the last edit |
+| Anywhere but a text field | <kbd>Ctrl</kbd>+<kbd>Y</kbd> or <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> | Redo |
 | Steps list | <kbd>Enter</kbd> on a focused row | Jumps there and opens its editor |
 | Step editor | <kbd>Enter</kbd> or leaving a field | Saves the change |
 | Hotkey field | Any combination | Sets the hotkey |

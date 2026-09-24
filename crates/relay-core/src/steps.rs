@@ -42,6 +42,9 @@ pub enum StepKind {
 pub struct Step {
     pub t: Ms,
     pub end: Ms,
+    /// Idle time before the step: since the previous steps ended (or the
+    /// start), during which only the cursor moves. 0 when steps overlap.
+    pub pause: Ms,
     /// Indices into the macro's events.
     pub items: Vec<u32>,
     #[serde(flatten)]
@@ -100,7 +103,7 @@ pub fn group_steps(events: &[Event], opts: GroupOptions) -> Vec<Step> {
     let mut closed_mods: Vec<ModPress> = Vec::new();
 
     let push = |steps: &mut Vec<Step>, t: Ms, i: usize, kind: StepKind| {
-        steps.push(Step { t, end: t, items: vec![i as u32], kind });
+        steps.push(Step { t, end: t, pause: 0, items: vec![i as u32], kind });
         steps.len() - 1
     };
 
@@ -307,6 +310,7 @@ pub fn group_steps(events: &[Event], opts: GroupOptions) -> Vec<Step> {
                 steps.push(Step {
                     t: p.t,
                     end,
+                    pause: 0,
                     items: p.events,
                     kind: StepKind::Keys { combo: vec![p.modifier.label().into()] },
                 });
@@ -319,6 +323,11 @@ pub fn group_steps(events: &[Event], opts: GroupOptions) -> Vec<Step> {
         s.items.sort_unstable();
     }
     steps.sort_by_key(|s| s.t);
+    let mut busy_until = 0;
+    for s in &mut steps {
+        s.pause = s.t.saturating_sub(busy_until);
+        busy_until = busy_until.max(s.end);
+    }
     steps
 }
 

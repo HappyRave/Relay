@@ -28,11 +28,11 @@ On the timeline, the check is an `IF` block in the *Logic* lane. The block's len
 
 ## Adding a pixel check
 
-1. **Click the step that must wait**, for example the click on a button that only appears once loading is done. That moves the playhead to it, and the check goes right before it.
+1. **Click the step the macro should wait after**, usually the click that starts something slow. The check goes right after it.
 2. **Get the screen ready.** Make the thing you want to wait for visible, for example open the dialog in the app.
 3. Press **+ Pixel check**.
 
-Relay inserts an 800 ms `IF` block at the playhead. It points at **where the macro's cursor is at that moment**, and takes **the color that pixel has on your screen right now**. It uses a tolerance of **8** and a timeout of **5 s**.
+Relay inserts an 800 ms `IF` block after that step. It points at **where the macro's cursor is at that moment**, and takes **the color that pixel has on your screen right now**. It uses a tolerance of **8** and a timeout of **5 s**.
 
 That's often not the pixel you want. Open the step to point it somewhere better.
 
@@ -87,17 +87,15 @@ A macro that times out has usually hit one of these:
 
 ## Example: wait for an export to finish
 
-An app shows a green check mark when an export is done, and the export takes anywhere from 2 to 20 seconds. You recorded it on a good day: click **Export**, wait, click **Close**.
+An app shows a green check mark when an export is done, and the export takes anywhere from 2 to 20 seconds. You recorded it on a slow day: click **Export**, wait 20 seconds, click **Close**.
 
-1. In the editor, click the **Close** click step. The check will go right before it.
+1. In the editor, click the **Export** click step. The check will go right after it.
 2. Run an export by hand, so the green check is on screen.
 3. Press **+ Pixel check**, open the new `IF` step, press **Pick** and point at the middle of the green check.
 4. Set **Timeout** to 30 s.
+5. Open the **Close** click step and set **Pause before** to 0.3 s. The 20 seconds you waited while recording are gone.
 
-Now the macro never clicks **Close** too early: on a slow day it waits for the check mark, up to 30 seconds.
-
-> [!NOTE]
-> The pause you recorded between **Export** and **Close** still plays before the check, so the macro isn't faster than your recording. v1 can't shorten recorded pauses; to keep them short, record the task when the app is quick.
+Now the macro clicks **Close** as soon as the export is done: after 2 seconds on a good day, after 20 on a bad one, and never too early.
 
 ---
 

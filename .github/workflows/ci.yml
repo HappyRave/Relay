@@ -31,7 +31,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: relay-installer
-          path: target/release/bundle/nsis/*.exe
+          path: |
+            target/release/bundle/nsis/*.exe
+            target/release/relay.exe
           if-no-files-found: error
 
   # The core and platform crates must stay portable (the platform crate's
@@ -46,3 +48,20 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test -p relay-core -p relay-platform
       - run: cargo clippy -p relay-core -p relay-platform --all-targets -- -D warnings
+
+  # Builds everything with the oldest Rust that Cargo.toml's rust-version
+  # promises, so that promise stays true.
+  msrv:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # The app embeds the built UI, so it has to exist before cargo check.
+      - run: npm run build
+      - run: cargo check --workspace --all-targets

@@ -16,7 +16,7 @@ Thanks for helping. This page covers setting up, the everyday commands and the c
 | Tool | Version | Notes |
 | --- | --- | --- |
 | Windows | 10 or 11, 64-bit | The app. The core crates also build on Linux and macOS. |
-| Rust | stable, 1.88 or later | MSVC toolchain (`rustup default stable-x86_64-pc-windows-msvc`). Edition 2024, with let-chains. |
+| Rust | stable, 1.95 or later | MSVC toolchain (`rustup default stable-x86_64-pc-windows-msvc`). 1.95 is `rust-version` in `Cargo.toml`, set by the dependencies and checked in CI. |
 | Visual Studio Build Tools | 2022 | "Desktop development with C++" |
 | Node.js | 20 or later | CI uses 24 |
 | WebView2 runtime | | Included with Windows 11 |

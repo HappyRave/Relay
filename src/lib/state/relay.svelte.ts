@@ -24,9 +24,11 @@ import { backend, type IpcError } from "../ipc/backend";
 import { isTauri, savedExpanded } from "../platform/window";
 import { lastIndexAtOrBefore } from "../preview/geometry";
 import { jumpTarget } from "../timeline/lanes";
-import { slug } from "../format";
+import { plural, slug } from "../format";
 
 const RENAME_DEBOUNCE_MS = 250;
+/** "Trim pauses" shortens every pause longer than this to this. */
+export const TRIM_PAUSE_MS = 1000;
 
 export interface Toast {
   kind: "error" | "info";
@@ -48,6 +50,7 @@ const DEFAULT_SETTINGS: Settings = {
   capture_moves: true,
   capture_keys: true,
   countdown: true,
+  esc_stops_recording: true,
   ignore_injected: true,
   path_mode: "full",
   show_click_labels: true,
@@ -122,6 +125,10 @@ class RelayStore {
     return out;
   });
   triggers: MacroTriggers | null = $derived(this.triggerStatus?.triggers ?? null);
+  canUndo = $derived(this.editable && this.mode === "idle" && !!this.view?.can_undo);
+  canRedo = $derived(this.editable && this.mode === "idle" && !!this.view?.can_redo);
+  /** Pauses "Trim pauses" would shorten. */
+  longPauses = $derived(this.steps.filter((s) => s.pause > TRIM_PAUSE_MS).length);
 
   // — lifecycle —
 
@@ -237,6 +244,16 @@ class RelayStore {
     if (e.key === "Escape") {
       if (this.exportOpen) this.exportOpen = false;
       else if (!isTauri() && this.mode !== "idle") this.stop();
+      return;
+    }
+    // Undo and redo, except in text fields (they have their own) and while a
+    // hotkey is being captured.
+    const target = e.target as HTMLElement | null;
+    const typing = target?.closest("input, textarea, [data-captures-keys]");
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !typing && ["z", "y"].includes(e.key.toLowerCase())) {
+      e.preventDefault();
+      if (e.key.toLowerCase() === "y" || e.shiftKey) this.redo();
+      else this.undo();
       return;
     }
     if (isTauri()) return;
@@ -425,7 +442,41 @@ class RelayStore {
     }
   };
 
-  deleteStep = (index: number) => this.edit({ op: "delete_step", index });
+  deleteStep = async (index: number) => {
+    const before = this.view;
+    await this.edit({ op: "delete_step", index });
+    if (this.view !== before && this.view?.can_undo) this.notify("Deleted the step", { label: "Undo", run: this.undo });
+  };
+
+  /** Sets the idle time before step `index`. */
+  setPause = (index: number, ms: number) => this.edit({ op: "set_pause", index, dur: Math.max(0, Math.round(ms)) });
+
+  /** Shortens every pause longer than 1 s to 1 s. */
+  trimPauses = async () => {
+    const n = this.longPauses;
+    if (!n) return;
+    const before = this.view;
+    await this.edit({ op: "cap_pauses", max: TRIM_PAUSE_MS });
+    if (this.view !== before) {
+      this.notify(`Shortened ${plural(n, "pause")} to ${TRIM_PAUSE_MS / 1000} s`, { label: "Undo", run: this.undo });
+    }
+  };
+
+  undo = () => this.history(false);
+  redo = () => this.history(true);
+
+  private async history(redo: boolean) {
+    if (!this.view || !(redo ? this.canRedo : this.canUndo)) return;
+    this.dismissToast();
+    // Save a name still being typed first, so it's part of the history.
+    if (this.pendingName != null) {
+      clearTimeout(this.renameTimer);
+      const name = this.pendingName;
+      await this.edit({ op: "rename", name });
+      if (this.pendingName === name) this.pendingName = null;
+    }
+    await this.apply(backend.undoEdit(this.view.id, redo));
+  }
 
   insertWait = () => this.edit({ op: "insert_wait", at: Math.round(this.cur), dur: 500, label: "Inserted" });
 
