@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Keep on top:** a new *Settings → Window* option chooses when the widget floats above other windows: always (as before), only while recording or playing, or never.
+
 ## v1.1.0: Editing polish
 
 - **Undo and redo:** every change to a macro (deleting, inserting, pauses, waits, pixel checks, labels, the name) can be undone and redone, with the new header buttons or Ctrl+Z / Ctrl+Y. Deleting a step shows an Undo button too. The history lasts until you quit Relay.

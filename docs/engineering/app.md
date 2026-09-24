@@ -116,7 +116,7 @@ Every `Input` goes through `session::step`, and the coordinator performs the ret
 6. Start a watch-only hook (`record: false`, `drop_vks: [F10]`, the macro's `stop_on_key`) and forward `Escape` and `StopKey` to the coordinator.
 7. Build a `PlayPlan` and spawn the engine.
 
-**EmitMode(mode)** updates `SessionMode`, the tray tooltip and `WS_EX_NOACTIVATE` on the window (set during sessions, so clicking the widget doesn't steal the focus), and emits `Session`. Returning to idle also tears down the playback hook and click-through.
+**EmitMode(mode)** updates `SessionMode`, the tray tooltip, *Keep on top*, and `WS_EX_NOACTIVATE` on the window (set during sessions, so clicking the widget doesn't steal the focus), and emits `Session`. Returning to idle also tears down the playback hook and click-through.
 
 Runs are counted (`runs += 1`, `last_run = now`) only when the engine reports `Completed`.
 
@@ -248,6 +248,7 @@ Playback options and triggers aren't edits and bypass the history.
 - **Moves** are tracked in `WindowEvent::Moved` and saved half a second after dragging stops. `ScaleFactorChanged` re-places the window.
 - **Frame**: on Windows 11, `DWMWA_WINDOW_CORNER_PREFERENCE = DONOTROUND` and `DWMWA_BORDER_COLOR = NONE`, so the window has the design's square corners and its own 2 px ink border.
 - **Focus**: `WS_EX_NOACTIVATE` during sessions, and `set_ignore_cursor_events` for click-through (see the coordinator).
+- **Keep on top**: `apply_on_top` sets always-on-top from the `keep_on_top` setting (`always`, `sessions`, `never`) and whether a session is running. It's applied at startup, on every `EmitMode`, and when the setting changes.
 
 ## The tray
 

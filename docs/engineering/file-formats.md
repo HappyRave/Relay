@@ -212,11 +212,12 @@ Before triggers existed (up to M6), entries had a plain `hotkey` label. It's rea
   "ignore_injected": true,
   "path_mode": "full",
   "show_click_labels": true,
-  "close_to_tray": true
+  "close_to_tray": true,
+  "keep_on_top": "always"
 }
 ```
 
-`path_mode` is `"full"` or `"trail"`. Missing fields take their defaults (shown above), and unknown fields are ignored. *Start with Windows* isn't stored here: it's an entry in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (managed by `tauri-plugin-autostart`) that starts Relay with `--autostart`.
+`path_mode` is `"full"` or `"trail"`, and `keep_on_top` is `"always"`, `"sessions"` (while recording or playing) or `"never"`. Missing fields take their defaults (shown above), and unknown fields are ignored. *Start with Windows* isn't stored here: it's an entry in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (managed by `tauri-plugin-autostart`) that starts Relay with `--autostart`.
 
 ## window.json
 

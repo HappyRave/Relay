@@ -182,6 +182,12 @@ fn set_client_rect(window: &WebviewWindow, x: i32, y: i32, w: i32, h: i32) {
     let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
 }
 
+/// Applies the *Keep on top* setting; `session` is whether a recording or
+/// playback (or its countdown) is running.
+pub fn apply_on_top(window: &WebviewWindow, setting: crate::settings::KeepOnTop, session: bool) {
+    let _ = window.set_always_on_top(setting.on_top(session));
+}
+
 /// While a session runs, clicking the widget must not take the keyboard away
 /// from the app being recorded or played into.
 #[cfg(windows)]

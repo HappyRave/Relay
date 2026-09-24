@@ -6,6 +6,7 @@
   import { isTauri } from "../../../lib/platform/window";
   import type { CoordMode } from "../../../lib/types";
   import type { PathMode } from "../../../lib/ipc/bindings/PathMode";
+  import type { KeepOnTop } from "../../../lib/ipc/bindings/KeepOnTop";
 
   const HOTKEYS = [
     ["Start / stop recording", "F9"],
@@ -107,6 +108,22 @@
 
   {#if isTauri()}
     <div class="section">Window</div>
+    <div class="row col">
+      <div>
+        <div class="title">Keep on top</div>
+        <div class="sub">Float above other windows</div>
+      </div>
+      <Segmented
+        label="Keep on top"
+        options={[
+          ["always", "Always"],
+          ["sessions", "While recording or playing"],
+          ["never", "Never"],
+        ] as [KeepOnTop, string][]}
+        value={st.keep_on_top}
+        onchange={(v) => relay.updateSettings({ keep_on_top: v })}
+      />
+    </div>
     <div class="row">
       <div class="grow">
         <div class="title">Close to tray</div>
@@ -161,6 +178,11 @@
     gap: 10px;
     padding: 8px 12px;
     border-bottom: 1px solid var(--color-neutral-300);
+  }
+  .row.col {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
   }
   .slider {
     padding: 6px 12px 10px;

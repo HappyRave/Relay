@@ -390,8 +390,14 @@ pub fn get_settings(s: State<'_, Mutex<SettingsStore>>) -> Settings {
 }
 
 #[tauri::command]
-pub fn update_settings(s: State<'_, Mutex<SettingsStore>>, settings: Settings) -> Result<Settings> {
+pub fn update_settings(
+    window: tauri::WebviewWindow,
+    s: State<'_, Mutex<SettingsStore>>,
+    mode: State<'_, SessionMode>,
+    settings: Settings,
+) -> Result<Settings> {
     let mut s = s.lock().unwrap();
     s.set(settings).map_err(IpcError::io)?;
+    crate::window_ctl::apply_on_top(&window, s.current.keep_on_top, !mode.is_idle());
     Ok(s.current.clone())
 }

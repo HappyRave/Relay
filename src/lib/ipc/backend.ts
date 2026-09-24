@@ -134,6 +134,7 @@ function browserBackend(): Backend {
     path_mode: "full",
     show_click_labels: true,
     close_to_tray: true,
+    keep_on_top: "always",
   };
   const find = async (id: string) => {
     await ready;

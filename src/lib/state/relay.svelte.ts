@@ -55,6 +55,7 @@ const DEFAULT_SETTINGS: Settings = {
   path_mode: "full",
   show_click_labels: true,
   close_to_tray: true,
+  keep_on_top: "always",
 };
 const MODES: Record<EngineMode, Mode> = {
   idle: "idle",
