@@ -3,8 +3,9 @@
 //! high-level (v0) shape and loaded through the v0 → v1 migration, which makes
 //! them a realistic fixture for both.
 
-use chrono::{DateTime, TimeDelta, Utc};
+use chrono::{DateTime, TimeDelta, TimeZone, Utc};
 use serde_json::{Value, json};
+use uuid::Uuid;
 
 use crate::format::from_rly;
 use crate::model::{Macro, Rect, Repeat, WindowInfo};
@@ -12,8 +13,15 @@ use crate::model::{Macro, Rect, Repeat, WindowInfo};
 pub struct Sample {
     pub macro_: Macro,
     pub runs: u32,
-    pub last_run: Option<DateTime<Utc>>,
+    /// How long before "now" the sample last ran.
+    pub last_run_ago: Option<TimeDelta>,
     pub hotkey: Option<String>,
+}
+
+impl Sample {
+    pub fn last_run(&self, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+        self.last_run_ago.map(|ago| now - ago)
+    }
 }
 
 enum Op {
@@ -85,9 +93,13 @@ fn build(script: &[Op]) -> Vec<Value> {
     ev
 }
 
-fn sample(name: &str, script: &[Op], runs: u32, last_run_ago_h: Option<i64>, hotkey: Option<&str>) -> Sample {
+fn sample(n: u128, name: &str, script: &[Op], runs: u32, last_run_ago_h: Option<i64>, hotkey: Option<&str>) -> Sample {
     let doc = json!({ "format": "relay-macro", "version": 0, "name": name, "events": build(script) });
     let mut m = from_rly(&doc.to_string()).expect("sample migrates");
+    // Stable ids and dates, so generated fixtures don't change between runs.
+    m.id = Uuid::from_u128(n);
+    m.created_at = Utc.with_ymd_and_hms(2026, 9, 1, 9, 0, 0).unwrap();
+    m.modified_at = m.created_at;
     // The prototype's wireframe app window, scaled from its 1600×900 canvas.
     m.recording.anchor_window = Some(WindowInfo {
         exe: "EXCEL.EXE".into(),
@@ -99,13 +111,14 @@ fn sample(name: &str, script: &[Op], runs: u32, last_run_ago_h: Option<i64>, hot
     Sample {
         macro_: m,
         runs,
-        last_run: last_run_ago_h.map(|h| Utc::now() - TimeDelta::hours(h)),
+        last_run_ago: last_run_ago_h.map(TimeDelta::hours),
         hotkey: hotkey.map(Into::into),
     }
 }
 
 pub fn invoice() -> Sample {
     sample(
+        1,
         "Export invoice to PDF",
         &[
             Move(0.07, 0.065, 850.0, 0.25),
@@ -137,6 +150,7 @@ pub fn all() -> Vec<Sample> {
     vec![
         invoice(),
         sample(
+            2,
             "Fill weekly timesheet",
             &[
                 Move(0.3, 0.2, 700.0, 0.2),
@@ -161,6 +175,7 @@ pub fn all() -> Vec<Sample> {
             Some("Ctrl + Alt + 2"),
         ),
         sample(
+            3,
             "Batch rename photos",
             &[
                 Move(0.2, 0.35, 600.0, 0.2),
@@ -180,6 +195,7 @@ pub fn all() -> Vec<Sample> {
             None,
         ),
         sample(
+            4,
             "Open standup tools",
             &[
                 Key("Win + R", 300.0),
@@ -238,6 +254,28 @@ mod tests {
                 "KEYS Enter",
             ]
         );
+    }
+
+    /// Writes the fixture the UI uses when it runs in a plain browser
+    /// (`npm run dev`), like ts-rs does for the bindings.
+    #[test]
+    fn export_browser_fixture() {
+        let items: Vec<_> = all()
+            .iter()
+            .map(|s| {
+                json!({
+                    "view": crate::view::MacroView::of(&s.macro_),
+                    "runs": s.runs,
+                    "last_run_ago_ms": s.last_run_ago.map(|d| d.num_milliseconds()),
+                    "hotkey": s.hotkey,
+                })
+            })
+            .collect();
+        let body = serde_json::to_string_pretty(&items).unwrap() + "\n";
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src/lib/dev/sample-views.json");
+        if std::fs::read_to_string(&path).ok().as_deref() != Some(body.as_str()) {
+            std::fs::write(&path, body).unwrap();
+        }
     }
 
     #[test]
