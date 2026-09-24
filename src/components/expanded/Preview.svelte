@@ -4,17 +4,17 @@
   import { cumulativeLengths, lastIndexAtOrBefore, pathD } from "../../lib/preview/geometry";
   import { currentStepIndex } from "../../lib/timeline/lanes";
   import { pad4 } from "../../lib/format";
+  import type { StepOf } from "../../lib/types";
 
-  const view = $derived(relay.view);
-  const d = $derived(view.desktop);
+  const d = $derived(relay.desktop);
   /** The design was drawn on a 1600-wide viewBox; scale its sizes to the real desktop. */
   const k = $derived(d.w / 1600);
   const cur = $derived(Math.min(relay.cur, relay.duration));
 
-  const path = $derived(pathD(view.moves));
-  const lengths = $derived(cumulativeLengths(view.moves));
+  const path = $derived(pathD(relay.moves));
+  const lengths = $derived(cumulativeLengths(relay.moves));
   const total = $derived(lengths.length ? lengths[lengths.length - 1] : 0);
-  const moveIdx = $derived(lastIndexAtOrBefore(view.moves, cur));
+  const moveIdx = $derived(lastIndexAtOrBefore(relay.moves, cur));
   const doneLen = $derived(moveIdx > 0 ? lengths[moveIdx] : 0);
   const showFull = $derived(relay.settings.pathMode === "full" && relay.mode !== "rec");
 
@@ -22,13 +22,13 @@
   const jitter = $derived.by(() => {
     const pb = relay.playback;
     if (relay.mode !== "play" || !pb.humanize) return { x: 0, y: 0 };
-    return { x: ((Math.sin(cur / 53) * pb.jitterMs) / 20) * k, y: ((Math.cos(cur / 41) * pb.jitterMs) / 20) * k };
+    return { x: ((Math.sin(cur / 53) * pb.jitter_ms) / 20) * k, y: ((Math.cos(cur / 41) * pb.jitter_ms) / 20) * k };
   });
 
   const marks = $derived.by(() => {
     let n = 0;
-    return view.steps
-      .filter((s) => s.kind === "click")
+    return relay.steps
+      .filter((s): s is StepOf<"click"> => s.kind === "click")
       .map((c) => {
         n++;
         const past = c.t <= cur;
@@ -51,7 +51,7 @@
       });
   });
 
-  const lastStep = $derived(view.steps[currentStepIndex(view.steps, cur)]);
+  const lastStep = $derived(relay.steps[currentStepIndex(relay.steps, cur)]);
   const keyOverlay = $derived.by(() => {
     const s = lastStep;
     if (!s || (s.kind !== "keys" && s.kind !== "type") || cur - s.end >= 900) return null;
@@ -59,16 +59,16 @@
       const typed = s.chars.filter((c) => c.t <= cur).map((c) => c.ch).join("");
       return { kind: "Typing", parts: [typed + "_"] };
     }
-    return { kind: "Keys", parts: s.combo.split(" + ") };
+    return { kind: "Keys", parts: s.combo };
   });
-  const activeCond = $derived(lastStep && lastStep.kind === "pixel" && cur < lastStep.end ? lastStep : null);
+  const activeCond = $derived(lastStep && lastStep.kind === "pixel_wait" && cur < lastStep.end ? lastStep : null);
   const blink = $derived(relay.mode === "rec" && Math.floor(cur / 500) % 2 ? 0.35 : 1);
 </script>
 
 <div class="preview">
   <svg viewBox="{d.x} {d.y} {d.w} {d.h}" width="600" height="338" preserveAspectRatio="xMidYMid meet">
     <g fill="none" stroke="var(--color-neutral-800)" stroke-width={3 * k}>
-      {#each view.frames as f, i (i)}
+      {#each relay.frames as f, i (i)}
         <rect x={f.x} y={f.y} width={f.w} height={f.h} />
       {/each}
     </g>
@@ -153,7 +153,7 @@
     <span class="badge" class:rec={relay.recording} style:opacity={blink}>{BADGE[relay.mode]}</span>
     {#if relay.mode === "play" || relay.mode === "pause"}
       <span class="loop">
-        Loop {relay.loopIdx + 1} / {relay.playback.infinite ? "∞" : relay.playback.loops} · {relay.playback.speed}×
+        Loop {relay.loopIdx + 1} / {relay.loops === Infinity ? "∞" : relay.loops} · {relay.playback.speed}×
       </span>
     {/if}
   </div>

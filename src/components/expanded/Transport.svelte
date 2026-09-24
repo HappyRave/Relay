@@ -12,6 +12,13 @@
     [4, "4×"],
   ];
   const pb = $derived(relay.playback);
+  const infinite = $derived(pb.repeat === "forever");
+  /** The count to return to when leaving "forever". */
+  let lastCount = $state(1);
+  const count = $derived(pb.repeat === "forever" ? lastCount : pb.repeat.count);
+  $effect(() => {
+    if (pb.repeat !== "forever") lastCount = pb.repeat.count;
+  });
   const cur = $derived(Math.min(relay.cur, relay.duration));
 </script>
 
@@ -39,16 +46,16 @@
   <div class="group">
     <span class="label">Repeat</span>
     <div class="repeat">
-      <button aria-label="Fewer repeats" onclick={() => relay.setPlayback({ loops: Math.max(1, pb.loops - 1), infinite: false })}>−</button>
-      <span class="count">{pb.infinite ? "∞" : pb.loops}</span>
-      <button aria-label="More repeats" onclick={() => relay.setPlayback({ loops: Math.min(99, pb.loops + 1), infinite: false })}>+</button>
+      <button aria-label="Fewer repeats" onclick={() => relay.setPlayback({ repeat: { count: Math.max(1, count - 1) } })}>−</button>
+      <span class="count">{infinite ? "∞" : count}</span>
+      <button aria-label="More repeats" onclick={() => relay.setPlayback({ repeat: { count: Math.min(99, count + 1) } })}>+</button>
       <button
         class="inf"
-        class:on={pb.infinite}
+        class:on={infinite}
         title="Loop forever"
         aria-label="Loop forever"
-        aria-pressed={pb.infinite}
-        onclick={() => relay.setPlayback({ infinite: !pb.infinite })}><Icon name="loop" size={15} /></button
+        aria-pressed={infinite}
+        onclick={() => relay.setPlayback({ repeat: infinite ? { count: lastCount } : "forever" })}><Icon name="loop" size={15} /></button
       >
     </div>
   </div>

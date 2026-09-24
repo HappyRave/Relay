@@ -5,31 +5,46 @@
   import { fmtTime } from "../../../lib/format";
   import type { Step } from "../../../lib/types";
 
-  const TYPE_NAME: Record<Step["kind"], string> = { click: "CLICK", keys: "KEYS", type: "TYPE", wait: "WAIT", pixel: "IF" };
+  const TYPE_NAME: Record<Step["kind"], string> = {
+    click: "CLICK",
+    drag: "DRAG",
+    scroll: "SCROLL",
+    keys: "KEYS",
+    type: "TYPE",
+    wait: "WAIT",
+    pixel_wait: "IF",
+  };
+  const COUNT_NAME = ["", "Click", "Double click", "Triple click"];
 
-  const steps = $derived(relay.view.steps);
+  const steps = $derived(relay.steps);
   const cur = $derived(Math.min(relay.cur, relay.duration));
   const curIdx = $derived(currentStepIndex(steps, cur));
+  const anchor = $derived(relay.view?.recording.anchor_window?.rect);
+
+  function where(x: number, y: number): string {
+    return relay.playback.coord_mode === "window" && anchor
+      ? `+${x - anchor.x}, +${y - anchor.y} in window`
+      : `${x}, ${y} px`;
+  }
 
   function describe(s: Step): [string, string] {
     switch (s.kind) {
       case "click": {
-        const what = s.btn === "Left" ? (s.count === 2 ? "Double click" : "Click") : s.btn + " click";
-        const anchor = relay.view.frames[0];
-        const sub =
-          relay.playback.coordMode === "window" && anchor
-            ? `+${Math.round(s.x - anchor.x)}, +${Math.round(s.y - anchor.y)} in window`
-            : `${s.x}, ${s.y} px`;
-        return [what + (s.label ? " · " + s.label : ""), sub];
+        const what = s.btn === "Left" ? (COUNT_NAME[s.count] ?? `${s.count}× click`) : `${s.btn} click`;
+        return [what + (s.label ? " · " + s.label : ""), where(s.x, s.y)];
       }
+      case "drag":
+        return [`${s.btn === "Left" ? "Drag" : s.btn + " drag"}${s.label ? " · " + s.label : ""}`, `${where(s.x, s.y)} → ${s.to_x}, ${s.to_y}`];
+      case "scroll":
+        return [`Scroll ${s.horizontal ? (s.delta > 0 ? "right" : "left") : s.delta > 0 ? "up" : "down"}`, `${Math.abs(s.delta) / 120} notches at ${where(s.x, s.y)}`];
       case "keys":
-        return [s.combo, "Key combination"];
+        return [s.combo.join(" + "), "Key combination"];
       case "type":
         return ["“" + s.text + "”", s.text.length + " characters"];
-      case "pixel":
+      case "pixel_wait":
         return [
           `Wait for pixel ${s.x}, ${s.y} = ${s.color}`,
-          (s.label ? s.label + " · " : "") + `timeout ${s.timeoutMs / 1000} s, else stop`,
+          (s.label ? s.label + " · " : "") + `timeout ${s.timeout_ms / 1000} s, else stop`,
         ];
       case "wait":
         return ["Wait " + (s.dur / 1000).toFixed(1) + " s", s.label];
@@ -46,14 +61,15 @@
 
 <div class="bar">
   <span class="count">{steps.length} steps · {(relay.duration / 1000).toFixed(1)} s</span>
-  <button class="btn btn-ghost" disabled={relay.recording} onclick={relay.insertWait}>+ Wait</button>
+  <button class="btn btn-ghost" disabled={relay.recording || !relay.editable} onclick={relay.insertWait}>+ Wait</button>
   <button
     class="btn btn-ghost"
-    disabled={relay.recording}
+    disabled={relay.recording || !relay.editable}
     title="Wait until the pixel under the cursor matches"
     onclick={relay.insertPixelCheck}>+ Pixel check</button
   >
 </div>
+{#if relay.error}<div class="error" role="alert">{relay.error}</div>{/if}
 <div class="list" bind:this={list}>
   {#each steps as s, i (s.items[0] ?? i)}
     {@const [detail, sub] = describe(s)}
@@ -76,10 +92,10 @@
         class="del"
         title="Delete step"
         aria-label="Delete step"
-        disabled={relay.recording}
+        disabled={relay.recording || !relay.editable}
         onclick={(e) => {
           e.stopPropagation();
-          relay.deleteStep(s);
+          relay.deleteStep(i);
         }}><Icon name="x" size={14} /></button
       >
     </div>
@@ -102,6 +118,13 @@
   .bar .btn {
     font-size: 12px;
     padding: 4px 6px;
+  }
+  .error {
+    padding: 6px 12px;
+    font-size: 12px;
+    background: var(--color-accent-100);
+    color: var(--color-accent-800);
+    border-bottom: 1px solid var(--color-divider);
   }
   .list {
     flex: 1;
