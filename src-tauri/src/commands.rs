@@ -3,12 +3,14 @@
 
 use std::sync::{Arc, Mutex};
 
-use relay_core::model::PlaybackOptions;
+use relay_core::model::{PlaybackOptions, Rgb};
+use relay_platform::Platform;
 use relay_core::session::Input;
 use relay_core::{EditOp, MacroListItem, MacroView, format};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use tauri::ipc::Channel;
+use ts_rs::TS;
 use uuid::Uuid;
 
 use crate::coordinator::{Cmd, CoordinatorHandle};
@@ -127,6 +129,40 @@ pub fn export_text(lib: LibraryState<'_>, id: Uuid, format: ExportFormat) -> Res
         ExportFormat::Rly => format::to_rly(&entry.macro_),
         ExportFormat::Json => format::to_export_json(&entry.macro_),
     })
+}
+
+// — screen —
+
+/// The color of one screen pixel (virtual-desktop coordinates).
+#[tauri::command]
+pub fn sample_pixel(platform: State<'_, Arc<Platform>>, x: i32, y: i32) -> Option<Rgb> {
+    platform.screen.pixel(x, y)
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+pub struct PickedPixel {
+    pub x: i32,
+    pub y: i32,
+    pub color: Rgb,
+}
+
+/// Waits `delay_ms` (so the user can point at something), then reads the
+/// pixel under the cursor.
+#[tauri::command]
+pub async fn pick_pixel(platform: State<'_, Arc<Platform>>, delay_ms: u32) -> Result<PickedPixel> {
+    let platform = platform.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        std::thread::sleep(std::time::Duration::from_millis(delay_ms.min(10_000) as u64));
+        let (x, y) = platform.screen.cursor_pos();
+        platform
+            .screen
+            .pixel(x, y)
+            .map(|color| PickedPixel { x, y, color })
+            .ok_or(IpcError { code: "unavailable", message: "Couldn't read the screen there".into() })
+    })
+    .await
+    .unwrap_or(Err(IpcError { code: "unavailable", message: "Couldn't read the screen".into() }))
 }
 
 // — settings —

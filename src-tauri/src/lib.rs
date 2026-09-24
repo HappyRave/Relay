@@ -28,6 +28,8 @@ pub fn run() {
             commands::edit_macro,
             commands::set_playback_options,
             commands::export_text,
+            commands::sample_pixel,
+            commands::pick_pixel,
             commands::get_settings,
             commands::update_settings,
         ])
@@ -43,6 +45,7 @@ pub fn run() {
             let emit = Arc::new(ipc::Emitter::default());
             app.manage(emit.clone());
             let platform = Arc::new(relay_platform::platform());
+            app.manage(platform.clone());
             app.manage(coordinator::spawn(app.handle().clone(), platform, emit));
 
             if let Some(window) = app.get_webview_window("main") {

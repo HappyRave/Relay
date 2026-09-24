@@ -10,7 +10,7 @@ use std::thread::JoinHandle;
 
 use crossbeam_channel::{Sender, TryRecvError, unbounded};
 use relay_core::keys::KeyStroke;
-use relay_core::model::{Event, MouseBtn, Ms, Repeat};
+use relay_core::model::{Event, MouseBtn, Ms, Repeat, Rgb};
 use relay_core::playback::{PlayClock, plan_times};
 use relay_core::session::FinishReason;
 use relay_core::steps::Step;
@@ -22,6 +22,25 @@ use crate::coordinator::Cmd;
 use crate::ipc::{EngineMsg, Emitter};
 
 const TICK_MS: f64 = 33.0;
+/// How often a pixel check samples the screen.
+const PIXEL_POLL_MS: f64 = 30.0;
+
+/// Reads one screen pixel (a closure so tests can fake the screen).
+pub type PixelReader = Box<dyn FnMut(i32, i32) -> Option<Rgb> + Send>;
+
+/// A pixel check in progress: the clock is frozen until the pixel matches.
+struct PixelWaiting {
+    event: usize,
+    /// Where playback continues once the pixel matches (the end of the IF block).
+    resume_at: f64,
+    x: i32,
+    y: i32,
+    color: Rgb,
+    tolerance: u8,
+    started: f64,
+    timeout_ms: f64,
+    next_poll: f64,
+}
 
 /// Everything the engine needs to play one macro.
 pub struct PlayPlan {
@@ -51,6 +70,12 @@ pub struct TimingStats {
 pub struct Engine {
     plan: PlayPlan,
     injector: Box<dyn Injector>,
+    pixel: PixelReader,
+    waiting: Option<PixelWaiting>,
+    /// Paused by the user (as opposed to frozen by a pixel check).
+    user_paused: Option<f64>,
+    /// The 1-based step whose pixel check timed out.
+    pub timed_out_step: Option<usize>,
     times: Vec<f64>,
     idx: usize,
     loop_idx: u32,
@@ -63,7 +88,7 @@ pub struct Engine {
 }
 
 impl Engine {
-    pub fn new(plan: PlayPlan, injector: Box<dyn Injector>, now: f64) -> Self {
+    pub fn new(plan: PlayPlan, injector: Box<dyn Injector>, pixel: PixelReader, now: f64) -> Self {
         let from = if plan.from + 1 >= plan.duration { 0 } else { plan.from };
         let times = plan_times(&plan.events, &plan.steps, plan.jitter_ms, plan.seed);
         let idx = times.partition_point(|&t| t < from as f64);
@@ -71,6 +96,10 @@ impl Engine {
         Engine {
             plan,
             injector,
+            pixel,
+            waiting: None,
+            user_paused: None,
+            timed_out_step: None,
             times,
             idx,
             loop_idx: 0,
@@ -97,6 +126,7 @@ impl Engine {
         self.clock.at(now).min(self.plan.duration as f64)
     }
 
+    /// Whether the playhead stands still (paused, or waiting for a pixel).
     pub fn paused(&self) -> bool {
         self.clock.paused()
     }
@@ -105,24 +135,52 @@ impl Engine {
         self.clock.speed()
     }
 
-    /// Wall time of the next event (or of the loop end); `None` while paused.
+    /// Wall time of the next event, pixel sample or loop end; `None` while paused.
     pub fn next_deadline(&self) -> Option<f64> {
+        if self.user_paused.is_some() {
+            return None;
+        }
+        if let Some(w) = &self.waiting {
+            return Some(w.next_poll);
+        }
         let target = self.times.get(self.idx).copied().unwrap_or(self.plan.duration as f64);
         self.clock.deadline(target)
     }
 
     /// Injects every event that is due at `now`. Returns `Some` when the last loop finished.
     pub fn advance(&mut self, now: f64) -> Option<FinishReason> {
-        if self.clock.paused() {
+        if self.user_paused.is_some() {
             return None;
+        }
+        if self.waiting.is_some() {
+            return self.poll_pixel(now);
         }
         let t = self.clock.at(now);
         while self.idx < self.times.len() && self.times[self.idx] <= t {
             if let Some(deadline) = self.clock.deadline(self.times[self.idx]) {
                 self.lateness.push((now - deadline).max(0.0));
             }
-            self.dispatch(self.idx);
+            let i = self.idx;
             self.idx += 1;
+            if let Event::PixelWait { dur, x, y, color, tolerance, timeout_ms, .. } = self.plan.events[i] {
+                // Freeze the playhead at the check and sample right away.
+                let at = self.times[i];
+                self.clock.seek(at, now);
+                self.clock.pause(now);
+                self.waiting = Some(PixelWaiting {
+                    event: i,
+                    resume_at: at + dur as f64,
+                    x,
+                    y,
+                    color,
+                    tolerance,
+                    started: now,
+                    timeout_ms: timeout_ms as f64,
+                    next_poll: now,
+                });
+                return self.poll_pixel(now);
+            }
+            self.dispatch(i);
         }
         if self.idx == self.times.len() && t >= self.plan.duration as f64 {
             self.release_all();
@@ -138,12 +196,47 @@ impl Engine {
         None
     }
 
+    fn poll_pixel(&mut self, now: f64) -> Option<FinishReason> {
+        let w = self.waiting.as_mut()?;
+        if now < w.next_poll {
+            return None;
+        }
+        let (dx, dy) = self.plan.offset;
+        let matched = (self.pixel)(w.x + dx, w.y + dy).is_some_and(|c| c.within(w.color, w.tolerance));
+        if matched {
+            let resume_at = w.resume_at;
+            self.waiting = None;
+            self.clock.seek(resume_at, now);
+            self.clock.resume(now);
+            return self.advance(now);
+        }
+        if now - w.started >= w.timeout_ms {
+            let event = w.event as u32;
+            self.timed_out_step = self.plan.steps.iter().position(|s| s.items.contains(&event)).map(|i| i + 1);
+            self.release_all();
+            return Some(FinishReason::PixelTimeout);
+        }
+        w.next_poll = now + PIXEL_POLL_MS;
+        None
+    }
+
     pub fn pause(&mut self, now: f64) {
-        self.clock.pause(now);
+        if self.user_paused.is_none() {
+            self.clock.pause(now);
+            self.user_paused = Some(now);
+        }
     }
 
     pub fn resume(&mut self, now: f64) {
-        self.clock.resume(now);
+        let Some(since) = self.user_paused.take() else { return };
+        match &mut self.waiting {
+            // Time spent paused doesn't count toward the check's timeout.
+            Some(w) => {
+                w.started += now - since;
+                w.next_poll = now;
+            }
+            None => self.clock.resume(now),
+        }
     }
 
     pub fn set_speed(&mut self, speed: f64, now: f64) {
@@ -152,8 +245,14 @@ impl Engine {
 
     pub fn seek(&mut self, t: f64, now: f64) {
         self.release_all();
+        self.waiting = None;
         let t = t.clamp(0.0, self.plan.duration as f64);
         self.clock.seek(t, now);
+        if self.user_paused.is_some() {
+            self.clock.pause(now);
+        } else {
+            self.clock.resume(now);
+        }
         self.idx = self.times.partition_point(|&x| x < t);
     }
 
@@ -259,13 +358,15 @@ pub fn spawn(plan: PlayPlan, platform: &Platform, emit: Arc<Emitter>, coordinato
     let (tx, rx) = unbounded::<EngineCmd>();
     let (wake_tx, wake_rx) = crossbeam_channel::bounded(1);
     let (make_timer, make_injector) = (platform.timer, platform.injector);
+    let screen = platform.screen.clone();
     let thread = std::thread::Builder::new()
         .name("relay-engine".into())
         .spawn(move || {
             // Created on this thread: the timer also raises this thread's priority.
             let mut timer = make_timer();
             let _ = wake_tx.send(timer.waker());
-            let mut engine = Engine::new(plan, make_injector(), timer.now_ms());
+            let pixel: PixelReader = Box::new(move |x, y| screen.pixel(x, y));
+            let mut engine = Engine::new(plan, make_injector(), pixel, timer.now_ms());
             let mut reported_error = false;
             let mut next_tick = f64::MIN;
             loop {
@@ -298,6 +399,10 @@ pub fn spawn(plan: PlayPlan, platform: &Platform, emit: Arc<Emitter>, coordinato
                     });
                 }
                 if let Some(reason) = finished {
+                    if reason == FinishReason::PixelTimeout {
+                        let step = engine.timed_out_step.map_or(String::new(), |n| format!(" at step {n}"));
+                        emit.send(EngineMsg::Notice { message: format!("Pixel check timed out{step}; playback stopped.") });
+                    }
                     emit.send(EngineMsg::Finished { reason, timing: engine.stats() });
                     let _ = coordinator.send(Cmd::EngineDone(reason));
                     return;
@@ -358,7 +463,7 @@ mod tests {
         let steps = relay_core::steps::group_steps(&events, Default::default());
         let duration = relay_core::timeline::duration(&events);
         let plan = PlayPlan { events, steps, duration, repeat, speed, jitter_ms: 0, seed: 0, offset: (0, 0), from: 0 };
-        (Engine::new(plan, Box::new(rec.clone()), 0.0), rec)
+        (Engine::new(plan, Box::new(rec.clone()), Box::new(|_, _| None), 0.0), rec)
     }
 
     #[test]
@@ -429,6 +534,80 @@ mod tests {
         assert_eq!(rec.take(), ["move 10,20", "Left down", "move 90,20", "Left up"]);
     }
 
+    fn pixel_macro() -> Vec<Event> {
+        vec![
+            Event::PixelWait { t: 100, dur: 900, x: 5, y: 6, color: Rgb(255, 0, 0), tolerance: 8, timeout_ms: 5000, label: String::new() },
+            key(1000, "KeyA", true),
+            key(1040, "KeyA", false),
+        ]
+    }
+
+    fn pixel_engine(turns_red_at: f64) -> (Engine, Recorder, Arc<Mutex<f64>>) {
+        let rec = Recorder::default();
+        let events = pixel_macro();
+        let steps = relay_core::steps::group_steps(&events, Default::default());
+        let duration = relay_core::timeline::duration(&events);
+        let plan = PlayPlan { events, steps, duration, repeat: Repeat::Count(1), speed: 1.0, jitter_ms: 0, seed: 0, offset: (0, 0), from: 0 };
+        // The fake screen turns red at `turns_red_at` (wall ms), read through a shared clock.
+        let now = Arc::new(Mutex::new(0.0));
+        let clock = now.clone();
+        let pixel: PixelReader = Box::new(move |x, y| {
+            assert_eq!((x, y), (5, 6));
+            Some(if *clock.lock().unwrap() >= turns_red_at { Rgb(250, 4, 2) } else { Rgb(255, 255, 255) })
+        });
+        (Engine::new(plan, Box::new(rec.clone()), pixel, 0.0), rec, now)
+    }
+
+    /// Advances the engine to `t`, updating the fake screen's clock.
+    fn run_to(e: &mut Engine, now: &Arc<Mutex<f64>>, t: f64) -> Option<FinishReason> {
+        *now.lock().unwrap() = t;
+        e.advance(t)
+    }
+
+    #[test]
+    fn pixel_check_waits_until_the_color_matches_then_continues() {
+        let (mut e, rec, now) = pixel_engine(1200.0);
+        assert_eq!(run_to(&mut e, &now, 100.0), None);
+        assert!(e.paused(), "the playhead freezes at the check");
+        assert_eq!(e.macro_time(100.0), 100.0);
+        assert_eq!(e.next_deadline(), Some(130.0), "it samples every 30 ms");
+        for t in [130.0, 600.0, 1190.0] {
+            assert_eq!(run_to(&mut e, &now, t), None);
+            assert_eq!(e.macro_time(t), 100.0);
+        }
+        assert!(rec.take().is_empty());
+        // Matches at 1200 (within tolerance) and continues from the end of the IF block.
+        run_to(&mut e, &now, 1220.0);
+        assert!(!e.paused());
+        assert_eq!(e.macro_time(1220.0), 1000.0);
+        assert_eq!(rec.take(), ["KeyA down"]);
+        run_to(&mut e, &now, 1260.0);
+        assert_eq!(rec.take(), ["KeyA up"]);
+    }
+
+    #[test]
+    fn pixel_check_times_out_with_its_step_number() {
+        let (mut e, rec, now) = pixel_engine(f64::INFINITY);
+        run_to(&mut e, &now, 100.0);
+        assert_eq!(run_to(&mut e, &now, 5000.0), None);
+        assert_eq!(run_to(&mut e, &now, 5100.0), Some(FinishReason::PixelTimeout));
+        assert_eq!(e.timed_out_step, Some(1));
+        assert!(rec.take().is_empty());
+    }
+
+    #[test]
+    fn pausing_during_a_pixel_check_stops_its_timeout() {
+        let (mut e, _rec, now) = pixel_engine(f64::INFINITY);
+        run_to(&mut e, &now, 100.0);
+        e.pause(1000.0);
+        assert_eq!(e.next_deadline(), None);
+        assert_eq!(run_to(&mut e, &now, 60_000.0), None);
+        e.resume(60_000.0);
+        // 900 ms of the 5 s timeout were used before the pause.
+        assert_eq!(run_to(&mut e, &now, 64_000.0), None);
+        assert_eq!(run_to(&mut e, &now, 64_200.0), Some(FinishReason::PixelTimeout));
+    }
+
     #[test]
     fn window_offset_moves_every_position() {
         let rec = Recorder::default();
@@ -444,7 +623,7 @@ mod tests {
             from: 0,
             events,
         };
-        let mut e = Engine::new(plan, Box::new(rec.clone()), 0.0);
+        let mut e = Engine::new(plan, Box::new(rec.clone()), Box::new(|_, _| None), 0.0);
         e.advance(0.0);
         assert_eq!(rec.take(), ["move 130,90"]);
     }
