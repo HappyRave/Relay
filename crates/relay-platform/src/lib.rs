@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use crossbeam_channel::Sender;
 use relay_core::keys::KeyStroke;
-use relay_core::model::{MonitorInfo, MouseBtn, Rect, WindowInfo};
+use relay_core::model::{MonitorInfo, MouseBtn, Rect, Rgb, WindowInfo};
 
 pub use types::{HeldKeys, HookConfig, RawInput, RawKind};
 
@@ -51,6 +51,8 @@ pub trait Screen: Send + Sync {
     fn cursor_pos(&self) -> (i32, i32);
     /// System double-click time (ms) and distance (px).
     fn double_click(&self) -> (u32, u32);
+    /// The color of one screen pixel, or `None` if it can't be read.
+    fn pixel(&self, x: i32, y: i32) -> Option<Rgb>;
 }
 
 /// A top-level window, by handle and owning process.

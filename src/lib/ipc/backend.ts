@@ -6,6 +6,7 @@ import type { EditOp, ExportFormat, MacroListItem, MacroView, PlaybackOptions } 
 import type { EngineMsg } from "./bindings/EngineMsg";
 import type { Mode } from "./bindings/Mode";
 import type { Settings } from "./bindings/Settings";
+import type { PickedPixel } from "./bindings/PickedPixel";
 import { isTauri } from "../platform/window";
 
 export interface Backend {
@@ -24,6 +25,10 @@ export interface Backend {
   exportText(id: string, format: ExportFormat): Promise<string>;
   getSettings(): Promise<Settings>;
   updateSettings(settings: Settings): Promise<Settings>;
+  /** The color of a screen pixel as "#RRGGBB", or null if unreadable. */
+  samplePixel(x: number, y: number): Promise<string | null>;
+  /** After `delayMs`, the position and color under the cursor. */
+  pickPixel(delayMs: number): Promise<PickedPixel>;
 }
 
 /** Errors from Rust commands arrive as `{ code, message }`. */
@@ -50,6 +55,8 @@ const tauriBackend: Backend = {
   exportText: (id, format) => invoke("export_text", { id, format }),
   getSettings: () => invoke("get_settings"),
   updateSettings: (settings) => invoke("update_settings", { settings }),
+  samplePixel: (x, y) => invoke("sample_pixel", { x, y }),
+  pickPixel: (delayMs) => invoke("pick_pixel", { delayMs }),
 };
 
 interface FixtureItem {
@@ -196,6 +203,8 @@ function browserBackend(): Backend {
     exportText: async (id) => JSON.stringify((await find(id)).view, null, 2),
     getSettings: async () => settings,
     updateSettings: async (s) => (settings = s),
+    samplePixel: async () => null,
+    pickPixel: async () => unavailable(),
   };
 }
 

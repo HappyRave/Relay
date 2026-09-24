@@ -1,6 +1,8 @@
-use relay_core::model::{MonitorInfo, Rect};
+use relay_core::model::{MonitorInfo, Rect, Rgb};
 use windows::Win32::Foundation::{LPARAM, POINT, RECT};
-use windows::Win32::Graphics::Gdi::{EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO, MONITORINFOEXW};
+use windows::Win32::Graphics::Gdi::{
+    EnumDisplayMonitors, GetDC, GetMonitorInfoW, GetPixel, HDC, HMONITOR, MONITORINFO, MONITORINFOEXW, ReleaseDC,
+};
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::Input::KeyboardAndMouse::GetDoubleClickTime;
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -69,6 +71,20 @@ impl Screen for WinScreen {
             // SM_CXDOUBLECLK is the width of the whole rectangle around the first click.
             let px = GetSystemMetrics(SM_CXDOUBLECLK).max(GetSystemMetrics(SM_CYDOUBLECLK)) / 2;
             (GetDoubleClickTime(), px.max(1) as u32)
+        }
+    }
+
+    fn pixel(&self, x: i32, y: i32) -> Option<Rgb> {
+        unsafe {
+            // The screen DC spans the virtual desktop, primary monitor at (0, 0).
+            let dc = GetDC(None);
+            if dc.is_invalid() {
+                return None;
+            }
+            let c = GetPixel(dc, x, y).0;
+            ReleaseDC(None, dc);
+            // CLR_INVALID: off-screen, or a protected surface.
+            (c != 0xFFFF_FFFF).then_some(Rgb((c & 0xFF) as u8, ((c >> 8) & 0xFF) as u8, ((c >> 16) & 0xFF) as u8))
         }
     }
 }

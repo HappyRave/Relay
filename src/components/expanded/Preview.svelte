@@ -1,12 +1,21 @@
 <script lang="ts">
   import { relay } from "../../lib/state/relay.svelte";
   import { BADGE } from "../../lib/state/display";
-  import { cumulativeLengths, lastIndexAtOrBefore, pathD } from "../../lib/preview/geometry";
+  import { cumulativeLengths, fitView, lastIndexAtOrBefore, pathD } from "../../lib/preview/geometry";
   import { currentStepIndex } from "../../lib/timeline/lanes";
   import { pad4 } from "../../lib/format";
   import type { StepOf } from "../../lib/types";
 
-  const d = $derived(relay.desktop);
+  /** The visible part of the desktop: zoomed to the macro, or everything while recording. */
+  const d = $derived.by(() => {
+    if (relay.mode === "rec") return relay.desktop;
+    const points = [
+      ...relay.moves,
+      ...relay.steps.flatMap((s) => ("x" in s ? [{ x: s.x, y: s.y }] : [])),
+    ];
+    const anchor = relay.view?.recording.anchor_window?.rect;
+    return fitView(relay.desktop, points, anchor ? [anchor] : []);
+  });
   /** The design was drawn on a 1600-wide viewBox; scale its sizes to the real desktop. */
   const k = $derived(d.w / 1600);
   const cur = $derived(Math.min(relay.cur, relay.duration));

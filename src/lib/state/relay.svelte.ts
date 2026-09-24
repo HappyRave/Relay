@@ -192,8 +192,9 @@ class RelayStore {
       case "finished":
         this.loopIdx = 0;
         if (msg.timing) this.lastTiming = msg.timing;
-        // Any stop rewinds (Stop, Esc, a key press, the kill switch); a completed run stays at the end.
-        if (msg.reason !== "completed") this.cur = 0;
+        // Any stop rewinds (Stop, Esc, a key press, the kill switch). A completed run stays at
+        // the end, and a timed-out pixel check stays on its step so the row is highlighted.
+        if (msg.reason !== "completed" && msg.reason !== "pixel_timeout") this.cur = 0;
         break;
       case "saved":
         // Arrives just before the session returns to idle.
@@ -352,19 +353,42 @@ class RelayStore {
 
   insertWait = () => this.edit({ op: "insert_wait", at: Math.round(this.cur), dur: 500, label: "Inserted" });
 
-  insertPixelCheck = () => {
+  /** Inserts a check at the playhead for the pixel under the macro's cursor, in its current color. */
+  insertPixelCheck = async () => {
+    const at = Math.round(this.cur);
     const p = this.cursorAt(this.cur);
-    return this.edit({
-      op: "insert_pixel_wait",
-      at: Math.round(this.cur),
-      dur: 800,
-      x: p.x,
-      y: p.y,
-      color: "#EC3013",
-      tolerance: 8,
-      timeout_ms: 5000,
-      label: "Inserted",
-    });
+    const x = Math.round(p.x);
+    const y = Math.round(p.y);
+    const color = (await backend.samplePixel(x, y).catch(() => null)) ?? "#EC3013";
+    return this.edit({ op: "insert_pixel_wait", at, dur: 800, x, y, color, tolerance: 8, timeout_ms: 5000, label: "" });
+  };
+
+  /** Seconds left before "Pick" samples the cursor, or 0 when not picking. */
+  picking = $state(0);
+
+  /** After a 3 s countdown, points the pixel check at the pixel under the real cursor. */
+  pickPixel = async (index: number) => {
+    const step = this.steps[index];
+    if (step?.kind !== "pixel_wait" || this.picking) return;
+    this.picking = 3;
+    const tick = setInterval(() => (this.picking = Math.max(1, this.picking - 1)), 1000);
+    try {
+      const p = await backend.pickPixel(3000);
+      await this.edit({
+        op: "update_pixel_wait",
+        index,
+        x: p.x,
+        y: p.y,
+        color: p.color,
+        tolerance: step.tolerance,
+        timeout_ms: step.timeout_ms,
+      });
+    } catch (e) {
+      this.fail(e);
+    } finally {
+      clearInterval(tick);
+      this.picking = 0;
+    }
   };
 
   private fail(e: unknown) {
