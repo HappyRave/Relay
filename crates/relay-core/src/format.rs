@@ -60,7 +60,8 @@ pub fn to_export_json(m: &Macro) -> String {
 
 /// Parses a `.rly` (or exported `.json`) document of any supported version.
 pub fn from_rly(s: &str) -> Result<Macro, FormatError> {
-    let mut v: Value = serde_json::from_str(s)?;
+    // Not even JSON: say so plainly rather than quoting the parser.
+    let mut v: Value = serde_json::from_str(s).map_err(|_| FormatError::NotRelay)?;
     let obj = v.as_object_mut().ok_or(FormatError::NotRelay)?;
     if obj.get("format").and_then(Value::as_str) != Some(FORMAT) {
         return Err(FormatError::NotRelay);
@@ -217,6 +218,7 @@ mod tests {
         assert!(matches!(from_rly("{}"), Err(FormatError::NotRelay)));
         assert!(matches!(from_rly(r#"{"format":"relay-macro","version":99}"#), Err(FormatError::TooNew(99))));
         assert!(matches!(from_rly("[1]"), Err(FormatError::NotRelay)));
+        assert_eq!(from_rly("not json").unwrap_err().to_string(), "not a Relay macro");
     }
 
     #[test]
