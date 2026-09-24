@@ -18,6 +18,7 @@ import type {
 import type { EngineMsg } from "../ipc/bindings/EngineMsg";
 import type { Mode as EngineMode } from "../ipc/bindings/Mode";
 import type { Settings } from "../ipc/bindings/Settings";
+import type { TimingStats } from "../ipc/bindings/TimingStats";
 import { backend, type IpcError } from "../ipc/backend";
 import { isTauri } from "../platform/window";
 import { lastIndexAtOrBefore } from "../preview/geometry";
@@ -71,8 +72,10 @@ class RelayStore {
   settings = $state<Settings>(DEFAULT_SETTINGS);
   library = $state.raw<MacroListItem[]>([]);
   view = $state.raw<MacroView | null>(null);
-  /** The last failed command, shown briefly in the Steps tab. */
+  /** The last failed command or engine notice, shown briefly in the Steps tab. */
   error = $state<string | null>(null);
+  /** Injection timing of the last completed playback (for diagnostics). */
+  lastTiming: TimingStats | null = null;
   readonly editable = backend.editable;
 
   /** Set by the widget (M6 uses it for click-through during playback). */
@@ -188,7 +191,9 @@ class RelayStore {
         break;
       case "finished":
         this.loopIdx = 0;
-        if (msg.reason === "stopped") this.cur = 0;
+        if (msg.timing) this.lastTiming = msg.timing;
+        // Any stop rewinds (Stop, Esc, a key press, the kill switch); a completed run stays at the end.
+        if (msg.reason !== "completed") this.cur = 0;
         break;
       case "saved":
         // Arrives just before the session returns to idle.
@@ -202,7 +207,8 @@ class RelayStore {
         this.expanded = !this.expanded;
         break;
       case "error":
-        this.fail({ code: "engine", message: msg.message });
+      case "notice":
+        this.fail({ code: msg.type, message: msg.message });
         break;
     }
   };
@@ -390,3 +396,6 @@ class RelayStore {
 }
 
 export const relay = new RelayStore();
+
+// A handle for debugging and end-to-end tests (`window.__relay` in DevTools).
+(window as unknown as { __relay: RelayStore }).__relay = relay;

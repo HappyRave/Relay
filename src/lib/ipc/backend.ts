@@ -112,7 +112,7 @@ function browserBackend(): Backend {
       } else {
         halt();
         emit({ type: "play_tick", t: current.duration, advancing: false, speed: pb.speed, loop_idx: play.loop, loops });
-        emit({ type: "finished", reason: "completed" });
+        emit({ type: "finished", reason: "completed", timing: null });
         return setMode("idle");
       }
     }
@@ -159,7 +159,7 @@ function browserBackend(): Backend {
     },
     stop: async () => {
       halt();
-      if (mode.mode === "playing" || mode.mode === "paused") emit({ type: "finished", reason: "stopped" });
+      if (mode.mode === "playing" || mode.mode === "paused") emit({ type: "finished", reason: "stopped", timing: null });
       if (mode.mode !== "idle") setMode("idle");
     },
     seek: async (t) => {

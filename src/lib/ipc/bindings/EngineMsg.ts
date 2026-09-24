@@ -4,5 +4,6 @@ import type { Mode } from "./Mode";
 import type { MovePoint } from "./MovePoint";
 import type { Rect } from "./Rect";
 import type { Step } from "./Step";
+import type { TimingStats } from "./TimingStats";
 
-export type EngineMsg = { "type": "session", mode: Mode, macro_id: string | null, } | { "type": "countdown", left_ms: number, } | { "type": "rec_progress", elapsed_ms: number, desktop: Rect, moves: Array<MovePoint>, steps: Array<Step> | null, } | { "type": "play_tick", t: number, advancing: boolean, speed: number, loop_idx: number, loops: number | null, } | { "type": "finished", reason: FinishReason, } | { "type": "saved", id: string, } | { "type": "library_changed" } | { "type": "toggle_compact" } | { "type": "error", message: string, };
+export type EngineMsg = { "type": "session", mode: Mode, macro_id: string | null, } | { "type": "countdown", left_ms: number, } | { "type": "rec_progress", elapsed_ms: number, desktop: Rect, moves: Array<MovePoint>, steps: Array<Step> | null, } | { "type": "play_tick", t: number, advancing: boolean, speed: number, loop_idx: number, loops: number | null, } | { "type": "finished", reason: FinishReason, timing: TimingStats | null, } | { "type": "saved", id: string, } | { "type": "library_changed" } | { "type": "toggle_compact" } | { "type": "error", message: string, } | { "type": "notice", message: string, };
