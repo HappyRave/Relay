@@ -89,7 +89,7 @@ With **Window**, Relay finds the recorded app's window (the same program and win
 Relay injects input the same way your mouse and keyboard would: it goes to whatever is under the cursor and whichever window has the focus.
 
 - **Started from Relay's own play button:** clicking it would give Relay the keyboard, so Relay first hands the focus back to the app you were using before. The macro types into that app, not into Relay.
-- **Clicks under the widget:** the widget stays on top, so a click where the widget is would hit Relay. If the macro clicks there, the widget lets clicks pass through it for the whole playback.
+- **Clicks under the widget:** the widget usually stays on top during playback, so a click where the widget is would hit Relay. If the macro clicks there, the widget lets clicks pass through it for the whole playback.
 - **The widget doesn't take the focus** while a macro plays, even if you click it.
 
 > [!WARNING]

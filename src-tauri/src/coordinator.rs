@@ -221,6 +221,7 @@ impl Coordinator {
                 crate::tray::set_mode(&self.app, mode);
                 if let Some(w) = self.app.get_webview_window("main") {
                     crate::window_ctl::set_no_activate(&w, mode != Mode::Idle);
+                    crate::window_ctl::apply_on_top(&w, self.settings().keep_on_top, mode != Mode::Idle);
                 }
                 self.emit.send(EngineMsg::Session { mode, macro_id: self.current });
             }

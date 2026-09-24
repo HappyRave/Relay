@@ -43,6 +43,7 @@
       "icons/icon.ico"
     ],
     "publisher": "HappyRave",
+    "license": "MIT",
     "shortDescription": "Record, edit and replay mouse and keyboard macros",
     "longDescription": "Relay records mouse and keyboard input, lets you edit it as steps, and replays it on demand, on a hotkey, on a schedule, when an app launches or when a pixel changes.",
     "category": "Productivity",

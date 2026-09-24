@@ -102,6 +102,8 @@ pub fn run() {
             let window_state = window_ctl::WindowState::open(&dir);
             if let Some(window) = app.get_webview_window("main") {
                 window_ctl::apply_modernist_frame(&window);
+                let keep_on_top = app.state::<Mutex<settings::SettingsStore>>().lock().unwrap().current.keep_on_top;
+                window_ctl::apply_on_top(&window, keep_on_top, false);
                 // Place it where it was, then show it (the window starts hidden, so it never jumps).
                 let css = if window_state.prefs().expanded { window_ctl::EXPANDED } else { window_ctl::COMPACT };
                 window_ctl::place(&window, &window_state, css);

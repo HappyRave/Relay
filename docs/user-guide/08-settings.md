@@ -46,6 +46,7 @@ These apply to every new recording. See [Recording](02-recording.md#recording-op
 
 | Setting | Default | What it does |
 | --- | --- | --- |
+| **Keep on top** | Always | When the widget floats above other windows: **Always**, **While recording or playing** (a normal window the rest of the time), or **Never** |
 | **Close to tray** | On | The **×** button and <kbd>Alt</kbd>+<kbd>F4</kbd> hide Relay to the tray. Hotkeys and triggers keep running. Off, they quit Relay. |
 | **Start with Windows** | Off | Starts Relay in the tray when you sign in, so triggers run without you opening it |
 
@@ -55,7 +56,7 @@ The list at the bottom is a reminder of Relay's own hotkeys. They can't be chang
 
 ## The widget window
 
-Relay's widget floats **on top** of other windows.
+By default Relay's widget floats **on top** of other windows, so the stop button and the steps stay in view while you work in other apps. **Settings → Window → Keep on top** makes it float only while recording or playing, or never.
 
 - **Move it** by dragging the dotted grip on its left edge. Relay remembers where you left it, even after a restart.
 - **Where it sits:** it stays anchored by its bottom-center, so switching between the compact player and the editor grows or shrinks it upward, around the same point. It never goes off screen or under the taskbar. If the monitor it was on is gone, it comes back at the bottom of the main monitor.

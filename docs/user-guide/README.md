@@ -4,7 +4,7 @@ Relay is a macro recorder for Windows. It watches what you do with the mouse and
 
 ## A tour of the widget
 
-Relay lives in a small window that stays on top of your other windows. It has two sizes: the **expanded editor** and the **compact player**. Switch between them with <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd> or the arrows button in the top-right corner.
+Relay lives in a small window that stays on top of your other windows (you can [change that](08-settings.md#window)). It has two sizes: the **expanded editor** and the **compact player**. Switch between them with <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd> or the arrows button in the top-right corner.
 
 <p align="center">
   <img src="../images/editor.png" alt="The expanded editor" width="720">

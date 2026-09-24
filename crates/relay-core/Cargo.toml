@@ -5,6 +5,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 repository.workspace = true
+license.workspace = true
 
 [features]
 # The design's sample macros, used as test fixtures and to seed the dev library.

@@ -16,6 +16,28 @@ pub enum PathMode {
     Trail,
 }
 
+/// When the widget floats above other windows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum KeepOnTop {
+    Always,
+    /// Only while recording or playing (the countdown included).
+    Sessions,
+    Never,
+}
+
+impl KeepOnTop {
+    /// Whether the widget should be on top, given whether a session is running.
+    pub fn on_top(self, session: bool) -> bool {
+        match self {
+            KeepOnTop::Always => true,
+            KeepOnTop::Sessions => session,
+            KeepOnTop::Never => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(default)]
 #[ts(export)]
@@ -34,6 +56,7 @@ pub struct Settings {
     pub show_click_labels: bool,
     /// The close button (and Alt+F4) hides Relay to the tray instead of quitting.
     pub close_to_tray: bool,
+    pub keep_on_top: KeepOnTop,
 }
 
 impl Default for Settings {
@@ -47,6 +70,7 @@ impl Default for Settings {
             path_mode: PathMode::Full,
             show_click_labels: true,
             close_to_tray: true,
+            keep_on_top: KeepOnTop::Always,
         }
     }
 }
@@ -87,5 +111,13 @@ mod tests {
         std::fs::write(dir.path().join("settings.json"), r#"{"capture_keys":false}"#).unwrap();
         let s = SettingsStore::open(dir.path()).current;
         assert!(!s.capture_keys && s.capture_moves);
+        assert_eq!(s.keep_on_top, KeepOnTop::Always, "older files keep the old behavior");
+    }
+
+    #[test]
+    fn keep_on_top_follows_sessions_when_asked() {
+        assert!(KeepOnTop::Always.on_top(false) && KeepOnTop::Always.on_top(true));
+        assert!(!KeepOnTop::Sessions.on_top(false) && KeepOnTop::Sessions.on_top(true));
+        assert!(!KeepOnTop::Never.on_top(false) && !KeepOnTop::Never.on_top(true));
     }
 }

@@ -10,6 +10,7 @@
   <a href="https://github.com/HappyRave/Relay/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/HappyRave/Relay/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-201e1d">
   <img alt="Built with Rust and Tauri" src="https://img.shields.io/badge/Rust%20%2B%20Tauri%202-201e1d">
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-201e1d"></a>
 </p>
 
 <p align="center">
@@ -142,3 +143,7 @@ Relay is a Rust workspace (`relay-core` for the pure logic, `relay-platform` for
 - [ ] macOS and Linux backends
 
 See [CHANGELOG.md](CHANGELOG.md) for what changed in each version.
+
+## License
+
+Relay is free software under the [MIT License](LICENSE): use it, change it and share it, including commercially, as long as the copyright notice stays with it.
