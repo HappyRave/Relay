@@ -110,6 +110,16 @@ pub fn label(code: &str) -> String {
     punct.into()
 }
 
+/// The label for a recorded key. Letters and digits come from the virtual
+/// key, which follows the keyboard layout (the key labeled A on AZERTY is
+/// physically "KeyQ" but has virtual key A); everything else from the code.
+pub fn key_label(key: &KeyStroke) -> String {
+    match key.vk {
+        0x41..=0x5A | 0x30..=0x39 => (key.vk as u8 as char).to_string(),
+        _ => label(&key.code),
+    }
+}
+
 /// Inverse of [`label`] for the labels used by the prototype ("Ctrl + A").
 pub fn code_for_label(label: &str) -> String {
     match label {
@@ -187,6 +197,14 @@ mod tests {
         for l in ["Ctrl", "Alt", "Shift", "Win", "A", "7", "Enter", "Tab", "F2", "Esc", "Left", "-"] {
             assert_eq!(label(&code_for_label(l)), l, "{l}");
         }
+    }
+
+    #[test]
+    fn recorded_labels_follow_the_layout() {
+        let azerty_a = KeyStroke { code: "KeyQ".into(), vk: 0x41, scan: 0x10, ext: false };
+        assert_eq!(key_label(&azerty_a), "A");
+        assert_eq!(key_label(&KeyStroke::code("KeyQ")), "Q");
+        assert_eq!(key_label(&KeyStroke { code: "Enter".into(), vk: 0x0D, scan: 0x1C, ext: false }), "Enter");
     }
 
     #[test]
