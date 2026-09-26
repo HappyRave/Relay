@@ -267,9 +267,10 @@ describe("Triggers tab", () => {
       await settle();
       expect(sent().schedule.schedule.time).toBe("17:45");
       core.clearCalls();
-      await change(time, ""); // cleared: ignored
+      await change(time, ""); // cleared: put back
       await settle();
       expect(core.argsOf("set_triggers")).toEqual([]);
+      expect(time).toHaveValue("17:45");
     });
   });
 
@@ -327,6 +328,15 @@ describe("Triggers tab", () => {
       await settle();
       expect(sent().pixel).toEqual({ enabled: true, x: -100, y: 250, color: "#A1B2C3", tolerance: 8 });
       expect(screen.getByText("-100, 250 becomes #A1B2C3")).toBeInTheDocument();
+    });
+
+    test("the position is in whole pixels", async () => {
+      render(TriggersTab);
+      const x = screen.getByLabelText("X");
+      await change(x, "3.4");
+      expect(x).toHaveValue(3);
+      await settle();
+      expect(sent().pixel.x).toBe(3);
     });
 
     test("bad input is put back and not sent", async () => {

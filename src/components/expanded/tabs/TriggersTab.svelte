@@ -4,6 +4,7 @@
   import { relay } from "../../../lib/state/relay.svelte";
   import { onMount } from "svelte";
   import { nextRunLabel } from "../../../lib/format";
+  import { commitNumber, toMs } from "../../../lib/fields";
 
   const DAYS = ["M", "T", "W", "T", "F", "S", "S"];
   const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -20,11 +21,13 @@
     relay.setTriggers({ schedule: { ...t.schedule, schedule: { ...t.schedule.schedule, days } } });
   }
 
-  /** Applies a number field's value; an empty or non-number one is put back instead. */
-  function withNumber(e: Event, current: number, apply: (v: number) => void) {
-    const input = e.currentTarget as HTMLInputElement;
-    if (Number.isFinite(input.valueAsNumber)) apply(input.valueAsNumber);
-    else input.value = String(current);
+  /**
+   * Commits a number field; it then shows what's saved (rounded to whole
+   * pixels or ms, clamped), or the current value again if it was refused.
+   */
+  function withNumber(e: Event, current: number, accept: (v: number) => number | null, apply: (v: number) => void, show?: (v: number) => string) {
+    const v = commitNumber(e.currentTarget as HTMLInputElement, current, accept, show);
+    if (v != null) apply(v);
   }
 </script>
 
@@ -77,9 +80,12 @@
           class="input time"
           aria-label="Time"
           value={t.schedule.schedule.time}
-          onchange={(e) =>
-            e.currentTarget.value &&
-            relay.setTriggers({ schedule: { ...t.schedule, schedule: { ...t.schedule.schedule, time: e.currentTarget.value } } })}
+          onchange={(e) => {
+            const time = e.currentTarget.value;
+            // A cleared time isn't a time: show the saved one again.
+            if (!time) e.currentTarget.value = t.schedule.schedule.time;
+            else if (time !== t.schedule.schedule.time) relay.setTriggers({ schedule: { ...t.schedule, schedule: { ...t.schedule.schedule, time } } });
+          }}
         />
       </div>
     </div>
@@ -120,8 +126,12 @@
           title="Delay in seconds"
           value={t.app_launch.delay_ms / 1000}
           onchange={(e) =>
-            withNumber(e, t.app_launch.delay_ms / 1000, (s) =>
-              relay.setTriggers({ app_launch: { ...t.app_launch, delay_ms: Math.max(0, Math.round(s * 1000)) } }),
+            withNumber(
+              e,
+              t.app_launch.delay_ms,
+              (s) => Math.max(0, toMs(s)),
+              (delay_ms) => relay.setTriggers({ app_launch: { ...t.app_launch, delay_ms } }),
+              (ms) => String(ms / 1000),
             )}
         />
       </div>
@@ -143,14 +153,14 @@
           type="number"
           aria-label="X"
           value={t.pixel.x}
-          onchange={(e) => withNumber(e, t.pixel.x, (x) => relay.setTriggers({ pixel: { ...t.pixel, x } }))}
+          onchange={(e) => withNumber(e, t.pixel.x, Math.round, (x) => relay.setTriggers({ pixel: { ...t.pixel, x } }))}
         />
         <input
           class="input small"
           type="number"
           aria-label="Y"
           value={t.pixel.y}
-          onchange={(e) => withNumber(e, t.pixel.y, (y) => relay.setTriggers({ pixel: { ...t.pixel, y } }))}
+          onchange={(e) => withNumber(e, t.pixel.y, Math.round, (y) => relay.setTriggers({ pixel: { ...t.pixel, y } }))}
         />
         <input
           class="input small"
@@ -159,9 +169,9 @@
           spellcheck="false"
           value={t.pixel.color}
           onchange={(e) => {
-            const color = e.currentTarget.value.trim();
-            if (HEX.test(color)) relay.setTriggers({ pixel: { ...t.pixel, color: color.toUpperCase() } });
-            else e.currentTarget.value = t.pixel.color;
+            const color = e.currentTarget.value.trim().toUpperCase();
+            e.currentTarget.value = HEX.test(color) ? color : t.pixel.color;
+            if (HEX.test(color) && color !== t.pixel.color) relay.setTriggers({ pixel: { ...t.pixel, color } });
           }}
         />
         <button class="btn btn-secondary pick" disabled={relay.picking > 0 || !relay.editable} onclick={relay.pickTriggerPixel}>

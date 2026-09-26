@@ -383,8 +383,11 @@ describe("Step editor", () => {
     const pause = within(editor).getByLabelText(/Pause before/);
     expect(pause).toHaveValue(1.4);
     await change(pause, "2.5");
-    await change(pause, "-1"); // ignored
-    await change(pause, ""); // cleared: ignored and put back
+    await settle();
+    await change(pause, "-1"); // refused: put back
+    expect(pause).toHaveValue(2.5);
+    await change(pause, ""); // cleared: put back
+    expect(pause).toHaveValue(2.5);
     await settle();
     expect(ops()).toEqual([{ op: "set_pause", index: 9, dur: 2500 }]);
     expect(pause).toHaveValue(2.5); // the saved pause
@@ -405,7 +408,9 @@ describe("Step editor", () => {
     const dur = within(editor).getByLabelText(/Duration/);
     expect(dur).toHaveValue(0.7);
     await change(dur, "1.25");
+    await settle();
     await change(dur, "-3");
+    expect(dur).toHaveValue(1.25);
     await settle();
     await change(within(editor).getByLabelText("Label"), "Wait for dialog");
     await settle();
@@ -451,6 +456,29 @@ describe("Step editor", () => {
         { op: "update_pixel_wait", ...base, x: 100, y: -50, color: "#ABCDEF" },
         { op: "update_pixel_wait", ...base, x: 100, y: -50, color: "#ABCDEF", tolerance: 255 },
         { op: "update_pixel_wait", ...base, x: 100, y: -50, color: "#ABCDEF", tolerance: 255, timeout_ms: 2500 },
+      ]);
+    });
+
+    test("numbers are rounded to what Rust stores and clamped, and the field shows what's saved", async () => {
+      const e = await open(7);
+      const x = within(e).getByLabelText("X");
+      await change(x, "12.7");
+      expect(x).toHaveValue(13);
+      await settle();
+      const tolerance = within(e).getByLabelText("Tolerance");
+      await change(tolerance, "300");
+      await settle();
+      await change(tolerance, "300"); // already 255: nothing to save, but the field says 255
+      expect(tolerance).toHaveValue(255);
+      await settle();
+      const timeout = within(e).getByLabelText(/Timeout/);
+      await change(timeout, "0.2");
+      expect(timeout).toHaveValue(0.5);
+      await settle();
+      expect(ops()).toEqual([
+        { op: "update_pixel_wait", ...base, x: 13 },
+        { op: "update_pixel_wait", ...base, x: 13, tolerance: 255 },
+        { op: "update_pixel_wait", ...base, x: 13, tolerance: 255, timeout_ms: 500 },
       ]);
     });
 
