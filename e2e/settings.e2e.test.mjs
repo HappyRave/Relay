@@ -1,23 +1,35 @@
 // Settings and the window against the real app: every setting reaches
 // settings.json, Keep on top changes the native window, the compact player
 // resizes it, and the close button hides or quits.
-import { after, before, describe, test } from "node:test";
+import { after, afterEach, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { App, sleep, until } from "./harness.mjs";
+import { App, sleep, until, waitingMacro, writeRly } from "./harness.mjs";
 
 describe("settings and window", () => {
   const app = new App();
   let page;
+  let waits; // a macro that only waits, safe to play
   before(async () => {
     page = await app.start();
-    await page.click("Settings", { role: "tab" });
-    await page.idle();
+    const [path] = writeRly(app.path("import"), [waitingMacro({ name: "Waits", waits: [2000, 2000] })]);
+    [waits] = (await page.invoke("import_macros", { paths: [path] })).imported;
+    await page.tab("Settings");
   });
   after(() => app.dispose());
+  afterEach(() => app.page?.reset());
 
   const settings = () => (app.exists("settings.json") ? app.json("settings.json") : {});
   const onTop = () => page.invoke("plugin:window|is_always_on_top", { label: "main" });
   const visible = () => page.invoke("plugin:window|is_visible", { label: "main" });
+  /** The native window's rect, in physical pixels. */
+  const rect = async () => {
+    const [pos, size] = await Promise.all([
+      page.invoke("plugin:window|outer_position", { label: "main" }),
+      page.invoke("plugin:window|outer_size", { label: "main" }),
+    ]);
+    return { x: pos.x, y: pos.y, w: size.width, h: size.height };
+  };
+  const bottomCenter = (r) => [r.x + r.w / 2, r.y + r.h];
 
   for (const [label, key] of [
     ["Capture mouse path", "capture_moves"],
@@ -54,10 +66,23 @@ describe("settings and window", () => {
     // A recording's countdown is a session: on top for it, then back.
     await page.click("Record");
     await page.waitMode("countdown");
-    await until(onTop, { what: "on top during the session" });
+    await until(onTop, { what: "on top during the countdown" });
     await page.click("Stop recording");
     await page.waitMode("idle");
     await until(async () => (await onTop()) === false, { what: "off again" });
+
+    // Playing, and paused, too.
+    await page.open(waits);
+    await page.click("Play");
+    await page.waitMode("playing");
+    await until(onTop, { what: "on top while playing" });
+    await page.click("Pause");
+    await page.waitMode("paused");
+    assert.equal(await onTop(), true, "still on top while paused");
+    await page.click("Stop");
+    await page.waitMode("idle");
+    await until(async () => (await onTop()) === false, { what: "off after playing" });
+    await page.tab("Settings");
 
     await page.click("Always", { role: "radio" });
     await until(async () => settings().keep_on_top === "always" && (await onTop()) === true, { what: "always" });
@@ -95,17 +120,34 @@ describe("settings and window", () => {
     await until(() => app.json("window.json").expanded === true, { what: "window.json" });
   });
 
-  test("the widget keeps its bottom-center where it was", async () => {
-    const anchor = () => app.json("window.json").anchor;
-    await until(() => Array.isArray(anchor()), { what: "a saved anchor" });
-    const before = anchor();
+  test("switching to the compact player keeps the widget's bottom-center", async () => {
+    const expanded = await rect();
     await page.click("Compact player");
-    await until(() => app.json("window.json").expanded === false);
-    await sleep(300);
-    const compact = anchor();
-    assert.ok(Math.abs(compact[0] - before[0]) <= 2 && Math.abs(compact[1] - before[1]) <= 2, `${compact} vs ${before}`);
+    await until(async () => (await rect()).h < expanded.h / 3, { what: "the compact size" });
+    const compact = await rect();
+    const [ex, ey] = bottomCenter(expanded);
+    const [cx, cy] = bottomCenter(compact);
+    assert.ok(Math.abs(cx - ex) <= 2 && Math.abs(cy - ey) <= 2, `${cx},${cy} vs ${ex},${ey}`);
     await page.click("Expand");
-    await until(() => app.json("window.json").expanded === true);
+    await until(async () => (await rect()).h === expanded.h, { what: "the expanded size" });
+    assert.deepEqual(await rect(), expanded, "back exactly where it was");
+  });
+
+  test("near a screen edge, compact → expanded → compact doesn't drift", async () => {
+    await page.click("Compact player");
+    await until(async () => !(await page.store("expanded")) && (await rect()).h < 200, { what: "compact" });
+    // Park the compact bar near the top-left corner (inside the margins), where the expanded
+    // widget doesn't fit around the same bottom-center and has to be clamped.
+    await page.invoke("plugin:window|set_position", { label: "main", value: { Physical: { x: 100, y: 200 } } });
+    await sleep(1200);
+    const parked = await rect();
+    await page.click("Expand"); // too wide to stay centered there: clamped
+    await until(async () => (await rect()).h > 200, { what: "expanded" });
+    await page.click("Compact player");
+    await until(async () => (await rect()).h < 200, { what: "compact again" });
+    assert.deepEqual(await rect(), parked, "the compact bar is back where it was parked");
+    await page.click("Expand");
+    await until(async () => (await rect()).h > 200, { what: "expanded" });
   });
 
   test("× with Close to tray hides Relay, which keeps running", async () => {
@@ -118,19 +160,13 @@ describe("settings and window", () => {
   });
 
   test("× without Close to tray quits", async () => {
-    await page.click("Settings", { role: "tab" });
-    await page.idle();
+    await page.tab("Settings");
     await page.click("Close to tray", { role: "switch" });
     await until(() => settings().close_to_tray === false);
     await page.click("Quit");
     const code = await Promise.race([app.exited, sleep(8000).then(() => "still running")]);
-    assert.notEqual(code, "still running");
+    assert.equal(code, 0, "quit cleanly");
     app.proc = null;
     app.page = null;
-  });
-
-  test("Start with Windows shows what Windows has (not changed here: it writes the registry)", async () => {
-    page = await app.start();
-    assert.equal(typeof (await page.invoke("get_autostart")), "boolean");
   });
 });

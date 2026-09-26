@@ -56,15 +56,29 @@ class Page {
       const p = this.pending.get(msg.id);
       if (p) {
         this.pending.delete(msg.id);
-        p(msg);
+        p.resolve(msg);
       }
+    });
+    // The page went away (Relay quit or crashed): nothing pending will be answered.
+    ws.addEventListener("close", () => {
+      for (const p of this.pending.values()) p.reject(new Error("the page closed"));
+      this.pending.clear();
     });
   }
 
-  send(method, params = {}) {
+  /** A DevTools call; fails after `timeout` ms rather than hanging a run. */
+  send(method, params = {}, timeout = 30_000) {
     const id = ++this.id;
-    return new Promise((resolve) => {
-      this.pending.set(id, resolve);
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`${method} got no answer in ${timeout} ms`));
+      }, timeout);
+      const done = (f) => (v) => {
+        clearTimeout(timer);
+        f(v);
+      };
+      this.pending.set(id, { resolve: done(resolve), reject: done(reject) });
       this.ws.send(JSON.stringify({ id, method, params }));
     });
   }
@@ -73,6 +87,7 @@ class Page {
   async run(fn, ...args) {
     const expression = `(${fn})(...${JSON.stringify(args)})`;
     const res = await this.send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
+    if (res.error) throw new Error(`DevTools: ${res.error.message}`);
     const r = res.result;
     if (r?.exceptionDetails) {
       throw new Error("in page: " + (r.exceptionDetails.exception?.description ?? r.exceptionDetails.text));
@@ -103,23 +118,91 @@ class Page {
     return this.run((path) => path.split(".").reduce((o, k) => o?.[k], window.__relay), path);
   }
 
-  /** Clicks the button (or tab, switch, radio…) with this accessible name, like `getByRole`. */
+  /**
+   * Clicks the one visible button (or tab, switch, radio…) with exactly this
+   * accessible name, like `getByRole`. Fails if there's none, more than one,
+   * or it's disabled.
+   */
   click(name, { role, within } = {}) {
     return this.run(
       (name, role, within) => {
         const root = within ? document.querySelector(within) : document;
-        const label = (el) =>
-          (el.getAttribute("aria-label") ?? el.textContent ?? "").replace(/\s+/g, " ").trim();
-        const candidates = [...root.querySelectorAll(role ? `[role="${role}"]` : 'button, [role="button"], [role="tab"], [role="switch"], [role="radio"]')];
-        const el = candidates.find((c) => label(c) === name) ?? candidates.find((c) => label(c).startsWith(name));
-        if (!el) throw new Error(`no control named “${name}”`);
-        if (el.disabled) throw new Error(`“${name}” is disabled`);
+        if (!root) throw new Error(`no ${within}`);
+        const label = (el) => (el.getAttribute("aria-label") ?? el.textContent ?? "").replace(/\s+/g, " ").trim();
+        const selector = role ? `[role="${role}"]` : 'button, [role="button"], [role="tab"], [role="switch"], [role="radio"]';
+        const matches = [...root.querySelectorAll(selector)].filter((c) => label(c) === name && c.getClientRects().length > 0);
+        if (matches.length === 0) throw new Error(`no control named “${name}”`);
+        if (matches.length > 1) throw new Error(`${matches.length} controls are named “${name}”`);
+        const [el] = matches;
+        if (el.disabled || el.getAttribute("aria-disabled") === "true") throw new Error(`“${name}” is disabled`);
         el.click();
         return true;
       },
       name,
       role ?? null,
       within ?? null,
+    );
+  }
+
+  /**
+   * Clicks Play and times the run inside the page (no round trips in the
+   * measurement): `ms` from playing to idle, and `from`, the playhead when
+   * playing began.
+   */
+  playTimed({ timeout = 20_000 } = {}) {
+    return this.run(async (timeout) => {
+      const r = window.__relay;
+      const until = async (ok) => {
+        const end = performance.now() + timeout;
+        while (!ok()) {
+          if (performance.now() > end) throw new Error(`still ${r.mode}`);
+          await new Promise((res) => setTimeout(res, 2));
+        }
+        return performance.now();
+      };
+      const play = [...document.querySelectorAll("button")].find((b) => b.getAttribute("aria-label") === "Play");
+      if (!play || play.disabled) throw new Error("no Play button to click");
+      play.click();
+      const started = await until(() => r.mode === "playing");
+      const from = r.cur;
+      const ended = await until(() => r.mode === "idle");
+      return { ms: ended - started, from, finish: r.lastFinish };
+    }, timeout);
+  }
+
+  /** Opens a side-panel tab and waits until it shows. */
+  async tab(name) {
+    await this.click(name, { role: "tab" });
+    await until(
+      () =>
+        this.run(
+          (name) =>
+            document.querySelector('[role="tab"][aria-selected="true"]')?.textContent.trim() === name &&
+            !!document.querySelector('[role="tabpanel"]')?.children.length,
+          name,
+        ),
+      { what: `the ${name} tab` },
+    );
+  }
+
+  /** Opens a macro (as a Library click does) and waits until it shows. */
+  async open(id) {
+    await this.run((id) => window.__relay.loadMacro(id), id);
+    await until(async () => (await this.store("view.id")) === id, { what: "the macro to open" });
+  }
+
+  /** Whether the control with exactly this name is disabled (it must exist). */
+  disabled(name, { role } = {}) {
+    return this.run(
+      (name, role) => {
+        const label = (el) => (el.getAttribute("aria-label") ?? el.textContent ?? "").replace(/\s+/g, " ").trim();
+        const selector = role ? `[role="${role}"]` : 'button, [role="button"], [role="tab"], [role="switch"], [role="radio"]';
+        const el = [...document.querySelectorAll(selector)].find((c) => label(c) === name);
+        if (!el) throw new Error(`no control named “${name}”`);
+        return el.disabled || el.getAttribute("aria-disabled") === "true";
+      },
+      name,
+      role ?? null,
     );
   }
 
@@ -151,6 +234,23 @@ class Page {
   /** Waits for the UI to settle (pending commands answered, a frame drawn). */
   idle(ms = 150) {
     return this.run((ms) => new Promise((r) => setTimeout(() => requestAnimationFrame(() => r(true)), ms)), ms);
+  }
+
+  /**
+   * Back to a known state between tests: no session, the expanded widget,
+   * no message. A failing test then doesn't leave its mess to the next one.
+   */
+  async reset() {
+    if ((await this.store("mode")) !== "idle") {
+      await this.invoke("stop_session");
+      await this.waitMode("idle");
+    }
+    await this.run(() => {
+      window.__relay.expanded = true;
+      window.__relay.exportOpen = false;
+      window.__relay.dismissToast();
+      return true;
+    });
   }
 
   close() {

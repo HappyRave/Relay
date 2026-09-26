@@ -1,7 +1,7 @@
 // Triggers against the real app: what's saved, the hotkey checks Rust
 // makes, and the app-launch, pixel and schedule triggers actually firing.
 // The macros they run only wait, so nothing is sent to the desktop.
-import { after, before, describe, test } from "node:test";
+import { after, afterEach, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
@@ -22,10 +22,10 @@ describe("triggers", () => {
       await window.__relay.refreshLibrary();
       await window.__relay.loadMacro(id);
     }, target);
-    await page.click("Triggers", { role: "tab" });
-    await page.idle();
+    await page.tab("Triggers");
   });
   after(() => app.dispose());
+  afterEach(() => app.page?.reset());
 
   const saved = (id = target) => app.json("library.json").entries[id]?.triggers;
   const status = (id = target) => page.invoke("get_triggers", { id });
@@ -33,14 +33,28 @@ describe("triggers", () => {
     const { triggers } = await status(id);
     return page.invoke("set_triggers", { id, triggers: { ...triggers, ...patch } });
   };
-  /** Waits for a triggered run of `id` to start, then for it to end. */
+  const runs = (id = target) => app.json("library.json").entries[id]?.runs ?? 0;
+  /** Waits for a triggered run of `id` to start, then for it to end; returns when it started. */
   const firesAndRuns = async (id, timeout) => {
-    await until(async () => (await page.store("mode")) === "playing" && (await page.store("view.id")) === id, {
-      timeout,
-      every: 100,
-      what: "the trigger to run the macro",
-    });
+    const before = runs(id);
+    await until(
+      () => page.run((id) => window.__relay.mode === "playing" && window.__relay.view?.id === id, id),
+      { timeout, every: 50, what: "the trigger to run the macro" },
+    );
+    const startedAt = Date.now();
     await page.waitMode("idle");
+    await until(() => runs(id) === before + 1, { what: "the run to be counted" });
+    return startedAt;
+  };
+  /** Watches for `ms` that nothing plays, and that no run is counted. */
+  const staysIdle = async (ms, id = target) => {
+    const before = runs(id);
+    const end = Date.now() + ms;
+    while (Date.now() < end) {
+      assert.equal(await page.store("mode"), "idle", "nothing ran");
+      await sleep(50);
+    }
+    assert.equal(runs(id), before, "no run counted");
   };
   /**
    * Starts ping.exe for a few seconds. By default it first waits out one poll of the app
@@ -86,8 +100,7 @@ describe("triggers", () => {
 
     test("the Triggers tab shows it", async () => {
       await page.run((id) => window.__relay.loadMacro(id), target);
-      await page.click("Triggers", { role: "tab" });
-      await page.idle();
+      await page.tab("Triggers");
       assert.match(await page.text(".list"), /Ctrl \+ Alt \+ Shift \+ F11/);
       assert.equal(await page.run(() => document.querySelector('[aria-label="Hotkey trigger"]').getAttribute("aria-checked")), "true");
     });
@@ -125,18 +138,18 @@ describe("triggers", () => {
       at.setMinutes(at.getMinutes() + 1);
       const time = `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
       await set({ schedule: { enabled: true, schedule: { days: [true, true, true, true, true, true, true], time } } });
-      await firesAndRuns(target, at.getTime() - Date.now() + 15_000);
-      assert.ok(Date.now() >= at.getTime(), "not early");
-      await until(() => app.json("library.json").entries[target].runs >= 1, { what: "the run counted" });
+      const startedAt = await firesAndRuns(target, at.getTime() - Date.now() + 15_000);
+      // The watcher ticks every 5 s: on time means within one tick after the minute.
+      assert.ok(startedAt >= at.getTime(), `not early (${startedAt - at.getTime()} ms)`);
+      assert.ok(startedAt < at.getTime() + 6000, `not late (${startedAt - at.getTime()} ms)`);
       await set({ schedule: { enabled: false, schedule: { days: [true, true, true, true, true, true, true], time } } });
     });
   });
 
   describe("app launch", () => {
     test("the program and delay from the tab are saved; the switch needs a program", async () => {
-      await page.click("App launch trigger", { role: "switch" });
-      await page.idle(300);
-      assert.equal(saved().app_launch.enabled, false);
+      assert.equal(await page.disabled("App launch trigger", { role: "switch" }), true, "no program yet");
+      assert.equal(saved()?.app_launch?.enabled ?? false, false);
       await page.fill('input[aria-label="Program"]', "  PING.EXE  ");
       await until(() => saved().app_launch.exe === "PING.EXE", { what: "the program" });
       await page.fill('input[aria-label="Delay in seconds"]', "0.5");
@@ -174,10 +187,24 @@ describe("triggers", () => {
       try {
         await sleep(500);
         await set({ app_launch: { ...app_launch, enabled: true } });
-        await sleep(4000);
-        assert.equal(await page.store("mode"), "idle", "nothing ran");
+        await staysIdle(4000);
       } finally {
         p.kill();
+      }
+    });
+
+    test("switching the trigger off during its delay cancels the run", async () => {
+      const { app_launch } = (await status()).triggers;
+      await set({ app_launch: { ...app_launch, enabled: true, delay_ms: 5000 } });
+      // Seen within one 2 s poll of starting, then 5 s of delay: switched off in between.
+      const p = await ping(10);
+      try {
+        await sleep(2500);
+        await set({ app_launch: { ...app_launch, enabled: false, delay_ms: 5000 } });
+        await staysIdle(5500);
+      } finally {
+        p.kill();
+        await set({ app_launch: { ...app_launch, enabled: true, delay_ms: 500 } });
       }
     });
 
@@ -202,12 +229,14 @@ describe("triggers", () => {
     test("paused triggers don't run; Resume turns them back on", async () => {
       await page.invoke("set_triggers_paused", { paused: true });
       await page.run((id) => window.__relay.loadMacro(id), target);
-      await page.click("Triggers", { role: "tab" });
+      await page.tab("Triggers");
       await until(async () => /Triggers are paused/.test((await page.text(".paused")) ?? ""), { what: "the banner" });
       const p = await ping(4);
-      await sleep(5000);
-      p.kill();
-      assert.equal(await page.store("mode"), "idle", "nothing ran");
+      try {
+        await staysIdle(5000);
+      } finally {
+        p.kill();
+      }
 
       await page.click("Resume");
       await until(async () => (await page.text(".paused")) == null, { what: "the banner to go" });
@@ -294,6 +323,12 @@ describe("triggers", () => {
     page = await app.restart();
     const s = await status();
     assert.deepEqual(s.triggers, before);
-    assert.equal(s.paused, false, "a restart starts with triggers running");
+  });
+
+  test("triggers paused by the kill switch run again after a restart", async () => {
+    await page.invoke("set_triggers_paused", { paused: true });
+    await until(async () => (await status()).paused === true, { what: "paused" });
+    page = await app.restart();
+    assert.equal((await status()).paused, false);
   });
 });
