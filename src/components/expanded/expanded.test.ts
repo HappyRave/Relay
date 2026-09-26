@@ -33,15 +33,36 @@ describe("Header", () => {
     expect(core.argsOf("edit_macro")).toEqual([{ id: A, op: { op: "rename", name: "Invoice → PDF" } }]);
   });
 
-  test("the name is locked while recording, or with nothing open", async () => {
+  test("while recording, the name is the new recording's, and locked; also with nothing open", async () => {
     render(Header);
     core.emit({ type: "session", mode: "recording", macro_id: null });
     await settle();
     expect(screen.getByRole("textbox", { name: "Macro name" })).toBeDisabled();
+    expect(screen.getByRole("textbox", { name: "Macro name" })).toHaveValue("New recording");
     core.emit({ type: "session", mode: "idle", macro_id: null });
     relay.view = null;
     await settle();
     expect(screen.getByRole("textbox", { name: "Macro name" })).toBeDisabled();
+  });
+
+  test("the name is locked during playback too (Rust would refuse a rename)", async () => {
+    render(Header);
+    core.emit({ type: "session", mode: "paused", macro_id: A });
+    await settle();
+    expect(screen.getByRole("textbox", { name: "Macro name" })).toBeDisabled();
+    expect(screen.getByRole("textbox", { name: "Macro name" })).toHaveValue("Export invoice to PDF");
+  });
+
+  test("clearing the name isn't saved, and leaving the field puts it back", async () => {
+    vi.useFakeTimers();
+    render(Header);
+    const name = screen.getByRole("textbox", { name: "Macro name" });
+    await fireEvent.input(name, { target: { value: " " } });
+    expect(name).toHaveValue(" ");
+    await vi.advanceTimersByTimeAsync(1000);
+    await fireEvent.blur(name);
+    expect(name).toHaveValue("Export invoice to PDF");
+    expect(core.argsOf("edit_macro")).toEqual([]);
   });
 
   test("Undo and Redo are enabled only when there's something to undo or redo", async () => {
@@ -97,6 +118,7 @@ describe("Header", () => {
       expect(screen.queryByRole("button", { name: "Redo" })).toBeNull();
       expect(screen.queryByRole("button", { name: "Hide to tray" })).toBeNull();
       expect(screen.getByRole("button", { name: /Export/ })).toBeInTheDocument();
+      expect(screen.getByRole("textbox", { name: "Macro name" })).toHaveAttribute("readonly");
     } finally {
       core.install();
     }

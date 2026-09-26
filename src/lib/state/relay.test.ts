@@ -792,18 +792,88 @@ describe("rename", () => {
     expect(relay.name).toBe("Typing…");
   });
 
-  test("the browser preview renames only in memory", async () => {
+  test("the browser preview refuses renames like other edits", async () => {
     core.uninstall();
     try {
       const r = await freshStore({ backend: browserBackend() });
       r.rename("Local");
       await vi.advanceTimersByTimeAsync(1000);
-      expect(r.name).toBe("Local");
-      expect(core.calls).toEqual([]);
+      expect(r.name).toBe("Export invoice to PDF");
+      expect(r.error).toBe("Editing needs the Relay app");
       r.dispose();
     } finally {
       core.install();
     }
+  });
+
+  test("a blank name is shown but never saved; leaving the field puts the saved name back", async () => {
+    relay.rename("   ");
+    expect(relay.name).toBe("   ");
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(core.argsOf("edit_macro")).toEqual([]);
+    relay.endRename();
+    expect(relay.name).toBe("Export invoice to PDF");
+    relay.rename("");
+    relay.rename("New name");
+    await vi.advanceTimersByTimeAsync(300);
+    await settle();
+    expect(core.argsOf("edit_macro")).toEqual([{ id: A, op: { op: "rename", name: "New name" } }]);
+    relay.rename("");
+    relay.endRename();
+    expect(relay.name).toBe("New name"); // the last saved one
+  });
+
+  test("a blank name is abandoned when another macro opens", async () => {
+    relay.rename("");
+    await relay.loadMacro(B);
+    expect(core.argsOf("edit_macro")).toEqual([]);
+    expect(relay.library[0].name).toBe("Export invoice to PDF");
+  });
+
+  test("a pending rename is dropped when the store is disposed", async () => {
+    relay.rename("Never saved");
+    relay.dispose();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(core.argsOf("edit_macro")).toEqual([]);
+  });
+
+  test("Duplicate and Delete save a pending rename first", async () => {
+    relay.rename("Renamed");
+    await relay.duplicateMacro(A);
+    expect(core.commands().slice(0, 3)).toEqual(["edit_macro", "list_macros", "duplicate_macro"]);
+    expect(relay.name).toBe("Renamed (copy)");
+    relay.rename("Doomed");
+    await relay.deleteMacro(relay.view!.id);
+    expect(core.argsOf("edit_macro").at(-1)).toMatchObject({ op: { op: "rename", name: "Doomed" } });
+    expect(relay.toast?.message).toBe("Moved “Doomed” to the trash");
+  });
+
+  test("a slow rename response can't overwrite a newer edit, and a name typed since stays", async () => {
+    core.hold("edit_macro");
+    relay.rename("Invoice");
+    await vi.advanceTimersByTimeAsync(300);
+    const labelling = relay.edit({ op: "set_label", index: 0, label: "Menu" });
+    relay.rename("Invoice PDF");
+    await settle();
+    const [rename, label] = core.held;
+    core.release("edit_macro");
+    label.resolve({ ...core.view(A), name: "Invoice", steps: core.view(A).steps.map((s, i) => (i ? s : { ...s, label: "Menu" })) });
+    rename.resolve({ ...core.view(A), name: "Invoice" });
+    await labelling;
+    await settle();
+    expect((relay.steps[0] as { label: string }).label).toBe("Menu");
+    expect(relay.name).toBe("Invoice PDF");
+  });
+
+  test("a name typed just before a session starts is saved once it ends", async () => {
+    relay.rename("Typed");
+    core.emit(session("playing"));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(core.argsOf("edit_macro")).toEqual([]);
+    core.emit(session("idle"));
+    await settle();
+    expect(core.argsOf("edit_macro")).toEqual([{ id: A, op: { op: "rename", name: "Typed" } }]);
+    expect(relay.library[0].name).toBe("Typed");
   });
 
   test("with nothing open, rename does nothing", () => {

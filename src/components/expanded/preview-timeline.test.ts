@@ -274,6 +274,7 @@ describe("Compact player", () => {
     core.emit({ type: "session", mode: "recording", macro_id: null });
     await settle();
     expect(container.querySelector(".time")).toHaveTextContent("/ recording");
+    expect(container.querySelector(".name")).toHaveTextContent("New recording");
     expect(container.querySelector(".badge")).toHaveClass("rec");
   });
 

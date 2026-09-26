@@ -11,12 +11,15 @@
 <div class="header">
   <Grip />
   <div class="brand"><span class="mark"></span>Relay</div>
+  <!-- While recording, the name is the new recording's (it's named once saved). -->
   <input
     class="name"
     aria-label="Macro name"
-    value={relay.name}
-    disabled={relay.recording || !relay.view}
+    value={relay.recording ? "New recording" : relay.name}
+    disabled={relay.mode !== "idle" || !relay.view}
+    readonly={!relay.editable}
     oninput={(e) => relay.rename(e.currentTarget.value)}
+    onblur={relay.endRename}
   />
   <div class="meta">{plural(relay.steps.length, "step")} · {plural(relay.moves.length, "path sample")}</div>
   {#if relay.editable}

@@ -115,7 +115,10 @@ export class RelayStore {
   private listening = false;
   /** Bumped by every request that replaces the view, so older responses are dropped. */
   private viewSeq = 0;
-  private rename_: { id: string; name: string; timer: ReturnType<typeof setTimeout> } | null = null;
+  /** A name being typed, not saved yet (no timer when it's blank: it won't be). */
+  private rename_: { id: string; name: string; timer: ReturnType<typeof setTimeout> | undefined } | null = null;
+  /** The open macro's name as Rust has it, for when a blank one is abandoned. */
+  private savedName = "";
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
   /** A just-saved recording to open once the session is back to idle. */
   private pendingLoad: string | null = null;
@@ -192,7 +195,9 @@ export class RelayStore {
     if (this.listening) window.removeEventListener("keydown", this.onKey, true);
     this.listening = false;
     clearTimeout(this.toastTimer);
+    // A name still being typed is dropped: the store is going away.
     if (this.rename_) clearTimeout(this.rename_.timer);
+    this.rename_ = null;
   }
 
   /** Moves the playhead smoothly between engine ticks. */
@@ -227,6 +232,8 @@ export class RelayStore {
         if (mode === "idle" && this.pendingLoad) {
           this.loadMacro(this.pendingLoad);
           this.pendingLoad = null;
+        } else if (mode === "idle" && this.rename_) {
+          this.flushRename(); // typed just before the session started
         }
         break;
       }
@@ -431,6 +438,7 @@ export class RelayStore {
     // An Undo offered for the macro left behind mustn't stay up over this one.
     if (this.toast?.undoes && this.toast.undoes !== id) this.dismissToast();
     this.view = view;
+    this.savedName = view.name;
     this.selected = -1;
     this.triggerStatus = null; // the old macro's triggers mustn't be edited into this one
     this.cur = 0;
@@ -443,6 +451,7 @@ export class RelayStore {
   }
 
   duplicateMacro = async (id: string) => {
+    await this.flushRename(); // the copy is named after the name being typed
     const copy = await this.run(this.backend.duplicateMacro(id));
     if (!copy) return;
     await this.refreshLibrary();
@@ -452,6 +461,7 @@ export class RelayStore {
 
   /** Moves a macro to the trash, with Undo. Opens a neighbour if it was the open one. */
   deleteMacro = async (id: string) => {
+    await this.flushRename();
     const idx = this.library.findIndex((m) => m.id === id);
     const name = this.library[idx]?.name ?? "macro";
     try {
@@ -510,34 +520,54 @@ export class RelayStore {
     const seq = ++this.viewSeq;
     let view = await this.run(request);
     if (!view || seq !== this.viewSeq || this.view?.id !== id) return;
+    this.savedName = view.name;
+    const row = this.library.find((m) => m.id === id);
+    const listChanged = !row || row.name !== view.name || row.duration !== view.duration || row.step_count !== view.steps.length;
     // A name still being typed wins over the one in the response.
     if (this.rename_?.id === id) view = { ...view, name: this.rename_.name };
-    const listChanged = view.name !== this.view.name || view.duration !== this.view.duration || view.steps.length !== this.view.steps.length;
     this.selected = followStep(this.view.steps, view.steps, this.selected, op);
     this.view = view;
     if (listChanged) await this.refreshLibrary();
   }
 
-  /** Renames the open macro as the user types; saved after a short pause. */
+  /**
+   * Renames the open macro as the user types; saved after a short pause. A
+   * blank name is shown but not saved: leaving the field (`endRename`) puts
+   * the saved one back.
+   */
   rename = (name: string) => {
     if (!this.view || this.mode !== "idle") return;
+    if (!this.editable) return this.fail({ code: "unavailable", message: "Editing needs the Relay app" });
     const id = this.view.id;
     this.withdrawUndo();
     this.view = { ...this.view, name };
-    if (!this.editable) return;
     if (this.rename_) clearTimeout(this.rename_.timer);
-    this.rename_ = { id, name, timer: setTimeout(() => this.flushRename(), RENAME_DEBOUNCE_MS) };
+    const timer = name.trim() ? setTimeout(() => this.flushRename(), RENAME_DEBOUNCE_MS) : undefined;
+    this.rename_ = { id, name, timer };
   };
 
-  /** Saves a pending rename now (before switching macros, undoing, …). */
+  /** The name field lost focus: a blank name goes back to the saved one. */
+  endRename = () => {
+    if (this.rename_ && !this.rename_.name.trim()) this.flushRename();
+  };
+
+  /**
+   * Saves a pending rename now (before switching macros, undoing, …). During
+   * a session Rust would refuse it, so it waits for the session to end.
+   */
   private async flushRename() {
     const r = this.rename_;
-    if (!r) return;
+    if (!r || this.mode !== "idle") return;
     clearTimeout(r.timer);
     this.rename_ = null;
-    await this.run(this.backend.editMacro(r.id, { op: "rename", name: r.name }).then((view) => {
-      if (this.view?.id === r.id) this.view = { ...view, name: this.view.name };
-    }));
+    if (!r.name.trim()) {
+      if (this.view?.id === r.id) this.view = { ...this.view, name: this.savedName };
+      return;
+    }
+    const op: EditOp = { op: "rename", name: r.name };
+    if (this.view?.id === r.id) return this.apply(r.id, this.backend.editMacro(r.id, op), op);
+    // Another macro was opened meanwhile (a trigger started it): save, and show the new name in the list.
+    await this.run(this.backend.editMacro(r.id, op));
     await this.refreshLibrary();
   }
 
