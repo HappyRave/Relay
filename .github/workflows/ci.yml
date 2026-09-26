@@ -44,6 +44,11 @@ jobs:
           e2e/
         env:
           RELAY_EXE: target/release/relay.exe
+      - name: Diagnose a failed end-to-end run
+        if: failure()
+        run: node e2e/ci-diagnose.mjs
+        env:
+          RELAY_EXE: target/release/relay.exe
 
   # The core and platform crates must stay portable (the platform crate's
   # stub backend stands in for Windows here).
