@@ -392,12 +392,13 @@ describe("engine messages", () => {
 describe("toasts", () => {
   beforeEach(() => vi.useFakeTimers());
 
-  test("errors go away after 5 s, notices from the engine after 6 s", async () => {
+  test("errors stay until dismissed or replaced, notices from the engine go after 6 s", async () => {
     core.emit({ type: "error", message: "x" });
-    await vi.advanceTimersByTimeAsync(4900);
-    expect(relay.toast).not.toBeNull();
-    await vi.advanceTimersByTimeAsync(200);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(relay.toast).toMatchObject({ kind: "error", message: "x" });
+    relay.dismissToast();
     expect(relay.toast).toBeNull();
+    core.emit({ type: "error", message: "x" });
     core.emit({ type: "notice", message: "y" });
     await vi.advanceTimersByTimeAsync(5900);
     expect(relay.toast).not.toBeNull();
@@ -651,6 +652,28 @@ describe("step edits", () => {
     expect(relay.toast?.action).toBeDefined();
     await relay.edit({ op: "set_label", index: 0, label: "x" });
     expect(relay.toast).toBeNull();
+  });
+
+  test("a rename withdraws the Undo too, but not the trash's", async () => {
+    await relay.deleteStep(0);
+    relay.rename("Renamed");
+    expect(relay.toast).toBeNull();
+    await relay.deleteMacro(C);
+    relay.rename("Renamed again");
+    await relay.edit({ op: "set_label", index: 0, label: "x" });
+    expect(relay.toast).toMatchObject({ message: "Moved “Batch rename photos” to the trash", action: { label: "Undo" } });
+  });
+
+  test("an Undo belongs to its macro: opening another withdraws it, and it never undoes there", async () => {
+    await relay.deleteStep(0);
+    const undo = relay.toast!.action!.run;
+    await relay.loadMacro(B);
+    expect(relay.toast).toBeNull();
+    await relay.edit({ op: "delete_step", index: 0 }); // B has something to undo now
+    core.clearCalls();
+    undo();
+    await settle();
+    expect(core.argsOf("undo_edit")).toEqual([]);
   });
 
   test("Delete step offers Undo, which undoes it", async () => {

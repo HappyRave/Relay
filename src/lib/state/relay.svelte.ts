@@ -46,6 +46,12 @@ export interface Toast {
   kind: "error" | "info";
   message: string;
   action?: { label: string; run: () => void };
+  /**
+   * For an Undo of an edit: the macro it was made to. The next edit would
+   * make it undo something else, so edits withdraw it, and so does opening
+   * another macro.
+   */
+  undoes?: string;
 }
 
 export class RelayStore {
@@ -322,11 +328,22 @@ export class RelayStore {
   private fail(e: unknown) {
     const message = (e as IpcError)?.message ?? String(e);
     console.error("Relay:", e);
-    this.show({ kind: "error", message }, 5000);
+    this.show({ kind: "error", message });
   }
 
   notify(message: string, action?: Toast["action"], ms = 5000) {
     this.show({ kind: "info", message, action }, action ? Math.max(ms, 8000) : ms);
+  }
+
+  /** Offers to undo the edit just made to macro `id`; the action only undoes on that macro. */
+  private offerUndo(message: string, id: string) {
+    const run = () => void (this.view?.id === id && this.undo());
+    this.show({ kind: "info", message, action: { label: "Undo", run }, undoes: id }, 8000);
+  }
+
+  /** An edit is starting: an Undo offered for an earlier one would now undo this one instead. */
+  private withdrawUndo() {
+    if (this.toast?.undoes) this.dismissToast();
   }
 
   dismissToast = () => {
@@ -334,10 +351,11 @@ export class RelayStore {
     this.toast = null;
   };
 
-  private show(toast: Toast, ms: number) {
+  /** Shows a toast, for `ms` or, without it (errors), until it's dismissed or replaced. */
+  private show(toast: Toast, ms?: number) {
     this.toast = toast;
     clearTimeout(this.toastTimer);
-    this.toastTimer = setTimeout(() => (this.toast = null), ms);
+    if (ms != null) this.toastTimer = setTimeout(() => (this.toast = null), ms);
   }
 
   // — session —
@@ -410,6 +428,8 @@ export class RelayStore {
     const seq = ++this.viewSeq;
     const view = await this.run(this.backend.loadMacro(id));
     if (!view || seq !== this.viewSeq) return;
+    // An Undo offered for the macro left behind mustn't stay up over this one.
+    if (this.toast?.undoes && this.toast.undoes !== id) this.dismissToast();
     this.view = view;
     this.selected = -1;
     this.triggerStatus = null; // the old macro's triggers mustn't be edited into this one
@@ -478,8 +498,7 @@ export class RelayStore {
   edit = (op: EditOp) => {
     if (!this.view || this.mode !== "idle") return;
     if (!this.editable) return this.fail({ code: "unavailable", message: "Editing needs the Relay app" });
-    // An Undo offered for an earlier change would now undo this one instead.
-    if (this.toast?.action) this.dismissToast();
+    this.withdrawUndo();
     return this.apply(this.view.id, this.backend.editMacro(this.view.id, op), op);
   };
 
@@ -503,6 +522,7 @@ export class RelayStore {
   rename = (name: string) => {
     if (!this.view || this.mode !== "idle") return;
     const id = this.view.id;
+    this.withdrawUndo();
     this.view = { ...this.view, name };
     if (!this.editable) return;
     if (this.rename_) clearTimeout(this.rename_.timer);
@@ -526,7 +546,7 @@ export class RelayStore {
 
   private async history(redo: boolean) {
     if (!this.view || !(redo ? this.canRedo : this.canUndo)) return;
-    this.dismissToast();
+    this.withdrawUndo();
     await this.flushRename();
     if (this.view) await this.apply(this.view.id, this.backend.undoEdit(this.view.id, redo));
   }
@@ -534,7 +554,7 @@ export class RelayStore {
   deleteStep = async (index: number) => {
     const before = this.view;
     await this.edit({ op: "delete_step", index });
-    if (this.view !== before && this.view?.can_undo) this.notify("Deleted the step", { label: "Undo", run: this.undo });
+    if (this.view !== before && this.view?.can_undo) this.offerUndo("Deleted the step", this.view.id);
   };
 
   /** Sets the idle time before step `index`. */
@@ -546,8 +566,8 @@ export class RelayStore {
     if (!n) return;
     const before = this.view;
     await this.edit({ op: "cap_pauses", max: TRIM_PAUSE_MS });
-    if (this.view !== before) {
-      this.notify(`Shortened ${plural(n, "pause")} to ${TRIM_PAUSE_MS / 1000} s`, { label: "Undo", run: this.undo });
+    if (this.view && this.view !== before) {
+      this.offerUndo(`Shortened ${plural(n, "pause")} to ${TRIM_PAUSE_MS / 1000} s`, this.view.id);
     }
   };
 
