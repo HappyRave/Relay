@@ -700,17 +700,52 @@ mod tests {
 
     #[test]
     fn loops_replay_and_release_between_loops() {
-        let (mut e, rec) = engine(vec![btn(0, true), btn(100, false)], Repeat::Count(2), 1.0);
+        // KeyQ is pressed and never released: held across the loop boundary.
+        let (mut e, rec) = engine(vec![btn(0, true), btn(100, false), key(200, "KeyQ", true)], Repeat::Count(2), 1.0);
         e.advance(0.0);
-        e.advance(100.0);
-        assert_eq!(e.advance(600.0), None);
+        e.advance(200.0);
+        assert_eq!(rec.take(), ["move 10,20", "Left down", "move 10,20", "Left up", "KeyQ down"]);
+        // The macro lasts 700 ms: the loop end releases the key before replaying.
+        assert_eq!(e.advance(700.0), None);
         assert_eq!(e.loop_idx(), 1);
-        e.advance(600.0);
+        assert_eq!(rec.take(), ["KeyQ up"]);
         e.advance(700.0);
-        assert_eq!(e.advance(1200.0), Some(FinishReason::Completed));
+        assert_eq!(rec.take(), ["move 10,20", "Left down"]);
+        e.advance(900.0);
+        assert_eq!(rec.take(), ["move 10,20", "Left up", "KeyQ down"]);
+        assert_eq!(e.advance(1400.0), Some(FinishReason::Completed));
+        assert_eq!(rec.take(), ["KeyQ up"]);
+    }
+
+    #[test]
+    fn repeat_forever_never_finishes() {
+        let (mut e, rec) = engine(vec![key(0, "KeyA", true), key(100, "KeyA", false)], Repeat::Forever, 1.0);
+        assert_eq!(e.loops(), None);
+        for i in 0..200 {
+            let start = i as f64 * 600.0;
+            assert_eq!(e.advance(start), None);
+            assert_eq!(e.advance(start + 100.0), None);
+            assert_eq!(e.loop_idx(), i);
+        }
         let actions = rec.take();
-        assert_eq!(actions.iter().filter(|a| a.ends_with("down")).count(), 2);
-        assert_eq!(actions.iter().filter(|a| a.ends_with("up")).count(), 2);
+        assert_eq!(actions.len(), 400);
+        assert!(actions.chunks(2).all(|c| c == ["KeyA down", "KeyA up"]));
+    }
+
+    #[test]
+    fn starting_at_the_end_starts_over_but_near_the_end_doesnt() {
+        let events = vec![key(0, "KeyA", true), key(100, "KeyA", false)];
+        // 600 ms long; the UI sends its playhead, at most the duration.
+        for from in [599, 600] {
+            let (mut e, rec) = engine_for(PlayPlan { from, ..plan(events.clone(), Repeat::Count(1), 1.0) });
+            e.advance(0.0);
+            assert_eq!(rec.take(), ["KeyA down"], "from {from}");
+            assert_eq!(e.macro_time(0.0), 0.0);
+        }
+        let (mut e, rec) = engine_for(PlayPlan { from: 598, ..plan(events, Repeat::Count(1), 1.0) });
+        assert_eq!(e.advance(0.0), None);
+        assert!(rec.take().is_empty());
+        assert_eq!(e.advance(2.0), Some(FinishReason::Completed));
     }
 
     #[test]
@@ -781,8 +816,11 @@ mod tests {
     }
 
     fn pixel_engine(turns_red_at: f64) -> (Engine, Recorder, Arc<Mutex<f64>>) {
+        pixel_engine_for(pixel_macro(), turns_red_at)
+    }
+
+    fn pixel_engine_for(events: Vec<Event>, turns_red_at: f64) -> (Engine, Recorder, Arc<Mutex<f64>>) {
         let rec = Recorder::default();
-        let events = pixel_macro();
         let steps = relay_core::steps::group_steps(&events, Default::default());
         let duration = relay_core::timeline::duration(&events);
         let plan = PlayPlan {
@@ -834,13 +872,55 @@ mod tests {
     }
 
     #[test]
-    fn pixel_check_times_out_with_its_step_number() {
-        let (mut e, rec, now) = pixel_engine(f64::INFINITY);
+    fn pixel_check_times_out_with_its_step_number_and_releases_what_is_held() {
+        // KeyQ is held into the check.
+        let mut events = vec![key(50, "KeyQ", true)];
+        events.extend(pixel_macro());
+        let (mut e, rec, now) = pixel_engine_for(events, f64::INFINITY);
         run_to(&mut e, &now, 100.0);
+        assert_eq!(rec.take(), ["KeyQ down"]);
         assert_eq!(run_to(&mut e, &now, 5000.0), None);
         assert_eq!(run_to(&mut e, &now, 5100.0), Some(FinishReason::PixelTimeout));
-        assert_eq!(e.timed_out_step, Some(1));
+        assert_eq!(e.timed_out_step, Some(2));
+        assert_eq!(rec.take(), ["KeyQ up"]);
+    }
+
+    #[test]
+    fn seeking_out_of_a_pixel_check_continues_from_there() {
+        let (mut e, rec, now) = pixel_engine(f64::INFINITY);
+        run_to(&mut e, &now, 100.0);
+        assert!(e.paused());
+        e.seek(1000.0, 300.0);
+        assert!(!e.paused(), "the jump leaves the check");
+        assert_eq!(e.macro_time(300.0), 1000.0);
+        run_to(&mut e, &now, 300.0);
+        assert_eq!(rec.take(), ["KeyA down"]);
+        // Back before the check: it waits there again, with a fresh timeout.
+        e.seek(0.0, 400.0);
+        assert_eq!(rec.take(), ["KeyA up"], "the seek released the key");
+        assert_eq!(run_to(&mut e, &now, 450.0), None);
+        assert!(!e.paused());
+        run_to(&mut e, &now, 500.0);
+        assert!(e.paused(), "the check waits again");
+        assert_eq!(e.macro_time(9000.0), 100.0);
+        assert_eq!(run_to(&mut e, &now, 5490.0), None);
+        assert_eq!(run_to(&mut e, &now, 5530.0), Some(FinishReason::PixelTimeout));
+    }
+
+    #[test]
+    fn seeking_out_of_a_pixel_check_while_paused_stays_paused() {
+        let (mut e, rec, now) = pixel_engine(f64::INFINITY);
+        run_to(&mut e, &now, 100.0);
+        e.pause(200.0);
+        e.seek(1000.0, 300.0);
+        assert!(e.paused());
+        assert_eq!(e.next_deadline(), None);
+        assert_eq!(run_to(&mut e, &now, 60_000.0), None, "no timeout: the check was left");
         assert!(rec.take().is_empty());
+        e.resume(60_000.0);
+        assert_eq!(e.macro_time(60_000.0), 1000.0);
+        run_to(&mut e, &now, 60_000.0);
+        assert_eq!(rec.take(), ["KeyA down"]);
     }
 
     #[test]
@@ -859,20 +939,36 @@ mod tests {
     #[test]
     fn window_offset_moves_every_position() {
         let rec = Recorder::default();
-        let events = vec![Event::Move { t: 0, x: 100, y: 100 }];
-        let plan = PlayPlan {
-            steps: vec![],
-            duration: 500,
-            repeat: Repeat::Count(1),
-            speed: 1.0,
-            jitter_ms: 0,
-            seed: 0,
-            offset: (30, -10),
-            from: 0,
-            events,
-        };
-        let mut e = Engine::new(plan, Box::new(rec.clone()), Box::new(|_, _| None), 0.0);
-        e.advance(0.0);
-        assert_eq!(rec.take(), ["move 130,90"]);
+        let events = vec![
+            Event::Move { t: 0, x: 100, y: 100 },
+            Event::Button { t: 10, x: 50, y: 60, btn: MouseBtn::Left, down: true, label: String::new() },
+            Event::Button { t: 20, x: 50, y: 60, btn: MouseBtn::Left, down: false, label: String::new() },
+            Event::Wheel { t: 30, x: 70, y: 80, delta: -120, horizontal: false },
+            Event::PixelWait {
+                t: 40,
+                dur: 10,
+                x: 5,
+                y: 6,
+                color: Rgb(255, 0, 0),
+                tolerance: 0,
+                timeout_ms: 1000,
+                label: String::new(),
+            },
+        ];
+        let plan = PlayPlan { offset: (30, -10), ..plan(events, Repeat::Count(1), 1.0) };
+        let reads = Arc::new(Mutex::new(Vec::new()));
+        let log = reads.clone();
+        let pixel: PixelReader = Box::new(move |x, y| {
+            log.lock().unwrap().push((x, y));
+            Some(Rgb(255, 0, 0))
+        });
+        let mut e = Engine::new(plan, Box::new(rec.clone()), pixel, 0.0);
+        e.advance(100.0);
+        assert_eq!(
+            rec.take(),
+            ["move 130,90", "move 80,50", "Left down", "move 80,50", "Left up", "move 100,70", "wheel -120"]
+        );
+        assert_eq!(*reads.lock().unwrap(), [(35, -4)], "the pixel check follows the window too");
+        assert!(!e.paused(), "and matched there");
     }
 }
