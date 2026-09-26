@@ -54,16 +54,11 @@
   /** Pauses at least this long get a marker above their step. */
   const SHOW_PAUSE_MS = 1000;
 
-  /** Which step a row shows, stable across edits of that step (not its row number). */
-  const identity = (s: Step) => `${relay.view?.id}:${s.kind}:${s.items[0]}`;
-  /** The step whose editor is open (chosen by clicking its row). */
-  let selected = $state<string | null>(null);
-  /** Its row, or -1 once it's gone (another macro, a deletion, an undo). */
-  const open = $derived(selected == null ? -1 : steps.findIndex((s) => identity(s) === selected));
+  /** The row whose editor is open (the store keeps it on its step across edits); none for live steps. */
+  const open = $derived(relay.mode === "recording" ? -1 : relay.selected);
 
-  async function choose(i: number, s: Step) {
-    relay.seek(s.t);
-    selected = selected === identity(s) ? null : identity(s);
+  async function choose(i: number) {
+    relay.selectStep(i);
     // Bring a newly opened editor into view.
     await tick();
     if (open === i) list?.children[i]?.scrollIntoView({ block: "nearest" });
@@ -108,12 +103,12 @@
         role="button"
         tabindex="0"
         aria-expanded={i === open}
-        onclick={() => choose(i, s)}
+        onclick={() => choose(i)}
         onkeydown={(e) => {
           // Only the row itself; Enter on its delete button deletes.
           if (e.target !== e.currentTarget || (e.key !== "Enter" && e.key !== " ")) return;
           e.preventDefault();
-          choose(i, s);
+          choose(i);
         }}
       >
         <span class="time">{fmtTime(s.t)}</span>

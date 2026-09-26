@@ -253,6 +253,39 @@ describe("Steps tab", () => {
     expect(stepRows()[1]).toHaveAttribute("aria-expanded", "true");
   });
 
+  test("the editor follows its step when a step is inserted before it, and through undo and redo", async () => {
+    render(StepsTab);
+    await userEvent.click(stepRows()[2]); // Wait 0.7 s · Dialog opens
+    relay.seek(0);
+    await relay.insertWait();
+    await settle();
+    expect(stepRows()[3]).toHaveAttribute("aria-expanded", "true");
+    expect(stepRows()[3]).toHaveTextContent("Dialog opens");
+    await relay.undo();
+    await settle();
+    expect(stepRows()[2]).toHaveAttribute("aria-expanded", "true");
+    await relay.redo();
+    await settle();
+    expect(stepRows()[3]).toHaveAttribute("aria-expanded", "true");
+  });
+
+  test("editing the open step keeps it open, though it looks different now", async () => {
+    render(StepsTab);
+    await userEvent.click(stepRows()[2]);
+    await relay.edit({ op: "set_label", index: 2, label: "Save dialog" });
+    await settle();
+    expect(stepRows()[2]).toHaveAttribute("aria-expanded", "true");
+    expect(stepRows()[2]).toHaveTextContent("Save dialog");
+  });
+
+  test("opening another macro closes the editor", async () => {
+    render(StepsTab);
+    await userEvent.click(stepRows()[2]);
+    await relay.loadMacro(B);
+    await settle();
+    expect(screen.queryByRole("group", { name: "Edit step" })).toBeNull();
+  });
+
   test("no editor while playing", async () => {
     render(StepsTab);
     await userEvent.click(stepRows()[2]);

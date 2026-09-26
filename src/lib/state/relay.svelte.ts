@@ -31,6 +31,7 @@ import { isTauri, savedExpanded } from "../platform/window";
 import { lastIndexAtOrBefore } from "../preview/geometry";
 import { currentStepIndex, jumpTarget } from "../timeline/lanes";
 import { plural, slug } from "../format";
+import { followStep } from "./selection";
 
 const RENAME_DEBOUNCE_MS = 250;
 /** "Trim pauses" shortens every pause longer than this to this. */
@@ -91,6 +92,8 @@ export class RelayStore {
   toast = $state.raw<Toast | null>(null);
   /** Seconds left before "Pick" reads the cursor's pixel, or 0 when not picking. */
   picking = $state(0);
+  /** The row whose step editor is open, or -1. It follows its step across edits (see selection.ts). */
+  selected = $state(-1);
 
   // — private —
   /** Live recording data; appended in place, `recVersion` tells the derived values. */
@@ -358,6 +361,14 @@ export class RelayStore {
 
   jump = (dir: -1 | 1) => this.seek(jumpTarget(this.steps, this.cur, dir, this.duration));
 
+  /** A click on a step's row: the playhead goes to it, and its editor opens (or closes). */
+  selectStep = (index: number) => {
+    const s = this.steps[index];
+    if (!s) return;
+    this.seek(s.t);
+    this.selected = this.selected === index ? -1 : index;
+  };
+
   /** Cursor position at time `t` (virtual-desktop px). */
   cursorAt(t: number): { x: number; y: number } {
     const i = lastIndexAtOrBefore(this.moves, t);
@@ -386,6 +397,7 @@ export class RelayStore {
     const view = await this.run(this.backend.loadMacro(id));
     if (!view || seq !== this.viewSeq) return;
     this.view = view;
+    this.selected = -1;
     this.triggerStatus = null; // the old macro's triggers mustn't be edited into this one
     this.cur = 0;
     this.loopIdx = 0;
@@ -454,17 +466,21 @@ export class RelayStore {
     if (!this.editable) return this.fail({ code: "unavailable", message: "Editing needs the Relay app" });
     // An Undo offered for an earlier change would now undo this one instead.
     if (this.toast?.action) this.dismissToast();
-    return this.apply(this.view.id, this.backend.editMacro(this.view.id, op));
+    return this.apply(this.view.id, this.backend.editMacro(this.view.id, op), op);
   };
 
-  /** Shows a command's result for macro `id`, unless another request replaced the view since. */
-  private async apply(id: string, request: Promise<MacroView>) {
+  /**
+   * Shows a command's result for macro `id` (from `op`, when it's an edit),
+   * unless another request replaced the view since.
+   */
+  private async apply(id: string, request: Promise<MacroView>, op?: EditOp) {
     const seq = ++this.viewSeq;
     let view = await this.run(request);
     if (!view || seq !== this.viewSeq || this.view?.id !== id) return;
     // A name still being typed wins over the one in the response.
     if (this.rename_?.id === id) view = { ...view, name: this.rename_.name };
     const listChanged = view.name !== this.view.name || view.duration !== this.view.duration || view.steps.length !== this.view.steps.length;
+    this.selected = followStep(this.view.steps, view.steps, this.selected, op);
     this.view = view;
     if (listChanged) await this.refreshLibrary();
   }
