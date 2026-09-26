@@ -12,6 +12,17 @@
 
   let el: HTMLDialogElement | undefined = $state();
   onMount(() => el?.showModal());
+
+  /**
+   * The dialog element is also the target of clicks in its own padding and
+   * between its parts; only a click outside its box is on the backdrop.
+   */
+  function closeOnBackdrop(e: MouseEvent) {
+    if (!el || e.target !== el) return;
+    const r = el.getBoundingClientRect();
+    const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+    if (!inside) el.close();
+  }
 </script>
 
 <!-- A native modal dialog: it traps focus, blocks the page behind it, and
@@ -21,7 +32,7 @@
   class="dialog"
   aria-labelledby="export-title"
   onclose={() => (relay.exportOpen = false)}
-  onclick={(e) => e.target === el && el.close()}
+  onclick={closeOnBackdrop}
 >
   <div class="dialog-title" id="export-title">Export macro</div>
   <div class="formats">

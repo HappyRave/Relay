@@ -1,6 +1,6 @@
 // The app shell: the widget in its two sizes, the export dialog, and the
 // demo desktop of the browser preview.
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import App from "../App.svelte";
@@ -194,12 +194,15 @@ describe("Export dialog", () => {
     expect(core.commands()).toEqual([]);
   });
 
-  test("a click on the backdrop closes it; a click inside doesn't", async () => {
+  test("a click on the backdrop closes it; a click inside, even on its padding, doesn't", async () => {
     render(ExportDialog);
     const dialog = screen.getByRole("dialog");
-    await fireEvent.click(screen.getByText("Export macro"));
+    vi.spyOn(dialog, "getBoundingClientRect").mockReturnValue({ left: 250, top: 150, right: 690, bottom: 450, width: 440, height: 300 } as DOMRect);
+    await fireEvent.click(screen.getByText("Export macro"), { clientX: 300, clientY: 170 });
     expect(relay.exportOpen).toBe(true);
-    await fireEvent.click(dialog);
+    await fireEvent.click(dialog, { clientX: 255, clientY: 440 }); // the padding: the target is the dialog itself
+    expect(relay.exportOpen).toBe(true);
+    await fireEvent.click(dialog, { clientX: 100, clientY: 440 }); // outside its box: the backdrop
     expect(relay.exportOpen).toBe(false);
   });
 
