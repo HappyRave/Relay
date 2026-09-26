@@ -113,6 +113,14 @@ impl Lateness {
     }
 }
 
+/// The first event to play when starting (or seeking) at macro time `t`. It
+/// goes by the recorded times, not the humanized ones: Humanize moves a step
+/// earlier or later as a whole, so starting at a step's time plays all of it,
+/// press and release, wherever the jitter put it.
+fn start_index(events: &[Event], t: f64) -> usize {
+    events.partition_point(|e| (e.t() as f64) < t)
+}
+
 pub struct Engine {
     plan: PlayPlan,
     injector: Box<dyn Injector>,
@@ -137,7 +145,7 @@ impl Engine {
     pub fn new(plan: PlayPlan, injector: Box<dyn Injector>, pixel: PixelReader, now: f64) -> Self {
         let from = if plan.from.saturating_add(1) >= plan.duration { 0 } else { plan.from };
         let times = plan_times(&plan.events, &plan.steps, plan.jitter_ms, plan.seed);
-        let idx = times.partition_point(|&t| t < from as f64);
+        let idx = start_index(&plan.events, from as f64);
         let clock = PlayClock::new(from, now, plan.speed);
         Engine {
             plan,
@@ -302,7 +310,7 @@ impl Engine {
             self.clock.resume(now);
         }
         self.clock.seek(t, now);
-        self.idx = self.times.partition_point(|&x| x < t);
+        self.idx = start_index(&self.plan.events, t);
     }
 
     pub fn stats(&self) -> Option<TimingStats> {
@@ -543,12 +551,19 @@ mod tests {
         Event::Button { t, x: 10, y: 20, btn: MouseBtn::Left, down, label: String::new() }
     }
 
-    fn engine(events: Vec<Event>, repeat: Repeat, speed: f64) -> (Engine, Recorder) {
-        let rec = Recorder::default();
+    fn plan(events: Vec<Event>, repeat: Repeat, speed: f64) -> PlayPlan {
         let steps = relay_core::steps::group_steps(&events, Default::default());
         let duration = relay_core::timeline::duration(&events);
-        let plan = PlayPlan { events, steps, duration, repeat, speed, jitter_ms: 0, seed: 0, offset: (0, 0), from: 0 };
+        PlayPlan { events, steps, duration, repeat, speed, jitter_ms: 0, seed: 0, offset: (0, 0), from: 0 }
+    }
+
+    fn engine_for(plan: PlayPlan) -> (Engine, Recorder) {
+        let rec = Recorder::default();
         (Engine::new(plan, Box::new(rec.clone()), Box::new(|_, _| None), 0.0), rec)
+    }
+
+    fn engine(events: Vec<Event>, repeat: Repeat, speed: f64) -> (Engine, Recorder) {
+        engine_for(plan(events, repeat, speed))
     }
 
     #[test]
@@ -614,6 +629,43 @@ mod tests {
         assert_eq!(rec.take(), ["KeyA down"]);
         e.advance(500.0);
         assert_eq!(rec.take(), ["KeyA up"]);
+    }
+
+    /// A macro with a click at 1000 ms, after a key press.
+    fn click_at_1000() -> Vec<Event> {
+        vec![key(0, "KeyA", true), key(50, "KeyA", false), btn(1000, true), btn(1080, false)]
+    }
+
+    /// Runs `e` from `now` to its end; returns what it injected.
+    fn run_out(e: &mut Engine, rec: &Recorder, mut now: f64) -> Vec<String> {
+        while e.advance(now).is_none() {
+            now += 10.0;
+            assert!(now < 100_000.0, "never finished");
+        }
+        rec.take()
+    }
+
+    #[test]
+    fn with_humanize_starting_at_a_step_plays_all_of_it() {
+        for seed in 0..50 {
+            let p = PlayPlan { jitter_ms: 200, seed, from: 1000, ..plan(click_at_1000(), Repeat::Count(1), 1.0) };
+            let (mut e, rec) = engine_for(p);
+            let actions = run_out(&mut e, &rec, 0.0);
+            assert_eq!(actions, ["move 10,20", "Left down", "move 10,20", "Left up"], "seed {seed}");
+        }
+    }
+
+    #[test]
+    fn with_humanize_seeking_to_a_step_plays_all_of_it() {
+        for seed in 0..50 {
+            let p = PlayPlan { jitter_ms: 200, seed, ..plan(click_at_1000(), Repeat::Count(1), 1.0) };
+            let (mut e, rec) = engine_for(p);
+            e.advance(0.0);
+            e.seek(1000.0, 1.0);
+            let actions = run_out(&mut e, &rec, 1.0);
+            let after_seek: Vec<_> = actions.iter().skip_while(|a| !a.starts_with("move")).collect();
+            assert_eq!(after_seek, ["move 10,20", "Left down", "move 10,20", "Left up"], "seed {seed}: {actions:?}");
+        }
     }
 
     #[test]
