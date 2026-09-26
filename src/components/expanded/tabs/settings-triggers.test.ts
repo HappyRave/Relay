@@ -344,6 +344,7 @@ describe("Triggers tab", () => {
       core.hold("pick_pixel");
       await fireEvent.click(screen.getByRole("button", { name: "Pick" }));
       await settle();
+      expect(core.argsOf("pick_pixel")).toEqual([{ delayMs: 3000 }]);
       expect(screen.getByRole("button", { name: /Point…/ })).toHaveTextContent("Point… 3");
       await vi.advanceTimersByTimeAsync(2000);
       expect(screen.getByRole("button", { name: /Point…/ })).toHaveTextContent("Point… 1");

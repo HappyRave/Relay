@@ -742,13 +742,29 @@ describe("step edits", () => {
     ]);
   });
 
-  test("+ Pixel check falls back to the accent color when the screen can't be read", async () => {
+  test("+ Pixel check inserts nothing when the screen can't be read, and says where", async () => {
+    relay.seek(850);
     core.pixel = null;
     await relay.insertPixelCheck();
-    expect((core.lastArgs("edit_macro")!.op as { color: string }).color).toBe("#EC3013");
+    expect(core.argsOf("edit_macro")).toEqual([]);
+    expect(relay.toast).toMatchObject({ kind: "error", message: "Couldn't read the screen at 134, 70" });
     core.fail("sample_pixel");
+    relay.dismissToast();
     await relay.insertPixelCheck();
-    expect((core.lastArgs("edit_macro")!.op as { color: string }).color).toBe("#EC3013");
+    expect(core.argsOf("edit_macro")).toEqual([]);
+    expect(relay.error).toBe("Couldn't read the screen at 134, 70");
+  });
+
+  test("+ Pixel check is dropped if another macro was opened while the screen was read", async () => {
+    core.hold("sample_pixel");
+    const inserting = relay.insertPixelCheck();
+    await settle();
+    core.release("sample_pixel");
+    await relay.loadMacro(B);
+    core.held[0].resolve("#ABCDEF");
+    await inserting;
+    expect(core.argsOf("edit_macro")).toEqual([]);
+    expect(relay.steps).toHaveLength(13);
   });
 });
 
@@ -969,9 +985,25 @@ describe("Pick (pixel under the real cursor)", () => {
     expect(relay.picking).toBe(0);
   });
 
-  test("if the step is no longer a pixel check, nothing is changed", async () => {
+  test("Pick on a step that isn't a pixel check does nothing", async () => {
     await relay.pickPixel(0);
+    expect(core.commands()).toEqual([]);
+  });
+
+  test.each([
+    ["deleted", { op: "delete_step", index: pixelStep }],
+    ["moved by a deletion before it", { op: "delete_step", index: 0 }],
+    ["moved by an insertion before it", { op: "insert_wait", at: 0, dur: 500, label: "" }],
+  ] as const)("if the pixel check was %s during the countdown, nothing is changed", async (_what, op) => {
+    core.hold("pick_pixel");
+    const p = relay.pickPixel(pixelStep);
+    await settle();
+    await relay.edit(op);
+    core.clearCalls();
+    core.held[0].resolve(core.picked);
+    await p;
     expect(core.argsOf("edit_macro")).toEqual([]);
+    expect(relay.picking).toBe(0);
   });
 
   test("a failed pick is shown and the countdown ends", async () => {

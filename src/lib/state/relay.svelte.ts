@@ -606,11 +606,16 @@ export class RelayStore {
   /** Inserts a check at the playhead for the pixel under the macro's cursor, in its current color. */
   insertPixelCheck = async () => {
     if (!this.view || this.mode !== "idle") return;
+    if (!this.editable) return this.fail({ code: "unavailable", message: "Editing needs the Relay app" });
+    const id = this.view.id;
     const at = Math.round(this.cur);
     const p = this.cursorAt(this.cur);
     const x = Math.round(p.x);
     const y = Math.round(p.y);
-    const color = (await this.backend.samplePixel(x, y).catch(() => null)) ?? "#EC3013";
+    const color = await this.backend.samplePixel(x, y).catch(() => null);
+    if (this.view?.id !== id) return; // the user opened another macro meanwhile
+    // Without the pixel's color there's nothing sensible to wait for.
+    if (!color) return this.fail({ code: "unavailable", message: `Couldn't read the screen at ${x}, ${y}` });
     return this.edit({ op: "insert_pixel_wait", at, dur: 800, x, y, color, tolerance: 8, timeout_ms: 5000, label: "" });
   };
 
@@ -633,14 +638,19 @@ export class RelayStore {
   }
 
   /** Points the pixel check at step `index` at the pixel under the real cursor. */
-  pickPixel = (index: number) =>
-    this.pick((p) => {
-      // Read the step again: it may have changed during the countdown.
+  pickPixel = (index: number) => {
+    const picked = this.steps[index];
+    if (picked?.kind !== "pixel_wait") return;
+    // Steps may be edited during the countdown: only the same check, still in
+    // its row with its first event where it was, is updated.
+    const item = picked.items[0];
+    return this.pick((p) => {
       const step = this.steps[index];
-      if (step?.kind !== "pixel_wait") return;
+      if (step?.kind !== "pixel_wait" || step.items[0] !== item) return;
       const { tolerance, timeout_ms } = step;
       return this.edit({ op: "update_pixel_wait", index, x: p.x, y: p.y, color: p.color, tolerance, timeout_ms });
     });
+  };
 
   // — playback options —
 

@@ -441,6 +441,7 @@ describe("Step editor", () => {
       core.hold("pick_pixel");
       await fireEvent.click(within(e).getByRole("button", { name: "Pick" }));
       await settle();
+      expect(core.argsOf("pick_pixel")).toEqual([{ delayMs: 3000 }]);
       const pick = within(e).getByRole("button", { name: /Point at it/ });
       expect(pick).toHaveTextContent("Point at it… 3");
       expect(pick).toBeDisabled();
