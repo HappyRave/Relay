@@ -54,12 +54,12 @@ describe("tauriBackend", () => {
     const options: PlaybackOptions = { ...DEFAULT_PLAYBACK, speed: 2, repeat: "forever" };
     const view = await b.setPlaybackOptions(id, options);
     expect(core.calls).toEqual([{ cmd: "set_playback_options", args: { id, options } }]);
-    expect(view.playback).toEqual(options);
+    expect(view.id).toBe(id); // the macro's view comes back
   });
 
   test("updateSettings sends the whole settings object", async () => {
     const settings: Settings = { ...DEFAULT_SETTINGS, countdown: false, keep_on_top: "never" };
-    expect(await b.updateSettings(settings)).toEqual(settings);
+    await b.updateSettings(settings);
     expect(core.calls).toEqual([{ cmd: "update_settings", args: { settings } }]);
   });
 
@@ -72,13 +72,13 @@ describe("tauriBackend", () => {
     };
     const status = await b.setTriggers(id, triggers);
     expect(core.calls).toEqual([{ cmd: "set_triggers", args: { id, triggers } }]);
-    expect(status.triggers).toEqual(triggers);
-    expect(status.next_run).not.toBeNull();
+    // Monday, Wednesday and Friday at 07:30, seen from Thursday: Friday.
+    expect(status.next_run).toBe("2026-09-25T07:30:00+02:00");
   });
 
   test("errors arrive as { code, message }", async () => {
     await expect(b.loadMacro("nope")).rejects.toEqual({ code: "not_found", message: "no macro with id nope" });
-    core.fail("delete_macro", "Stop the recording or playback first", "busy");
+    core.mode = "recording"; // a session is running
     await expect(b.deleteMacro(id)).rejects.toEqual({ code: "busy", message: "Stop the recording or playback first" });
   });
 

@@ -18,14 +18,15 @@ beforeEach(async () => {
 const rows = () => screen.getAllByRole("button").filter((b) => b.classList.contains("item") || b.classList.contains("row"));
 
 describe("Library tab", () => {
-  test("lists every macro with its length, steps, runs, hotkey and last run", () => {
+  test("lists every macro with its length, steps, runs, hotkey and last run", async () => {
+    await relay.setTriggers({ hotkey: { enabled: true, combo: "Ctrl + Alt + 1" } });
     render(LibraryTab);
     const items = rows();
     expect(items).toHaveLength(4);
     expect(items[0]).toHaveTextContent("Export invoice to PDF");
     expect(items[0]).toHaveTextContent("10.2 s · 12 steps · 148 runs");
     expect(items[0]).toHaveTextContent("Ctrl + Alt + 1");
-    expect(items[2]).toHaveTextContent("—"); // no hotkey
+    expect(items[1]).toHaveTextContent("—"); // the samples' hotkeys are off
     expect(items[0]).toHaveClass("active");
   });
 

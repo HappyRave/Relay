@@ -5,6 +5,8 @@ import userEvent from "@testing-library/user-event";
 import SettingsTab from "./SettingsTab.svelte";
 import TriggersTab from "./TriggersTab.svelte";
 import { core, freshStore, settle } from "../../../test/app";
+import { defaultTriggers } from "../../../test/fake-core";
+import { DEFAULT_SETTINGS } from "../../../lib/defaults";
 import { browserBackend } from "../../../lib/ipc/backend";
 import type { RelayStore } from "../../../lib/state/relay.svelte";
 import type { MacroTriggers } from "../../../lib/types";
@@ -71,7 +73,7 @@ describe("Settings tab", () => {
     expect(toggle(name)).toHaveAttribute("aria-checked", "true");
     await userEvent.click(toggle(name));
     await settle();
-    expect(settings()).toEqual({ ...core.settings, [field]: false });
+    expect(settings()).toEqual({ ...DEFAULT_SETTINGS, [field]: false });
     expect(toggle(name)).toHaveAttribute("aria-checked", "false");
     await userEvent.click(toggle(name));
     await settle();
@@ -171,10 +173,10 @@ describe("Triggers tab", () => {
   });
 
   describe("hotkey", () => {
-    test("shows the combo and whether it's on", () => {
+    test("shows the combo and whether it's on (the samples' are off)", () => {
       render(TriggersTab);
       expect(screen.getByRole("button", { name: /Ctrl \+ Alt \+ 1/ })).toBeInTheDocument();
-      expect(toggle("Hotkey trigger")).toHaveAttribute("aria-checked", "true");
+      expect(toggle("Hotkey trigger")).toHaveAttribute("aria-checked", "false");
       expect(screen.getByText("Run from anywhere")).toBeInTheDocument();
     });
 
@@ -183,7 +185,7 @@ describe("Triggers tab", () => {
       await userEvent.click(screen.getByRole("button", { name: /Ctrl \+ Alt \+ 1/ }));
       await fireEvent.keyDown(window, { key: "7", code: "Digit7", ctrlKey: true, altKey: true });
       await settle();
-      expect(core.argsOf("set_triggers")).toEqual([{ id: A, triggers: { ...core.triggers.get(A) } }]);
+      expect(core.argsOf("set_triggers")).toEqual([{ id: A, triggers: { ...defaultTriggers(), hotkey: { enabled: true, combo: "Ctrl + Alt + 7" } } }]);
       expect(sent().hotkey).toEqual({ enabled: true, combo: "Ctrl + Alt + 7" });
     });
 
@@ -200,10 +202,10 @@ describe("Triggers tab", () => {
       render(TriggersTab);
       await userEvent.click(toggle("Hotkey trigger"));
       await settle();
-      expect(sent().hotkey).toEqual({ enabled: false, combo: "Ctrl + Alt + 1" });
+      expect(sent().hotkey).toEqual({ enabled: true, combo: "Ctrl + Alt + 1" });
       await userEvent.click(toggle("Hotkey trigger"));
       await settle();
-      expect(sent().hotkey).toEqual({ enabled: true, combo: "Ctrl + Alt + 1" });
+      expect(sent().hotkey).toEqual({ enabled: false, combo: "Ctrl + Alt + 1" });
       await relay.setTriggers({ hotkey: { enabled: false, combo: "" } });
       await settle();
       await userEvent.click(toggle("Hotkey trigger"));
@@ -212,6 +214,7 @@ describe("Triggers tab", () => {
     });
 
     test("a combo another app owns is explained", async () => {
+      core.triggers.get(A)!.hotkey.enabled = true;
       core.hotkeyErrors.set(A, "Ctrl + Alt + 1 is taken by another app");
       await relay.loadMacro(A);
       render(TriggersTab);

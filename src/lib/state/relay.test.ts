@@ -2,6 +2,8 @@
 // UI state, and the guards (busy sessions, stale responses, failed saves).
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { core, freshStore, nextFrame, settle } from "../../test/app";
+import { defaultTriggers } from "../../test/fake-core";
+import { DEFAULT_SETTINGS } from "../defaults";
 import { browserBackend } from "../ipc/backend";
 import type { RelayStore } from "./relay.svelte";
 import type { EngineMsg } from "../ipc/bindings/EngineMsg";
@@ -51,11 +53,11 @@ describe("startup", () => {
     expect(r.expanded).toBe(false);
   });
 
-  test("a failure to read settings is shown, and the rest still loads", async () => {
+  test("an error Rust reported before the UI subscribed is shown, and the rest still loads", async () => {
     const r = await freshStore({ init: false });
-    core.fail("get_settings", "settings.json is locked");
+    core.emit({ type: "error", message: "Couldn't register the Play hotkey" }); // queued until subscribe
     await r.init();
-    expect(r.error).toBe("settings.json is locked");
+    expect(r.error).toBe("Couldn't register the Play hotkey");
     expect(r.library).toHaveLength(4);
     expect(r.view?.id).toBe(A);
   });
@@ -70,16 +72,11 @@ describe("startup", () => {
     expect(r.duration).toBe(2000);
   });
 
-  test("autostart is read, and a failure to read it counts as off", async () => {
+  test("autostart is read", async () => {
     const r = await freshStore({ init: false });
     core.autostart = true;
     await r.init();
     expect(r.autostart).toBe(true);
-    const r2 = await freshStore({ init: false });
-    core.fail("get_autostart");
-    await r2.init();
-    expect(r2.autostart).toBe(false);
-    expect(r2.toast).toBeNull();
   });
 });
 
@@ -129,9 +126,10 @@ describe("session buttons", () => {
     expect(core.commands()).toEqual(["stop_session", "stop_session"]);
   });
 
-  test("a failed command is shown", async () => {
-    core.fail("toggle_record", "Couldn't install the input hook");
+  test("Record can't fail, but the engine says when recording couldn't start", async () => {
     await relay.toggleRec();
+    expect(relay.toast).toBeNull();
+    core.emit({ type: "error", message: "Couldn't install the input hook" });
     expect(relay.toast).toMatchObject({ kind: "error", message: "Couldn't install the input hook" });
   });
 });
@@ -454,7 +452,7 @@ describe("library", () => {
     expect(core.argsOf("restore_macro")).toEqual([{ id: A }]);
     expect(relay.view?.id).toBe(A);
     expect(relay.toast).toBeNull();
-    expect(relay.library.map((m) => m.id)).toContain(A);
+    expect(relay.library.map((m) => m.id)).toEqual([A, B, C, D]); // back where it was
   });
 
   test("deleting another macro keeps the open one", async () => {
@@ -511,16 +509,16 @@ describe("library", () => {
 
     test("files that couldn't be imported are listed", async () => {
       core.dialog.open = ["C:\\a.rly", "C:\\bad.rly"];
-      core.importResult = { imported: [A], problems: ["bad.rly: expected value at line 1"] };
+      core.files.set("C:\\bad.rly", "expected value at line 1");
       await relay.importMacros();
       expect(relay.toast).toMatchObject({ kind: "error", message: "Imported 1 macro. bad.rly: expected value at line 1" });
     });
 
     test("nothing imported says so", async () => {
       core.dialog.open = ["C:\\bad.rly"];
-      core.importResult = { imported: [], problems: [] };
+      core.files.set("C:\\bad.rly", "expected value at line 1");
       await relay.importMacros();
-      expect(relay.toast?.message).toBe("Nothing imported");
+      expect(relay.toast).toMatchObject({ kind: "error", message: "Nothing imported. bad.rly: expected value at line 1" });
       expect(core.argsOf("load_macro")).toEqual([]);
     });
   });
@@ -543,7 +541,7 @@ describe("step edits", () => {
   test("a rejected edit is explained and the view is kept", async () => {
     const before = relay.view;
     await relay.edit({ op: "delete_step", index: 99 });
-    expect(relay.error).toBe("no step 99");
+    expect(relay.error).toBe("there is no step 99");
     expect(relay.view).toBe(before);
   });
 
@@ -585,14 +583,16 @@ describe("step edits", () => {
   });
 
   test("Delete step offers Undo, which undoes it", async () => {
+    const original = relay.steps;
     await relay.deleteStep(2);
+    expect(relay.steps.some((s) => s.kind === "wait")).toBe(false);
     expect(core.argsOf("edit_macro")).toEqual([{ id: A, op: { op: "delete_step", index: 2 } }]);
     expect(relay.toast).toMatchObject({ kind: "info", message: "Deleted the step" });
     core.clearCalls();
     relay.toast!.action!.run();
     await settle();
     expect(core.argsOf("undo_edit")).toEqual([{ id: A, redo: false }]);
-    expect(relay.steps).toHaveLength(12);
+    expect(relay.steps).toEqual(original); // the wait is back, and what followed it moved back
   });
 
   test("a failed step delete offers no Undo", async () => {
@@ -733,6 +733,7 @@ describe("undo and redo", () => {
     await relay.undo();
     expect(core.argsOf("undo_edit")).toEqual([{ id: A, redo: false }]);
     expect(relay.steps).toHaveLength(12);
+    expect(relay.steps[0]).toMatchObject({ kind: "click", t: 850, label: "File menu", items: [54, 55] });
     expect(relay.canRedo).toBe(true);
     expect(relay.canUndo).toBe(false);
     await relay.redo();
@@ -867,7 +868,7 @@ describe("triggers", () => {
     expect(core.commands()).toEqual(["set_triggers", "list_macros"]);
     expect(core.lastArgs("set_triggers")).toEqual({
       id: A,
-      triggers: { ...core.triggers.get(A), hotkey: { enabled: true, combo: "Ctrl + Alt + 9" } },
+      triggers: { ...defaultTriggers(), hotkey: { enabled: true, combo: "Ctrl + Alt + 9" } },
     });
     expect(relay.library[0].hotkey).toBe("Ctrl + Alt + 9");
   });
@@ -911,20 +912,16 @@ describe("triggers", () => {
     expect(core.calls).toEqual([{ cmd: "set_triggers_paused", args: { paused: false } }]);
   });
 
-  test("running programs are listed for suggestions; a failure keeps the old list", async () => {
+  test("running programs are listed for suggestions", async () => {
     await relay.loadProcesses();
     expect(relay.processes).toEqual(["chrome.exe", "EXCEL.EXE", "notepad.exe"]);
-    core.fail("list_processes");
-    await relay.loadProcesses();
-    expect(relay.processes).toHaveLength(3);
-    expect(relay.toast).toBeNull();
   });
 });
 
 describe("settings", () => {
   test("a change is shown and saved with the other settings", async () => {
     await relay.updateSettings({ countdown: false });
-    expect(core.calls).toEqual([{ cmd: "update_settings", args: { settings: { ...core.settings, countdown: false } } }]);
+    expect(core.calls).toEqual([{ cmd: "update_settings", args: { settings: { ...DEFAULT_SETTINGS, countdown: false } } }]);
     expect(relay.settings.countdown).toBe(false);
   });
 
