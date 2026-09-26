@@ -183,7 +183,7 @@ describe("the library, like library.rs", () => {
     expect((await b.getTriggers(A)).triggers.hotkey).toEqual({ enabled: false, combo: "Ctrl + Alt + 1" });
     expect(got).toContainEqual({
       type: "notice",
-      message: "Restored “Export invoice to PDF” with its hotkey off: Ctrl + Alt + 1 already runs “Fill weekly timesheet”",
+      message: "“Export invoice to PDF” is back; its hotkey Ctrl + Alt + 1 is now used by “Fill weekly timesheet”, so it's off",
     });
   });
 
@@ -231,8 +231,9 @@ describe("triggers, like hotkeys.rs", () => {
     ["Q", "Add Ctrl, Alt, Shift or Win, so the key still types normally"],
     ["Ctrl + Banana", "“Banana” isn't a key Relay can use"],
     ["Hyper + A", "“Hyper” isn't a modifier (use Ctrl, Alt, Shift or Win)"],
-    ["Shift + A", "Shift + A types a character: add Ctrl, Alt or Win"],
-    ["Ctrl + Shift", "Ctrl + Shift is only modifiers: add a key, such as a letter or F1–F24"],
+    ["Shift + A", "Add Ctrl, Alt or Win: Shift + A is ordinary typing"],
+    ["Ctrl + Shift", "Add a key after Shift: a hotkey can't end with a modifier"],
+    ["Ctrl + + K", "The hotkey is empty or incomplete"],
   ])("%s is refused", async (combo, message) => {
     await expect(b.setTriggers(A, withHotkey(combo))).rejects.toEqual({ code: "hotkey", message });
   });

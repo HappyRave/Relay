@@ -349,7 +349,7 @@ export class FakeCore {
           this.triggers.set(id, { ...t, hotkey: { ...t.hotkey, enabled: false } });
           this.emit({
             type: "notice",
-            message: `Restored “${entry.view.name}” with its hotkey off: ${t.hotkey.combo} already runs “${taken}”`,
+            message: `“${entry.view.name}” is back; its hotkey ${t.hotkey.combo} is now used by “${taken}”, so it's off`,
           });
         }
         return null;
@@ -602,12 +602,11 @@ const typesCharacter = (code: string) => /^(Key[A-Z]|Digit\d|Space)$/.test(code)
 
 /** Parses a combo as shown in the UI ("Ctrl + Alt + 1"), or says why it can't be a hotkey. */
 export function parseCombo(combo: string): Shortcut | string {
-  const parts = combo
-    .split("+")
-    .map((p) => p.trim())
-    .filter(Boolean);
-  const key = parts.pop();
-  if (!key) return "The hotkey is empty";
+  // Like relay_core::keys::split_combo: a trailing "+ +" is the plus key, any other empty part a typo.
+  let parts = combo.split("+").map((p) => p.trim());
+  if (parts.length >= 2 && parts.at(-1) === "" && parts.at(-2) === "") parts = [...parts.slice(0, -2), "+"];
+  if (parts.some((p) => p === "")) return "The hotkey is empty or incomplete";
+  const key = parts.pop()!;
   const mods = new Set<string>();
   for (const p of parts) {
     if (!MODIFIERS.includes(p)) return `“${p}” isn't a modifier (use Ctrl, Alt, Shift or Win)`;
@@ -615,11 +614,11 @@ export function parseCombo(combo: string): Shortcut | string {
   }
   const code = codeFor(key);
   if (!code) return `“${key}” isn't a key Relay can use`;
-  if (MODIFIERS.includes(key)) return `${combo} is only modifiers: add a key, such as a letter or F1–F24`;
+  if (MODIFIERS.includes(key)) return `Add a key after ${key}: a hotkey can't end with a modifier`;
   const fkey = /^F([1-9]|1\d|2[0-4])$/.test(key);
   if (!mods.size && !fkey) return "Add Ctrl, Alt, Shift or Win, so the key still types normally";
   if (mods.size === 1 && mods.has("Shift") && typesCharacter(code)) {
-    return `${combo} types a character: add Ctrl, Alt or Win`;
+    return `Add Ctrl, Alt or Win: Shift + ${key} is ordinary typing`;
   }
   return { mods: MODIFIERS.filter((m) => mods.has(m)).join("+"), code };
 }

@@ -533,7 +533,7 @@ describe("library", () => {
     await relay.setTriggers({ hotkey: { enabled: true, combo: "Ctrl + Alt + 3" } });
     relay.toast = null;
     await relay.restoreMacro(A, true);
-    expect(relay.toast).toMatchObject({ kind: "info", message: expect.stringContaining("with its hotkey off") });
+    expect(relay.toast).toMatchObject({ kind: "info", message: expect.stringContaining("is now used by") });
     expect(relay.triggers?.hotkey).toEqual({ enabled: false, combo: "Ctrl + Alt + 3" });
   });
 
