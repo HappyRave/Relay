@@ -25,8 +25,6 @@ pub enum FormatError {
     TooNew(u64),
     #[error("invalid macro file: {0}")]
     Invalid(String),
-    #[error(transparent)]
-    Json(#[from] serde_json::Error),
 }
 
 #[derive(Serialize)]
@@ -59,13 +57,17 @@ pub fn to_export_json(m: &Macro) -> String {
 
 /// Parses a `.rly` (or exported `.json`) document of any supported version.
 pub fn from_rly(s: &str) -> Result<Macro, FormatError> {
-    // Not even JSON: say so plainly rather than quoting the parser.
-    let mut v: Value = serde_json::from_str(s).map_err(|_| FormatError::NotRelay)?;
+    let invalid = |e: serde_json::Error| FormatError::Invalid(e.to_string());
+    // Not even JSON: say so plainly rather than quoting the parser, unless
+    // it's a damaged macro (a truncated file still names its format).
+    let mut v: Value = serde_json::from_str(s)
+        .map_err(|e| if s.contains(&format!("\"{FORMAT}\"")) { invalid(e) } else { FormatError::NotRelay })?;
     let obj = v.as_object_mut().ok_or(FormatError::NotRelay)?;
     if obj.get("format").and_then(Value::as_str) != Some(FORMAT) {
         return Err(FormatError::NotRelay);
     }
-    let mut version = obj.get("version").and_then(Value::as_u64).ok_or(FormatError::NotRelay)?;
+    let mut version =
+        obj.get("version").and_then(Value::as_u64).ok_or_else(|| FormatError::Invalid("no format version".into()))?;
     if version > VERSION {
         return Err(FormatError::TooNew(version));
     }
@@ -76,7 +78,7 @@ pub fn from_rly(s: &str) -> Result<Macro, FormatError> {
     obj.remove("format");
     obj.remove("version");
     obj.remove("steps");
-    let mut m: Macro = serde_json::from_value(v)?;
+    let mut m: Macro = serde_json::from_value(v).map_err(invalid)?;
     normalize(&mut m.events);
     Ok(m)
 }
@@ -241,6 +243,24 @@ mod tests {
         assert!(matches!(from_rly(r#"{"format":"relay-macro","version":99}"#), Err(FormatError::TooNew(99))));
         assert!(matches!(from_rly("[1]"), Err(FormatError::NotRelay)));
         assert_eq!(from_rly("not json").unwrap_err().to_string(), "not a Relay macro");
+        assert!(matches!(from_rly(r#"{"format":"other","version":1}"#), Err(FormatError::NotRelay)));
+    }
+
+    #[test]
+    fn a_damaged_macro_is_invalid_not_foreign() {
+        let good = to_rly(&fixed_macro());
+        let damaged = [
+            good.replace(r#""type":"move""#, r#""type":"teleport""#), // unknown variant
+            good.replace(r#""x":960"#, r#""x":"left""#),              // a field of the wrong type
+            good.replace(r#""name":"Save the file","#, ""),           // a missing field
+            good[..good.len() / 2].to_string(),                       // truncated
+            good.replace(r#""version":1,"#, ""),                      // no version
+        ];
+        for s in damaged {
+            let e = from_rly(&s).unwrap_err();
+            assert!(matches!(e, FormatError::Invalid(_)), "{e:?} for {s}");
+            assert!(e.to_string().starts_with("invalid macro file: "), "{e}");
+        }
     }
 
     #[test]
