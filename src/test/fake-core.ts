@@ -395,7 +395,11 @@ export class FakeCore {
       case "set_triggers_paused":
         this.triggersPaused = a.paused as boolean;
         // The coordinator applies it and tells the UI, after the command returned.
-        setTimeout(() => this.channel && this.emit({ type: "triggers_paused", paused: a.paused as boolean }));
+        {
+          // (Not to a store a later test subscribed.)
+          const channel = this.channel;
+          setTimeout(() => channel && channel === this.channel && this.emit({ type: "triggers_paused", paused: a.paused as boolean }));
+        }
         return null;
       case "list_processes":
         return this.processes;
