@@ -169,6 +169,27 @@ describe("Triggers tab", () => {
     expect(options).toEqual(["chrome.exe", "EXCEL.EXE", "notepad.exe"]);
   });
 
+  test("with no macro open, says so", () => {
+    relay.view = null;
+    relay.triggerStatus = null;
+    render(TriggersTab);
+    expect(screen.getByText("Open a macro to set its triggers")).toBeInTheDocument();
+    expect(screen.queryByRole("switch")).toBeNull();
+  });
+
+  test("triggers that couldn't be loaded can be retried", async () => {
+    core.fail("get_triggers", "library.json is locked");
+    await relay.loadMacro("00000000-0000-0000-0000-000000000002");
+    render(TriggersTab);
+    expect(screen.getByRole("alert")).toHaveTextContent("Couldn't load the triggers");
+    core.succeed("get_triggers");
+    core.clearCalls();
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await settle();
+    expect(core.argsOf("get_triggers")).toEqual([{ id: "00000000-0000-0000-0000-000000000002" }]);
+    expect(toggle("Hotkey trigger")).toBeInTheDocument();
+  });
+
   test("shows nothing until the triggers have loaded", () => {
     relay.triggerStatus = null;
     render(TriggersTab);
@@ -211,9 +232,22 @@ describe("Triggers tab", () => {
       expect(sent().hotkey).toEqual({ enabled: false, combo: "Ctrl + Alt + 1" });
       await relay.setTriggers({ hotkey: { enabled: false, combo: "" } });
       await settle();
+      expect(toggle("Hotkey trigger")).toBeDisabled();
+      core.clearCalls();
       await userEvent.click(toggle("Hotkey trigger"));
       await settle();
-      expect(sent().hotkey).toEqual({ enabled: false, combo: "" });
+      expect(core.argsOf("set_triggers")).toEqual([]);
+    });
+
+    test("a plain letter is refused, and explained", async () => {
+      render(TriggersTab);
+      await userEvent.click(screen.getByRole("button", { name: /Ctrl \+ Alt \+ 1/ }));
+      await fireEvent.keyDown(window, { key: "q", code: "KeyQ" });
+      await settle();
+      expect(core.lastArgs("set_triggers")).toMatchObject({ triggers: { hotkey: { enabled: true, combo: "Q" } } });
+      expect(relay.error).toBe("Add Ctrl, Alt, Shift or Win, so the key still types normally");
+      expect(screen.getByRole("button", { name: /Ctrl \+ Alt \+ 1/ })).toBeInTheDocument(); // put back
+      expect(toggle("Hotkey trigger")).toHaveAttribute("aria-checked", "false");
     });
 
     test("a combo another app owns is explained", async () => {
@@ -239,11 +273,17 @@ describe("Triggers tab", () => {
   describe("schedule", () => {
     test("the switch, and the next run", async () => {
       render(TriggersTab);
-      expect(screen.getByText("No schedule")).toBeInTheDocument();
+      expect(screen.getByText("Off")).toBeInTheDocument();
       await userEvent.click(toggle("Schedule trigger"));
       await settle();
       expect(sent().schedule.enabled).toBe(true);
       expect(screen.getByText(/^Next run: /)).toBeInTheDocument();
+    });
+
+    test("on with no days, it asks for one", async () => {
+      await relay.setTriggers({ schedule: { enabled: true, schedule: { days: [false, false, false, false, false, false, false], time: "09:00" } } });
+      render(TriggersTab);
+      expect(screen.getByText("Pick a day")).toBeInTheDocument();
     });
 
     test("each day button toggles that day", async () => {
@@ -277,9 +317,10 @@ describe("Triggers tab", () => {
   describe("app launch", () => {
     test("the program name is trimmed; the switch needs one", async () => {
       render(TriggersTab);
+      expect(toggle("App launch trigger")).toBeDisabled(); // nothing to watch for yet
       await userEvent.click(toggle("App launch trigger"));
       await settle();
-      expect(sent().app_launch).toEqual({ enabled: false, exe: "", delay_ms: 2000 });
+      expect(core.argsOf("set_triggers")).toEqual([]);
       await change(screen.getByLabelText("Program"), "  EXCEL.EXE ");
       await settle();
       expect(sent().app_launch.exe).toBe("EXCEL.EXE");
@@ -358,9 +399,9 @@ describe("Triggers tab", () => {
       await fireEvent.click(screen.getByRole("button", { name: "Pick" }));
       await settle();
       expect(core.argsOf("pick_pixel")).toEqual([{ delayMs: 3000 }]);
-      expect(screen.getByRole("button", { name: /Point…/ })).toHaveTextContent("Point… 3");
+      expect(screen.getByRole("button", { name: /Point at it…/ })).toHaveTextContent("Point at it… 3");
       await vi.advanceTimersByTimeAsync(2000);
-      expect(screen.getByRole("button", { name: /Point…/ })).toHaveTextContent("Point… 1");
+      expect(screen.getByRole("button", { name: /Point at it…/ })).toHaveTextContent("Point at it… 1");
       core.held[0].resolve({ x: 11, y: 22, color: "#FFFFFF" });
       await settle();
       expect(sent().pixel).toMatchObject({ x: 11, y: 22, color: "#FFFFFF" });

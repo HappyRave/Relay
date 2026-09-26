@@ -86,6 +86,8 @@ export class RelayStore {
   view = $state.raw<MacroView | null>(null);
   /** The open macro's triggers, with the next scheduled run and hotkey problems. */
   triggerStatus = $state.raw<TriggerStatus | null>(null);
+  /** The open macro's triggers couldn't be loaded (the Triggers tab offers to retry). */
+  triggersFailed = $state(false);
   /** Paused by the kill switch (or from the tray). */
   triggersPaused = $state(false);
   autostart = $state(false);
@@ -456,16 +458,24 @@ export class RelayStore {
     this.triggerStatus = null; // the old macro's triggers mustn't be edited into this one
     this.cur = 0;
     this.loopIdx = 0;
+    await this.loadTriggers();
+  }
+
+  /** Loads the open macro's triggers (again, with Retry, after a failure). */
+  loadTriggers = async () => {
+    const id = this.view?.id;
+    if (!id) return;
     const saves = this.triggerSaves;
     const loading = ++saves.seq; // answers to changes made to the macro left behind are dropped
     saves.failed = false;
+    this.triggersFailed = false;
     const status = await this.run(this.backend.getTriggers(id));
-    if (status && this.view?.id === id && loading === saves.seq) {
-      this.triggerStatus = saves.saved = status;
-      saves.savedSeq = loading;
-      this.triggersPaused = this.pauseSaves.saved = status.paused;
-    }
-  }
+    if (this.view?.id !== id || loading !== saves.seq) return;
+    if (!status) return void (this.triggersFailed = true);
+    this.triggerStatus = saves.saved = status;
+    saves.savedSeq = loading;
+    this.triggersPaused = this.pauseSaves.saved = status.paused;
+  };
 
   duplicateMacro = async (id: string) => {
     await this.flushRename(); // the copy is named after the name being typed
@@ -494,6 +504,7 @@ export class RelayStore {
       else {
         this.view = null;
         this.triggerStatus = null;
+        this.triggersFailed = false;
       }
       this.tab = "library";
     }

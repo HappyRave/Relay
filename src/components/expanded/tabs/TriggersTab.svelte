@@ -10,6 +10,11 @@
   const HEX = /^#[0-9a-fA-F]{6}$/;
   const status = $derived(relay.triggerStatus);
   const t = $derived(status?.triggers);
+  const scheduleLabel = $derived.by(() => {
+    if (!t?.schedule.enabled) return "Off";
+    if (!t.schedule.schedule.days.some(Boolean)) return "Pick a day";
+    return nextRunLabel(status?.next_run ?? null);
+  });
 
   // Suggestions for "When app launches".
   onMount(relay.loadProcesses);
@@ -37,7 +42,14 @@
     <button class="btn btn-ghost" onclick={() => relay.setTriggersPaused(false)}>Resume</button>
   </div>
 {/if}
-{#if t}
+{#if !relay.view}
+  <div class="empty">Open a macro to set its triggers</div>
+{:else if relay.triggersFailed}
+  <div class="empty" role="alert">
+    Couldn't load the triggers
+    <button class="btn btn-secondary" onclick={relay.loadTriggers}>Retry</button>
+  </div>
+{:else if t}
   <div class="list">
     <div class="row">
       <div class="grow">
@@ -51,7 +63,8 @@
       <Toggle
         label="Hotkey trigger"
         on={t.hotkey.enabled}
-        onchange={(v) => relay.setTriggers({ hotkey: { ...t.hotkey, enabled: v && t.hotkey.combo !== "" } })}
+        disabled={t.hotkey.combo === ""}
+        onchange={(v) => relay.setTriggers({ hotkey: { ...t.hotkey, enabled: v } })}
       />
     </div>
 
@@ -59,7 +72,7 @@
       <div class="line">
         <div class="grow">
           <div class="title">Schedule</div>
-          <div class="sub accent">{nextRunLabel(status?.next_run ?? null)}</div>
+          <div class="sub" class:accent={t.schedule.enabled}>{scheduleLabel}</div>
         </div>
         <Toggle
           label="Schedule trigger"
@@ -99,7 +112,8 @@
         <Toggle
           label="App launch trigger"
           on={t.app_launch.enabled}
-          onchange={(v) => relay.setTriggers({ app_launch: { ...t.app_launch, enabled: v && t.app_launch.exe.trim() !== "" } })}
+          disabled={t.app_launch.exe.trim() === ""}
+          onchange={(v) => relay.setTriggers({ app_launch: { ...t.app_launch, enabled: v } })}
         />
       </div>
       <div class="line">
@@ -175,7 +189,7 @@
           }}
         />
         <button class="btn btn-secondary pick" disabled={relay.picking > 0 || !relay.editable} onclick={relay.pickTriggerPixel}>
-          {relay.picking > 0 ? `Point… ${relay.picking}` : "Pick"}
+          {relay.picking > 0 ? `Point at it… ${relay.picking}` : "Pick"}
         </button>
       </div>
     </div>
@@ -183,6 +197,19 @@
 {/if}
 
 <style>
+  .empty {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 12px;
+    font-size: 12px;
+    color: var(--color-neutral-700);
+  }
+  .empty .btn {
+    font-size: 12px;
+    padding: 2px 8px;
+  }
   .paused {
     display: flex;
     align-items: center;
