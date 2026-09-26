@@ -286,6 +286,7 @@ describe("engine messages", () => {
     relay.loopIdx = 2;
     core.emit({ type: "finished", reason, timing: null });
     expect(relay.cur).toBe(at);
+    expect(relay.lastFinish).toBe(reason);
     expect(relay.loopIdx).toBe(0);
   });
 

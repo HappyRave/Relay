@@ -24,6 +24,7 @@ import type {
 import type { EngineMsg } from "../ipc/bindings/EngineMsg";
 import type { PickedPixel } from "../ipc/bindings/PickedPixel";
 import type { TimingStats } from "../ipc/bindings/TimingStats";
+import type { FinishReason } from "../ipc/bindings/FinishReason";
 import { backend as defaultBackend, type Backend, type IpcError } from "../ipc/backend";
 import { DEFAULT_PLAYBACK, DEFAULT_SETTINGS } from "../defaults";
 import { isTauri, savedExpanded } from "../platform/window";
@@ -63,7 +64,8 @@ export class RelayStore {
   cur = $state(0);
   countLeft = $state(0);
   loopIdx = $state(0);
-  /** Timing of the last playback (for diagnostics and the end-to-end tests). */
+  /** How and with what timing the last playback ended (for diagnostics and the end-to-end tests). */
+  lastFinish: FinishReason | null = null;
   lastTiming: TimingStats | null = null;
 
   // — data (from commands) —
@@ -229,6 +231,7 @@ export class RelayStore {
         break;
       case "finished":
         this.loopIdx = 0;
+        this.lastFinish = msg.reason;
         if (msg.timing) this.lastTiming = msg.timing;
         // Any stop rewinds (Stop, Esc, a key press, the kill switch). A completed run stays at
         // the end, and a timed-out pixel check stays on its step so the row is highlighted.
