@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Dependencies:** everything updated to the latest stable versions: Rust 1.98.1, Node 24.21 (LTS) and npm 12.1 locally, the Rust lockfile, vitest 5.0.2, the `windows` crate 0.62 in `relay-platform`, and the CI actions (checkout, setup-node and upload-artifact v7, tauri-action v1). TypeScript stays on 6 because svelte-check doesn't support 7 yet, and the app keeps `windows` 0.61 to match Tauri.
 - **License:** Relay is now open source under the MIT License.
 - **Keep on top:** a new *Settings → Window* option chooses when the widget floats above other windows: always (as before), only while recording or playing, or never.
 
