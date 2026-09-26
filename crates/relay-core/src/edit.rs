@@ -546,6 +546,134 @@ mod tests {
         let _ = crate::view::MacroView::of(&m);
     }
 
+    fn pixel_at(at: Ms, dur: Ms) -> EditOp {
+        EditOp::InsertPixelWait {
+            at,
+            dur,
+            x: 10,
+            y: 20,
+            color: Rgb(1, 2, 3),
+            tolerance: 8,
+            timeout_ms: 5000,
+            label: String::new(),
+        }
+    }
+    fn steps(m: &Macro) -> Vec<Step> {
+        group_steps(&m.events, (&m.recording).into())
+    }
+
+    #[test]
+    fn a_pixel_check_is_inserted_like_a_wait_and_deleting_it_closes_the_gap() {
+        let original = mac([click(0), click(1000)].concat());
+        let mut m = original.clone();
+        apply(&mut m, pixel_at(500, 700)).unwrap();
+        let ts: Vec<_> = m.events.iter().map(Event::t).collect();
+        assert_eq!(ts, [0, 80, 500, 1700, 1780]);
+        assert!(matches!(m.events[2], Event::PixelWait { x: 10, y: 20, dur: 700, timeout_ms: 5000, .. }));
+        check_invariants(&m.events).unwrap();
+        apply(&mut m, EditOp::DeleteStep { index: 1 }).unwrap();
+        assert_eq!(m.events, original.events);
+    }
+
+    #[test]
+    fn updating_a_pixel_check_keeps_its_time_and_duration() {
+        let mut m = mac([click(0), click(1000)].concat());
+        apply(&mut m, pixel_at(500, 700)).unwrap();
+        let update =
+            |index| EditOp::UpdatePixelWait { index, x: -3, y: 4, color: Rgb(9, 8, 7), tolerance: 0, timeout_ms: 100 };
+        apply(&mut m, update(1)).unwrap();
+        assert_eq!(
+            m.events[2],
+            Event::PixelWait {
+                t: 500,
+                dur: 700,
+                x: -3,
+                y: 4,
+                color: Rgb(9, 8, 7),
+                tolerance: 0,
+                timeout_ms: 100,
+                label: String::new()
+            }
+        );
+        assert_eq!(apply(&mut m, update(0)), Err(EditError::WrongKind(0)));
+        assert_eq!(apply(&mut m, update(3)), Err(EditError::NoSuchStep(3)));
+    }
+
+    #[test]
+    fn waits_and_pixel_checks_take_labels_but_typing_and_shortcuts_dont() {
+        let typed = vec![
+            Event::Key { t: 2000, down: true, key: KeyStroke::code("KeyA"), ch: Some("a".into()) },
+            key(2040, "KeyA", false),
+        ];
+        let mut m = mac([click(0).to_vec(), typed].concat());
+        apply(&mut m, EditOp::InsertWait { at: 500, dur: 300, label: String::new() }).unwrap();
+        apply(&mut m, pixel_at(1000, 300)).unwrap();
+        apply(&mut m, EditOp::SetLabel { index: 1, label: "Dialog".into() }).unwrap();
+        apply(&mut m, EditOp::SetLabel { index: 2, label: "Red".into() }).unwrap();
+        let s = steps(&m);
+        assert!(matches!(&s[1].kind, StepKind::Wait { label, .. } if label == "Dialog"));
+        assert!(matches!(&s[2].kind, StepKind::PixelWait { label, .. } if label == "Red"));
+        assert!(matches!(s[3].kind, StepKind::Type { .. }));
+        assert_eq!(apply(&mut m, EditOp::SetLabel { index: 3, label: "x".into() }), Err(EditError::WrongKind(3)));
+        let mut m = mac(vec![
+            key(0, "ControlLeft", true),
+            key(10, "KeyS", true),
+            key(20, "KeyS", false),
+            key(30, "ControlLeft", false),
+        ]);
+        assert_eq!(apply(&mut m, EditOp::SetLabel { index: 0, label: "x".into() }), Err(EditError::WrongKind(0)));
+    }
+
+    #[test]
+    fn the_first_steps_pause_counts_from_the_start() {
+        let mv = |t| Event::Move { t, x: t as i32, y: 0 };
+        let mut m = mac([vec![mv(0), mv(500)], click(1000).to_vec()].concat());
+        assert_eq!(steps(&m)[0].pause, 1000);
+        apply(&mut m, EditOp::SetPause { index: 0, dur: 200 }).unwrap();
+        assert_eq!(m.events.iter().map(Event::t).collect::<Vec<_>>(), [0, 100, 200, 280]);
+        apply(&mut m, EditOp::SetPause { index: 0, dur: 0 }).unwrap();
+        assert_eq!(m.events.iter().map(Event::t).collect::<Vec<_>>(), [0, 0, 0, 80]);
+        check_invariants(&m.events).unwrap();
+        // A pause of 0 between two steps.
+        let mut m = mac([click(0), click(3000)].concat());
+        apply(&mut m, EditOp::SetPause { index: 1, dur: 0 }).unwrap();
+        assert_eq!(m.events.iter().map(Event::t).collect::<Vec<_>>(), [0, 80, 80, 160]);
+    }
+
+    #[test]
+    fn capping_pauses_can_join_typed_text() {
+        // Intended: with the pause gone the characters were typed without a
+        // break, so they're one TYPE step. The keystrokes replayed are the same.
+        let typed = |t, code: &str, c: &str| {
+            [Event::Key { t, down: true, key: KeyStroke::code(code), ch: Some(c.into()) }, key(t + 40, code, false)]
+        };
+        let mut m = mac([typed(0, "KeyA", "a"), typed(3000, "KeyB", "b")].concat());
+        assert_eq!(steps(&m).len(), 2);
+        apply(&mut m, EditOp::CapPauses { max: 100 }).unwrap();
+        let s = steps(&m);
+        assert_eq!(s.len(), 1);
+        assert!(matches!(&s[0].kind, StepKind::Type { text, .. } if text == "ab"));
+        check_invariants(&m.events).unwrap();
+    }
+
+    #[test]
+    fn deleting_one_of_two_shortcuts_keeps_the_shared_ctrl() {
+        let mut m = mac(vec![
+            key(0, "ControlLeft", true),
+            key(50, "KeyC", true),
+            key(90, "KeyC", false),
+            key(150, "KeyV", true),
+            key(190, "KeyV", false),
+            key(220, "ControlLeft", false),
+        ]);
+        apply(&mut m, EditOp::DeleteStep { index: 0 }).unwrap();
+        assert_eq!(m.events.len(), 4);
+        let s = steps(&m);
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].kind, StepKind::Keys { combo: vec!["Ctrl".into(), "V".into()] });
+        assert_eq!(s[0].items, vec![0, 1, 2, 3], "and the Ctrl is now V's alone");
+    }
+
     #[test]
     fn labels_live_on_the_press() {
         let mut m = mac(click(0).to_vec());
