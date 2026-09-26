@@ -23,7 +23,9 @@ const BOTTOM_GAP: f64 = 24.0;
 #[serde(default)]
 pub struct WindowPrefs {
     pub expanded: bool,
-    /// The widget's bottom-center, in physical virtual-desktop pixels.
+    /// Where the user put the widget's bottom-center, in physical
+    /// virtual-desktop pixels. Placing the widget may keep it off an edge,
+    /// but only a drag changes this.
     pub anchor: Option<(i32, i32)>,
 }
 
@@ -41,6 +43,9 @@ pub struct WindowState {
     size: Mutex<(f64, f64)>,
     /// When the anchor last changed and hasn't been saved yet.
     dirty: Mutex<Option<Instant>>,
+    /// The bottom-center [`place`] last put the widget at, so the Moved
+    /// events that raises aren't taken for a drag. Cleared by a drag.
+    placed: Mutex<Option<(i32, i32)>>,
 }
 
 impl WindowState {
@@ -49,11 +54,40 @@ impl WindowState {
         let prefs: WindowPrefs =
             std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
         let size = if prefs.expanded { EXPANDED } else { COMPACT };
-        WindowState { path, prefs: Mutex::new(prefs), size: Mutex::new(size), dirty: Mutex::new(None) }
+        WindowState {
+            path,
+            prefs: Mutex::new(prefs),
+            size: Mutex::new(size),
+            dirty: Mutex::new(None),
+            placed: Mutex::new(None),
+        }
     }
 
     pub fn prefs(&self) -> WindowPrefs {
         self.prefs.lock().clone()
+    }
+
+    /// Where a widget of `css` size goes in `work` (see [`layout`]), noted as
+    /// placed there. The user's anchor stays as it is.
+    fn placement(&self, work: Rect, sf: f64, zoom: f64, css: (f64, f64), anchor: Option<(i32, i32)>) -> Rect {
+        let r = layout(work, sf, zoom, css, anchor);
+        *self.placed.lock() = Some(r.bottom_center());
+        r
+    }
+
+    /// The widget's bottom-center is now `at`. Arriving where it was placed
+    /// changes nothing; anywhere else, the user dragged it, and that's the new anchor.
+    fn moved(&self, at: (i32, i32)) {
+        let mut placed = self.placed.lock();
+        if *placed == Some(at) {
+            return;
+        }
+        *placed = None;
+        let mut p = self.prefs.lock();
+        if p.anchor != Some(at) {
+            p.anchor = Some(at);
+            *self.dirty.lock() = Some(Instant::now());
+        }
     }
 
     fn save(&self) {
@@ -95,6 +129,10 @@ impl Rect {
     fn holds_anchor(&self, (x, y): (i32, i32)) -> bool {
         x >= self.x && y > self.y && x < self.x + self.w && y <= self.y + self.h
     }
+
+    fn bottom_center(&self) -> (i32, i32) {
+        (self.x + self.w / 2, self.y + self.h)
+    }
 }
 
 fn contains(m: &Monitor, anchor: (i32, i32)) -> bool {
@@ -119,24 +157,25 @@ pub fn layout(work: Rect, sf: f64, zoom: f64, css: (f64, f64), anchor: Option<(i
 /// Sizes and positions the window for a widget of `css` size, keeping its
 /// bottom-center at the saved anchor (or the default spot on the primary
 /// monitor when the anchor is gone, e.g. after unplugging a monitor), inside
-/// the monitor's work area. Returns the anchor actually used.
-pub fn place(window: &WebviewWindow, state: &WindowState, css: (f64, f64)) -> Option<(i32, i32)> {
+/// the monitor's work area. The saved anchor stays where the user put it, so
+/// switching sizes near an edge comes back to the same spot.
+pub fn place(window: &WebviewWindow, state: &WindowState, css: (f64, f64)) {
     let saved = state.prefs().anchor;
-    let monitors = window.available_monitors().ok()?;
-    let monitor = saved
+    let Ok(monitors) = window.available_monitors() else { return };
+    let Some(monitor) = saved
         .and_then(|a| monitors.iter().find(|m| contains(m, a)).cloned())
         .or_else(|| window.primary_monitor().ok().flatten())
-        .or_else(|| monitors.first().cloned())?;
-    let anchor = saved.filter(|&a| contains(&monitor, a));
+        .or_else(|| monitors.first().cloned())
+    else {
+        return;
+    };
 
     let zoom = zoom_for(&monitor);
     let _ = window.set_zoom(zoom);
-    let r = layout(Rect::work_area(&monitor), monitor.scale_factor(), zoom, css, anchor);
+    let anchor = saved.filter(|&a| contains(&monitor, a));
+    let r = state.placement(Rect::work_area(&monitor), monitor.scale_factor(), zoom, css, anchor);
     set_client_rect(window, r.x, r.y, r.w, r.h);
-    let used = (r.x + r.w / 2, r.y + r.h);
-    state.prefs.lock().anchor = Some(used);
     *state.size.lock() = css;
-    Some(used)
 }
 
 /// Called by the UI when the widget's size changes (switching compact/expanded).
@@ -172,12 +211,7 @@ pub fn close_or_hide(window: &WebviewWindow) -> bool {
 /// Tracks the widget's bottom-center while the user drags it; saved shortly after it stops.
 pub fn on_moved(window: &WebviewWindow, state: &WindowState) {
     let (Ok(pos), Ok(size)) = (window.inner_position(), window.inner_size()) else { return };
-    let anchor = (pos.x + size.width as i32 / 2, pos.y + size.height as i32);
-    let mut p = state.prefs.lock();
-    if p.anchor != Some(anchor) {
-        p.anchor = Some(anchor);
-        *state.dirty.lock() = Some(Instant::now());
-    }
+    state.moved((pos.x + size.width as i32 / 2, pos.y + size.height as i32));
 }
 
 /// Saves a moved position once dragging has paused for half a second.
@@ -360,6 +394,42 @@ mod tests {
         assert!(!top.holds_anchor((1920, 500)), "the right edge is the next monitor's");
         assert!(top.holds_anchor((0, 500)));
         assert!(!top.holds_anchor((-1, 500)));
+    }
+
+    #[test]
+    fn switching_sizes_near_an_edge_comes_back_to_the_same_spot() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = WindowState::open(dir.path());
+        // Compact fits here as placed; expanded is pushed left, off the right edge.
+        state.moved((1500, 1000));
+        // Placing, then the Moved event the placement raises.
+        let switch = |css| {
+            let r = state.placement(WORK, 1.0, 1.0, css, state.prefs().anchor);
+            state.moved(r.bottom_center());
+            r
+        };
+        let compact = switch(COMPACT);
+        assert_eq!(compact.bottom_center(), (1500, 1000));
+        let expanded = switch(EXPANDED);
+        assert_eq!(expanded.x, 1920 - 944 - 16);
+        assert_eq!(state.prefs().anchor, Some((1500, 1000)), "clamping isn't a move");
+        assert_eq!(switch(COMPACT), compact);
+        assert_eq!(switch(EXPANDED), expanded);
+    }
+
+    #[test]
+    fn a_drag_moves_the_anchor_even_back_to_where_it_was_placed() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = WindowState::open(dir.path());
+        let placed = state.placement(WORK, 1.0, 1.0, COMPACT, None).bottom_center();
+        state.moved(placed);
+        assert_eq!(state.prefs().anchor, None, "the default spot follows the monitor");
+        assert!(state.dirty.lock().is_none());
+        state.moved((700, 500));
+        assert_eq!(state.prefs().anchor, Some((700, 500)));
+        assert!(state.dirty.lock().is_some(), "saved once the drag pauses");
+        state.moved(placed);
+        assert_eq!(state.prefs().anchor, Some(placed));
     }
 
     #[test]
