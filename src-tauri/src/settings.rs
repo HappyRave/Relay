@@ -80,6 +80,9 @@ impl Default for Settings {
 pub struct SettingsStore {
     path: PathBuf,
     pub current: Settings,
+    /// settings.json exists but couldn't be read (locked by another program,
+    /// say): it's never overwritten this run, so the user's settings survive.
+    unreadable: bool,
 }
 
 impl SettingsStore {
@@ -87,6 +90,7 @@ impl SettingsStore {
     pub fn open(dir: &Path) -> (Self, Vec<String>) {
         let path = dir.join("settings.json");
         let mut problems = Vec::new();
+        let mut unreadable = false;
         let current = match std::fs::read_to_string(&path) {
             Ok(text) => {
                 let (current, why) = parse(&text);
@@ -99,13 +103,25 @@ impl SettingsStore {
                 }
                 current
             }
-            Err(_) => Settings::default(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Settings::default(),
+            Err(e) => {
+                unreadable = true;
+                problems.push(format!(
+                    "{} couldn't be read ({e}). Relay uses the default settings until it restarts,                      and leaves the file as it is.",
+                    path.display()
+                ));
+                Settings::default()
+            }
         };
-        (SettingsStore { path, current }, problems)
+        (SettingsStore { path, current, unreadable }, problems)
     }
 
+    /// Changes the settings and saves them; if saving fails, the change is still kept for this run.
     pub fn set(&mut self, settings: Settings) -> std::io::Result<()> {
         self.current = settings;
+        if self.unreadable {
+            return Err(std::io::Error::other("settings.json couldn't be read at startup, so it isn't overwritten"));
+        }
         write_atomic(&self.path, &to_json(&self.current))
     }
 }
@@ -170,6 +186,23 @@ mod tests {
         assert!(!s.capture_keys && s.capture_moves);
         assert_eq!(s.keep_on_top, KeepOnTop::Always, "older files keep the old behavior");
         assert!(problems.is_empty(), "unknown fields are fine: {problems:?}");
+        assert!(!dir.path().join("settings.json.bad").exists());
+    }
+
+    #[test]
+    fn a_settings_file_that_cant_be_read_is_never_overwritten() {
+        let dir = tempfile::tempdir().unwrap();
+        // A folder where the file should be: it exists, but reading it fails.
+        let path = dir.path().join("settings.json");
+        std::fs::create_dir(&path).unwrap();
+        let (mut s, problems) = SettingsStore::open(dir.path());
+        assert_eq!(s.current, Settings::default());
+        assert_eq!(problems.len(), 1);
+        assert!(problems[0].contains("couldn't be read"), "{}", problems[0]);
+        let changed = Settings { countdown: false, ..Settings::default() };
+        assert!(s.set(changed.clone()).is_err(), "saving is refused");
+        assert_eq!(s.current, changed, "but the change is kept for this run");
+        assert!(path.is_dir(), "left as it was");
         assert!(!dir.path().join("settings.json.bad").exists());
     }
 
