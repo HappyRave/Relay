@@ -66,6 +66,15 @@ fn library(app: &AppHandle) -> State<'_, Mutex<Library>> {
     app.state::<Mutex<Library>>()
 }
 
+/// Refuses what can't be done while a session (or its countdown) runs.
+fn refuse_busy(idle: bool) -> Result<()> {
+    if idle { Ok(()) } else { Err(IpcError { code: "busy", message: "Stop the recording or playback first".into() }) }
+}
+
+fn when_idle(app: &AppHandle) -> Result<()> {
+    refuse_busy(app.state::<SessionMode>().is_idle())
+}
+
 /// Reports a failed save; the change itself stays (see the module docs).
 fn report_unsaved(app: &AppHandle, r: std::io::Result<()>) {
     if let Err(e) = r {
@@ -129,6 +138,8 @@ pub fn load_macro(
 
 #[tauri::command(async)]
 pub fn edit_macro(app: AppHandle, id: Uuid, op: EditOp) -> Result<MacroView> {
+    // Editing a macro while it plays or records would change it under the engine.
+    when_idle(&app)?;
     let history = app.state::<EditHistory>();
     let lib = library(&app);
     let mut lib = lib.lock();
@@ -144,6 +155,7 @@ pub fn edit_macro(app: AppHandle, id: Uuid, op: EditOp) -> Result<MacroView> {
 /// Reverts the macro's last edit (`redo: false`) or re-applies the last undone one.
 #[tauri::command(async)]
 pub fn undo_edit(app: AppHandle, id: Uuid, redo: bool) -> Result<MacroView> {
+    when_idle(&app)?;
     let history = app.state::<EditHistory>();
     let lib = library(&app);
     let mut lib = lib.lock();
@@ -180,9 +192,7 @@ pub fn duplicate_macro(app: AppHandle, id: Uuid) -> Result<Uuid> {
 /// Moves a macro to the trash; it can be restored with [`restore_macro`].
 #[tauri::command(async)]
 pub fn delete_macro(app: AppHandle, id: Uuid) -> Result<()> {
-    if !app.state::<SessionMode>().is_idle() {
-        return Err(IpcError { code: "busy", message: "Stop the recording or playback first".into() });
-    }
+    when_idle(&app)?;
     let trashed = library(&app).lock().trash(id)?;
     report_unsaved(&app, trashed.saved);
     hotkeys::refresh(&app); // its hotkey goes with it
@@ -456,6 +466,13 @@ mod tests {
         assert_eq!(IpcError::io(std::io::Error::other("disk full")).message, "Couldn't save: disk full");
         let bad = format::from_rly("nope").unwrap_err();
         assert_eq!(IpcError::from(LibraryError::Format(bad)).code, "format");
+    }
+
+    #[test]
+    fn busy_sessions_refuse_with_a_code() {
+        assert!(refuse_busy(true).is_ok());
+        let e = serde_json::to_value(refuse_busy(false).unwrap_err()).unwrap();
+        assert_eq!(e, serde_json::json!({"code": "busy", "message": "Stop the recording or playback first"}));
     }
 
     #[test]
