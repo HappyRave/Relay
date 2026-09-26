@@ -105,7 +105,11 @@ pub fn run() {
                 tracing::warn!("library: {p}");
             }
             app.manage(Mutex::new(library));
-            app.manage(Mutex::new(settings::SettingsStore::open(&dir)));
+            let (settings, problems) = settings::SettingsStore::open(&dir);
+            for p in problems {
+                tracing::warn!("settings: {p}");
+            }
+            app.manage(Mutex::new(settings));
 
             let emit = Arc::new(ipc::Emitter::default());
             app.manage(emit.clone());
