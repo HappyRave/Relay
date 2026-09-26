@@ -282,8 +282,9 @@ pub fn normalize(events: &mut Vec<Event>) {
     let mut held: Vec<Press> = Vec::new();
     let mut cursor = (0, 0);
     events.retain(|e| {
-        if let Some(p) = e.pos() {
-            cursor = p;
+        // A pixel check's position isn't the cursor's.
+        if let Event::Move { x, y, .. } | Event::Button { x, y, .. } | Event::Wheel { x, y, .. } = e {
+            cursor = (*x, *y);
         }
         let Some((press, down)) = Press::of(e) else {
             return true;
@@ -387,6 +388,26 @@ mod tests {
         let ts: Vec<_> = ev.iter().map(Event::t).collect();
         assert_eq!(ts, [100, 100, 100, 1100, 1100, 1100, 1400, 1500, 2000, 2500, 2500]);
         check_invariants(&ev).unwrap();
+    }
+
+    #[test]
+    fn a_release_normalize_adds_is_where_the_cursor_was_not_on_a_pixel_check() {
+        let pixel = Event::PixelWait {
+            t: 100,
+            dur: 0,
+            x: 900,
+            y: 900,
+            color: Rgb(1, 2, 3),
+            tolerance: 8,
+            timeout_ms: 5000,
+            label: String::new(),
+        };
+        let b = Event::Button { t: 0, x: 5, y: 5, btn: MouseBtn::Left, down: true, label: String::new() };
+        let mut ev = vec![b, pixel];
+        normalize(&mut ev);
+        assert!(matches!(ev[2], Event::Button { x: 5, y: 5, down: false, .. }), "{ev:?}");
+        let steps = group_steps(&ev, (&RecordingMeta::single_1080p()).into());
+        assert!(matches!(steps[0].kind, StepKind::Click { .. }), "still a click, not a drag");
     }
 
     #[test]
