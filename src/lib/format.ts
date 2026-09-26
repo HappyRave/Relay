@@ -18,7 +18,11 @@ export function slug(name: string): string {
 /** A coordinate as 4 digits, with its sign when negative (monitors left of the primary). */
 export const pad4 = (n: number) => (n < 0 ? "-" : "") + String(Math.abs(Math.round(n))).padStart(4, "0");
 
+// English and 24-hour like the rest of the UI, whatever the system locale.
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const hhmm = (d: Date) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+const dayName = (d: Date) => DAY_NAMES[(d.getDay() + 6) % 7];
 
 /**
  * "Next run: Today 09:00", "Tomorrow 07:30" or "Mon 09:00", from the time
@@ -29,21 +33,19 @@ export function nextRunLabel(iso: string | null, now = new Date()): string {
   const d = new Date(iso);
   const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
   const days = Math.round((startOfDay(d) - startOfDay(now)) / 86_400_000);
-  const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  const when = days <= 0 ? "Today" : days === 1 ? "Tomorrow" : DAY_NAMES[(d.getDay() + 6) % 7];
-  return `Next run: ${when} ${hm}`;
+  const when = days <= 0 ? "Today" : days === 1 ? "Tomorrow" : dayName(d);
+  return `Next run: ${when} ${hhmm(d)}`;
 }
 
 /** "Today, 09:12", "Fri, 17:40", "Sep 12" or "Never", as in the Library tab. */
 export function fmtLastRun(iso: string | null, now = new Date()): string {
   if (!iso) return "Never";
   const d = new Date(iso);
-  const hm = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
   const days = Math.round((startOfDay(now) - startOfDay(d)) / 86_400_000);
-  if (days <= 0) return `Today, ${hm}`;
-  if (days < 7) return `${d.toLocaleDateString([], { weekday: "short" })}, ${hm}`;
-  return d.toLocaleDateString([], { month: "short", day: "numeric" });
+  if (days <= 0) return `Today, ${hhmm(d)}`;
+  if (days < 7) return `${dayName(d)}, ${hhmm(d)}`;
+  return `${MONTH_NAMES[d.getMonth()]} ${d.getDate()}`;
 }
 
 /** "1 step", "3 steps". */
