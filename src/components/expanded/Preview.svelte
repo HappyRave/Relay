@@ -63,6 +63,12 @@
     }
     return { kind: "Keys", parts: s.combo };
   });
+  /** What the engine is playing: saved options changed mid-playback don't apply until the next run. */
+  const loopLabel = $derived.by(() => {
+    const info = relay.playInfo;
+    const loops = info ? info.loops : relay.loops === Infinity ? null : relay.loops;
+    return `Loop ${relay.loopIdx + 1} / ${loops ?? "∞"} · ${info?.speed ?? relay.playback.speed}×`;
+  });
   const activeCond = $derived(lastStep && lastStep.kind === "pixel_wait" && cur < lastStep.end ? lastStep : null);
   const blink = $derived(relay.mode === "recording" && Math.floor(cur / 500) % 2 ? 0.35 : 1);
 </script>
@@ -157,9 +163,7 @@
   <div class="badges">
     <span class="badge" class:rec={relay.recording} style:opacity={blink}>{BADGE[relay.mode]}</span>
     {#if relay.playing}
-      <span class="loop">
-        Loop {relay.loopIdx + 1} / {relay.loops === Infinity ? "∞" : relay.loops} · {relay.playback.speed}×
-      </span>
+      <span class="loop">{loopLabel}</span>
     {/if}
   </div>
   {#if activeCond}

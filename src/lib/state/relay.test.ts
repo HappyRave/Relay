@@ -119,6 +119,22 @@ describe("session buttons", () => {
     expect(core.argsOf("toggle_play")).toEqual([]);
   });
 
+  test("Play while playing pauses, and again resumes (the engine decides)", async () => {
+    core.emit(session("playing"));
+    await relay.togglePlay();
+    core.emit(session("paused"));
+    await relay.togglePlay();
+    expect(core.commands()).toEqual(["toggle_play", "toggle_play"]);
+    expect(relay.mode).toBe("paused"); // until the engine says otherwise
+  });
+
+  test("Stop while idle is harmless: the playhead stays", async () => {
+    relay.seek(1500);
+    await relay.stop();
+    expect(relay.cur).toBe(1500);
+    expect(relay.mode).toBe("idle");
+  });
+
   test("Stop sends stop_session in any mode", async () => {
     await relay.stop();
     core.emit(session("playing"));
@@ -153,6 +169,26 @@ describe("seeking", () => {
     relay.dispose();
     await nextFrame();
     expect(core.argsOf("seek")).toEqual([]);
+  });
+
+  test("while playing, it's sent too, and the playhead carries on from there", async () => {
+    relay.start();
+    core.emit(session("playing"));
+    core.emit({ type: "play_tick", t: 1000, advancing: true, speed: 1, loop_idx: 0, loops: 3 });
+    relay.seek(6000);
+    await nextFrame();
+    expect(core.argsOf("seek")).toEqual([{ t: 6000 }]);
+    expect(relay.cur).toBeGreaterThanOrEqual(6000);
+    expect(relay.cur).toBeLessThanOrEqual(6100);
+  });
+
+  test("previous and next step stop at the ends", () => {
+    relay.seek(0);
+    relay.jump(-1);
+    expect(relay.cur).toBe(0);
+    relay.seek(relay.duration);
+    relay.jump(1);
+    expect(relay.cur).toBe(relay.duration);
   });
 
   test("is kept within the macro", async () => {
@@ -293,6 +329,25 @@ describe("engine messages", () => {
     expect(relay.cur).toBe(at);
     expect(relay.lastFinish).toBe(reason);
     expect(relay.loopIdx).toBe(0);
+  });
+
+  test("a frame between finished and the idle session doesn't undo the rewind", async () => {
+    relay.start();
+    core.emit(session("playing"));
+    core.emit({ type: "play_tick", t: 5000, advancing: true, speed: 1, loop_idx: 0, loops: 3 });
+    await nextFrame();
+    expect(relay.cur).toBeGreaterThan(5000);
+    await core.emitLater({ type: "finished", reason: "stopped", timing: null }, session("idle"));
+    expect(relay.cur).toBe(0);
+    expect(relay.mode).toBe("idle");
+  });
+
+  test("a completed run stays at the end through the frames before idle", async () => {
+    relay.start();
+    core.emit(session("playing"));
+    core.emit({ type: "play_tick", t: relay.duration, advancing: false, speed: 1, loop_idx: 2, loops: 3 });
+    await core.emitLater({ type: "finished", reason: "completed", timing: null }, session("idle"));
+    expect(relay.cur).toBe(relay.duration);
   });
 
   test("the last playback's timing is kept", () => {

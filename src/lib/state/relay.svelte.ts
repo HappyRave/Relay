@@ -65,6 +65,8 @@ export class RelayStore {
   cur = $state(0);
   countLeft = $state(0);
   loopIdx = $state(0);
+  /** The loops (null: forever) and speed of the playback running, from its ticks; null before the first. */
+  playInfo = $state.raw<{ loops: number | null; speed: number } | null>(null);
   /** How and with what timing the last playback ended (for diagnostics and the end-to-end tests). */
   lastFinish: FinishReason | null = null;
   lastTiming: TimingStats | null = null;
@@ -211,6 +213,7 @@ export class RelayStore {
         if (mode === "countdown") this.cur = 0;
         if (mode === "idle") {
           this.tick.advancing = false;
+          this.playInfo = null;
           this.recMoves = [];
           this.recSteps = [];
         }
@@ -234,9 +237,15 @@ export class RelayStore {
       case "play_tick":
         this.tick = { t: msg.t, at: now, speed: msg.speed, advancing: msg.advancing };
         this.loopIdx = msg.loop_idx;
+        if (this.playInfo?.loops !== msg.loops || this.playInfo?.speed !== msg.speed) {
+          this.playInfo = { loops: msg.loops, speed: msg.speed };
+        }
         if (!msg.advancing) this.cur = msg.t;
         break;
       case "finished":
+        // The playhead stays where this leaves it: a frame before the session's
+        // idle message mustn't carry on from the last tick.
+        this.tick.advancing = false;
         this.loopIdx = 0;
         this.lastFinish = msg.reason;
         if (msg.timing) this.lastTiming = msg.timing;
@@ -350,16 +359,19 @@ export class RelayStore {
     if (this.recording) return;
     const clamped = Math.max(0, Math.min(this.duration, t));
     this.cur = clamped;
+    this.seekTo = clamped;
     this.tick = { ...this.tick, t: clamped, at: performance.now() };
     if (!this.seekFrame) {
+      // The target, not the playhead: while playing, that's already moving on.
       this.seekFrame = requestAnimationFrame(() => {
         this.seekFrame = 0;
-        this.run(this.backend.seek(this.cur));
+        this.run(this.backend.seek(this.seekTo));
       });
     }
   };
   /** The frame that will send the latest seek, or 0. */
   private seekFrame = 0;
+  private seekTo = 0;
 
   jump = (dir: -1 | 1) => this.seek(jumpTarget(this.steps, this.cur, dir, this.duration));
 
