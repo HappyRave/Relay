@@ -19,10 +19,12 @@ const NAMED: Record<string, string> = {
 /**
  * The label relay-core expects for a key. Letters come from the layout
  * (e.key), so the key labeled A on AZERTY is "A", like RegisterHotKey sees
- * it; digits, function keys and named keys come from the physical key.
+ * it; on a non-Latin layout (Cyrillic, Greek) the physical key is used.
+ * Digits, function keys and named keys come from the physical key.
  */
 export function keyLabel(e: KeyboardEvent): string | null {
   if (/^[a-z]$/i.test(e.key)) return e.key.toUpperCase();
+  if (/^Key[A-Z]$/.test(e.code) && e.key.length === 1 && e.key.charCodeAt(0) > 127) return e.code.slice(3);
   if (/^Digit\d$/.test(e.code)) return e.code.slice(5);
   if (/^F([1-9]|1\d|2[0-4])$/.test(e.code)) return e.code;
   if (/^Numpad\d$/.test(e.code)) return "Num " + e.code.slice(6);

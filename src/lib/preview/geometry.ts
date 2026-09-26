@@ -42,13 +42,20 @@ export const PREVIEW_ASPECT = 600 / 338;
  * stays in one spot isn't blown up) and kept inside the desktop when it fits.
  */
 export function fitView(desktop: Rect, points: { x: number; y: number }[], extra: Rect[] = [], minWidth = 960): Rect {
-  const xs = points.map((p) => p.x).concat(extra.flatMap((r) => [r.x, r.x + r.w]));
-  const ys = points.map((p) => p.y).concat(extra.flatMap((r) => [r.y, r.y + r.h]));
-  if (!xs.length) return desktop;
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
+  // One loop, not Math.min(...spread): a long recording has too many points to spread.
+  let [minX, maxX, minY, maxY] = [Infinity, -Infinity, Infinity, -Infinity];
+  const add = (x: number, y: number) => {
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+  };
+  for (const p of points) add(p.x, p.y);
+  for (const r of extra) {
+    add(r.x, r.y);
+    add(r.x + r.w, r.y + r.h);
+  }
+  if (minX === Infinity) return desktop;
   const pad = Math.max(60, 0.12 * Math.max(maxX - minX, maxY - minY));
   let w = Math.max(maxX - minX + 2 * pad, Math.min(minWidth, desktop.w));
   let h = Math.max(maxY - minY + 2 * pad, w / PREVIEW_ASPECT);

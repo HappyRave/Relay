@@ -2,13 +2,13 @@
   import { relay } from "../../lib/state/relay.svelte";
   import { BADGE } from "../../lib/state/display";
   import { cumulativeLengths, fitView, lastIndexAtOrBefore, pathD } from "../../lib/preview/geometry";
-  import { currentStepIndex } from "../../lib/timeline/lanes";
+  import { startedCount } from "../../lib/timeline/lanes";
   import { pad4 } from "../../lib/format";
   import type { StepOf } from "../../lib/types";
 
   /** The visible part of the desktop: zoomed to the macro, or everything while recording. */
   const d = $derived.by(() => {
-    if (relay.mode === "rec") return relay.desktop;
+    if (relay.mode === "recording") return relay.desktop;
     const points = [
       ...relay.moves,
       ...relay.steps.flatMap((s) => ("x" in s ? [{ x: s.x, y: s.y }] : [])),
@@ -25,42 +25,35 @@
   const total = $derived(lengths.length ? lengths[lengths.length - 1] : 0);
   const moveIdx = $derived(lastIndexAtOrBefore(relay.moves, cur));
   const doneLen = $derived(moveIdx > 0 ? lengths[moveIdx] : 0);
-  const showFull = $derived(relay.settings.path_mode === "full" && relay.mode !== "rec");
+  const showFull = $derived(relay.settings.path_mode === "full" && relay.mode !== "recording");
 
   const cm = $derived(relay.cursorAt(cur));
   const jitter = $derived.by(() => {
     const pb = relay.playback;
-    if (relay.mode !== "play" || !pb.humanize) return { x: 0, y: 0 };
+    if (relay.mode !== "playing" || !pb.humanize) return { x: 0, y: 0 };
     return { x: ((Math.sin(cur / 53) * pb.jitter_ms) / 20) * k, y: ((Math.cos(cur / 41) * pb.jitter_ms) / 20) * k };
   });
 
-  const marks = $derived.by(() => {
-    let n = 0;
-    return relay.steps
-      .filter((s): s is StepOf<"click"> => s.kind === "click")
-      .map((c) => {
-        n++;
-        const past = c.t <= cur;
-        const age = cur - c.t;
-        const ring = age >= 0 && age < 500;
-        const rs = (36 + (ring ? (age / 500) * 70 : 0)) * k;
-        const label = relay.settings.show_click_labels ? c.label : "";
-        const right = c.x > d.x + d.w - 260 * k;
-        return {
-          id: c.items[0],
-          n,
-          x: c.x,
-          y: c.y,
-          past,
-          rs,
-          rop: ring ? 1 - age / 500 : 0,
-          label,
-          lx: right ? c.x - 30 * k - label.length * 12 * k : c.x + 28 * k,
-        };
-      });
+  const clicks = $derived(relay.steps.filter((s): s is StepOf<"click"> => s.kind === "click"));
+  /** Click markers; nothing here depends on the playhead, so it's built once per macro. */
+  const marks = $derived(
+    clicks.map((c, i) => {
+      const label = relay.settings.show_click_labels ? c.label : "";
+      const right = c.x > d.x + d.w - 260 * k;
+      return { id: c.items[0], n: i + 1, x: c.x, y: c.y, label, lx: right ? c.x - 30 * k - label.length * 12 * k : c.x + 28 * k };
+    }),
+  );
+  /** Markers reached by the playhead (changes only when it passes a click). */
+  const pastMarks = $derived(startedCount(clicks, cur));
+  /** The ring that grows for half a second around the last click reached. */
+  const ring = $derived.by(() => {
+    const c = clicks[pastMarks - 1];
+    const age = c ? cur - c.t : Infinity;
+    if (!c || age < 0 || age >= 500) return null;
+    return { x: c.x, y: c.y, size: (36 + (age / 500) * 70) * k, opacity: 1 - age / 500 };
   });
 
-  const lastStep = $derived(relay.steps[currentStepIndex(relay.steps, cur)]);
+  const lastStep = $derived(relay.steps[relay.curStepIdx]);
   const keyOverlay = $derived.by(() => {
     const s = lastStep;
     if (!s || (s.kind !== "keys" && s.kind !== "type") || cur - s.end >= 900) return null;
@@ -71,7 +64,7 @@
     return { kind: "Keys", parts: s.combo };
   });
   const activeCond = $derived(lastStep && lastStep.kind === "pixel_wait" && cur < lastStep.end ? lastStep : null);
-  const blink = $derived(relay.mode === "rec" && Math.floor(cur / 500) % 2 ? 0.35 : 1);
+  const blink = $derived(relay.mode === "recording" && Math.floor(cur / 500) % 2 ? 0.35 : 1);
 </script>
 
 <div class="preview">
@@ -95,25 +88,28 @@
         stroke-dasharray="{doneLen} {total + 1}"
       />
     {/if}
-    {#each marks as m (m.id)}
+    {#if ring}
+      <rect
+        x={ring.x - ring.size / 2}
+        y={ring.y - ring.size / 2}
+        width={ring.size}
+        height={ring.size}
+        fill="none"
+        stroke="var(--color-accent)"
+        stroke-width={4 * k}
+        opacity={ring.opacity}
+      />
+    {/if}
+    {#each marks as m, i (m.id)}
+      {@const past = i < pastMarks}
       <g>
-        <rect
-          x={m.x - m.rs / 2}
-          y={m.y - m.rs / 2}
-          width={m.rs}
-          height={m.rs}
-          fill="none"
-          stroke="var(--color-accent)"
-          stroke-width={4 * k}
-          opacity={m.rop}
-        />
         <rect
           x={m.x - 18 * k}
           y={m.y - 18 * k}
           width={36 * k}
           height={36 * k}
-          fill={m.past ? "var(--color-accent)" : "var(--color-text)"}
-          stroke={m.past ? "var(--color-accent)" : "var(--color-neutral-500)"}
+          fill={past ? "var(--color-accent)" : "var(--color-text)"}
+          stroke={past ? "var(--color-accent)" : "var(--color-neutral-500)"}
           stroke-width={3 * k}
         />
         <text
@@ -122,7 +118,7 @@
           text-anchor="middle"
           font-weight="800"
           font-size={20 * k}
-          fill={m.past ? "var(--color-bg)" : "var(--color-neutral-400)"}>{m.n}</text
+          fill={past ? "var(--color-bg)" : "var(--color-neutral-400)"}>{m.n}</text
         >
         {#if m.label}
           <text
@@ -130,7 +126,7 @@
             y={m.y + 7 * k}
             font-weight="600"
             font-size={22 * k}
-            fill={m.past ? "var(--color-neutral-200)" : "var(--color-neutral-600)"}>{m.label}</text
+            fill={past ? "var(--color-neutral-200)" : "var(--color-neutral-600)"}>{m.label}</text
           >
         {/if}
       </g>
@@ -160,7 +156,7 @@
 
   <div class="badges">
     <span class="badge" class:rec={relay.recording} style:opacity={blink}>{BADGE[relay.mode]}</span>
-    {#if relay.mode === "play" || relay.mode === "pause"}
+    {#if relay.playing}
       <span class="loop">
         Loop {relay.loopIdx + 1} / {relay.loops === Infinity ? "∞" : relay.loops} · {relay.playback.speed}×
       </span>
@@ -170,7 +166,7 @@
     <div class="cond">Waiting for pixel {activeCond.x}, {activeCond.y}</div>
   {/if}
   <div class="coords">X {pad4(cm.x)}&nbsp;&nbsp; Y {pad4(cm.y)}</div>
-  {#if relay.mode === "count"}
+  {#if relay.mode === "countdown"}
     <div class="countdown"><div>{Math.ceil(relay.countLeft / 1000)}</div></div>
   {/if}
   {#if keyOverlay}

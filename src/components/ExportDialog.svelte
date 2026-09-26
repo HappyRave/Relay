@@ -1,5 +1,6 @@
 <script lang="ts">
   import { relay } from "../lib/state/relay.svelte";
+  import { onMount } from "svelte";
   import type { ExportFormat } from "../lib/types";
 
   const FORMATS: { id: ExportFormat | "ahk" | "exe"; label: string; sub: string; later?: boolean }[] = [
@@ -8,47 +9,58 @@
     { id: "ahk", label: "AutoHotkey v2", sub: ".ahk script — runs without Relay", later: true },
     { id: "exe", label: "Standalone .exe", sub: "Portable runner", later: true },
   ];
+
+  let el: HTMLDialogElement | undefined = $state();
+  onMount(() => el?.showModal());
 </script>
 
-<div class="dialog-backdrop" role="presentation" onclick={() => (relay.exportOpen = false)}>
-  <div
-    class="dialog"
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="export-title"
-    tabindex="-1"
-    onclick={(e) => e.stopPropagation()}
-    onkeydown={(e) => e.stopPropagation()}
-  >
-    <div class="dialog-title" id="export-title">Export macro</div>
-    <div class="formats">
-      {#each FORMATS as f (f.id)}
-        {@const selected = f.id === relay.exportFmt}
-        <button class="fmt" class:selected disabled={f.later} onclick={() => !f.later && (relay.exportFmt = f.id as ExportFormat)}>
-          <span class="dot"></span>
-          <span class="text">
-            <span class="label">{f.label}{#if f.later}<span class="tag tag-neutral">Coming later</span>{/if}</span>
-            <span class="sub">{f.sub}</span>
-          </span>
-        </button>
-      {/each}
-    </div>
-    <div class="file">{relay.exportName}</div>
-    <div class="dialog-actions">
-      <button class="btn btn-primary save" onclick={relay.doExport}>{relay.editable ? "Save…" : "Download"}</button>
-      <button class="btn btn-ghost cancel" onclick={() => (relay.exportOpen = false)}>Cancel</button>
-    </div>
+<!-- A native modal dialog: it traps focus, blocks the page behind it, and
+     closes on Esc; a click on the backdrop closes it too. -->
+<dialog
+  bind:this={el}
+  class="dialog"
+  aria-labelledby="export-title"
+  onclose={() => (relay.exportOpen = false)}
+  onclick={(e) => e.target === el && el.close()}
+>
+  <div class="dialog-title" id="export-title">Export macro</div>
+  <div class="formats">
+    {#each FORMATS as f (f.id)}
+      {@const selected = f.id === relay.exportFmt}
+      <button class="fmt" class:selected disabled={f.later} onclick={() => !f.later && (relay.exportFmt = f.id as ExportFormat)}>
+        <span class="dot"></span>
+        <span class="text">
+          <span class="label">{f.label}{#if f.later}<span class="tag tag-neutral">Coming later</span>{/if}</span>
+          <span class="sub">{f.sub}</span>
+        </span>
+      </button>
+    {/each}
   </div>
-</div>
+  <div class="file">{relay.exportName}</div>
+  <div class="dialog-actions">
+    {#if !relay.editable}<span class="note">Exporting needs the Relay app</span>{/if}
+    <button class="btn btn-primary save" disabled={!relay.editable} onclick={relay.doExport}>Save…</button>
+    <button class="btn btn-ghost cancel" onclick={() => el?.close()}>Cancel</button>
+  </div>
+</dialog>
 
 <style>
-  .dialog-backdrop {
-    z-index: 10;
-  }
   .dialog {
     width: 440px;
+    max-width: calc(100vw - 32px);
+    margin: auto;
+    color: var(--color-text);
     background: var(--color-bg);
     border: 2px solid var(--color-text);
+  }
+  .dialog::backdrop {
+    background: color-mix(in srgb, var(--color-neutral-900) 50%, transparent);
+  }
+  .note {
+    margin-right: auto;
+    align-self: center;
+    font-size: 12px;
+    color: var(--color-neutral-700);
   }
   .formats {
     display: flex;

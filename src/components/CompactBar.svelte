@@ -17,10 +17,10 @@
   <RecPlayButtons variant="bar" />
   <div class="info">
     <div class="row">
-      <span class="badge" class:rec={relay.recording} class:play={relay.mode === "play"}>{BADGE[relay.mode]}</span>
+      <span class="badge" class:rec={relay.recording} class:play={relay.mode === "playing"}>{BADGE[relay.mode]}</span>
       <span class="name">{relay.name}</span>
       <span class="time">
-        {fmtTime(cur)} <span class="of">/ {relay.mode === "rec" ? "recording" : fmtTime(relay.duration)}</span>
+        {fmtTime(cur)} <span class="of">/ {relay.mode === "recording" ? "recording" : fmtTime(relay.duration)}</span>
       </span>
     </div>
     <div class="seek" use:seekable>

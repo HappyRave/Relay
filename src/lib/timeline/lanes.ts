@@ -39,12 +39,24 @@ export function ruler(duration: number): RulerTick[] {
 }
 
 export interface KeyChip extends Span {
+  t: number;
   label: string;
-  past: boolean;
+}
+
+/** How many of `items` (sorted by `t`) have started at `cur`. */
+export function startedCount(items: { t: number }[], cur: number): number {
+  let lo = 0;
+  let hi = items.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (items[mid].t <= cur) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
 }
 
 /** Chips on the Keys lane; a TYPE chip spans its characters, a KEYS chip grows up to the next chip. */
-export function keyChips(steps: Step[], duration: number, cur: number): KeyChip[] {
+export function keyChips(steps: Step[], duration: number): KeyChip[] {
   const ks = steps.filter((x) => x.kind === "keys" || x.kind === "type");
   return ks.map((x, i) => {
     const nx = ks[i + 1];
@@ -53,17 +65,15 @@ export function keyChips(steps: Step[], duration: number, cur: number): KeyChip[
     return {
       l: pct(x.t, duration),
       w: Math.max(0.8, w),
+      t: x.t,
       label: x.kind === "type" ? x.text : x.combo.join(" + "),
-      past: x.t <= cur,
     };
   });
 }
 
-/** Index of the last step starting at or before `cur`, or -1. */
+/** Index of the last step starting at or before `cur`, or -1 (steps are sorted by start). */
 export function currentStepIndex(steps: Step[], cur: number): number {
-  let idx = -1;
-  for (let i = 0; i < steps.length; i++) if (steps[i].t <= cur) idx = i;
-  return idx;
+  return startedCount(steps, cur) - 1;
 }
 
 /** Previous/next step start used by the transport's step buttons (60 ms / 1 ms thresholds). */

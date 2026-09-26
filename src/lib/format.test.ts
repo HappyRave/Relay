@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fmtLastRun, fmtTime, nextRunLabel, slug } from "./format";
+import { fmtLastRun, fmtTime, nextRunLabel, pad4, slug } from "./format";
 
 describe("format", () => {
   it("formats playhead times", () => {
@@ -7,10 +7,18 @@ describe("format", () => {
     expect(fmtTime(7350)).toBe("00:07.35");
     expect(fmtTime(61_020)).toBe("01:01.02");
     expect(fmtTime(-5)).toBe("00:00.00");
+    expect(fmtTime(59_996)).toBe("01:00.00");
   });
 
   it("slugs export names", () => {
     expect(slug("Export invoice to PDF")).toBe("export-invoice-to-pdf");
+    expect(slug("Déplacer fenêtre ")).toBe("déplacer-fenêtre");
+    expect(slug("***")).toBe("");
+  });
+
+  it("pads coordinates, keeping the sign", () => {
+    expect(pad4(42)).toBe("0042");
+    expect(pad4(-5)).toBe("-0005");
   });
 
   it("formats the last run relative to today", () => {

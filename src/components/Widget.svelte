@@ -1,6 +1,7 @@
 <script lang="ts">
   import CompactBar from "./CompactBar.svelte";
   import ExpandedWidget from "./ExpandedWidget.svelte";
+  import Toast from "./shared/Toast.svelte";
   import { relay } from "../lib/state/relay.svelte";
   import { fitWindow, isTauri } from "../lib/platform/window";
 
@@ -9,7 +10,6 @@
 
   $effect(() => {
     if (!el) return;
-    relay.widgetEl = el;
     const ro = new ResizeObserver(([entry]) => {
       const box = entry.borderBoxSize[0];
       const w = Math.round(box.inlineSize);
@@ -18,15 +18,12 @@
       if (isTauri()) fitWindow(w, h, relay.expanded);
     });
     ro.observe(el);
-    return () => {
-      ro.disconnect();
-      relay.widgetEl = null;
-    };
+    return () => ro.disconnect();
   });
 </script>
 
 <div class="widget" bind:this={el}>
-  {#if relay.expanded}<ExpandedWidget />{:else}<CompactBar />{/if}
+  {#if relay.expanded}<ExpandedWidget />{:else}<CompactBar /><Toast />{/if}
 </div>
 
 <style>

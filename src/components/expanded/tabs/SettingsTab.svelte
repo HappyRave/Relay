@@ -33,7 +33,8 @@
       step="5"
       aria-label="Jitter"
       value={pb.jitter_ms}
-      oninput={(e) => relay.setPlayback({ jitter_ms: +e.currentTarget.value })}
+      oninput={(e) => relay.previewPlayback({ jitter_ms: +e.currentTarget.value })}
+      onchange={(e) => relay.setPlayback({ jitter_ms: +e.currentTarget.value })}
     />
   </div>
   <div class="row">

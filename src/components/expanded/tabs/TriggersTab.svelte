@@ -2,7 +2,7 @@
   import Toggle from "../../ui/Toggle.svelte";
   import HotkeyCapture from "../../ui/HotkeyCapture.svelte";
   import { relay } from "../../../lib/state/relay.svelte";
-  import { backend } from "../../../lib/ipc/backend";
+  import { onMount } from "svelte";
   import { nextRunLabel } from "../../../lib/format";
 
   const DAYS = ["M", "T", "W", "T", "F", "S", "S"];
@@ -11,13 +11,7 @@
   const t = $derived(status?.triggers);
 
   // Suggestions for "When app launches".
-  let processes = $state<string[]>([]);
-  $effect(() => {
-    backend.listProcesses().then(
-      (p) => (processes = p),
-      () => {},
-    );
-  });
+  onMount(relay.loadProcesses);
 
   function toggleDay(i: number) {
     if (!t) return;
@@ -110,7 +104,7 @@
           }}
         />
         <datalist id="relay-processes">
-          {#each processes as p (p)}<option value={p}></option>{/each}
+          {#each relay.processes as p (p)}<option value={p}></option>{/each}
         </datalist>
         <input
           class="input delay"

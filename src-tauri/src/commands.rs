@@ -207,12 +207,6 @@ fn export_body(lib: &Library, id: Uuid, format: ExportFormat) -> Result<String> 
     })
 }
 
-/// The file contents for an export (the browser preview downloads these).
-#[tauri::command]
-pub fn export_text(lib: State<'_, Mutex<Library>>, id: Uuid, format: ExportFormat) -> Result<String> {
-    export_body(&lib.lock(), id, format)
-}
-
 /// Writes an export to `path` (chosen by the user in the save dialog).
 #[tauri::command(async)]
 pub fn export_macro(app: AppHandle, id: Uuid, format: ExportFormat, path: String) -> Result<()> {

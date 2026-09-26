@@ -46,7 +46,6 @@ pub fn run() {
             commands::edit_macro,
             commands::undo_edit,
             commands::set_playback_options,
-            commands::export_text,
             commands::export_macro,
             commands::import_macros,
             commands::duplicate_macro,

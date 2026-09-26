@@ -3,13 +3,14 @@
   import ExportDialog from "./components/ExportDialog.svelte";
   import DevDesktop from "./components/dev/DevDesktop.svelte";
   import { relay } from "./lib/state/relay.svelte";
+  import { onMount } from "svelte";
   import { isTauri } from "./lib/platform/window";
 
   const tauri = isTauri();
 
-  $effect(() => {
+  onMount(() => {
     relay.start();
-    relay.init();
+    relay.init().catch((e) => console.error("Relay: couldn't start", e));
     return () => relay.dispose();
   });
 </script>
