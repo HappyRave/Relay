@@ -60,7 +60,7 @@ export interface IpcError {
   message: string;
 }
 
-const tauriBackend: Backend = {
+export const tauriBackend: Backend = {
   editable: true,
   subscribe: async (onMessage) => {
     const channel = new Channel<EngineMsg>();
@@ -117,7 +117,7 @@ interface FixtureItem {
  * session simulation: the countdown and playback run, recording captures
  * nothing, and step edits need the Rust core.
  */
-function browserBackend(): Backend {
+export function browserBackend(): Backend {
   // Loaded lazily so the fixture stays out of the app bundle.
   let items: FixtureItem[] = [];
   const ready = import("../dev/sample-views.json").then((m) => {
@@ -264,7 +264,10 @@ function browserBackend(): Backend {
     samplePixel: async () => null,
     pickPixel: async () => unavailable(),
     // Triggers only live in memory here, so the tab can be tried out.
-    getTriggers: async (id) => ({ triggers: triggersFor(id), next_run: null, hotkey_error: null, paused: triggersPaused }),
+    getTriggers: async (id) => {
+      await ready; // the sample hotkeys come from the fixture
+      return { triggers: triggersFor(id), next_run: null, hotkey_error: null, paused: triggersPaused };
+    },
     setTriggers: async (id, t) => {
       browserTriggers.set(id, t);
       return { triggers: t, next_run: null, hotkey_error: null, paused: triggersPaused };
