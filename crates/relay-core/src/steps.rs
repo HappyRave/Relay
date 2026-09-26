@@ -84,6 +84,14 @@ struct PendingButton {
     t: Ms,
     x: i32,
     y: i32,
+    /// The cursor went further than the slop while the button was down.
+    moved: bool,
+}
+
+impl PendingButton {
+    fn beyond_slop(&self, x: i32, y: i32) -> bool {
+        (x - self.x).abs().max((y - self.y).abs()) > CLICK_SLOP_PX
+    }
 }
 
 struct LastClick {
@@ -128,7 +136,11 @@ pub fn group_steps(events: &[Event], opts: GroupOptions) -> Vec<Step> {
     for (i, ev) in events.iter().enumerate() {
         let idx = i as u32;
         match ev {
-            Event::Move { .. } => {}
+            Event::Move { x, y, .. } => {
+                for p in pending.values_mut() {
+                    p.moved |= p.beyond_slop(*x, *y);
+                }
+            }
 
             Event::Button { t, x, y, btn, down: true, label } => {
                 let step = push(
@@ -137,7 +149,7 @@ pub fn group_steps(events: &[Event], opts: GroupOptions) -> Vec<Step> {
                     i,
                     StepKind::Click { x: *x, y: *y, btn: *btn, count: 1, label: label.clone() },
                 );
-                pending.insert(*btn, PendingButton { step, t: *t, x: *x, y: *y });
+                pending.insert(*btn, PendingButton { step, t: *t, x: *x, y: *y, moved: false });
                 wrap(&mut active_mods, step);
             }
 
@@ -145,8 +157,8 @@ pub fn group_steps(events: &[Event], opts: GroupOptions) -> Vec<Step> {
                 let Some(p) = pending.remove(btn) else {
                     continue;
                 };
-                let moved = (x - p.x).abs().max((y - p.y).abs()) > CLICK_SLOP_PX;
-                if moved {
+                // A lasso that comes back to where it started is still a drag.
+                if p.moved || p.beyond_slop(*x, *y) {
                     let s = &mut steps[p.step];
                     s.items.push(idx);
                     s.end = *t;
@@ -398,6 +410,19 @@ mod tests {
         assert_eq!(s[0].items, vec![0, 1]);
         assert!(matches!(s[1].kind, StepKind::Drag { to_x: 200, .. }));
         assert_eq!((s[1].t, s[1].end), (1000, 1300));
+    }
+
+    #[test]
+    fn a_drag_that_returns_to_its_start_is_a_drag() {
+        let mv = |t, x| Event::Move { t, x, y: 10 };
+        let lasso = [btn(0, 10, 10, true), mv(100, 200), mv(200, 12), btn(300, 10, 10, false)];
+        let s = group(&lasso);
+        assert_eq!(s.len(), 1);
+        assert!(matches!(s[0].kind, StepKind::Drag { x: 10, to_x: 10, .. }), "{:?}", s[0].kind);
+        assert_eq!(s[0].items, vec![0, 3]);
+        // A wobble within the slop is still a click.
+        let wobble = [btn(0, 10, 10, true), mv(50, 14), btn(100, 10, 10, false)];
+        assert!(matches!(group(&wobble)[0].kind, StepKind::Click { .. }));
     }
 
     #[test]
