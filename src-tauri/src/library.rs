@@ -76,9 +76,22 @@ struct Index {
 
 #[derive(Clone, Serialize, Deserialize)]
 struct TrashEntry {
+    /// Its index in the Library when it was trashed. Older libraries only
+    /// have this; it's the fallback when `next` is missing or gone.
+    #[serde(default)]
     position: usize,
+    /// The macro that came right after it, trashed ones included (`null`:
+    /// it was last), so it goes back in its place whatever changed since.
+    /// Missing in older libraries.
+    #[serde(default, deserialize_with = "present", skip_serializing_if = "Option::is_none")]
+    next: Option<Option<Uuid>>,
     #[serde(flatten)]
     meta: IndexEntry,
+}
+
+/// A field that's there, even as `null` (`Some(None)`); a missing one is `None`.
+fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(d: D) -> Result<Option<T>, D::Error> {
+    T::deserialize(d).map(Some)
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -315,11 +328,12 @@ impl Library {
             }
             Err(e) => return Err(e.into()),
         };
+        let next = Some(self.next_after(position));
         let e = self.entries.remove(position);
         if file.is_err() {
             self.unsaved_trash.insert(id, e.macro_.clone());
         }
-        self.trash.insert(id, TrashEntry { position, meta: IndexEntry::of(&e) });
+        self.trash.insert(id, TrashEntry { position, next, meta: IndexEntry::of(&e) });
         self.refresh_triggers();
         let index = self.save_index();
         Ok(Change::saved(file.and(index)))
@@ -342,7 +356,7 @@ impl Library {
             }
         };
         self.trash.remove(&id);
-        let pos = t.position.min(self.entries.len());
+        let pos = self.place_of(t.next).unwrap_or(t.position.min(self.entries.len()));
         self.entries.insert(pos, Entry::with_stats(m, t.meta.runs, t.meta.last_run, t.meta.triggers()));
         self.refresh_triggers();
         let index = self.save_index();
@@ -366,6 +380,30 @@ impl Library {
         self.refresh_triggers();
         self.save_index()?;
         Ok(ids)
+    }
+
+    /// Where a trashed macro whose `next` this is goes back: before the first
+    /// macro in the Library along the chain of trashed ones after it, or at
+    /// the end. `None` if the chain is missing or broken.
+    fn place_of(&self, mut next: Option<Option<Uuid>>) -> Option<usize> {
+        for _ in 0..=self.trash.len() {
+            let Some(id) = next? else { return Some(self.entries.len()) };
+            if let Ok(pos) = self.position(id) {
+                return Some(pos);
+            }
+            next = self.trash.get(&id)?.next;
+        }
+        None // a loop, in a hand-edited file
+    }
+
+    /// What comes right after the macro at `pos`, trashed macros included:
+    /// the first of those that go back before the macro after it, if any, else that macro.
+    fn next_after(&self, pos: usize) -> Option<Uuid> {
+        let mut before_next: Vec<Uuid> =
+            self.trash.iter().filter(|(_, t)| self.place_of(t.next) == Some(pos + 1)).map(|(id, _)| *id).collect();
+        before_next.sort(); // for a stable choice should the file be inconsistent
+        let first = before_next.iter().find(|&&id| !before_next.iter().any(|o| self.trash[o].next == Some(Some(id))));
+        first.copied().or_else(|| self.entries.get(pos + 1).map(|e| e.macro_.id))
     }
 
     fn position(&self, id: Uuid) -> Result<usize, LibraryError> {
@@ -565,6 +603,65 @@ mod tests {
         assert!(lib.get(copy.value).is_none());
         assert!(lib.restore(copy.value).unwrap().saved.is_err());
         assert_eq!(lib.list()[1].id, copy.value);
+    }
+
+    fn ids(lib: &Library) -> Vec<Uuid> {
+        lib.list().into_iter().map(|i| i.id).collect()
+    }
+
+    #[test]
+    fn restoring_puts_macros_back_between_the_same_neighbours() {
+        for (trash_order, restore_order) in [([0, 1], [0, 1]), ([0, 1], [1, 0]), ([1, 0], [0, 1]), ([1, 0], [1, 0])] {
+            let dir = tempfile::tempdir().unwrap();
+            let (mut lib, _) = Library::open(dir.path());
+            let [a, b, c, d] = ids(&lib)[..] else { panic!("four samples") };
+            for i in trash_order {
+                lib.trash([a, b][i]).unwrap().saved.unwrap();
+            }
+            // New macros at the top, and a restart in between.
+            let new = Macro::new("New", RecordingMeta::single_1080p(), vec![]);
+            let n = new.id;
+            lib.insert_front(new).unwrap();
+            let (mut lib, _) = Library::open(dir.path());
+            for i in restore_order {
+                lib.restore([a, b][i]).unwrap().saved.unwrap();
+            }
+            assert_eq!(ids(&lib), [n, a, b, c, d], "trashed {trash_order:?}, restored {restore_order:?}");
+        }
+    }
+
+    #[test]
+    fn the_last_macro_goes_back_last() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut lib, _) = Library::open(dir.path());
+        let [a, b, c, d] = ids(&lib)[..] else { panic!("four samples") };
+        lib.trash(d).unwrap().saved.unwrap();
+        lib.trash(b).unwrap().saved.unwrap();
+        lib.trash(c).unwrap().saved.unwrap();
+        lib.import(vec![Macro::new("New 1", RecordingMeta::single_1080p(), vec![])]).unwrap();
+        lib.import(vec![Macro::new("New 2", RecordingMeta::single_1080p(), vec![])]).unwrap();
+        assert!(fs::read_to_string(dir.path().join("library.json")).unwrap().contains(r#""next": null"#));
+        let (mut lib, _) = Library::open(dir.path());
+        for id in [d, b, c] {
+            lib.restore(id).unwrap().saved.unwrap();
+        }
+        assert_eq!(ids(&lib)[2..], [a, b, c, d]);
+    }
+
+    #[test]
+    fn trash_from_older_libraries_restores_at_its_position() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut lib, _) = Library::open(dir.path());
+        let [a, b, c, d] = ids(&lib)[..] else { panic!("four samples") };
+        lib.trash(b).unwrap().saved.unwrap();
+        let path = dir.path().join("library.json");
+        let index = fs::read_to_string(&path).unwrap();
+        assert!(index.contains(&format!(r#""next": "{c}""#)), "{index}");
+        fs::write(&path, index.replace(&format!(r#""next": "{c}","#), "")).unwrap();
+        let (mut lib, problems) = Library::open(dir.path());
+        assert!(problems.is_empty());
+        lib.restore(b).unwrap().saved.unwrap();
+        assert_eq!(ids(&lib), [a, b, c, d]);
     }
 
     /// A new recording whose file couldn't be written (it's kept until you quit).
