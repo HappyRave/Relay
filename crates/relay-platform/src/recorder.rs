@@ -201,10 +201,10 @@ fn trim_trailing_modifiers(events: &mut Vec<Event>) {
     });
 }
 
-/// True when a recording has something worth keeping (not just a stray twitch).
+/// True when a recording has something worth keeping: a click, a key or a
+/// scroll. Cursor movement alone never counts.
 pub fn is_meaningful(events: &[Event]) -> bool {
-    let actions = events.iter().filter(|e| !matches!(e, Event::Move { .. })).count();
-    actions > 0 || events.len() >= 5
+    events.iter().any(|e| matches!(e, Event::Button { .. } | Event::Key { .. } | Event::Wheel { .. }))
 }
 
 #[cfg(test)]
@@ -402,7 +402,20 @@ mod tests {
 
     #[test]
     fn meaningful_recordings() {
-        assert!(!is_meaningful(&[Event::Move { t: 0, x: 0, y: 0 }]));
-        assert!(is_meaningful(&[Event::Wheel { t: 0, x: 0, y: 0, delta: 120, horizontal: false }]));
+        let moves = |n: u32| (0..n).map(|i| Event::Move { t: i * 16, x: i as i32, y: 0 }).collect::<Vec<_>>();
+        for n in [0, 1, 4, 5, 100] {
+            assert!(!is_meaningful(&moves(n)), "{n} moves");
+        }
+        let with = |e: Event| [moves(3), vec![e]].concat();
+        assert!(is_meaningful(&with(Event::Wheel { t: 50, x: 0, y: 0, delta: 120, horizontal: false })));
+        assert!(is_meaningful(&with(Event::Button {
+            t: 50,
+            x: 0,
+            y: 0,
+            btn: MouseBtn::Left,
+            down: true,
+            label: String::new()
+        })));
+        assert!(is_meaningful(&with(Event::Key { t: 50, down: true, key: KeyStroke::code("KeyA"), ch: None })));
     }
 }
