@@ -235,7 +235,7 @@ pub fn group_steps(events: &[Event], opts: GroupOptions) -> Vec<Step> {
                     continue;
                 }
                 let mods: BTreeSet<Modifier> = active_mods.iter().map(|p| p.modifier).collect();
-                let alt_gr = active_mods.iter().any(|p| keys::is_alt_gr(&p.code));
+                let alt_gr = keys::is_alt_gr(active_mods.iter().map(|p| p.code.as_str()));
                 let printable = ch.as_deref().filter(|s| !s.is_empty() && !s.chars().any(char::is_control));
                 let shortcut = mods.contains(&Modifier::Win)
                     || (!alt_gr && (mods.contains(&Modifier::Ctrl) || mods.contains(&Modifier::Alt)));
@@ -502,6 +502,21 @@ mod tests {
         assert_eq!(s.len(), 1, "{s:#?}");
         assert!(matches!(&s[0].kind, StepKind::Type { text, .. } if text == "H@"));
         assert_eq!(s[0].items.len(), 10);
+    }
+
+    #[test]
+    fn right_alt_without_ctrl_is_alt() {
+        // US layout: right Alt has no AltGr, and Right Alt + F opens a menu.
+        let ev = [
+            key(0, "AltRight", true, None),
+            key(30, "KeyF", true, Some("f")),
+            key(70, "KeyF", false, None),
+            key(90, "AltRight", false, None),
+        ];
+        let s = group(&ev);
+        assert_eq!(s.len(), 1, "{s:#?}");
+        assert_eq!(s[0].kind, StepKind::Keys { combo: vec!["Alt".into(), "F".into()] });
+        assert_eq!(s[0].items, vec![0, 1, 2, 3]);
     }
 
     #[test]

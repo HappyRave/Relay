@@ -64,9 +64,12 @@ pub fn modifier(code: &str) -> Option<Modifier> {
     }
 }
 
-/// Right Alt is AltGr on many layouts: characters typed with it are text, not shortcuts.
-pub fn is_alt_gr(code: &str) -> bool {
-    code == "AltRight"
+/// Whether the held modifiers are AltGr: characters typed with it are text,
+/// not shortcuts. On a layout with AltGr, Windows sends a (fake) left Ctrl
+/// with every right Alt; on others (US), right Alt is just Alt.
+pub fn is_alt_gr<'a>(held: impl IntoIterator<Item = &'a str> + Clone) -> bool {
+    let has = |code: &str| held.clone().into_iter().any(|c| c == code);
+    has("AltRight") && has("ControlLeft")
 }
 
 /// The label shown in the UI, e.g. "KeyA" → "A", "ArrowLeft" → "Left".
@@ -291,6 +294,14 @@ mod tests {
         assert_eq!(key_label(&azerty_a), "A");
         assert_eq!(key_label(&KeyStroke::code("KeyQ")), "Q");
         assert_eq!(key_label(&KeyStroke { code: "Enter".into(), vk: 0x0D, scan: 0x1C, ext: false }), "Enter");
+    }
+
+    #[test]
+    fn alt_gr_is_right_alt_with_left_ctrl() {
+        assert!(is_alt_gr(["ControlLeft", "AltRight"]));
+        assert!(!is_alt_gr(["AltRight"]), "right Alt on a US layout");
+        assert!(!is_alt_gr(["ControlRight", "AltRight"]));
+        assert!(!is_alt_gr(["ControlLeft", "AltLeft"]));
     }
 
     #[test]
