@@ -226,9 +226,24 @@ pub struct ImportResult {
 /// a broken one is reported and the rest still import.
 #[tauri::command(async)]
 pub fn import_macros(app: AppHandle, paths: Vec<String>) -> ImportResult {
-    let mut problems = Vec::new();
     // Read and parse without holding the library.
-    let macros: Vec<Macro> = paths
+    let (macros, mut problems) = read_imports(&paths);
+    let imported = match library(&app).lock().import(macros) {
+        Ok(ids) => ids,
+        Err(e) => {
+            problems.push(e.to_string());
+            Vec::new()
+        }
+    };
+    hotkeys::refresh(&app);
+    ImportResult { imported, problems }
+}
+
+/// Reads and parses each file; a file that can't be read or parsed becomes a
+/// problem named after it.
+fn read_imports(paths: &[String]) -> (Vec<Macro>, Vec<String>) {
+    let mut problems = Vec::new();
+    let macros = paths
         .iter()
         .filter_map(|path| {
             let name = Path::new(path).file_name().map_or(path.clone(), |n| n.to_string_lossy().into_owned());
@@ -239,15 +254,7 @@ pub fn import_macros(app: AppHandle, paths: Vec<String>) -> ImportResult {
                 .ok()
         })
         .collect();
-    let imported = match library(&app).lock().import(macros) {
-        Ok(ids) => ids,
-        Err(e) => {
-            problems.push(e.to_string());
-            Vec::new()
-        }
-    };
-    hotkeys::refresh(&app);
-    ImportResult { imported, problems }
+    (macros, problems)
 }
 
 // — screen —
@@ -416,4 +423,92 @@ pub fn update_settings(app: AppHandle, window: tauri::WebviewWindow, settings: S
     // Not under the settings lock: this calls into the main thread.
     crate::window_ctl::apply_on_top(&window, current.keep_on_top, !app.state::<SessionMode>().is_idle());
     Ok(current)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn library() -> (tempfile::TempDir, Library) {
+        let dir = tempfile::tempdir().unwrap();
+        let (lib, _) = Library::open(dir.path());
+        (dir, lib)
+    }
+
+    #[test]
+    fn errors_carry_a_code_for_the_ui() {
+        let id = Uuid::from_u128(7);
+        let e = serde_json::to_value(IpcError::from(LibraryError::NotFound(id))).unwrap();
+        assert_eq!(e["code"], "not_found");
+        assert_eq!(e["message"], format!("no macro with id {id}"));
+        let io = std::io::Error::other("disk full");
+        assert_eq!(IpcError::from(LibraryError::Io(io)).code, "io");
+        assert_eq!(IpcError::io(std::io::Error::other("disk full")).message, "Couldn't save: disk full");
+        let bad = format::from_rly("nope").unwrap_err();
+        assert_eq!(IpcError::from(LibraryError::Format(bad)).code, "format");
+    }
+
+    #[test]
+    fn exports_are_readable_again() {
+        let (_dir, lib) = library();
+        let id = lib.list()[0].id;
+        let original = &lib.get(id).unwrap().macro_;
+        for f in [ExportFormat::Rly, ExportFormat::Json] {
+            let body = export_body(&lib, id, f).unwrap();
+            let back = format::from_rly(&body).unwrap();
+            assert_eq!(back.name, original.name, "{f:?}");
+            assert_eq!(back.events, original.events, "{f:?}");
+        }
+        assert_eq!(
+            export_body(&lib, Uuid::from_u128(u128::MAX), ExportFormat::Rly).map(|_| ()).unwrap_err().code,
+            "not_found"
+        );
+    }
+
+    #[test]
+    fn export_formats_use_the_ui_names() {
+        assert!(matches!(serde_json::from_str::<ExportFormat>(r#""rly""#), Ok(ExportFormat::Rly)));
+        assert!(matches!(serde_json::from_str::<ExportFormat>(r#""json""#), Ok(ExportFormat::Json)));
+        assert!(serde_json::from_str::<ExportFormat>(r#""ahk""#).is_err());
+    }
+
+    #[test]
+    fn a_broken_import_file_doesnt_stop_the_others() {
+        let (_dir, lib) = library();
+        let files = tempfile::tempdir().unwrap();
+        let good = files.path().join("good.rly");
+        let json = files.path().join("export.json");
+        let broken = files.path().join("broken.rly");
+        let m = &lib.get(lib.list()[0].id).unwrap().macro_;
+        std::fs::write(&good, format::to_rly(m)).unwrap();
+        std::fs::write(&json, format::to_export_json(m)).unwrap();
+        std::fs::write(&broken, "{ this isn't a macro").unwrap();
+        let missing = files.path().join("gone.rly");
+        let paths: Vec<String> =
+            [&good, &broken, &json, &missing].iter().map(|p| p.to_string_lossy().into_owned()).collect();
+
+        let (macros, problems) = read_imports(&paths);
+        assert_eq!(macros.len(), 2);
+        assert_eq!(problems.len(), 2);
+        assert!(problems[0].starts_with("broken.rly: "), "{}", problems[0]);
+        assert!(problems[1].starts_with("gone.rly: "), "named by file, not full path: {}", problems[1]);
+    }
+
+    #[test]
+    fn views_report_undo_and_redo() {
+        let (_dir, mut lib) = library();
+        let id = lib.list()[0].id;
+        let history = EditHistory::default();
+        let m = &mut lib.get_mut(id).unwrap().macro_;
+        assert_eq!((view_of(m, &history).can_undo, view_of(m, &history).can_redo), (false, false));
+        let op = EditOp::Rename { name: "Renamed".into() };
+        let before = Snapshot::before(m, &op);
+        relay_core::edit::apply(m, op.clone()).unwrap();
+        history.record(id, before, &op);
+        let v = view_of(m, &history);
+        assert_eq!((v.can_undo, v.can_redo, v.name.as_str()), (true, false, "Renamed"));
+        history.undo(id, m);
+        let v = view_of(m, &history);
+        assert_eq!((v.can_undo, v.can_redo), (false, true));
+    }
 }
