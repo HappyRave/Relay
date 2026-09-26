@@ -199,7 +199,7 @@ pub fn group_steps(events: &[Event], opts: GroupOptions) -> Vec<Step> {
                         StepKind::Scroll { delta: d, horizontal: h, .. }
                             if *h == *horizontal
                                 && d.signum() == delta.signum()
-                                && t.saturating_sub(s.end) <= SCROLL_GAP_MS =>
+                                && t.saturating_sub(s.end) < SCROLL_GAP_MS =>
                         {
                             *d = d.saturating_add(*delta);
                             s.items.push(idx);
@@ -557,6 +557,16 @@ mod tests {
         let s = group(&[w(0, -120), w(50, -120), w(100, 120)]);
         assert_eq!(s.len(), 2);
         assert!(matches!(s[0].kind, StepKind::Scroll { delta: -240, .. }));
+    }
+
+    #[test]
+    fn gaps_merge_below_the_limit_not_at_it() {
+        let w = |t| Event::Wheel { t, x: 0, y: 0, delta: -120, horizontal: false };
+        assert_eq!(group(&[w(0), w(299)]).len(), 1);
+        assert_eq!(group(&[w(0), w(300)]).len(), 2);
+        let typed = |gap| [tap(0, "KeyA", Some("a")), tap(gap, "KeyB", Some("b"))].concat();
+        assert_eq!(group(&typed(499)).len(), 1);
+        assert_eq!(group(&typed(500)).len(), 2);
     }
 
     #[test]
