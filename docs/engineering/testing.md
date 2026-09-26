@@ -30,6 +30,7 @@ flowchart BT
 ```bash
 cargo test --workspace     # all Rust tests; also regenerates the TS bindings and the browser fixture
 cargo test -p relay-core   # just the core (fast)
+cargo fmt --all            # 120 columns, see rustfmt.toml; CI checks it
 cargo clippy --workspace --all-targets -- -D warnings
 npm test                   # Vitest
 npm run check              # svelte-check (types and accessibility)
@@ -39,7 +40,7 @@ Set `PROPTEST_CASES=2000` for a longer property-test run than the default.
 
 ## relay-core
 
-About 85 tests, all pure, so they also run on Linux.
+88 tests, all pure, so they also run on Linux.
 
 | Area | What's tested |
 | --- | --- |
@@ -149,7 +150,7 @@ What automated tests can't cover well:
 
 | Job | Steps |
 | --- | --- |
-| **windows** | `npm ci` → `cargo test --workspace` → **generated files are up to date** (`git diff --exit-code` on the bindings and the browser fixture) → `cargo clippy -D warnings` → `npm run check` → `npm test` → `npx tauri build` → upload the installer as an artifact |
+| **windows** | `npm ci` → `cargo test --workspace` → **generated files are up to date** (`git diff --exit-code` on the bindings and the browser fixture) → `cargo fmt --check` → `cargo clippy -D warnings` → `npm run check` → `npm test` → `npx tauri build` → upload the installer as an artifact |
 | **linux** | `cargo test` and `clippy -D warnings` for `relay-core` and `relay-platform`, which keeps them portable |
 | **msrv** | `cargo check --workspace` with Rust 1.95, the `rust-version` in `Cargo.toml` (the highest any dependency needs, from `sysinfo`) |
 

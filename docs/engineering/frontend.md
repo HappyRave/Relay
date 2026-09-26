@@ -25,12 +25,13 @@ src/
 │   ├── ExportDialog.svelte
 │   ├── expanded/               Header, Preview, SidePanel, Transport, Timeline
 │   │   └── tabs/               StepsTab, StepEditor, LibraryTab, TriggersTab, SettingsTab
-│   ├── shared/                 Grip, RecPlayButtons
+│   ├── shared/                 Grip, RecPlayButtons, Toast
 │   ├── ui/                     Toggle, Segmented, Kbd, Icon, HotkeyCapture
 │   └── dev/DevDesktop.svelte   the demo desktop for the browser preview
 ├── lib/
 │   ├── state/relay.svelte.ts   the RelayStore
 │   ├── state/display.ts        badge labels
+│   ├── defaults.ts             default settings and playback options (shared with the browser preview)
 │   ├── ipc/backend.ts          Tauri and browser backends
 │   ├── ipc/bindings/           generated from Rust (don't edit)
 │   ├── types.ts                re-exports of the bindings, UI-only types
@@ -50,15 +51,17 @@ src/
 
 | Kind | Fields |
 | --- | --- |
-| **Session** (from the stream) | `mode`, `cur` (the playhead, ms), `countLeft`, `loopIdx`, `triggersPaused` |
-| **Data** (from commands) | `library`, `view` (the open `MacroView`), `settings`, `triggerStatus`, `autostart` |
+| **Session** (from the stream) | `mode` (the engine's `Mode`: `idle`, `countdown`, `recording`, `playing`, `paused`), `cur` (the playhead, ms), `countLeft`, `loopIdx`, `triggersPaused` |
+| **Data** (from commands) | `library`, `view` (the open `MacroView`), `settings`, `triggerStatus`, `autostart`, `processes` |
 | **UI** | `expanded`, `tab`, `exportOpen`, `exportFmt`, `toast`, `picking` |
-| **Derived** | `recording`, `name`, `playback`, `loops`, `steps`, `moves`, `duration`, `desktop`, `frames`, `triggers`, `error`, `exportName`, `canUndo`, `canRedo`, `longPauses` |
+| **Derived** | `recording`, `playing`, `name`, `playback`, `loops`, `steps`, `moves`, `duration`, `desktop`, `frames`, `curStepIdx`, `triggers`, `error`, `exportName`, `canUndo`, `canRedo`, `longPauses` |
 
-- `view` and `library` use `$state.raw`: they're replaced wholesale by command results, never mutated, so deep proxies would be wasted work.
-- While recording, `steps`, `moves` and `desktop` switch to the live `recSteps`, `recMoves` and `recDesktop` fed by `rec_progress`.
-- **Actions** are arrow-function fields (`toggleRec`, `togglePlay`, `stop`, `seek`, `jump`, `edit`, `rename`, `insertWait`, `insertPixelCheck`, `pickPixel`, `setPause`, `trimPauses`, `undo`, `redo`, `setPlayback`, `setTriggers`, `duplicateMacro`, `deleteMacro`, `restoreMacro`, `importMacros`, `doExport`…), so they can be passed as event handlers without binding.
-- **Errors** from any action go to `fail()`, which shows an error toast for 5 s. `notify()` shows information, for 8 s when it has an action such as **Undo**.
+- `view`, `library`, `settings`, `toast` and the other data fields use `$state.raw`: they're replaced wholesale, never mutated, so deep proxies would be wasted work.
+- While recording, `steps`, `moves` and `desktop` switch to the live recording, fed by `rec_progress`. Cursor samples are appended in place and a version counter tells the derived values, rather than copying a growing array ten times a second. `duration` grows a second at a time, so the timeline is rebuilt once a second, not every frame.
+- `curStepIdx`, the step under the playhead, is one binary search per frame, shared by every component that highlights "the current step".
+- **Actions** are arrow-function fields (`toggleRec`, `togglePlay`, `stop`, `seek`, `jump`, `edit`, `rename`, `insertWait`, `insertPixelCheck`, `pickPixel`, `setPause`, `trimPauses`, `undo`, `redo`, `setPlayback`, `previewPlayback`, `setTriggers`, `pickTriggerPixel`, `loadProcesses`, `duplicateMacro`, `deleteMacro`, `restoreMacro`, `importMacros`, `doExport`…), so they can be passed as event handlers without binding.
+- **Errors**: every action goes through one helper, `run(promise)`, which shows a failure as an error toast (5 s) and resolves to `undefined`. `notify()` shows information, for 8 s when it has an action such as **Undo**.
+- **Seeking** moves the playhead at once, but tells the engine at most once per animation frame, however fast the pointer drags.
 
 Lifecycle: `App.svelte` calls `relay.start()` (the animation-frame loop and the key listener) and `relay.init()` (read the saved window mode, subscribe to the stream, load settings, the library, the first macro and autostart). The widget only renders once `ready` is set, so it never flashes at the wrong size.
 
@@ -68,14 +71,19 @@ The store is exposed as `window.__relay` for DevTools and the end-to-end tests.
 
 `onEngine(msg)` is a `switch` over `EngineMsg`. The non-obvious cases:
 
-- **`session`** to `play` with another `macro_id`: a trigger started a different macro, so it's opened (with `showMacro`, which works mid-playback).
+- **`session`** to `playing` with another `macro_id`: a trigger started a different macro, so it's opened (with `showMacro`, which works mid-playback).
 - **`saved`** arrives just before the session goes back to idle, when the store still refuses to load a macro. It's kept in `pendingLoad` and opened on the `idle` message.
 - **`finished`**: rewind to 0 unless `completed` or `pixel_timeout`.
 - **`play_tick`** and **`rec_progress`** update `tick` for [extrapolation](ipc.md#why-the-ui-extrapolates). When not advancing (paused, frozen on a pixel check), `cur` is set exactly.
 
 ### Edits
 
-`edit(op)` → `apply(backend.editMacro(id, op))`. `apply` tags each request with an increasing `editSeq` and drops a response if a newer request started, so a slow response can't overwrite a newer state. Loading a macro bumps `editSeq` too. `rename` updates the view immediately and debounces the command by 250 ms.
+**Every async result is tied to the macro it was for.** `edit(op)` → `apply(id, backend.editMacro(id, op))`. `apply` tags each request with an increasing sequence number and drops the response if a newer request replaced the view since, or if the open macro isn't `id` any more. So a slow response can neither overwrite a newer state nor land on a macro opened in the meantime. The same goes for the rest:
+
+- `rename` updates the view at once and saves after 250 ms, for the macro being renamed (not whichever is open when the timer fires). Opening another macro, or undoing, saves a pending rename first.
+- Opening a macro clears the previous one's `triggerStatus`, so the Triggers tab can't write one macro's triggers into another; trigger results are only applied if their macro is still open.
+- The pixel pickers wait 3 s, then check that the same macro is open and read the step again before editing it.
+- An **Undo** offered in a toast is withdrawn when another edit starts, so it never undoes something else.
 
 **Undo and redo** go through `backend.undoEdit`, after first saving a name still being typed so it's part of the history. <kbd>Ctrl</kbd>+<kbd>Z</kbd>, <kbd>Ctrl</kbd>+<kbd>Y</kbd> and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> are handled by the store's window key listener, except when the event comes from an `input`, a `textarea` or an element marked `data-captures-keys` (the hotkey field), where those keys mean something else. Deleting a step and trimming pauses show a toast whose action is `undo`.
 
@@ -94,10 +102,10 @@ The store and components only see `Backend`. Features that need the app check `r
 
 - `App.svelte` renders `DevDesktop`, the design's demo desktop (wallpaper, taskbar, clock), with the widget scaled to fit the browser window.
 - The browser backend loads [`lib/dev/sample-views.json`](../../src/lib/dev/sample-views.json), the four sample macros as real `MacroView`s generated by relay-core's tests. So the steps, paths and timings are exactly what the app would show.
-- It simulates the session: the countdown, playback with a moving playhead (speed changes, loops and seeking included), and trigger settings kept in memory. Recording captures nothing, and edits are refused with *Editing needs the Relay app*.
+- It simulates the session like the app: the countdown (or none), a recording that advances without capturing anything, playback with a moving playhead (speed changes, loops and seeking included, F9 ignored while playing), and triggers and their pause kept in memory. Edits are refused with *Editing needs the Relay app*.
 - With no global hotkeys, the store listens for F9, F10, Esc and Ctrl+Shift+M on the page itself.
 - Undo, redo and every other edit are unavailable, and their buttons are hidden.
-- Export downloads the file with a Blob.
+- Export is unavailable: the fixture has views, not the events a `.rly` holds. The dialog says so.
 
 > [!NOTE]
 > Port 1420 is also what `npm run tauri dev` uses for its dev server. Stop one before starting the other.
@@ -113,6 +121,8 @@ flowchart TD
     App -.browser.-> DevDesktop --> Widget
     Widget --> CompactBar
     Widget --> ExpandedWidget
+    Widget -.compact.-> Toast
+    SidePanel --> Toast
     ExpandedWidget --> Header
     ExpandedWidget --> Preview
     ExpandedWidget --> SidePanel
@@ -132,10 +142,12 @@ A few that do more:
 | Component | Notes |
 | --- | --- |
 | `Widget` | A `ResizeObserver` measures the widget's border box and calls `fit_window`, so the native window always matches the content exactly. |
-| `StepsTab` | Keeps the current row in view while playing. Opens `StepEditor` under the selected row, only for kinds that have something to edit. Shows window-relative positions in *Window* mode. |
+| `StepsTab` | Keeps the current row in view while playing. Opens `StepEditor` under the selected row; the selection is the step's identity (macro, kind, first event), not its row number, so it closes rather than jumping to another step after an undo or a deletion. Rows handle Enter and Space only for themselves, not their delete button. Shows window-relative positions in *Window* mode. |
 | `StepEditor` | *Pause before* for every step, plus the fields of its kind. Commits on `change` (blur or Enter), validates hex colors and numbers before sending an `EditOp`. |
 | `HotkeyCapture` | Captures in the capture phase and stops propagation, so a combo being set never triggers anything else. Marked `data-captures-keys` so the undo shortcut leaves it alone. Backspace clears, Esc cancels, blur cancels. |
 | `Timeline`, `CompactBar` | Use the `seekable` action: pointer down and drag anywhere seeks, with pointer capture. |
+| `Toast` | The one place errors and notices show: at the bottom of the side panel, or under the compact player. |
+| `ExportDialog` | A native modal `<dialog>` (`showModal`): focus stays inside, Esc and a click on the backdrop close it. |
 | `Preview` | An SVG in desktop coordinates (see below). |
 
 ## The preview and the timeline
@@ -143,10 +155,10 @@ A few that do more:
 **Preview** ([`Preview.svelte`](../../src/components/expanded/Preview.svelte), [`geometry.ts`](../../src/lib/preview/geometry.ts)): the SVG's `viewBox` is a region of the virtual desktop, in the macro's physical pixels, chosen by `fitView` to include everything the macro touches, padded and at the preview's 600:338 aspect ratio. The monitors and the anchor window are drawn as outlines. Everything is in desktop coordinates, and a scale factor `k` keeps strokes and labels the same size at any zoom.
 
 - The **path** is one polyline. The played part is the same path with `stroke-dasharray = "<done length> <total>"`, where the done length comes from precomputed cumulative lengths and a binary search for the current time. So animating the red trail costs nothing per frame.
-- **Click markers** are numbered in order, with a ring that expands for 500 ms after each click.
+- **Click markers** are numbered in order, with a ring that expands for 500 ms after each click. The markers don't depend on the playhead, so they're built once per macro; which ones are "reached" is a count from one binary search, and only the last reached click's ring is animated.
 - The **key overlay** shows the `KEYS` or `TYPE` step under the playhead, and for typing, only the characters typed so far.
 
-**Timeline** ([`lanes.ts`](../../src/lib/timeline/lanes.ts)): pure functions turn steps and moves into percentages. Mouse movement becomes bars (samples less than 150 ms apart join), `KEYS` chips grow up to the next chip, `TYPE` chips span their characters, and the ruler picks 1 s, 5 s or 15 s ticks from the macro's length. `currentStepIndex` and `jumpTarget` drive the highlighted row and the ◀ ▶ buttons.
+**Timeline** ([`lanes.ts`](../../src/lib/timeline/lanes.ts)): pure functions turn steps and moves into percentages. Mouse movement becomes bars (samples less than 150 ms apart join), `KEYS` chips grow up to the next chip, `TYPE` chips span their characters, and the ruler picks 1 s, 5 s or 15 s ticks from the macro's length. `currentStepIndex` and `jumpTarget` drive the highlighted row and the ◀ ▶ buttons. None of the lanes depends on the playhead except through `startedCount` (a binary search: how many clicks or chips have been reached), so drawing a frame doesn't rebuild them.
 
 ## Styling
 
