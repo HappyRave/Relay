@@ -187,7 +187,7 @@ fn register(app: &AppHandle) {
 /// alone isn't enough for a key that types (Shift + A is a capital A); and
 /// the last key can't be a modifier itself.
 pub fn parse_combo(combo: &str) -> Result<Shortcut, String> {
-    let parts: Vec<&str> = combo.split('+').map(str::trim).filter(|p| !p.is_empty()).collect();
+    let parts = relay_core::keys::split_combo(combo).ok_or("The hotkey is empty or incomplete")?;
     let (key, mods) = parts.split_last().ok_or("The hotkey is empty")?;
     let modifier = |p: &str| match p {
         "Ctrl" => Some(Modifiers::CONTROL),
@@ -373,8 +373,11 @@ mod tests {
         assert_eq!(parse_combo("Ctrl+Shift+K").unwrap(), want);
         assert_eq!(parse_combo("  Shift +Ctrl+   K ").unwrap(), want);
         assert_eq!(parse_combo("Ctrl + Ctrl + Shift + K").unwrap(), want, "a repeated modifier counts once");
-        assert_eq!(parse_combo("Ctrl + + K").unwrap(), Shortcut::new(Some(Modifiers::CONTROL), Code::KeyK));
+        // A trailing "+" is the plus key; a "+" with nothing on either side is a typo.
+        assert_eq!(parse_combo("Ctrl + +").unwrap(), Shortcut::new(Some(Modifiers::CONTROL), Code::Equal));
+        assert!(parse_combo("Ctrl + + K").is_err());
         assert!(parse_combo(" + ").is_err());
+        assert!(parse_combo("Ctrl +").is_err());
     }
 
     #[test]

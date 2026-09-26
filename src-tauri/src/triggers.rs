@@ -456,10 +456,18 @@ mod tests {
                 Some(c)
             })
         };
+        // Armed by two samples of another color…
+        assert!(tick(WHITE).is_empty());
         assert!(tick(WHITE).is_empty());
         assert!(tick(RED).is_empty(), "one sample could be a flicker");
         assert_eq!(tick(Rgb(0xE8, 0x34, 0x10)), [id(1)], "within the tolerance");
         assert!(tick(RED).is_empty(), "staying red fires once");
+        // …a single other sample (the cursor passing over it) doesn't re-arm…
+        assert!(tick(WHITE).is_empty());
+        assert!(tick(RED).is_empty());
+        assert!(tick(RED).is_empty(), "not re-armed by one sample");
+        // …two do.
+        assert!(tick(WHITE).is_empty());
         assert!(tick(WHITE).is_empty());
         assert!(tick(RED).is_empty());
         assert_eq!(tick(RED), [id(1)], "and again after a change");
@@ -504,6 +512,7 @@ mod tests {
         let mut w = PixelWatch::default();
         // Watching for red on a blue pixel: armed, waiting for red.
         w.tick(&[(id(1), watching(0, 0, RED))], |_, _| Some(BLUE));
+        w.tick(&[(id(1), watching(0, 0, RED))], |_, _| Some(BLUE));
         // The user types the pixel's current color as the target: no change happened.
         let blue = vec![(id(1), watching(0, 0, BLUE))];
         for _ in 0..3 {
@@ -521,6 +530,7 @@ mod tests {
             assert!(w.tick(&loose, |_, _| Some(nearly)).is_empty());
         }
         // An actual change still fires.
+        w.tick(&loose, |_, _| Some(WHITE));
         w.tick(&loose, |_, _| Some(WHITE));
         w.tick(&loose, |_, _| Some(RED));
         assert_eq!(w.tick(&loose, |_, _| Some(RED)), [id(1)]);

@@ -68,9 +68,10 @@ impl Screen for WinScreen {
 
     fn double_click(&self) -> (u32, u32) {
         unsafe {
-            // SM_CXDOUBLECLK is the width of the whole rectangle around the first click.
-            let px = GetSystemMetrics(SM_CXDOUBLECLK).max(GetSystemMetrics(SM_CYDOUBLECLK)) / 2;
-            (GetDoubleClickTime(), px.max(1) as u32)
+            // SM_CXDOUBLECLK is the width of the whole rectangle around the first click;
+            // step grouping takes half of it on each side.
+            let px = GetSystemMetrics(SM_CXDOUBLECLK).max(GetSystemMetrics(SM_CYDOUBLECLK));
+            (GetDoubleClickTime(), px.max(0) as u32)
         }
     }
 
