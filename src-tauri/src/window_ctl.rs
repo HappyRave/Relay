@@ -123,7 +123,13 @@ impl Rect {
         Rect { x: r.position.x, y: r.position.y, w: r.size.width as i32, h: r.size.height as i32 }
     }
 
-    /// Whether a bottom-center anchor at `(x, y)` sits in this work area: a
+    /// The whole monitor, taskbar included.
+    fn bounds(m: &Monitor) -> Rect {
+        let (p, s) = (m.position(), m.size());
+        Rect { x: p.x, y: p.y, w: s.width as i32, h: s.height as i32 }
+    }
+
+    /// Whether a bottom-center anchor at `(x, y)` sits in this rect: a
     /// window standing on the bottom edge belongs to it, one hanging from the
     /// top edge doesn't.
     fn holds_anchor(&self, (x, y): (i32, i32)) -> bool {
@@ -133,10 +139,25 @@ impl Rect {
     fn bottom_center(&self) -> (i32, i32) {
         (self.x + self.w / 2, self.y + self.h)
     }
+
+    /// How far `(x, y)` is from this rect, squared (0 inside it).
+    fn distance2(&self, (x, y): (i32, i32)) -> i64 {
+        let gap = |v: i32, lo: i32, hi: i32| (lo - v).max(v - hi).max(0) as i64;
+        gap(x, self.x, self.x + self.w - 1).pow(2) + gap(y, self.y + 1, self.y + self.h).pow(2)
+    }
 }
 
-fn contains(m: &Monitor, anchor: (i32, i32)) -> bool {
-    Rect::work_area(m).holds_anchor(anchor)
+/// Which of the `monitors` (their full bounds) the widget goes on: the one
+/// its `anchor` is on (the taskbar included, as the widget is then kept above
+/// it), else the nearest one (its monitor was unplugged, or the anchor is in
+/// a gap between monitors), else the `primary` one. `monitors` isn't empty.
+pub fn choose_monitor(monitors: &[Rect], anchor: Option<(i32, i32)>, primary: usize) -> usize {
+    let Some(a) = anchor else { return primary.min(monitors.len() - 1) };
+    if let Some(i) = monitors.iter().position(|m| m.holds_anchor(a)) {
+        return i;
+    }
+    // Equally near: the primary monitor, then the first.
+    (0..monitors.len()).min_by_key(|&i| (monitors[i].distance2(a), i != primary)).expect("a monitor")
 }
 
 /// Where a widget of `css` size goes in the `work` area at `sf` scale and
@@ -156,24 +177,27 @@ pub fn layout(work: Rect, sf: f64, zoom: f64, css: (f64, f64), anchor: Option<(i
 
 /// Sizes and positions the window for a widget of `css` size, keeping its
 /// bottom-center at the saved anchor (or the default spot on the primary
-/// monitor when the anchor is gone, e.g. after unplugging a monitor), inside
-/// the monitor's work area. The saved anchor stays where the user put it, so
-/// switching sizes near an edge comes back to the same spot.
+/// monitor), inside the work area of the monitor [`choose_monitor`] picks.
+/// The saved anchor stays where the user put it, so switching sizes near an
+/// edge comes back to the same spot.
 pub fn place(window: &WebviewWindow, state: &WindowState, css: (f64, f64)) {
-    let saved = state.prefs().anchor;
+    let anchor = state.prefs().anchor;
     let Ok(monitors) = window.available_monitors() else { return };
-    let Some(monitor) = saved
-        .and_then(|a| monitors.iter().find(|m| contains(m, a)).cloned())
-        .or_else(|| window.primary_monitor().ok().flatten())
-        .or_else(|| monitors.first().cloned())
-    else {
+    if monitors.is_empty() {
         return;
-    };
+    }
+    let bounds: Vec<Rect> = monitors.iter().map(Rect::bounds).collect();
+    let primary = window
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .and_then(|p| bounds.iter().position(|&b| b == Rect::bounds(&p)))
+        .unwrap_or(0);
+    let monitor = &monitors[choose_monitor(&bounds, anchor, primary)];
 
-    let zoom = zoom_for(&monitor);
+    let zoom = zoom_for(monitor);
     let _ = window.set_zoom(zoom);
-    let anchor = saved.filter(|&a| contains(&monitor, a));
-    let r = state.placement(Rect::work_area(&monitor), monitor.scale_factor(), zoom, css, anchor);
+    let r = state.placement(Rect::work_area(monitor), monitor.scale_factor(), zoom, css, anchor);
     set_client_rect(window, r.x, r.y, r.w, r.h);
     *state.size.lock() = css;
 }
@@ -394,6 +418,37 @@ mod tests {
         assert!(!top.holds_anchor((1920, 500)), "the right edge is the next monitor's");
         assert!(top.holds_anchor((0, 500)));
         assert!(!top.holds_anchor((-1, 500)));
+    }
+
+    #[test]
+    fn the_monitor_is_the_one_the_anchor_is_on_or_the_nearest() {
+        // The primary monitor, a smaller one to its right, top-aligned, and one to its left.
+        let primary = Rect { x: 0, y: 0, w: 1920, h: 1080 };
+        let right = Rect { x: 1920, y: 0, w: 1280, h: 720 };
+        let left = Rect { x: -1280, y: 0, w: 1280, h: 1024 };
+        let monitors = [left, primary, right];
+        assert_eq!(choose_monitor(&monitors, None, 1), 1, "the default spot is on the primary monitor");
+        assert_eq!(choose_monitor(&monitors, Some((2500, 700)), 1), 2);
+        // Over the taskbar: still that monitor, and pulled up into its work area.
+        assert_eq!(choose_monitor(&monitors, Some((2500, 719)), 1), 2);
+        let work = Rect { h: 1032, ..primary };
+        assert_eq!(choose_monitor(&monitors, Some((960, 1070)), 1), 1);
+        let r = layout(work, 1.0, 1.0, COMPACT, Some((960, 1070)));
+        assert!(r.y + r.h <= 1032, "{r:?}");
+        // Negative coordinates.
+        assert_eq!(choose_monitor(&monitors, Some((-5, 500)), 1), 0);
+        assert_eq!(choose_monitor(&monitors, Some((-1280, 1024)), 1), 0);
+        // In the gap below the smaller monitor: the nearest one.
+        assert_eq!(choose_monitor(&monitors, Some((2500, 900)), 1), 2);
+        assert_eq!(choose_monitor(&monitors, Some((1990, 1060)), 1), 1);
+        // On a monitor that's gone (it was to the right of the smaller one, or above them all).
+        assert_eq!(choose_monitor(&monitors, Some((4000, 500)), 1), 2);
+        assert_eq!(choose_monitor(&monitors, Some((960, -300)), 1), 1);
+        assert_eq!(choose_monitor(&[left, primary], Some((2500, 700)), 1), 1);
+        // Equally near two monitors: the primary one.
+        let (a, b) = (Rect { x: 0, y: 0, w: 100, h: 100 }, Rect { x: 199, y: 0, w: 100, h: 100 });
+        assert_eq!(choose_monitor(&[a, b], Some((149, 50)), 1), 1);
+        assert_eq!(choose_monitor(&[a, b], Some((149, 50)), 0), 0);
     }
 
     #[test]
