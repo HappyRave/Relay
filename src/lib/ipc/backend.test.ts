@@ -183,9 +183,17 @@ describe("browserBackend (npm run dev)", () => {
       "Batch rename photos",
       "Open standup tools",
     ]);
-    expect(list[0]).toMatchObject({ step_count: 12, runs: 148, hotkey: "Ctrl + Alt + 1" });
-    expect(list[2].hotkey).toBeNull();
+    expect(list[0]).toMatchObject({ step_count: 12, runs: 148, hotkey: null }); // the samples' hotkeys are off
     expect(new Date(list[0].last_run!).getTime()).toBeLessThan(Date.now());
+  });
+
+  test("the hotkey column follows the triggers in memory", async () => {
+    const bb = await ready();
+    const status = await bb.getTriggers(id);
+    await bb.setTriggers(id, { ...status.triggers, hotkey: { ...status.triggers.hotkey, enabled: true } });
+    expect((await bb.listMacros())[0].hotkey).toBe("Ctrl + Alt + 1");
+    await bb.setTriggers(id, { ...status.triggers, hotkey: { enabled: false, combo: "Ctrl + Alt + 1" } });
+    expect((await bb.listMacros())[0].hotkey).toBeNull();
   });
 
   test("loads a macro, and rejects unknown ones", async () => {

@@ -215,7 +215,7 @@ describe("the browser preview", () => {
     expect(screen.getByText("Relay.")).toBeInTheDocument();
     expect(container.querySelector(".expanded")).not.toBeNull();
     expect(screen.getByRole("textbox", { name: "Macro name" })).toHaveValue("Export invoice to PDF");
-    expect(core.calls).toEqual([]);
+    expect(screen.queryByRole("alert")).toBeNull(); // nothing needed the app
   });
 
   test("the widget scales down to fit a small window", async () => {

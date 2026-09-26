@@ -129,7 +129,6 @@ describe("Grip", () => {
       await fireEvent.pointerUp(grip, { pointerId: 1 });
       await fireEvent.pointerMove(grip, { clientX: 500, clientY: 500, pointerId: 1 });
       expect([devDesktop.dx, devDesktop.dy]).toEqual([30, -10]);
-      expect(core.calls).toEqual([]);
     } finally {
       core.install();
     }

@@ -1357,16 +1357,19 @@ describe("the browser preview (npm run dev)", () => {
     r = await freshStore({ backend: browserBackend() });
     r.start();
   });
-  afterEach(() => {
+  afterEach(async () => {
+    await r.stop(); // the simulation's timers
     r.dispose();
     core.install();
   });
 
-  test("loads the samples without Rust", () => {
+  test("loads the samples, their triggers and the settings without Rust", () => {
     expect(r.editable).toBe(false);
-    expect(r.library).toHaveLength(4);
+    expect(r.library.map((m) => m.name)).toEqual(["Export invoice to PDF", "Fill weekly timesheet", "Batch rename photos", "Open standup tools"]);
     expect(r.name).toBe("Export invoice to PDF");
-    expect(core.calls).toEqual([]);
+    expect(r.triggers?.hotkey).toEqual({ enabled: false, combo: "Ctrl + Alt + 1" });
+    expect(r.settings).toEqual(DEFAULT_SETTINGS);
+    expect(r.toast).toBeNull(); // nothing tried the missing IPC
   });
 
   test("F10 plays and Esc stops", async () => {

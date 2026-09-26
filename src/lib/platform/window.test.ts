@@ -26,12 +26,12 @@ describe("in a plain browser", () => {
   beforeEach(() => core.uninstall());
   afterEach(() => core.install());
 
-  test("nothing is sent, and the widget opens expanded", async () => {
+  test("nothing is sent (there's no IPC to send it on), and the widget opens expanded", async () => {
     expect(isTauri()).toBe(false);
-    await fitWindow(1, 2, false);
+    // Each would throw if it tried to invoke a command.
+    await expect(fitWindow(1, 2, false)).resolves.toBeUndefined();
     expect(await savedExpanded()).toBe(true);
-    await startDragging();
-    await hideToTray();
-    expect(core.calls).toEqual([]);
+    await expect(startDragging()).resolves.toBeUndefined();
+    await expect(hideToTray()).resolves.toBeUndefined();
   });
 });
