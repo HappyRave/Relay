@@ -339,8 +339,10 @@ impl Library {
         Ok(Change::saved(file.and(index)))
     }
 
-    /// Brings a trashed macro back where it was, with its stats.
-    pub fn restore(&mut self, id: Uuid) -> Result<Change, LibraryError> {
+    /// Brings a trashed macro back where it was, with its stats and triggers.
+    /// If another macro has taken its hotkey meanwhile, it comes back with
+    /// the hotkey off, and the value says so, for the user.
+    pub fn restore(&mut self, id: Uuid) -> Result<Change<Option<String>>, LibraryError> {
         let t = self.trash.get(&id).cloned().ok_or(LibraryError::NotFound(id))?;
         let (m, file) = match self.unsaved_trash.remove(&id) {
             // Its file couldn't be written; try again.
@@ -356,11 +358,34 @@ impl Library {
             }
         };
         self.trash.remove(&id);
+        let mut triggers = t.meta.triggers();
+        let hotkey = &mut triggers.hotkey;
+        let mut notice = None;
+        if hotkey.enabled
+            && let Some(why) = crate::hotkeys::conflict(self, id, &hotkey.combo)
+        {
+            hotkey.enabled = false;
+            notice = Some(match self.hotkey_owner(&hotkey.combo) {
+                Some(other) => {
+                    format!("“{}” is back; its hotkey {} is now used by “{other}”, so it's off", m.name, hotkey.combo)
+                }
+                None => format!("“{}” is back with its hotkey off: {why}", m.name),
+            });
+        }
         let pos = self.place_of(t.next).unwrap_or(t.position.min(self.entries.len()));
-        self.entries.insert(pos, Entry::with_stats(m, t.meta.runs, t.meta.last_run, t.meta.triggers()));
+        self.entries.insert(pos, Entry::with_stats(m, t.meta.runs, t.meta.last_run, triggers));
         self.refresh_triggers();
         let index = self.save_index();
-        Ok(Change::saved(file.and(index)))
+        Ok(Change { value: notice, saved: file.and(index) })
+    }
+
+    /// The name of the macro whose hotkey (on) is `combo`, however it's written.
+    fn hotkey_owner(&self, combo: &str) -> Option<&str> {
+        let wanted = crate::hotkeys::parse_combo(combo).ok()?;
+        self.entries
+            .iter()
+            .find(|e| e.hotkey().is_some_and(|c| crate::hotkeys::parse_combo(&c).is_ok_and(|s| s == wanted)))
+            .map(|e| e.macro_.name.as_str())
     }
 
     /// Adds imported macros at the top, in order, saving the index once. A
@@ -628,6 +653,40 @@ mod tests {
             }
             assert_eq!(ids(&lib), [n, a, b, c, d], "trashed {trash_order:?}, restored {restore_order:?}");
         }
+    }
+
+    fn set_hotkey(lib: &mut Library, id: Uuid, enabled: bool, combo: &str) {
+        let mut t = lib.get(id).unwrap().triggers.clone();
+        t.hotkey = HotkeyTrigger { enabled, combo: combo.into() };
+        lib.set_triggers(id, t).unwrap().saved.unwrap();
+    }
+
+    #[test]
+    fn a_macro_whose_hotkey_was_taken_meanwhile_comes_back_with_it_off() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut lib, _) = Library::open(dir.path());
+        let [invoice, timesheet, ..] = ids(&lib)[..] else { panic!("four samples") };
+        set_hotkey(&mut lib, invoice, true, "Ctrl + Alt + 1");
+        lib.trash(invoice).unwrap().saved.unwrap();
+        set_hotkey(&mut lib, timesheet, true, "Alt+Ctrl+1");
+
+        let restored = lib.restore(invoice).unwrap();
+        assert_eq!(
+            restored.value.as_deref(),
+            Some(
+                "“Export invoice to PDF” is back; its hotkey Ctrl + Alt + 1 is now used by “Fill weekly timesheet”, so it's off"
+            )
+        );
+        let h = &lib.get(invoice).unwrap().triggers.hotkey;
+        assert_eq!((h.enabled, h.combo.as_str()), (false, "Ctrl + Alt + 1"), "the combo is kept");
+        assert_eq!(crate::hotkeys::conflict(&lib, timesheet, "Alt+Ctrl+1"), None);
+
+        // Its hotkey free again: it comes back on, with nothing to say.
+        set_hotkey(&mut lib, invoice, true, "Ctrl + Alt + 1");
+        lib.trash(invoice).unwrap().saved.unwrap();
+        set_hotkey(&mut lib, timesheet, false, "Alt+Ctrl+1");
+        assert_eq!(lib.restore(invoice).unwrap().value, None);
+        assert!(lib.get(invoice).unwrap().triggers.hotkey.enabled);
     }
 
     #[test]

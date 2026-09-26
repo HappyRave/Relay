@@ -193,6 +193,9 @@ pub fn delete_macro(app: AppHandle, id: Uuid) -> Result<()> {
 pub fn restore_macro(app: AppHandle, id: Uuid) -> Result<()> {
     let restored = library(&app).lock().restore(id)?;
     report_unsaved(&app, restored.saved);
+    if let Some(message) = restored.value {
+        app.state::<Arc<Emitter>>().send(EngineMsg::Notice { message });
+    }
     let _ = app.state::<crate::triggers::TriggerState>().triggers_changed();
     hotkeys::refresh(&app); // and its hotkey comes back
     Ok(())
