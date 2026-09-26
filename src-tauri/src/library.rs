@@ -212,7 +212,7 @@ impl Library {
                         .and_then(|s| format::from_rly(&s).map_err(|e| e.to_string()))
                     {
                         Ok(m) => loaded.push(m),
-                        Err(e) => problems.push(format!("{}: {e}", path.display())),
+                        Err(e) => problems.push(format!("Couldn't load {}: {e}", path.display())),
                     }
                 }
             }
