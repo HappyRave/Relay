@@ -137,8 +137,9 @@ pub struct Engine {
     keys_down: Vec<KeyStroke>,
     buttons_down: Vec<MouseBtn>,
     lateness: Lateness,
-    /// The first injection failure, reported once.
-    pub injection_error: Option<String>,
+    /// The first injection failure, and whether it was reported.
+    injection_error: Option<String>,
+    error_reported: bool,
 }
 
 impl Engine {
@@ -162,6 +163,7 @@ impl Engine {
             buttons_down: Vec::new(),
             lateness: Lateness::new(),
             injection_error: None,
+            error_reported: false,
         }
     }
 
@@ -317,6 +319,16 @@ impl Engine {
         self.lateness.stats()
     }
 
+    /// The first injection failure, once: `None` before any and after it was
+    /// taken, so the user hears about a failing injector once, not per event.
+    pub fn unreported_error(&mut self) -> Option<String> {
+        if self.error_reported {
+            return None;
+        }
+        self.error_reported = self.injection_error.is_some();
+        self.injection_error.clone()
+    }
+
     fn check(&mut self, r: relay_platform::Result<()>) {
         if let Err(e) = r
             && self.injection_error.is_none()
@@ -455,7 +467,6 @@ pub fn spawn(
             let _ = wake_tx.send(timer.waker());
             let pixel: PixelReader = Box::new(move |x, y| screen.pixel(x, y));
             let mut engine = Engine::new(plan, make_injector(), pixel, now_ms());
-            let mut reported_error = false;
             let mut next_tick = f64::MIN;
             loop {
                 loop {
@@ -475,8 +486,7 @@ pub fn spawn(
                 }
                 let now = now_ms();
                 let finished = engine.advance(now);
-                if !reported_error && let Some(e) = &engine.injection_error {
-                    reported_error = true;
+                if let Some(e) = engine.unreported_error() {
                     emit.send(EngineMsg::Notice { message: format!("Playback: {e}") });
                 }
                 if now >= next_tick || finished.is_some() {
@@ -710,6 +720,47 @@ mod tests {
         e.advance(60.0);
         drop(e);
         assert_eq!(rec.take(), ["move 10,20", "Left down", "move 90,20", "Left up"]);
+    }
+
+    /// Fails every injection, counting the attempts.
+    struct Failing(Arc<Mutex<u32>>);
+
+    impl Failing {
+        fn fail(&mut self) -> relay_platform::Result<()> {
+            let mut n = self.0.lock().unwrap();
+            *n += 1;
+            Err(relay_platform::PlatformError::Os(format!("blocked #{n}")))
+        }
+    }
+
+    impl Injector for Failing {
+        fn move_to(&mut self, _: i32, _: i32) -> relay_platform::Result<()> {
+            self.fail()
+        }
+        fn button(&mut self, _: MouseBtn, _: bool) -> relay_platform::Result<()> {
+            self.fail()
+        }
+        fn wheel(&mut self, _: i32, _: bool) -> relay_platform::Result<()> {
+            self.fail()
+        }
+        fn key(&mut self, _: &KeyStroke, _: bool, _: Option<&str>) -> relay_platform::Result<()> {
+            self.fail()
+        }
+    }
+
+    #[test]
+    fn an_injection_error_is_reported_once() {
+        let calls = Arc::new(Mutex::new(0));
+        let events = vec![key(0, "KeyA", true), key(100, "KeyA", false), key(200, "KeyB", true)];
+        let injector = Box::new(Failing(calls.clone()));
+        let mut e = Engine::new(plan(events, Repeat::Count(1), 1.0), injector, Box::new(|_, _| None), 0.0);
+        assert_eq!(e.unreported_error(), None, "nothing failed yet");
+        e.advance(0.0);
+        assert_eq!(e.unreported_error().as_deref(), Some("blocked #1"));
+        assert_eq!(e.unreported_error(), None);
+        e.advance(250.0);
+        assert_eq!(*calls.lock().unwrap(), 3, "playback goes on");
+        assert_eq!(e.unreported_error(), None, "later failures aren't reported again");
     }
 
     fn pixel_macro() -> Vec<Event> {
