@@ -173,9 +173,10 @@ impl Recorder {
     }
 }
 
-/// Drops modifiers pressed after the last real action, with their releases:
-/// they belong to the hotkey that stopped the recording (Ctrl + Alt of the
-/// kill switch). The release of a modifier pressed earlier stays.
+/// Drops modifiers pressed after the last real action and still held at
+/// the end: they belong to the hotkey that stopped the recording (Ctrl + Alt
+/// of the kill switch). A modifier tapped at the end (Win) is kept, and so is
+/// the release of a modifier pressed earlier.
 fn trim_trailing_modifiers(events: &mut Vec<Event>) {
     let modifier = |e: &Event| match e {
         Event::Key { key, down, .. } if keys::modifier(&key.code).is_some() => Some((key.code.clone(), *down)),
@@ -183,21 +184,20 @@ fn trim_trailing_modifiers(events: &mut Vec<Event>) {
     };
     let last_action =
         events.iter().rposition(|e| !matches!(e, Event::Move { .. }) && modifier(e).is_none()).map_or(0, |i| i + 1);
-    let mut late: Vec<String> = Vec::new();
-    let mut i = 0;
-    events.retain(|e| {
-        i += 1;
-        if i <= last_action {
-            return true;
-        }
+    // From the end: a press (or its auto-repeat) with no release after it is still held.
+    let mut released: Vec<String> = Vec::new();
+    let mut held = vec![false; events.len()];
+    for (i, e) in events.iter().enumerate().skip(last_action).rev() {
         match modifier(e) {
-            Some((code, true)) => {
-                late.push(code);
-                false
-            }
-            Some((code, false)) => !late.contains(&code),
-            None => true,
+            Some((code, false)) => released.push(code),
+            Some((code, true)) => held[i] = !released.contains(&code),
+            None => {}
         }
+    }
+    let mut i = 0;
+    events.retain(|_| {
+        i += 1;
+        !held[i - 1]
     });
 }
 
@@ -306,6 +306,21 @@ mod tests {
         assert_eq!(rec.events.len(), 2, "{:?}", rec.events);
         let steps = group_steps(&rec.events, GroupOptions::default());
         assert_eq!(steps.len(), 1);
+    }
+
+    #[test]
+    fn a_modifier_tapped_at_the_end_is_kept() {
+        let mut r = Recorder::new(RecorderConfig::default(), 0.0, Box::new(Us));
+        for e in tap(0.0, 0x41, 0x1E) {
+            r.push(e);
+        }
+        // Win, to open the Start menu, then F9 (not recorded) stops.
+        r.push(raw(500.0, RawKind::Key { vk: 0x5B, scan: 0x5B, ext: true, down: true }));
+        r.push(raw(560.0, RawKind::Key { vk: 0x5B, scan: 0x5B, ext: true, down: false }));
+        let rec = r.finish(900.0);
+        let steps = group_steps(&rec.events, GroupOptions::default());
+        assert_eq!(steps.len(), 2, "{:?}", rec.events);
+        assert_eq!(steps[1].kind, StepKind::Keys { combo: vec!["Win".into()] });
     }
 
     #[test]
