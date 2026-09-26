@@ -116,6 +116,10 @@ pub struct Library {
     /// Every macro's triggers, rebuilt when they change, so the trigger
     /// threads can poll without copying them each time.
     triggers: Arc<[(Uuid, MacroTriggers)]>,
+    /// Why `library.json` is left alone this run: it exists but couldn't be
+    /// read (another program had it open, say), so writing it would lose
+    /// the order, stats, triggers and trash it holds.
+    index_unreadable: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -130,11 +134,13 @@ pub enum LibraryError {
 
 impl Library {
     /// Loads the library in `dir`, seeding the samples on first run. Files
-    /// that fail to parse are skipped and reported, never deleted.
+    /// that fail to parse are skipped and reported, never deleted. A
+    /// `library.json` that can't be read at all isn't written this run.
     pub fn open(dir: &Path) -> (Self, Vec<String>) {
         let macros_dir = dir.join("macros");
         let mut problems = Vec::new();
         let index_path = dir.join("library.json");
+        let mut index_unreadable = None;
         let index: Option<Index> = match fs::read_to_string(&index_path) {
             Ok(text) => match serde_json::from_str(&text) {
                 Ok(index) => Some(index),
@@ -142,11 +148,20 @@ impl Library {
                     // Keep it for inspection instead of overwriting it on the next save.
                     let bad = index_path.with_extension("json.bad");
                     let _ = fs::rename(&index_path, &bad);
-                    problems.push(format!("{}: {e} (moved to {})", index_path.display(), bad.display()));
+                    problems.push(format!("Couldn't read {}: {e} (moved to {})", index_path.display(), bad.display()));
                     None
                 }
             },
-            Err(_) => None,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => {
+                let why = format!("{} couldn't be read when Relay started ({e})", index_path.display());
+                problems.push(format!(
+                    "{why}. The Library's order, run counts, triggers and trash are missing, and won't be saved \
+                     until you restart Relay."
+                ));
+                index_unreadable = Some(format!("{why}, so Relay leaves it alone until restarted"));
+                None
+            }
         };
         let mut loaded: Vec<Macro> = Vec::new();
         if let Ok(files) = fs::read_dir(&macros_dir) {
@@ -164,9 +179,15 @@ impl Library {
             }
         }
 
-        let mut lib =
-            Library { dir: dir.to_path_buf(), entries: Vec::new(), trash: HashMap::new(), triggers: Arc::new([]) };
-        if index.is_none() && loaded.is_empty() {
+        let first_run = index.is_none() && index_unreadable.is_none() && loaded.is_empty();
+        let mut lib = Library {
+            dir: dir.to_path_buf(),
+            entries: Vec::new(),
+            trash: HashMap::new(),
+            triggers: Arc::new([]),
+            index_unreadable,
+        };
+        if first_run {
             lib.seed_samples();
             return (lib, problems);
         }
@@ -358,6 +379,9 @@ impl Library {
     }
 
     fn save_index(&self) -> std::io::Result<()> {
+        if let Some(why) = &self.index_unreadable {
+            return Err(std::io::Error::other(why.clone()));
+        }
         let index = Index {
             version: 1,
             order: self.entries.iter().map(|e| e.macro_.id).collect(),
@@ -473,6 +497,53 @@ mod tests {
         assert_eq!(lib.list().len(), 4, "the macros still load");
         assert_eq!(problems.len(), 1);
         assert!(dir.path().join("library.json.bad").exists());
+    }
+
+    /// Changes are kept but library.json isn't written: `index` is what it held.
+    fn assert_index_left_alone(dir: &Path, lib: &mut Library, index: &str) {
+        let id = lib.list()[0].id;
+        let err = lib.save(id).unwrap_err().to_string();
+        assert!(err.contains("library.json couldn't be read when Relay started"), "{err}");
+        assert!(err.contains("leaves it alone until restarted"), "{err}");
+        lib.get_mut(id).unwrap().runs += 1;
+        assert!(lib.save_stats().is_err());
+        assert_eq!(lib.get(id).unwrap().runs, 1, "kept in memory");
+        assert_eq!(fs::read_to_string(dir.join("library.json")).unwrap(), index);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn an_index_another_program_has_open_is_left_alone_for_the_run() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        Library::open(dir.path());
+        let path = dir.path().join("library.json");
+        let index = fs::read_to_string(&path).unwrap();
+        // Opened without sharing: reading it fails with a sharing violation.
+        let locked = fs::OpenOptions::new().read(true).share_mode(0).open(&path).unwrap();
+        let (mut lib, problems) = Library::open(dir.path());
+        drop(locked);
+        assert_eq!(lib.list().len(), 4, "the macros still load");
+        assert_eq!(problems.len(), 1);
+        assert!(problems[0].contains("won't be saved until you restart Relay"), "{}", problems[0]);
+        assert!(!dir.path().join("library.json.bad").exists(), "it's fine, just unreadable for now");
+        assert_eq!(lib.get(lib.list()[0].id).unwrap().runs, 0, "its stats weren't read");
+        assert_index_left_alone(dir.path(), &mut lib, &index);
+        // Readable again at the next start, with everything in it.
+        let (again, problems) = Library::open(dir.path());
+        assert!(problems.is_empty());
+        assert_eq!(again.get(again.list()[0].id).unwrap().runs, 148);
+    }
+
+    #[test]
+    fn an_index_that_cant_be_read_is_left_alone_and_nothing_is_seeded() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("library.json")).unwrap();
+        let (lib, problems) = Library::open(dir.path());
+        assert_eq!(problems.len(), 1);
+        assert!(lib.list().is_empty(), "not a first run: the samples aren't seeded");
+        assert!(!dir.path().join("macros").exists());
+        assert!(dir.path().join("library.json").is_dir());
     }
 
     #[test]
