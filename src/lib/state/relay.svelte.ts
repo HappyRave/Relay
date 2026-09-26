@@ -462,6 +462,7 @@ export class RelayStore {
   /** Moves a macro to the trash, with Undo. Opens a neighbour if it was the open one. */
   deleteMacro = async (id: string) => {
     await this.flushRename();
+    const wasOpen = this.view?.id === id;
     const idx = this.library.findIndex((m) => m.id === id);
     const name = this.library[idx]?.name ?? "macro";
     try {
@@ -473,13 +474,17 @@ export class RelayStore {
     if (this.view?.id === id) {
       const next = this.library[Math.min(idx, this.library.length - 1)];
       if (next) await this.loadMacro(next.id);
-      else this.view = null;
+      else {
+        this.view = null;
+        this.triggerStatus = null;
+      }
       this.tab = "library";
     }
-    this.notify(`Moved “${name}” to the trash`, { label: "Undo", run: () => this.restoreMacro(id) });
+    this.notify(`Moved “${name}” to the trash`, { label: "Undo", run: () => this.restoreMacro(id, wasOpen) });
   };
 
-  restoreMacro = async (id: string) => {
+  /** Brings a macro back from the trash; `reopen` it when it was the open one. */
+  restoreMacro = async (id: string, reopen = false) => {
     this.dismissToast();
     try {
       await this.backend.restoreMacro(id);
@@ -487,6 +492,7 @@ export class RelayStore {
       return this.fail(e);
     }
     await this.refreshLibrary();
+    if (!reopen) return; // stay on the macro and tab the user is on
     await this.loadMacro(id);
     this.tab = "library";
   };

@@ -57,7 +57,9 @@ describe("Library tab", () => {
     expect(core.commands()).toEqual(["duplicate_macro", "list_macros", "load_macro", "get_triggers"]);
     expect(core.argsOf("duplicate_macro")).toEqual([{ id: C }]);
     expect(rows()).toHaveLength(5);
-    expect(screen.getByText("Batch rename photos (copy)")).toBeInTheDocument();
+    expect(rows()[3]).toHaveTextContent("Batch rename photos (copy)"); // right after the original
+    expect(rows()[3]).toHaveClass("active"); // and opened
+    expect(relay.view?.name).toBe("Batch rename photos (copy)");
   });
 
   test("Delete moves that macro to the trash", async () => {
@@ -101,7 +103,9 @@ describe("Library tab", () => {
     await userEvent.click(screen.getByRole("button", { name: /Import/ }));
     await settle();
     expect(core.commands()).toEqual(["plugin:dialog|open", "import_macros", "list_macros", "load_macro", "get_triggers"]);
-    expect(screen.getByText("Weekly report")).toBeInTheDocument();
+    expect(rows()[0]).toHaveTextContent("Weekly report"); // at the top
+    expect(rows()[0]).toHaveClass("active");
+    expect(relay.toast).toMatchObject({ kind: "info", message: "Imported 1 macro" });
   });
 
   test("the browser preview can't change the library", async () => {

@@ -481,7 +481,8 @@ describe("library", () => {
   test("Duplicate opens the copy in the Library tab", async () => {
     await relay.duplicateMacro(A);
     expect(core.commands()).toEqual(["duplicate_macro", "list_macros", "load_macro", "get_triggers"]);
-    expect(relay.library).toHaveLength(5);
+    expect(relay.library.map((m) => m.name).slice(0, 2)).toEqual(["Export invoice to PDF", "Export invoice to PDF (copy)"]);
+    expect(relay.view?.id).toBe(relay.library[1].id);
     expect(relay.name).toBe("Export invoice to PDF (copy)");
     expect(relay.tab).toBe("library");
   });
@@ -511,11 +512,29 @@ describe("library", () => {
     expect(relay.library.map((m) => m.id)).toEqual([A, B, C, D]); // back where it was
   });
 
-  test("deleting another macro keeps the open one", async () => {
+  test("deleting another macro keeps the open one, and so does its Undo", async () => {
+    relay.tab = "triggers";
     await relay.deleteMacro(C);
     expect(core.commands()).toEqual(["delete_macro", "list_macros"]);
     expect(relay.view?.id).toBe(A);
     expect(relay.toast?.message).toBe("Moved “Batch rename photos” to the trash");
+    core.clearCalls();
+    relay.toast!.action!.run();
+    await settle();
+    expect(core.commands()).toEqual(["restore_macro", "list_macros"]);
+    expect(relay.library.map((m) => m.id)).toEqual([A, B, C, D]);
+    expect(relay.view?.id).toBe(A);
+    expect(relay.tab).toBe("triggers");
+  });
+
+  test("a macro whose hotkey was taken while it was in the trash comes back with it off, and says so", async () => {
+    await relay.setTriggers({ hotkey: { enabled: true, combo: "Ctrl + Alt + 3" } });
+    await relay.deleteMacro(A); // B opens
+    await relay.setTriggers({ hotkey: { enabled: true, combo: "Ctrl + Alt + 3" } });
+    relay.toast = null;
+    await relay.restoreMacro(A, true);
+    expect(relay.toast).toMatchObject({ kind: "info", message: expect.stringContaining("with its hotkey off") });
+    expect(relay.triggers?.hotkey).toEqual({ enabled: false, combo: "Ctrl + Alt + 3" });
   });
 
   test("deleting the last macro in the list opens the one before it", async () => {
@@ -529,6 +548,7 @@ describe("library", () => {
     await relay.deleteMacro(A);
     expect(relay.library).toEqual([]);
     expect(relay.view).toBeNull();
+    expect(relay.triggerStatus).toBeNull(); // nothing for the Triggers tab to write to
   });
 
   test("a refused delete (a session is running) is explained and nothing moves", async () => {
@@ -557,7 +577,8 @@ describe("library", () => {
       core.dialog.open = ["C:\\one.rly", "C:\\two.rly"];
       await relay.importMacros();
       expect(core.commands()).toEqual(["plugin:dialog|open", "import_macros", "list_macros", "load_macro", "get_triggers"]);
-      expect(relay.library).toHaveLength(6);
+      expect(relay.library.map((m) => m.name).slice(0, 3)).toEqual(["one", "two", "Export invoice to PDF"]);
+      expect(relay.view?.id).toBe(relay.library[0].id); // the first imported, at the top
       expect(relay.name).toBe("one");
       expect(relay.tab).toBe("library");
       expect(relay.toast).toMatchObject({ kind: "info", message: "Imported 2 macros" });
