@@ -2,7 +2,7 @@
   import Icon from "../../ui/Icon.svelte";
   import StepEditor from "./StepEditor.svelte";
   import { tick } from "svelte";
-  import { relay } from "../../../lib/state/relay.svelte";
+  import { relay, TRIM_PAUSE_MS } from "../../../lib/state/relay.svelte";
   import { fmtTime, plural } from "../../../lib/format";
   import type { Step } from "../../../lib/types";
 
@@ -21,10 +21,18 @@
   const curIdx = $derived(relay.curStepIdx);
   const anchor = $derived(relay.view?.recording.anchor_window?.rect);
 
-  function where(x: number, y: number): string {
-    return relay.playback.coord_mode === "window" && anchor
-      ? `+${x - anchor.x}, +${y - anchor.y} in window`
-      : `${x}, ${y} px`;
+  const inWindow = $derived(relay.playback.coord_mode === "window" && !!anchor);
+  const signed = (n: number) => (n < 0 ? `${n}` : `+${n}`);
+  /** A position as played: on the screen, or relative to the anchor window. */
+  const at = (x: number, y: number) => (inWindow && anchor ? `${signed(x - anchor.x)}, ${signed(y - anchor.y)}` : `${x}, ${y}`);
+  const unit = $derived(inWindow ? " in window" : " px");
+  const where = (x: number, y: number) => at(x, y) + unit;
+
+  /** "1 notch", "2 notches", "0.5 notch": a wheel notch is 120; precise wheels send less. */
+  function notches(delta: number): string {
+    const n = Math.abs(delta) / 120;
+    const shown = Number.isInteger(n) ? String(n) : n < 0.05 ? n.toPrecision(1) : n.toFixed(1);
+    return `${shown} ${Number(shown) > 1 ? "notches" : "notch"}`;
   }
 
   function describe(s: Step): [string, string] {
@@ -34,9 +42,12 @@
         return [what + (s.label ? " · " + s.label : ""), where(s.x, s.y)];
       }
       case "drag":
-        return [`${s.btn === "Left" ? "Drag" : s.btn + " drag"}${s.label ? " · " + s.label : ""}`, `${where(s.x, s.y)} → ${s.to_x}, ${s.to_y}`];
+        return [
+          `${s.btn === "Left" ? "Drag" : s.btn + " drag"}${s.label ? " · " + s.label : ""}`,
+          inWindow ? `${at(s.x, s.y)} → ${at(s.to_x, s.to_y)}${unit}` : `${where(s.x, s.y)} → ${s.to_x}, ${s.to_y}`,
+        ];
       case "scroll":
-        return [`Scroll ${s.horizontal ? (s.delta > 0 ? "right" : "left") : s.delta > 0 ? "up" : "down"}`, `${Math.abs(s.delta) / 120} notches at ${where(s.x, s.y)}`];
+        return [`Scroll ${s.horizontal ? (s.delta > 0 ? "right" : "left") : s.delta > 0 ? "up" : "down"}`, `${notches(s.delta)} at ${where(s.x, s.y)}`];
       case "keys":
         return [s.combo.join(" + "), "Key combination"];
       case "type":
@@ -51,8 +62,8 @@
     }
   }
 
-  /** Pauses at least this long get a marker above their step. */
-  const SHOW_PAUSE_MS = 1000;
+  /** Pauses longer than this get a marker above their step (the length Trim pauses leaves). */
+  const SHOW_PAUSE_MS = TRIM_PAUSE_MS;
 
   /** The row whose editor is open (the store keeps it on its step across edits); none for live steps. */
   const open = $derived(relay.mode === "recording" ? -1 : relay.selected);
@@ -92,7 +103,7 @@
   {#each steps as s, i (s.items[0] ?? i)}
     {@const [detail, sub] = describe(s)}
     <div class="item">
-      {#if s.pause >= SHOW_PAUSE_MS && relay.mode !== "recording"}
+      {#if s.pause > SHOW_PAUSE_MS && relay.mode !== "recording"}
         <div class="pause" aria-hidden="true">{(s.pause / 1000).toFixed(1)} s pause</div>
       {/if}
       <div

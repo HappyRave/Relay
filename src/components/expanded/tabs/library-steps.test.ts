@@ -146,7 +146,9 @@ describe("Steps tab", () => {
     ["drag", { kind: "drag", btn: "Left", to_x: 300, to_y: 400, label: "" }, "Drag", "10, 20 px → 300, 400"],
     ["right drag", { kind: "drag", btn: "Right", to_x: 1, to_y: 2, label: "Box" }, "Right drag · Box", ""],
     ["scroll down", { kind: "scroll", delta: -240, horizontal: false }, "Scroll down", "2 notches at 10, 20 px"],
-    ["scroll up", { kind: "scroll", delta: 120, horizontal: false }, "Scroll up", "1 notches"],
+    ["scroll up", { kind: "scroll", delta: 120, horizontal: false }, "Scroll up", "1 notch at 10, 20 px"],
+    ["half-notch scroll", { kind: "scroll", delta: 60, horizontal: false }, "Scroll up", "0.5 notch at"],
+    ["precise scroll", { kind: "scroll", delta: -200, horizontal: false }, "Scroll down", "1.7 notches at"],
     ["scroll right", { kind: "scroll", delta: 120, horizontal: true }, "Scroll right", ""],
     ["scroll left", { kind: "scroll", delta: -120, horizontal: true }, "Scroll left", ""],
     ["keys", { kind: "keys", combo: ["Ctrl", "Shift", "S"] }, "Ctrl + Shift + S", "Key combination"],
@@ -169,10 +171,29 @@ describe("Steps tab", () => {
     expect(stepRows()[0]).toHaveTextContent("+86, +34 in window");
   });
 
+  test("in Window coordinates, a drag shows both ends in the window", async () => {
+    await relay.setPlayback({ coord_mode: "window" });
+    relay.view = {
+      ...relay.view!,
+      steps: [{ kind: "drag", t: 0, end: 10, pause: 0, items: [0, 1], x: 40, y: 50, to_x: 300, to_y: 400, btn: "Left", label: "" }],
+    };
+    render(StepsTab);
+    // The anchor window is at 48, 36: a start left of it is negative.
+    expect(stepRows()[0]).toHaveTextContent("-8, +14 → +252, +364 in window");
+  });
+
   test("long pauses are marked above their step", () => {
     render(StepsTab);
     expect(screen.getByText("1.4 s pause")).toBeInTheDocument();
     expect(screen.getAllByText(/s pause$/)).toHaveLength(1);
+  });
+
+  test("a pause trimmed to exactly 1 s isn't marked any more", async () => {
+    render(StepsTab);
+    await relay.trimPauses();
+    await settle();
+    expect(relay.steps[9].pause).toBe(1000);
+    expect(screen.queryByText(/s pause$/)).toBeNull();
   });
 
   test("the step under the playhead is highlighted, later ones dimmed", async () => {
@@ -200,6 +221,25 @@ describe("Steps tab", () => {
     stepRows()[3].focus();
     await userEvent.keyboard("{Enter}");
     expect(screen.getByRole("group", { name: "Edit step" })).toBeInTheDocument();
+  });
+
+  test("Space opens a step's editor, and again closes it", async () => {
+    render(StepsTab);
+    stepRows()[3].focus();
+    await userEvent.keyboard(" ");
+    expect(stepRows()[3]).toHaveAttribute("aria-expanded", "true");
+    expect(relay.cur).toBe(3500);
+    await userEvent.keyboard(" ");
+    expect(screen.queryByRole("group", { name: "Edit step" })).toBeNull();
+  });
+
+  test("Enter on a step's × deletes it instead of opening it", async () => {
+    render(StepsTab);
+    within(stepRows()[4]).getByRole("button", { name: "Delete step" }).focus();
+    await userEvent.keyboard("{Enter}");
+    await settle();
+    expect(core.argsOf("edit_macro")).toEqual([{ id: A, op: { op: "delete_step", index: 4 } }]);
+    expect(screen.queryByRole("group", { name: "Edit step" })).toBeNull();
   });
 
   test("× deletes that step (and doesn't open it)", async () => {
