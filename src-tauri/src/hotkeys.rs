@@ -153,26 +153,61 @@ fn register(app: &AppHandle) {
 }
 
 /// Parses a combo as shown in the UI ("Ctrl + Alt + 1", "Shift + F7").
-/// A plain key needs at least one modifier, except the function keys.
+/// A plain key needs at least one modifier, except the function keys; Shift
+/// alone isn't enough for a key that types (Shift + A is a capital A); and
+/// the last key can't be a modifier itself.
 pub fn parse_combo(combo: &str) -> Result<Shortcut, String> {
     let parts: Vec<&str> = combo.split('+').map(str::trim).filter(|p| !p.is_empty()).collect();
     let (key, mods) = parts.split_last().ok_or("The hotkey is empty")?;
+    let modifier = |p: &str| match p {
+        "Ctrl" => Some(Modifiers::CONTROL),
+        "Alt" => Some(Modifiers::ALT),
+        "Shift" => Some(Modifiers::SHIFT),
+        "Win" => Some(Modifiers::SUPER),
+        _ => None,
+    };
     let mut m = Modifiers::empty();
     for p in mods {
-        m |= match *p {
-            "Ctrl" => Modifiers::CONTROL,
-            "Alt" => Modifiers::ALT,
-            "Shift" => Modifiers::SHIFT,
-            "Win" => Modifiers::SUPER,
-            other => return Err(format!("“{other}” isn't a modifier (use Ctrl, Alt, Shift or Win)")),
-        };
+        m |= modifier(p).ok_or_else(|| format!("“{p}” isn't a modifier (use Ctrl, Alt, Shift or Win)"))?;
     }
-    let code = Code::from_str(&code_for_label(key)).map_err(|_| format!("“{key}” isn't a key Relay can use"))?;
+    if modifier(key).is_some() {
+        return Err(format!("Add a key after {key}: a hotkey can't end with a modifier"));
+    }
+    let code_name = code_for_label(key);
+    let code = Code::from_str(&code_name).map_err(|_| format!("“{key}” isn't a key Relay can use"))?;
     let is_fkey = matches!(key.strip_prefix('F').and_then(|n| n.parse::<u8>().ok()), Some(1..=24));
     if m.is_empty() && !is_fkey {
         return Err("Add Ctrl, Alt, Shift or Win, so the key still types normally".into());
     }
+    if m == Modifiers::SHIFT && types_a_character(&code_name) {
+        return Err(format!("Add Ctrl, Alt or Win: Shift + {key} is ordinary typing"));
+    }
     Ok(Shortcut::new((!m.is_empty()).then_some(m), code))
+}
+
+/// Whether the key with this code types something (a letter, a digit,
+/// punctuation, a space or a new line), so Shift + it is just typing.
+fn types_a_character(code: &str) -> bool {
+    let one_of = |prefix: &str| code.strip_prefix(prefix).is_some_and(|rest| rest.len() == 1);
+    one_of("Key")
+        || one_of("Digit")
+        || matches!(
+            code,
+            "Minus"
+                | "Equal"
+                | "BracketLeft"
+                | "BracketRight"
+                | "Backslash"
+                | "IntlBackslash"
+                | "Semicolon"
+                | "Quote"
+                | "Backquote"
+                | "Comma"
+                | "Period"
+                | "Slash"
+                | "Space"
+                | "Enter"
+        )
 }
 
 /// Why `combo` can't be `id`'s hotkey, if it can't.
@@ -294,6 +329,48 @@ mod tests {
         assert_eq!(parse_combo("Ctrl + Ctrl + Shift + K").unwrap(), want, "a repeated modifier counts once");
         assert_eq!(parse_combo("Ctrl + + K").unwrap(), Shortcut::new(Some(Modifiers::CONTROL), Code::KeyK));
         assert!(parse_combo(" + ").is_err());
+    }
+
+    #[test]
+    fn shift_alone_isnt_enough_for_a_key_that_types() {
+        for combo in ["Shift + A", "Shift + 7", "Shift + -", "Shift + /", "Shift + ;", "Shift + Space", "Shift + Enter"]
+        {
+            let e = parse_combo(combo).unwrap_err();
+            assert!(e.starts_with("Add Ctrl, Alt or Win") && e.contains("is ordinary typing"), "{combo}: {e}");
+        }
+        assert_eq!(parse_combo("Shift + A").unwrap_err(), "Add Ctrl, Alt or Win: Shift + A is ordinary typing");
+        // Keys that don't type are fine with Shift alone.
+        for (combo, code) in [
+            ("Shift + F7", Code::F7),
+            ("Shift + Left", Code::ArrowLeft),
+            ("Shift + Home", Code::Home),
+            ("Shift + PgDn", Code::PageDown),
+            ("Shift + Del", Code::Delete),
+            ("Shift + Tab", Code::Tab),
+            ("Shift + Num 1", Code::Numpad1),
+        ] {
+            assert_eq!(parse_combo(combo).unwrap(), Shortcut::new(Some(Modifiers::SHIFT), code), "{combo}");
+        }
+        // With another modifier, a typing key is fine.
+        assert_eq!(
+            parse_combo("Ctrl + Shift + A").unwrap(),
+            Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyA)
+        );
+        assert!(parse_combo("Alt + Shift + Space").is_ok());
+    }
+
+    #[test]
+    fn a_hotkey_cant_end_with_a_modifier() {
+        for (combo, key) in
+            [("Ctrl + Shift", "Shift"), ("Alt + Ctrl", "Ctrl"), ("Shift", "Shift"), ("Ctrl + Win", "Win")]
+        {
+            assert_eq!(
+                parse_combo(combo).unwrap_err(),
+                format!("Add a key after {key}: a hotkey can't end with a modifier"),
+                "{combo}"
+            );
+        }
+        assert!(parse_combo("Ctrl + Alt").unwrap_err().contains("Add a key after Alt"));
     }
 
     #[test]
