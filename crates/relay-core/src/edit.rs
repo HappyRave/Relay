@@ -204,9 +204,12 @@ fn retime_pauses(events: &mut [Event], pauses: &[(Ms, Ms, Ms)]) {
 /// Moves `at` just past the step it falls on, from its start to its end (a
 /// press, a drag, a wait), so a step's own release is never pushed behind the
 /// inserted wait. Clicking a step puts the playhead on its start, so an
-/// insertion there lands after that step.
+/// insertion there lands after that step. A step ending at `Ms::MAX` can't
+/// be passed: the insertion stops there.
 fn snap_insertion(steps: &[Step], mut at: Ms) -> Ms {
-    while let Some(s) = steps.iter().find(|s| s.t <= at && at <= s.end) {
+    while at < Ms::MAX
+        && let Some(s) = steps.iter().find(|s| s.t <= at && at <= s.end)
+    {
         at = s.end.saturating_add(1);
     }
     at
@@ -215,7 +218,8 @@ fn snap_insertion(steps: &[Step], mut at: Ms) -> Ms {
 fn insert_timed(events: &mut Vec<Event>, steps: &[Step], at: Ms, dur: Ms, make: impl FnOnce(Ms) -> Event) {
     let at = snap_insertion(steps, at);
     shift_from(events, at, dur as i64);
-    let pos = events.partition_point(|e| e.t() < at);
+    // Nothing moves past `Ms::MAX`, so a wait there goes after what's already there.
+    let pos = if at == Ms::MAX { events.len() } else { events.partition_point(|e| e.t() < at) };
     events.insert(pos, make(at));
 }
 
@@ -450,6 +454,27 @@ mod tests {
         apply(&mut m, EditOp::SetPause { index: 0, dur: Ms::MAX }).unwrap();
         apply(&mut m, EditOp::SetWaitDuration { index: 0, dur: Ms::MAX }).unwrap();
         assert!(matches!(m.events[0], Event::Wait { dur: MAX_DUR, .. }));
+
+        // Inserting inside a step that ends at the very last millisecond stops there.
+        let b = |t, down| Event::Button { t, x: 5, y: 5, btn: MouseBtn::Left, down, label: String::new() };
+        let mut m = mac(vec![b(Ms::MAX - 50, true), b(Ms::MAX, false)]);
+        apply(&mut m, EditOp::InsertWait { at: Ms::MAX - 20, dur: 500, label: String::new() }).unwrap();
+        let pixel = EditOp::InsertPixelWait {
+            at: Ms::MAX - 50,
+            dur: Ms::MAX,
+            x: 1,
+            y: 2,
+            color: Rgb(1, 2, 3),
+            tolerance: 8,
+            timeout_ms: 5000,
+            label: String::new(),
+        };
+        apply(&mut m, pixel).unwrap();
+        assert!(matches!(m.events[1], Event::Button { t: Ms::MAX, down: false, .. }), "{:?}", m.events);
+        assert!(matches!(m.events[2], Event::Wait { t: Ms::MAX, dur: 500, .. }));
+        assert!(matches!(m.events[3], Event::PixelWait { t: Ms::MAX, dur: MAX_DUR, .. }));
+        check_invariants(&m.events).unwrap();
+        let _ = crate::view::MacroView::of(&m);
     }
 
     #[test]
