@@ -33,6 +33,7 @@
       step="5"
       aria-label="Jitter"
       value={pb.jitter_ms}
+      disabled={!pb.humanize}
       oninput={(e) => relay.previewPlayback({ jitter_ms: +e.currentTarget.value })}
       onchange={(e) => relay.setPlayback({ jitter_ms: +e.currentTarget.value })}
     />

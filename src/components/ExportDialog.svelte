@@ -39,7 +39,7 @@
   <div class="file">{relay.exportName}</div>
   <div class="dialog-actions">
     {#if !relay.editable}<span class="note">Exporting needs the Relay app</span>{/if}
-    <button class="btn btn-primary save" disabled={!relay.editable} onclick={relay.doExport}>Save…</button>
+    <button class="btn btn-primary save" disabled={!relay.editable || !relay.view} onclick={relay.doExport}>Save…</button>
     <button class="btn btn-ghost cancel" onclick={() => el?.close()}>Cancel</button>
   </div>
 </dialog>

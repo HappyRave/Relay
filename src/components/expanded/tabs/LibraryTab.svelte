@@ -49,6 +49,8 @@
         <span>{fmtLastRun(e.last_run)}</span>
       </div>
     </div>
+  {:else}
+    <div class="empty">No macros yet — press Record (F9) to make one.</div>
   {/each}
   <div class="footer">
     <span class="note">New recordings are saved here automatically.</span>
@@ -101,6 +103,12 @@
     justify-content: space-between;
     font-size: 11px;
     color: var(--color-neutral-700);
+  }
+  .empty {
+    padding: 12px;
+    font-size: 12px;
+    color: var(--color-neutral-700);
+    border-bottom: 1px solid var(--color-neutral-300);
   }
   .footer {
     display: flex;

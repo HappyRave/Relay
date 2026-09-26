@@ -30,7 +30,7 @@
       <Icon name="redo" size={17} />
     </button>
   {/if}
-  <button class="export" onclick={() => (relay.exportOpen = true)}>Export<Icon name="export" size={15} /></button>
+  <button class="export" disabled={!relay.view} onclick={() => (relay.exportOpen = true)}>Export<Icon name="export" size={15} /></button>
   <button class="icon" title="Compact player (Ctrl + Shift + M)" aria-label="Compact player" onclick={() => (relay.expanded = false)}>
     <Icon name="collapse" size={18} />
   </button>

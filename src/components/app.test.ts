@@ -170,6 +170,23 @@ describe("Export dialog", () => {
     expect(relay.exportOpen).toBe(true);
   });
 
+  test("a failed export keeps the dialog open and says why", async () => {
+    render(ExportDialog);
+    core.dialog.save = "C:\\Windows\\invoice.rly";
+    core.fail("export_macro", "Couldn't save: access denied");
+    await userEvent.click(screen.getByRole("button", { name: "Save…" }));
+    await settle();
+    expect(relay.exportOpen).toBe(true);
+    expect(screen.getByRole("dialog")).toHaveAttribute("open");
+    expect(relay.error).toBe("Couldn't save: access denied");
+  });
+
+  test("with no macro open, there's nothing to save", () => {
+    relay.view = null;
+    render(ExportDialog);
+    expect(screen.getByRole("button", { name: "Save…" })).toBeDisabled();
+  });
+
   test("Cancel closes it", async () => {
     render(ExportDialog);
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));

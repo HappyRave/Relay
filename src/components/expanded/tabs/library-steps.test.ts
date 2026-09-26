@@ -30,6 +30,14 @@ describe("Library tab", () => {
     expect(items[0]).toHaveClass("active");
   });
 
+  test("an empty library says how to make a macro", async () => {
+    core.entries = [];
+    await relay.refreshLibrary();
+    render(LibraryTab);
+    expect(screen.getByText("No macros yet — press Record (F9) to make one.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Import/ })).toBeEnabled();
+  });
+
   test("clicking a macro opens it", async () => {
     render(LibraryTab);
     await userEvent.click(screen.getByText("Fill weekly timesheet"));

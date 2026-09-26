@@ -49,6 +49,14 @@ describe("Settings tab", () => {
     expect(options().jitter_ms).toBe(120);
   });
 
+  test("the jitter slider is off while Humanize is", async () => {
+    render(SettingsTab);
+    expect(screen.getByRole("slider", { name: "Jitter" })).toBeEnabled();
+    await userEvent.click(toggle("Humanize"));
+    await settle();
+    expect(screen.getByRole("slider", { name: "Jitter" })).toBeDisabled();
+  });
+
   test("Coordinates: Screen or Window", async () => {
     render(SettingsTab);
     expect(screen.getByRole("radio", { name: "Screen" })).toHaveAttribute("aria-checked", "true");

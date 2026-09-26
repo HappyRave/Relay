@@ -100,6 +100,12 @@ describe("Header", () => {
     ]);
   });
 
+  test("with no macro open, there's nothing to export", async () => {
+    relay.view = null;
+    render(Header);
+    expect(screen.getByRole("button", { name: /Export/ })).toBeDisabled();
+  });
+
   test("Export opens the export dialog", async () => {
     render(Header);
     await userEvent.click(screen.getByRole("button", { name: /Export/ }));
