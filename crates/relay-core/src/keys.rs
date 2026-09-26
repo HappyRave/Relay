@@ -148,6 +148,18 @@ pub fn code_for_label(label: &str) -> String {
     }
 }
 
+/// Splits a combo like "Ctrl + A" into its labels. The key can be `+` itself
+/// ("Ctrl + +"). `None` when a part is missing ("Ctrl +", "").
+pub fn split_combo(combo: &str) -> Option<Vec<&str>> {
+    let mut parts: Vec<&str> = combo.split('+').map(str::trim).collect();
+    // "Ctrl + +" splits into "Ctrl", "", "": the last two are the + key.
+    if parts.len() >= 2 && parts[parts.len() - 2..] == ["", ""] {
+        parts.truncate(parts.len() - 2);
+        parts.push("+");
+    }
+    (!parts.iter().any(|p| p.is_empty())).then_some(parts)
+}
+
 /// The US-layout key that types `c`, and whether Shift is needed.
 pub fn key_for_char(c: char) -> Option<(String, bool)> {
     if c.is_ascii_lowercase() {
@@ -259,6 +271,18 @@ mod tests {
         // Shifted symbols name the key they're on (a "+" hotkey is the = key).
         assert_eq!(code_for_label("+"), "Equal");
         assert_eq!(code_for_label("?"), "Slash");
+    }
+
+    #[test]
+    fn combos_split_into_labels() {
+        assert_eq!(split_combo("Ctrl + Shift + S"), Some(vec!["Ctrl", "Shift", "S"]));
+        assert_eq!(split_combo("F9"), Some(vec!["F9"]));
+        assert_eq!(split_combo("Ctrl + +"), Some(vec!["Ctrl", "+"]));
+        assert_eq!(split_combo("Ctrl+Alt++"), Some(vec!["Ctrl", "Alt", "+"]));
+        assert_eq!(split_combo("+"), Some(vec!["+"]));
+        for bad in ["", "Ctrl +", "+ A", "Ctrl + + A", "Ctrl + + +"] {
+            assert_eq!(split_combo(bad), None, "{bad:?}");
+        }
     }
 
     #[test]

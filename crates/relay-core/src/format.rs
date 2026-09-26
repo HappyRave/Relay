@@ -10,7 +10,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::edit::normalize;
-use crate::keys::{code_for_label, key_for_char};
+use crate::keys::{code_for_label, key_for_char, split_combo};
 use crate::model::{Macro, PlaybackOptions, RecordingMeta};
 use crate::steps::{Step, group_steps};
 
@@ -131,10 +131,7 @@ fn migrate_v0(obj: &mut Map<String, Value>) -> Result<(), FormatError> {
             }
             "key" => {
                 let combo = text("key");
-                let parts: Vec<&str> = combo.split('+').map(str::trim).collect();
-                if parts.iter().any(|p| p.is_empty()) {
-                    return Err(bad("key"));
-                }
+                let parts = split_combo(&combo).ok_or_else(|| bad("key"))?;
                 let parts: Vec<String> = parts.into_iter().map(code_for_label).collect();
                 let (main, mods) = parts.split_last().ok_or_else(|| bad("key"))?;
                 for m in mods {
@@ -255,6 +252,23 @@ mod tests {
         let loaded = from_rly(&to_rly(&m)).unwrap();
         check_invariants(&loaded.events).unwrap();
         assert_eq!(loaded.events.iter().map(Event::t).collect::<Vec<_>>(), [0, 120, 180, 400, 450, 600, 1500, 1500]);
+    }
+
+    #[test]
+    fn a_v0_combo_can_use_the_plus_key() {
+        let v0 = r#"{"format":"relay-macro","version":0,"events":[{"t":0,"type":"key","key":"Ctrl + +"}]}"#;
+        let m = from_rly(v0).unwrap();
+        let keys: Vec<_> = m
+            .events
+            .iter()
+            .map(|e| match e {
+                Event::Key { key, down, .. } => (key.code.as_str(), *down),
+                e => panic!("{e:?}"),
+            })
+            .collect();
+        assert_eq!(keys, [("ControlLeft", true), ("Equal", true), ("Equal", false), ("ControlLeft", false)]);
+        let bad = r#"{"format":"relay-macro","version":0,"events":[{"t":0,"type":"key","key":"Ctrl +"}]}"#;
+        assert!(matches!(from_rly(bad), Err(FormatError::Invalid(_))));
     }
 
     #[test]
