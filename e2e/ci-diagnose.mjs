@@ -39,7 +39,14 @@ proc.stdout.on("data", (d) => (out += d));
 proc.stderr.on("data", (d) => (out += d));
 await new Promise((r) => setTimeout(r, 20_000));
 
-report("WebView2 processes", run('tasklist /V /FI "IMAGENAME eq msedgewebview2.exe"'));
+report(
+  "WebView2 command lines",
+  run(
+    'powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"Name=\'msedgewebview2.exe\'\\" | Where-Object { $_.CommandLine -match \'webview-exe-name=relay\' -and $_.CommandLine -notmatch \'--type=\' } | ForEach-Object { $_.CommandLine }"',
+  ),
+);
+report("Edge policies", run("reg query HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge /s") + "\n" + run("reg query HKCU\\SOFTWARE\\Policies\\Microsoft\\Edge /s"));
+report("WebView2 environment", Object.entries(process.env).filter(([k]) => /webview2/i.test(k)).map(([k, v]) => `${k}=${v}`).join("\n") || "(none)");
 report("Relay process", run(`tasklist /V /FI "PID eq ${proc.pid}"`));
 report("Listening ports", run("netstat -ano -p TCP | findstr LISTENING"));
 let json;
