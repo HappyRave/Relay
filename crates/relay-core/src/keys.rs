@@ -165,11 +165,34 @@ pub fn key_for_char(c: char) -> Option<(String, bool)> {
         '_' => ("Minus", true),
         '=' => ("Equal", false),
         '+' => ("Equal", true),
-        '.' => ("Period", false),
-        ',' => ("Comma", false),
-        '/' => ("Slash", false),
+        '[' => ("BracketLeft", false),
+        '{' => ("BracketLeft", true),
+        ']' => ("BracketRight", false),
+        '}' => ("BracketRight", true),
+        '\\' => ("Backslash", false),
+        '|' => ("Backslash", true),
         ';' => ("Semicolon", false),
+        ':' => ("Semicolon", true),
         '\'' => ("Quote", false),
+        '"' => ("Quote", true),
+        '`' => ("Backquote", false),
+        '~' => ("Backquote", true),
+        ',' => ("Comma", false),
+        '<' => ("Comma", true),
+        '.' => ("Period", false),
+        '>' => ("Period", true),
+        '/' => ("Slash", false),
+        '?' => ("Slash", true),
+        '!' => ("Digit1", true),
+        '@' => ("Digit2", true),
+        '#' => ("Digit3", true),
+        '$' => ("Digit4", true),
+        '%' => ("Digit5", true),
+        '^' => ("Digit6", true),
+        '&' => ("Digit7", true),
+        '*' => ("Digit8", true),
+        '(' => ("Digit9", true),
+        ')' => ("Digit0", true),
         _ => return None,
     };
     Some((code.into(), shift))
@@ -199,12 +222,43 @@ mod tests {
 
     #[test]
     fn labels_round_trip_to_codes() {
-        for l in [
-            "Ctrl", "Alt", "Shift", "Win", "A", "7", "Enter", "Tab", "F2", "Esc", "Left", "-", "PgUp", "Del", "Ins",
-            "Num 3", "Home", "Space",
-        ] {
-            assert_eq!(label(&code_for_label(l)), l, "{l}");
+        let cases = [
+            ("Ctrl", "ControlLeft"),
+            ("Alt", "AltLeft"),
+            ("Shift", "ShiftLeft"),
+            ("Win", "MetaLeft"),
+            ("A", "KeyA"),
+            ("7", "Digit7"),
+            ("Enter", "Enter"),
+            ("Tab", "Tab"),
+            ("F2", "F2"),
+            ("Esc", "Escape"),
+            ("Left", "ArrowLeft"),
+            ("PgUp", "PageUp"),
+            ("Del", "Delete"),
+            ("Ins", "Insert"),
+            ("Num 3", "Numpad3"),
+            ("Home", "Home"),
+            ("Space", "Space"),
+            ("-", "Minus"),
+            ("=", "Equal"),
+            ("[", "BracketLeft"),
+            ("]", "BracketRight"),
+            ("\\", "Backslash"),
+            ("`", "Backquote"),
+            (";", "Semicolon"),
+            ("'", "Quote"),
+            (",", "Comma"),
+            (".", "Period"),
+            ("/", "Slash"),
+        ];
+        for (l, code) in cases {
+            assert_eq!(code_for_label(l), code, "{l}");
+            assert_eq!(label(code), l, "{code}");
         }
+        // Shifted symbols name the key they're on (a "+" hotkey is the = key).
+        assert_eq!(code_for_label("+"), "Equal");
+        assert_eq!(code_for_label("?"), "Slash");
     }
 
     #[test]
@@ -220,6 +274,15 @@ mod tests {
         assert_eq!(key_for_char('a'), Some(("KeyA".into(), false)));
         assert_eq!(key_for_char('A'), Some(("KeyA".into(), true)));
         assert_eq!(key_for_char('_'), Some(("Minus".into(), true)));
+        assert_eq!(key_for_char('['), Some(("BracketLeft".into(), false)));
+        assert_eq!(key_for_char('~'), Some(("Backquote".into(), true)));
+        assert_eq!(key_for_char('@'), Some(("Digit2".into(), true)));
+        assert_eq!(key_for_char(')'), Some(("Digit0".into(), true)));
+        assert_eq!(key_for_char('"'), Some(("Quote".into(), true)));
         assert_eq!(key_for_char('é'), None);
+        // Every printable US character has a key.
+        for c in (' '..='~').filter(|c| !c.is_ascii_alphanumeric()) {
+            assert!(key_for_char(c).is_some(), "{c:?}");
+        }
     }
 }
