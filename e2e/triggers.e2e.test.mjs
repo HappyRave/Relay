@@ -4,6 +4,7 @@
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { readdirSync, readFileSync } from "node:fs";
 import { App, sleep, until, waitingMacro, writeRly } from "./harness.mjs";
 
 describe("triggers", () => {
@@ -239,6 +240,17 @@ describe("triggers", () => {
       await set({ pixel: { enabled: false, x, y, color: "#EC3013", tolerance: 8 } });
       await page.run(() => document.getElementById("e2e-patch")?.remove());
     });
+  });
+
+  test("the log records the start and each triggered run", async () => {
+    const log = () => {
+      const files = readdirSync(app.path("logs")).filter((f) => /^relay\.\d{4}-\d{2}-\d{2}\.log$/.test(f));
+      return files.map((f) => readFileSync(app.path("logs", f), "utf8")).join("");
+    };
+    await until(() => /Relay started/.test(log()) && /trigger due/.test(log()) && /running a triggered macro/.test(log()), {
+      what: "the log lines",
+    });
+    for (const source of ["Schedule", "AppLaunch", "Pixel"]) assert.match(log(), new RegExp(`source=${source}`));
   });
 
   test("triggers survive a restart", async () => {

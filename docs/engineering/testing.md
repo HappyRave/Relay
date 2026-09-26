@@ -19,7 +19,7 @@ flowchart BT
 | --- | --- | --- |
 | Rust unit, property and snapshot tests | about 180 | Next to the code, in `#[cfg(test)]` modules |
 | Frontend: the store, the backend contract and the components | about 390 | `src/**/*.test.ts` |
-| End to end, against the built app | 76 | [`e2e/`](../../e2e) |
+| End to end, against the built app | 77 | [`e2e/`](../../e2e) |
 
 - [Running the tests](#running-the-tests)
 - [relay-core](#relay-core)
@@ -142,7 +142,7 @@ The tests never send input to the desktop. Macros that get played contain only w
 | `editing` | Deleting a step; undo and redo (buttons, and Ctrl + Z / Ctrl + Y); + Wait and + Pixel check; the step editor's label, pause, wait duration and every pixel field; Trim pauses; a rejected edit; every playback option; undo history kept per macro, and not across restarts |
 | `settings` | Every setting in `settings.json`; Keep on top on the native window, including "only during sessions"; compact mode resizing the window and reopening compact; the anchor kept; close to tray hiding, and quitting when it's off |
 | `playback` | Playing to the end, with the run counted; loops; speed; pause and resume; stop; playing from the playhead; seeking and changing speed mid-playback; a pixel check timing out; the busy guard; recording's countdown, and cancelling it |
-| `triggers` | Hotkeys registered, and refused for Relay's own, another macro's or an unusable combo; the schedule saved with its next run, then firing at the minute; the app-launch trigger firing, skipped while busy, and not firing while paused; the pixel trigger firing once per change; everything after a restart |
+| `triggers` | Hotkeys registered, and refused for Relay's own, another macro's or an unusable combo; the schedule saved with its next run, then firing at the minute; the app-launch trigger firing, skipped while busy, and not firing while paused; the pixel trigger firing once per change; the log recording each run; everything after a restart |
 
 Anything that needs real input isn't covered end to end: recording actual clicks and keys, Esc, stop on key press, pressing a macro's hotkey, the kill switch, and the tray menu. The engine's injection is covered by its unit tests with a recording injector. The rest is in the manual checks below.
 
