@@ -17,6 +17,11 @@ describe("comboOf", () => {
     expect(comboOf(key("&", "Digit1", { ctrlKey: true }))).toBe("Ctrl + 1");
   });
 
+  it("falls back to the physical key on non-Latin layouts", () => {
+    // Russian: the key labeled F on QWERTY types "а".
+    expect(comboOf(key("а", "KeyF", { ctrlKey: true }))).toBe("Ctrl + F");
+  });
+
   it("rejects keys relay-core can't register", () => {
     expect(comboOf(key("Control", "ControlLeft", { ctrlKey: true }))).toBeNull();
     expect(comboOf(key("ù", "Quote", { ctrlKey: true }))).toBeNull();

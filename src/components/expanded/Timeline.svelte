@@ -1,6 +1,6 @@
 <script lang="ts">
   import { relay } from "../../lib/state/relay.svelte";
-  import { keyChips, moveSegments, pct, ruler } from "../../lib/timeline/lanes";
+  import { keyChips, moveSegments, pct, ruler, startedCount } from "../../lib/timeline/lanes";
   import { seekable } from "../../lib/actions/seekable";
   import type { StepOf } from "../../lib/types";
 
@@ -10,7 +10,10 @@
   const ticks = $derived(ruler(d));
   const moves = $derived(moveSegments(relay.moves, d));
   const clicks = $derived(steps.filter((s): s is StepOf<"click"> => s.kind === "click"));
-  const chips = $derived(keyChips(steps, d, cur));
+  const chips = $derived(keyChips(steps, d));
+  // How many of each have been reached: changes only when the playhead passes one.
+  const pastClicks = $derived(startedCount(clicks, cur));
+  const pastChips = $derived(startedCount(chips, cur));
   const waits = $derived(steps.filter((s): s is StepOf<"wait"> => s.kind === "wait"));
   const conds = $derived(steps.filter((s): s is StepOf<"pixel_wait"> => s.kind === "pixel_wait"));
 </script>
@@ -30,13 +33,13 @@
       {/each}
     </div>
     <div class="lane" style:top="26px">
-      {#each clicks as c (c.items[0])}
-        <div class="click" class:past={c.t <= cur} style:left="{pct(c.t, d)}%"></div>
+      {#each clicks as c, i (c.items[0])}
+        <div class="click" class:past={i < pastClicks} style:left="{pct(c.t, d)}%"></div>
       {/each}
     </div>
     <div class="lane" style:top="52px">
       {#each chips as k, i (i)}
-        <div class="chip" class:past={k.past} style:left="{k.l}%" style:width="{k.w}%" title={k.label}>{k.label}</div>
+        <div class="chip" class:past={i < pastChips} style:left="{k.l}%" style:width="{k.w}%" title={k.label}>{k.label}</div>
       {/each}
     </div>
     <div class="lane last" style:top="78px">

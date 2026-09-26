@@ -1,6 +1,6 @@
 # relay-core
 
-`crates/relay-core` holds everything about macros that doesn't need an operating system. It has no I/O and never reads a clock: callers pass time in. That keeps it fast to test, deterministic, and portable (CI tests it on Linux).
+`crates/relay-core` holds everything about macros that doesn't need an operating system. It has no I/O, and everything time-dependent (the playback clock, schedules, trigger edges) takes `now` as an argument instead of reading a clock. That keeps it fast to test, deterministic, and portable (CI tests it on Linux). The only clock reads are creation and edit timestamps (`created_at`, `modified_at`).
 
 - [Modules](#modules)
 - [The model](#the-model)
@@ -23,11 +23,11 @@
 | [`steps`](../../crates/relay-core/src/steps.rs) | `group_steps`: raw events → `Step`s |
 | [`edit`](../../crates/relay-core/src/edit.rs) | `EditOp`, `apply`, `normalize`, `check_invariants` |
 | [`format`](../../crates/relay-core/src/format.rs) | `.rly` serialization, the JSON export, loading and migrations |
-| [`playback`](../../crates/relay-core/src/playback.rs) | `PlayClock`, `PlaySession`, `plan_times` (humanize) |
+| [`playback`](../../crates/relay-core/src/playback.rs) | `PlayClock`, `plan_times` (humanize) |
 | [`session`](../../crates/relay-core/src/session.rs) | `Mode`, `Input`, `Effect`, `step` |
 | [`schedule`](../../crates/relay-core/src/schedule.rs) | `WeeklySchedule`, `next_run` |
 | [`triggers`](../../crates/relay-core/src/triggers.rs) | `MacroTriggers`, `PixelEdge`, `ProcessLaunchEdge` |
-| [`timeline`](../../crates/relay-core/src/timeline.rs) | `duration` and index lookups shared by the editor and the engine |
+| [`timeline`](../../crates/relay-core/src/timeline.rs) | `duration`, shared by the editor and the engine |
 | [`view`](../../crates/relay-core/src/view.rs) | `MacroView` and `MacroListItem`, what the UI receives |
 | [`samples`](../../crates/relay-core/src/samples.rs) | The four sample macros from the design |
 | [`proptests`](../../crates/relay-core/src/proptests.rs) | Property tests for grouping and edits |
@@ -62,7 +62,7 @@ pub enum Event {
 - **Time** `t` is milliseconds from the start of the recording (`Ms = u32`). `Wait` and `PixelWait` also have a duration, so `Event::end()` is `t + dur` for them and `t` otherwise.
 - **Positions** are physical pixels on the virtual desktop (all monitors, origin at the primary monitor's top-left, possibly negative).
 - **`Rgb`** serializes as `"#RRGGBB"`. `within(other, tolerance)` compares each channel independently.
-- **`Repeat`** is `{"count": n}` or `"forever"`.
+- **`Repeat`** is `{"count": n}` or `"forever"`; `Repeat::loops()` gives the count (at least 1) or `None`.
 
 Defaults for a new macro: speed 1, repeat once, humanize on with ±40 ms, stop on key press on, screen coordinates.
 
@@ -93,7 +93,7 @@ Details that matter:
 
 - **Moves belong to no step.** They're the path between steps.
 - **Auto-repeat** of a held key extends its step instead of creating new ones (and adds characters to a `Type` step).
-- **Modifier presses** are tracked separately. A modifier's down and up events are attached to the step they wrapped, if they wrapped exactly one. A modifier tapped alone (like the Win key) becomes its own `Keys` step. A modifier held across several steps belongs to none.
+- **Modifier presses** are tracked separately. A modifier's down and up events are attached to the step it wrapped (a shortcut, a Shift-click, a Ctrl-scroll) if it wrapped exactly one, and that step's `t`..`end` widens to cover them, so inserting or retiming around a shortcut never separates it from its modifier. A modifier tapped alone (like the Win key) becomes its own `Keys` step. A modifier held across several steps belongs to none. When two clicks merge into a double click, modifiers that wrapped the second follow the merge.
 - **Releases** join the step of their press, and extend its `end`.
 - **`pause`** is computed last: the time between the latest `end` of all earlier steps (or 0) and this step's `t`, or 0 when they overlap. It's the recorded idle time, when only the cursor moves.
 
@@ -116,6 +116,8 @@ The UI edits macros only through `EditOp`, applied by `edit::apply(&mut Macro, o
 | `CapPauses { max }` | `SetPause` to `max` for every pause above it, from last to first so the precomputed pauses stay valid |
 
 Steps are addressed by index into `group_steps` of the current events. The UI always re-renders from the `MacroView` an edit returns, so indices can't go stale.
+
+Times are `u32` milliseconds, and the arithmetic saturates rather than overflowing, even on a hand-edited file with absurd values. Edits cap the durations they set at a day (`MAX_DUR`).
 
 **`normalize`** is the safety net that runs after deletions, after loading any file and at the end of every recording:
 
@@ -164,7 +166,7 @@ deadline(t)  = anchor_wall + (t − anchor_t) / speed
 
 Every change (`set_speed`, `pause`, `resume`, `seek`) **re-anchors**: it stores the current macro time and wall time as the new anchor. Errors can't accumulate, so an hour-long loop is as precise as the first second.
 
-`PlaySession` adds the macro's duration and repeat count, and carries a loop's overshoot into the next loop.
+Loops are the engine's job (see [The app → The playback engine](app.md#the-playback-engine)): at the end of a loop it seeks the clock back by the loop's length, carrying the overshoot into the next loop so loops don't drift.
 
 ### Humanize
 
@@ -200,15 +202,14 @@ The effects it returns, in order, are what the coordinator performs:
 
 | Effect | Performed as |
 | --- | --- |
-| `StartCountdown { ms }`, `CancelCountdown` | A countdown thread with a generation counter, so a cancelled countdown's `CountdownDone` is ignored |
-| `StartRecording`, `StopRecording { keep }` | Hook and recorder threads |
-| `StartPlayback { from, source }`, `PausePlayback`, `ResumePlayback`, `StopPlayback` | The engine thread |
+| `StartCountdown { ms }`, `CancelCountdown` | A deadline in the coordinator's own loop, which waits with a timeout while it's set |
+| `StartRecording`, `StopRecording` | Hook and recorder threads (a stopped recording is always kept) |
+| `StartPlayback { from }`, `PausePlayback`, `ResumePlayback`, `StopPlayback(reason)` | The engine thread; the reason (`stopped`, `key_pressed`, `killed`) goes to the UI |
 | `SetHotkeys(Idle \| Recording \| Playing)` | Re-register the global hotkeys for that state |
 | `PauseTriggers` | After the kill switch |
-| `TriggerSkipped(source)` | A trigger arrived while busy |
 | `EmitMode(mode)` | Always last on a transition: tell the UI, the tray and the window |
 
-Every input not listed is ignored: F9 while playing, F10 while recording, a stale `CountdownDone`, a `PlaybackFinished` after a stop. Tests cover each transition.
+`Input::Stop` carries its reason too (`Esc` and the stop button: `stopped`; another key with *Stop on key press*: `key_pressed`), so it travels with the transition instead of through a side field. Every input not listed is ignored: F9 while playing, F10 while recording, a `PlaybackFinished` after a stop, a trigger while busy (the coordinator tells the user it was skipped). Tests cover each transition.
 
 ## Schedules
 
@@ -230,7 +231,7 @@ The polling triggers feed one sample per poll into an edge detector and fire on 
 
 ## Views for the UI
 
-The UI never receives raw events. `MacroView::of(&Macro)` sends the id, name, recording metadata, playback options, the **derived steps**, the **cursor path** (`MovePoint`s from moves and button events) and the **duration** (end of the last event + 500 ms of tail, at least 2 s). `MacroListItem` is a Library row.
+The UI never receives raw events. `MacroView::of(&Macro)` sends the id, name, recording metadata, playback options, the **derived steps**, the **cursor path** (`MovePoint`s from moves and button events) and the **duration** (end of the last event + 500 ms of tail; 2 s for an empty macro). `MacroListItem` is a Library row, built by the app's library from counts it caches.
 
 ---
 

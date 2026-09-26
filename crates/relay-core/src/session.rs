@@ -47,9 +47,12 @@ pub enum Input {
     /// F9 or the record button.
     ToggleRecord,
     /// F10 or the play button; `from` is the UI playhead when starting.
-    TogglePlay { from: Ms },
-    /// The stop button or Esc (Esc only reaches us during a session).
-    Stop,
+    TogglePlay {
+        from: Ms,
+    },
+    /// The stop button, Esc (`Stopped`) or another key with "stop on key
+    /// press" (`KeyPressed`). Only a session can be stopped.
+    Stop(FinishReason),
     /// Ctrl + Alt + End.
     Kill,
     CountdownDone,
@@ -71,18 +74,22 @@ pub enum HotkeySet {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Effect {
-    StartCountdown { ms: Ms },
+    StartCountdown {
+        ms: Ms,
+    },
     CancelCountdown,
     StartRecording,
-    /// Stop capturing; `keep` saves the recording to the library.
-    StopRecording { keep: bool },
-    StartPlayback { from: Ms, source: RunSource },
+    /// Stop capturing and save the recording to the library.
+    StopRecording,
+    StartPlayback {
+        from: Ms,
+    },
     PausePlayback,
     ResumePlayback,
-    StopPlayback,
+    /// Stop the engine; the reason goes to the UI.
+    StopPlayback(FinishReason),
     SetHotkeys(HotkeySet),
     PauseTriggers,
-    TriggerSkipped(RunSource),
     /// Tell the UI the mode changed.
     EmitMode(Mode),
 }
@@ -114,40 +121,34 @@ pub fn step(mode: Mode, input: Input, cfg: &SessionConfig) -> (Mode, Vec<Effect>
         (_, Input::Kill) => match mode {
             Idle => stay(vec![PauseTriggers]),
             Countdown => to(Idle, vec![CancelCountdown, SetHotkeys(HotkeySet::Idle), PauseTriggers]),
-            Recording => to(Idle, vec![StopRecording { keep: true }, SetHotkeys(HotkeySet::Idle), PauseTriggers]),
-            Playing | Paused => to(Idle, vec![StopPlayback, SetHotkeys(HotkeySet::Idle), PauseTriggers]),
+            Recording => to(Idle, vec![StopRecording, SetHotkeys(HotkeySet::Idle), PauseTriggers]),
+            Playing | Paused => {
+                to(Idle, vec![StopPlayback(FinishReason::Killed), SetHotkeys(HotkeySet::Idle), PauseTriggers])
+            }
         },
 
-        (Idle, Input::ToggleRecord) if cfg.record_countdown_ms > 0 => to(
-            Countdown,
-            vec![StartCountdown { ms: cfg.record_countdown_ms }, SetHotkeys(HotkeySet::Recording)],
-        ),
+        (Idle, Input::ToggleRecord) if cfg.record_countdown_ms > 0 => {
+            to(Countdown, vec![StartCountdown { ms: cfg.record_countdown_ms }, SetHotkeys(HotkeySet::Recording)])
+        }
         (Idle, Input::ToggleRecord) => to(Recording, vec![SetHotkeys(HotkeySet::Recording), StartRecording]),
-        (Idle, Input::TogglePlay { from }) => {
-            to(Playing, vec![SetHotkeys(HotkeySet::Playing), StartPlayback { from, source: RunSource::Manual }])
-        }
-        (Idle, Input::Trigger(source)) => {
-            to(Playing, vec![SetHotkeys(HotkeySet::Playing), StartPlayback { from: 0, source }])
-        }
+        (Idle, Input::TogglePlay { from }) => to(Playing, vec![SetHotkeys(HotkeySet::Playing), StartPlayback { from }]),
+        (Idle, Input::Trigger(_)) => to(Playing, vec![SetHotkeys(HotkeySet::Playing), StartPlayback { from: 0 }]),
 
         (Countdown, Input::CountdownDone) => to(Recording, vec![StartRecording]),
-        (Countdown, Input::ToggleRecord | Input::Stop) => {
+        (Countdown, Input::ToggleRecord | Input::Stop(_)) => {
             to(Idle, vec![CancelCountdown, SetHotkeys(HotkeySet::Idle)])
         }
 
-        (Recording, Input::ToggleRecord | Input::Stop) => {
-            to(Idle, vec![StopRecording { keep: true }, SetHotkeys(HotkeySet::Idle)])
-        }
+        (Recording, Input::ToggleRecord | Input::Stop(_)) => to(Idle, vec![StopRecording, SetHotkeys(HotkeySet::Idle)]),
 
         (Playing, Input::TogglePlay { .. }) => to(Paused, vec![PausePlayback]),
         (Paused, Input::TogglePlay { .. }) => to(Playing, vec![ResumePlayback]),
-        (Playing | Paused, Input::Stop) => to(Idle, vec![StopPlayback, SetHotkeys(HotkeySet::Idle)]),
+        (Playing | Paused, Input::Stop(reason)) => to(Idle, vec![StopPlayback(reason), SetHotkeys(HotkeySet::Idle)]),
         (Playing | Paused, Input::PlaybackFinished(_)) => to(Idle, vec![SetHotkeys(HotkeySet::Idle)]),
 
-        (Countdown | Recording | Playing | Paused, Input::Trigger(source)) => stay(vec![TriggerSkipped(source)]),
-
         // Everything else is ignored: F9 while playing, F10 while recording,
-        // Stop while idle, a late CountdownDone or PlaybackFinished, …
+        // Stop while idle, a late CountdownDone or PlaybackFinished, a
+        // trigger while busy (the coordinator tells the user), …
         _ => stay(vec![]),
     }
 }
@@ -171,7 +172,7 @@ mod tests {
         assert_eq!((m, fx[0].clone()), (Recording, StartRecording));
         let (m, fx) = run(m, Input::ToggleRecord);
         assert_eq!(m, Idle);
-        assert_eq!(fx[..2], [StopRecording { keep: true }, SetHotkeys(HotkeySet::Idle)]);
+        assert_eq!(fx[..2], [StopRecording, SetHotkeys(HotkeySet::Idle)]);
     }
 
     #[test]
@@ -183,17 +184,17 @@ mod tests {
 
     #[test]
     fn esc_during_countdown_cancels() {
-        let (m, fx) = run(Countdown, Input::Stop);
+        let (m, fx) = run(Countdown, Input::Stop(FinishReason::Stopped));
         assert_eq!(m, Idle);
         assert!(fx.contains(&CancelCountdown));
-        assert!(!fx.iter().any(|f| matches!(f, StopRecording { .. })));
+        assert!(!fx.contains(&StopRecording));
     }
 
     #[test]
     fn play_pause_resume_finish() {
         let (m, fx) = run(Idle, Input::TogglePlay { from: 1200 });
         assert_eq!(m, Playing);
-        assert!(fx.contains(&StartPlayback { from: 1200, source: RunSource::Manual }));
+        assert!(fx.contains(&StartPlayback { from: 1200 }));
         let (m, _) = run(m, Input::TogglePlay { from: 0 });
         assert_eq!(m, Paused);
         let (m, fx) = run(m, Input::TogglePlay { from: 0 });
@@ -206,7 +207,7 @@ mod tests {
     fn f9_while_playing_and_f10_while_recording_are_ignored() {
         assert_eq!(run(Playing, Input::ToggleRecord), (Playing, vec![]));
         assert_eq!(run(Recording, Input::TogglePlay { from: 0 }), (Recording, vec![]));
-        assert_eq!(run(Idle, Input::Stop), (Idle, vec![]));
+        assert_eq!(run(Idle, Input::Stop(FinishReason::Stopped)), (Idle, vec![]));
     }
 
     #[test]
@@ -223,7 +224,7 @@ mod tests {
     fn triggers_run_when_idle_and_are_skipped_when_busy() {
         let (m, fx) = run(Idle, Input::Trigger(RunSource::Schedule));
         assert_eq!(m, Playing);
-        assert!(fx.contains(&StartPlayback { from: 0, source: RunSource::Schedule }));
-        assert_eq!(run(Recording, Input::Trigger(RunSource::Hotkey)), (Recording, vec![TriggerSkipped(RunSource::Hotkey)]));
+        assert!(fx.contains(&StartPlayback { from: 0 }));
+        assert_eq!(run(Recording, Input::Trigger(RunSource::Hotkey)), (Recording, vec![]));
     }
 }

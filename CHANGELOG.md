@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Reliability:** a review of the whole code base fixed, among others:
+  - hotkey registration that could freeze Relay when saving triggers during a session,
+  - keys that could stay held after recording while switching windows, or after deleting or retiming around a shortcut,
+  - clicks on a window covering the widget being left out of recordings (and clicks on the widget recorded after moving it),
+  - quitting mid-playback leaving keys held (Relay now stops cleanly, saving a recording in progress),
+  - a failed save losing a recording or showing changes that weren't kept (the change is kept and you're told),
+  - a damaged `library.json` being silently overwritten (it's set aside as `library.json.bad`),
+  - edits and trigger changes landing on the wrong macro when switching quickly.
+- **Faster:** less work per frame during playback and recording, cheaper Library listings and trigger polling, file writes off the main thread.
+- **Compact player:** errors and notices now show under it too.
 - **Dependencies:** everything updated to the latest stable versions: Rust 1.98.1, Node 26.10 and npm 12.1 (locally and in CI), the Rust lockfile, vitest 5.0.2, the `windows` crate 0.62 in `relay-platform`, and the CI actions (checkout, setup-node and upload-artifact v7, tauri-action v1). TypeScript stays on 6 because svelte-check doesn't support 7 yet, and the app keeps `windows` 0.61 to match Tauri.
 - **License:** Relay is now open source under the MIT License.
 - **Keep on top:** a new *Settings → Window* option chooses when the widget floats above other windows: always (as before), only while recording or playing, or never.

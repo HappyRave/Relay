@@ -3,11 +3,18 @@
 //! Which ones are registered depends on the session state, so combos Relay
 //! doesn't need at the moment reach other apps (and recordings). Macro
 //! hotkeys are registered only while idle.
+//!
+//! Registration always runs on the main thread, one refresh at a time: the
+//! plugin hands every (un)register call to the main thread anyway, and a
+//! thread that waited for it while holding a lock the main thread needed
+//! would deadlock. So the coordinator only records the wanted [`HotkeySet`]
+//! and posts a refresh; the refresh reads the latest wanted set, so refreshes
+//! from anywhere, in any order, end in the right state.
 
 use std::collections::HashMap;
 use std::str::FromStr;
-use std::sync::Mutex;
 
+use parking_lot::Mutex;
 use relay_core::keys::code_for_label;
 use relay_core::session::{HotkeySet, Input, RunSource};
 use tauri::{AppHandle, Manager, Runtime};
@@ -15,7 +22,7 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 use uuid::Uuid;
 
 use crate::coordinator::{Cmd, CoordinatorHandle};
-use crate::ipc::{EngineMsg, Emitter};
+use crate::ipc::{Emitter, EngineMsg};
 use crate::library::Library;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -45,19 +52,99 @@ fn actions(set: HotkeySet) -> &'static [Action] {
     }
 }
 
-/// Macro hotkeys currently registered, and why others couldn't be.
-#[derive(Default)]
-pub struct MacroHotkeys {
-    registered: Mutex<HashMap<u32, Uuid>>,
-    errors: Mutex<HashMap<Uuid, String>>,
-    /// Serializes `apply` (the coordinator and the set_triggers command both call it).
-    applying: Mutex<()>,
+/// The wanted hotkey set, and what the last refresh registered.
+pub struct Hotkeys(Mutex<State>);
+
+struct State {
+    wanted: HotkeySet,
+    /// Macro hotkeys by shortcut id.
+    registered: HashMap<u32, Uuid>,
+    /// Why a macro's hotkey isn't registered.
+    errors: HashMap<Uuid, String>,
 }
 
-impl MacroHotkeys {
-    pub fn error(&self, id: Uuid) -> Option<String> {
-        self.errors.lock().unwrap().get(&id).cloned()
+impl Default for Hotkeys {
+    fn default() -> Self {
+        Hotkeys(Mutex::new(State { wanted: HotkeySet::Idle, registered: HashMap::new(), errors: HashMap::new() }))
     }
+}
+
+impl Hotkeys {
+    pub fn error(&self, id: Uuid) -> Option<String> {
+        self.0.lock().errors.get(&id).cloned()
+    }
+
+    fn macro_for(&self, shortcut: &Shortcut) -> Option<Uuid> {
+        self.0.lock().registered.get(&shortcut.id()).copied()
+    }
+}
+
+/// Switches to the hotkeys of `set` (from the coordinator; doesn't wait).
+pub fn set_active(app: &AppHandle, set: HotkeySet) {
+    app.state::<Hotkeys>().0.lock().wanted = set;
+    refresh(app);
+}
+
+/// Re-registers the current set, e.g. after macro hotkeys changed. Doesn't wait.
+pub fn refresh(app: &AppHandle) {
+    let a = app.clone();
+    let _ = app.run_on_main_thread(move || register(&a));
+}
+
+/// Like [`refresh`], and waits until it's done, so the hotkey errors are
+/// current. Must not be called on the main thread (it would wait for itself).
+pub fn refresh_and_wait(app: &AppHandle) {
+    let (done, wait) = crossbeam_channel::bounded(1);
+    let a = app.clone();
+    let posted = app.run_on_main_thread(move || {
+        register(&a);
+        let _ = done.send(());
+    });
+    if posted.is_ok() {
+        let _ = wait.recv();
+    }
+}
+
+/// Runs on the main thread: registers the wanted set and, when idle, the
+/// macro hotkeys. No lock is held while registering.
+fn register(app: &AppHandle) {
+    let wanted = app.state::<Hotkeys>().0.lock().wanted;
+    let triggers = app.state::<Mutex<Library>>().lock().all_triggers();
+    let emit = app.state::<std::sync::Arc<Emitter>>();
+    let gs = app.global_shortcut();
+    let _ = gs.unregister_all();
+    for &a in actions(wanted) {
+        if let Err(e) = gs.register(shortcut(a)) {
+            emit.error(format!("Couldn't register the {a:?} hotkey: {e}"));
+        }
+    }
+    let mut registered = HashMap::new();
+    let mut errors = HashMap::new();
+    if wanted == HotkeySet::Idle {
+        for (id, t) in triggers.iter().filter(|(_, t)| t.hotkey.enabled && !t.hotkey.combo.is_empty()) {
+            match parse_combo(&t.hotkey.combo) {
+                Ok(s) if registered.contains_key(&s.id()) => {
+                    errors.insert(*id, format!("{} is used by another macro", t.hotkey.combo));
+                }
+                // Registration fails when another app owns the combo.
+                Ok(s) => match gs.register(s) {
+                    Ok(()) => {
+                        registered.insert(s.id(), *id);
+                    }
+                    Err(_) => {
+                        errors.insert(*id, format!("{} is taken by another app", t.hotkey.combo));
+                    }
+                },
+                Err(e) => {
+                    errors.insert(*id, e);
+                }
+            }
+        }
+    }
+    let hotkeys = app.state::<Hotkeys>();
+    let mut state = hotkeys.0.lock();
+    state.registered = registered;
+    state.errors = errors;
 }
 
 /// Parses a combo as shown in the UI ("Ctrl + Alt + 1", "Shift + F7").
@@ -93,10 +180,10 @@ pub fn conflict(lib: &Library, id: Uuid, combo: &str) -> Option<String> {
         return Some(format!("{combo} is one of Relay's own hotkeys"));
     }
     lib.all_triggers()
-        .into_iter()
+        .iter()
         .filter(|(other, t)| *other != id && t.hotkey.enabled)
         .find(|(_, t)| parse_combo(&t.hotkey.combo).is_ok_and(|o| o == s))
-        .and_then(|(other, _)| lib.get(other).map(|e| format!("{combo} already runs “{}”", e.macro_.name)))
+        .and_then(|(other, _)| lib.get(*other).map(|e| format!("{combo} already runs “{}”", e.macro_.name)))
 }
 
 pub fn plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
@@ -115,52 +202,11 @@ pub fn plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
                 }
                 return;
             }
-            let id = app.state::<MacroHotkeys>().registered.lock().unwrap().get(&pressed.id()).copied();
-            if let Some(id) = id {
+            if let Some(id) = app.state::<Hotkeys>().macro_for(pressed) {
                 coordinator.send(Cmd::RunMacro { id, source: RunSource::Hotkey });
             }
         })
         .build()
-}
-
-/// Registers exactly the hotkeys of `set` (plus, when idle, the macro hotkeys).
-pub fn apply(app: &AppHandle, set: HotkeySet, emit: &Emitter) {
-    let state = app.state::<MacroHotkeys>();
-    let _one_at_a_time = state.applying.lock().unwrap();
-    let gs = app.global_shortcut();
-    let _ = gs.unregister_all();
-    for &a in actions(set) {
-        if let Err(e) = gs.register(shortcut(a)) {
-            emit.error(format!("Couldn't register the {a:?} hotkey: {e}"));
-        }
-    }
-    let mut registered = state.registered.lock().unwrap();
-    let mut errors = state.errors.lock().unwrap();
-    registered.clear();
-    errors.clear();
-    if set != HotkeySet::Idle {
-        return;
-    }
-    let triggers = app.state::<Mutex<Library>>().lock().unwrap().all_triggers();
-    for (id, t) in triggers.into_iter().filter(|(_, t)| t.hotkey.enabled && !t.hotkey.combo.is_empty()) {
-        match parse_combo(&t.hotkey.combo) {
-            Ok(s) if registered.contains_key(&s.id()) => {
-                errors.insert(id, format!("{} is used by another macro", t.hotkey.combo));
-            }
-            // Registration fails when another app owns the combo.
-            Ok(s) => match gs.register(s) {
-                Ok(()) => {
-                    registered.insert(s.id(), id);
-                }
-                Err(_) => {
-                    errors.insert(id, format!("{} is taken by another app", t.hotkey.combo));
-                }
-            },
-            Err(e) => {
-                errors.insert(id, e);
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -169,8 +215,14 @@ mod tests {
 
     #[test]
     fn parses_ui_combos() {
-        assert_eq!(parse_combo("Ctrl + Alt + 1").unwrap(), Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::Digit1));
-        assert_eq!(parse_combo("Shift + Win + A").unwrap(), Shortcut::new(Some(Modifiers::SHIFT | Modifiers::SUPER), Code::KeyA));
+        assert_eq!(
+            parse_combo("Ctrl + Alt + 1").unwrap(),
+            Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::Digit1)
+        );
+        assert_eq!(
+            parse_combo("Shift + Win + A").unwrap(),
+            Shortcut::new(Some(Modifiers::SHIFT | Modifiers::SUPER), Code::KeyA)
+        );
         assert_eq!(parse_combo("F7").unwrap(), Shortcut::new(None, Code::F7));
         assert_eq!(parse_combo("Ctrl + Enter").unwrap(), Shortcut::new(Some(Modifiers::CONTROL), Code::Enter));
         assert!(parse_combo("A").unwrap_err().contains("Add Ctrl"));

@@ -71,10 +71,11 @@ A rule of thumb: if it can be a pure function, it goes in `relay-core`, takes ti
 ## Code conventions
 
 **Rust**
-- `cargo fmt` and zero clippy warnings.
+- `cargo fmt` (120 columns, see `rustfmt.toml`; CI checks it) and zero clippy warnings.
 - Module docs (`//!`) say what a module is for. Doc comments explain *why*, not what the code already says.
 - No `unwrap()` on anything that can fail at runtime (I/O, parsing user files, OS calls). Locks and thread spawns may `unwrap`/`expect`.
 - Hook callbacks must stay minimal: no allocation, locks, logging or blocking.
+- Never hold a lock while calling into the main thread (window, tray, hotkey calls): the main thread may need that lock.
 - Anything that presses a key or button must release it on every path. Test it with the fake injector.
 - Logs describe what happened, **never what the user typed**.
 - A type that crosses IPC derives `TS` with `#[ts(export)]`. Commit the regenerated bindings.

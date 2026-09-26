@@ -14,9 +14,6 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
-[dev-dependencies]
-tempfile = "3"
-
 [dependencies]
 relay-core = { workspace = true, features = ["samples"] }
 relay-platform.workspace = true
@@ -34,6 +31,11 @@ tracing-subscriber = { version = "0.3.23", default-features = false, features = 
 tracing-appender = "0.2.5"
 thiserror.workspace = true
 crossbeam-channel = "0.5.17"
+# Locks that don't poison: a panic on one thread mustn't make every other
+# thread's lock() panic too.
+parking_lot = "0.12.5"
+# Unique temporary files for crash-safe writes.
+tempfile = "3.27"
 ts-rs = { version = "12", features = ["chrono-impl", "uuid-impl", "no-serde-warnings"] }
 
 [target.'cfg(windows)'.dependencies]

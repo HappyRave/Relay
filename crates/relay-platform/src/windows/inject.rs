@@ -58,7 +58,8 @@ impl Injector for SendInputInjector {
             )
         };
         // Absolute coordinates are 0..=65535 across the whole virtual desktop.
-        let norm = |p: i32, origin: i32, size: i32| ((p - origin) as f64 * 65535.0 / (size - 1).max(1) as f64).round() as i32;
+        let norm =
+            |p: i32, origin: i32, size: i32| ((p - origin) as f64 * 65535.0 / (size - 1).max(1) as f64).round() as i32;
         send(&[mouse(
             norm(x, vx, vw),
             norm(y, vy, vh),
@@ -66,6 +67,8 @@ impl Injector for SendInputInjector {
             MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
         )])?;
         // Normalized coordinates can round one pixel off at some scalings; correct exactly.
+        // (SetCursorPos isn't tagged with RELAY_MAGIC, which is fine: during
+        // playback the hook doesn't record the mouse.)
         let mut p = POINT::default();
         unsafe {
             if GetCursorPos(&mut p).is_ok() && (p.x, p.y) != (x, y) {
@@ -102,13 +105,18 @@ impl Injector for SendInputInjector {
             let ext = if ext { KEYEVENTF_EXTENDEDKEY } else { KEYBD_EVENT_FLAGS(0) };
             send(&[keyboard(0, scan, KEYEVENTF_SCANCODE | ext | up)])
         };
+        let ext = if key.ext { KEYEVENTF_EXTENDEDKEY } else { KEYBD_EVENT_FLAGS(0) };
+        // Pause shares its scan code with NumLock; only its virtual key is unambiguous.
+        if key.vk == keymap::VK_PAUSE {
+            return send(&[keyboard(key.vk, 0, up)]);
+        }
         // A recorded scan code replays the physical key, which games and DirectInput apps expect.
         if key.scan != 0 {
             return by_scan(key.scan, key.ext);
         }
         // Without one (injected input), the virtual key follows the current layout.
         if key.vk != 0 {
-            return send(&[keyboard(key.vk, 0, up)]);
+            return send(&[keyboard(key.vk, 0, ext | up)]);
         }
         // Hand-written or migrated macros only know the code.
         if let Some((scan, ext)) = keymap::scan_for_code(&key.code) {
@@ -119,7 +127,9 @@ impl Injector for SendInputInjector {
             (true, Some(text)) => {
                 let inputs: Vec<INPUT> = text
                     .encode_utf16()
-                    .flat_map(|u| [keyboard(0, u, KEYEVENTF_UNICODE), keyboard(0, u, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP)])
+                    .flat_map(|u| {
+                        [keyboard(0, u, KEYEVENTF_UNICODE), keyboard(0, u, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP)]
+                    })
                     .collect();
                 send(&inputs)
             }

@@ -58,15 +58,24 @@ pub struct GroupOptions {
     pub double_click_px: u32,
 }
 
+impl GroupOptions {
+    /// The system double-click settings. The distance is at least the click
+    /// slop, or a click that didn't count as a drag couldn't double.
+    pub fn new(double_click_ms: Ms, double_click_px: u32) -> Self {
+        GroupOptions { double_click_ms, double_click_px: double_click_px.max(CLICK_SLOP_PX as u32) }
+    }
+}
+
 impl Default for GroupOptions {
+    /// The Windows defaults.
     fn default() -> Self {
-        GroupOptions { double_click_ms: 500, double_click_px: 4 }
+        GroupOptions::new(500, 4)
     }
 }
 
 impl From<&RecordingMeta> for GroupOptions {
     fn from(r: &RecordingMeta) -> Self {
-        GroupOptions { double_click_ms: r.double_click_ms, double_click_px: r.double_click_px.max(4) }
+        GroupOptions::new(r.double_click_ms, r.double_click_px)
     }
 }
 
@@ -90,8 +99,17 @@ struct ModPress {
     modifier: Modifier,
     t: Ms,
     events: Vec<u32>,
-    /// Steps whose keys were pressed while this modifier was held.
+    /// Steps started (a key, a click, a scroll) while this modifier was held.
     wrapped: Vec<usize>,
+}
+
+/// Records that `step` started while the `active` modifiers were held.
+fn wrap(active: &mut [ModPress], step: usize) {
+    for p in active {
+        if p.wrapped.last() != Some(&step) {
+            p.wrapped.push(step);
+        }
+    }
 }
 
 pub fn group_steps(events: &[Event], opts: GroupOptions) -> Vec<Step> {
@@ -120,10 +138,13 @@ pub fn group_steps(events: &[Event], opts: GroupOptions) -> Vec<Step> {
                     StepKind::Click { x: *x, y: *y, btn: *btn, count: 1, label: label.clone() },
                 );
                 pending.insert(*btn, PendingButton { step, t: *t, x: *x, y: *y });
+                wrap(&mut active_mods, step);
             }
 
             Event::Button { t, x, y, btn, down: false, .. } => {
-                let Some(p) = pending.remove(btn) else { continue };
+                let Some(p) = pending.remove(btn) else {
+                    continue;
+                };
                 let moved = (x - p.x).abs().max((y - p.y).abs()) > CLICK_SLOP_PX;
                 if moved {
                     let s = &mut steps[p.step];
@@ -146,6 +167,14 @@ pub fn group_steps(events: &[Event], opts: GroupOptions) -> Vec<Step> {
                 if let Some(lc) = merge {
                     let target = lc.step;
                     let second = steps.pop().expect("pending click step");
+                    // Modifiers that wrapped the second click now wrap the merged one.
+                    for m in active_mods.iter_mut().chain(closed_mods.iter_mut()) {
+                        for w in &mut m.wrapped {
+                            if *w == p.step {
+                                *w = target;
+                            }
+                        }
+                    }
                     let s = &mut steps[target];
                     s.items.extend(second.items);
                     s.items.push(idx);
@@ -172,7 +201,7 @@ pub fn group_steps(events: &[Event], opts: GroupOptions) -> Vec<Step> {
                                 && d.signum() == delta.signum()
                                 && t.saturating_sub(s.end) <= SCROLL_GAP_MS =>
                         {
-                            *d += delta;
+                            *d = d.saturating_add(*delta);
                             s.items.push(idx);
                             s.end = *t;
                             true
@@ -181,7 +210,13 @@ pub fn group_steps(events: &[Event], opts: GroupOptions) -> Vec<Step> {
                     }
                 });
                 if !merged {
-                    push(&mut steps, *t, i, StepKind::Scroll { x: *x, y: *y, delta: *delta, horizontal: *horizontal });
+                    let step = push(
+                        &mut steps,
+                        *t,
+                        i,
+                        StepKind::Scroll { x: *x, y: *y, delta: *delta, horizontal: *horizontal },
+                    );
+                    wrap(&mut active_mods, step);
                 }
             }
 
@@ -252,9 +287,7 @@ pub fn group_steps(events: &[Event], opts: GroupOptions) -> Vec<Step> {
                     }
                 };
                 held_keys.insert(key.code.clone(), step);
-                for p in &mut active_mods {
-                    p.wrapped.push(step);
-                }
+                wrap(&mut active_mods, step);
             }
 
             Event::Key { t, down: false, key, .. } => {
@@ -275,7 +308,7 @@ pub fn group_steps(events: &[Event], opts: GroupOptions) -> Vec<Step> {
 
             Event::Wait { t, dur, label } => {
                 let s = push(&mut steps, *t, i, StepKind::Wait { dur: *dur, label: label.clone() });
-                steps[s].end = t + dur;
+                steps[s].end = t.saturating_add(*dur);
             }
 
             Event::PixelWait { t, dur, x, y, color, tolerance, timeout_ms, label } => {
@@ -293,20 +326,27 @@ pub fn group_steps(events: &[Event], opts: GroupOptions) -> Vec<Step> {
                         label: label.clone(),
                     },
                 );
-                steps[s].end = t + dur;
+                steps[s].end = t.saturating_add(*dur);
             }
         }
     }
 
-    // Modifier presses belong to the one step they wrap; a lone tap (e.g. Win)
-    // is its own KEYS step; presses shared by several steps belong to none.
+    // Modifier presses belong to the one step they wrap (a shortcut, a
+    // Shift-click), which then spans them; a lone tap (e.g. Win) is its own
+    // KEYS step; presses shared by several steps belong to none.
     closed_mods.append(&mut active_mods);
     for mut p in closed_mods {
+        p.wrapped.sort_unstable();
         p.wrapped.dedup();
+        let end = p.events.last().map_or(p.t, |&e| events[e as usize].t());
         match p.wrapped.as_slice() {
-            [s] => steps[*s].items.extend(&p.events),
+            [s] => {
+                let step = &mut steps[*s];
+                step.items.extend(&p.events);
+                step.t = step.t.min(p.t);
+                step.end = step.end.max(end);
+            }
             [] => {
-                let end = p.events.last().map_or(p.t, |&e| events[e as usize].t());
                 steps.push(Step {
                     t: p.t,
                     end,
@@ -398,6 +438,34 @@ mod tests {
         assert_eq!(s.len(), 1);
         assert_eq!(s[0].kind, StepKind::Keys { combo: vec!["Ctrl".into(), "A".into()] });
         assert_eq!(s[0].items, vec![0, 1, 2, 3]);
+        assert_eq!((s[0].t, s[0].end), (0, 120), "the step spans its modifier");
+    }
+
+    #[test]
+    fn shift_click_is_one_click_owning_shift() {
+        let b = |t, down| Event::Button { t, x: 5, y: 5, btn: MouseBtn::Left, down, label: String::new() };
+        let ev = [key(0, "ShiftLeft", true, None), b(50, true), b(90, false), key(200, "ShiftLeft", false, None)];
+        let s = group(&ev);
+        assert_eq!(s.len(), 1, "{s:?}");
+        assert!(matches!(s[0].kind, StepKind::Click { count: 1, .. }));
+        assert_eq!((s[0].t, s[0].end, s[0].items.len()), (0, 200, 4));
+    }
+
+    #[test]
+    fn a_modifier_around_a_double_click_follows_the_merge() {
+        let b = |t, down| Event::Button { t, x: 5, y: 5, btn: MouseBtn::Left, down, label: String::new() };
+        let ev = [
+            key(0, "ControlLeft", true, None),
+            b(50, true),
+            b(90, false),
+            b(200, true),
+            b(240, false),
+            key(300, "ControlLeft", false, None),
+        ];
+        let s = group(&ev);
+        assert_eq!(s.len(), 1, "{s:?}");
+        assert!(matches!(s[0].kind, StepKind::Click { count: 2, .. }));
+        assert_eq!(s[0].items, vec![0, 1, 2, 3, 4, 5]);
     }
 
     #[test]

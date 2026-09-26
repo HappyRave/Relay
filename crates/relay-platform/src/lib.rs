@@ -19,7 +19,7 @@ use crossbeam_channel::Sender;
 use relay_core::keys::KeyStroke;
 use relay_core::model::{MonitorInfo, MouseBtn, Rect, Rgb, WindowInfo};
 
-pub use types::{HeldKeys, HookConfig, RawInput, RawKind};
+pub use types::{HeldKeys, HookConfig, HookMode, RawInput, RawKind};
 
 #[derive(Debug, thiserror::Error)]
 pub enum PlatformError {
@@ -40,11 +40,8 @@ pub trait InputHook: Send + Sync {
     fn start(&self, cfg: HookConfig, tx: Sender<RawInput>) -> Result<Box<dyn HookSession>>;
 }
 
-/// A running hook; dropping it without `stop` leaks the thread until exit.
-pub trait HookSession: Send {
-    fn update(&self, cfg: HookConfig);
-    fn stop(self: Box<Self>);
-}
+/// A running hook. Dropping it removes the hooks and ends their thread.
+pub trait HookSession: Send {}
 
 pub trait Screen: Send + Sync {
     fn monitors(&self) -> Vec<MonitorInfo>;
@@ -73,9 +70,9 @@ pub trait WindowQuery: Send + Sync {
     fn restore_previous(&self, own: isize) -> Option<WindowRef>;
     /// The topmost visible window of `exe` with window class `class`.
     fn find_window(&self, exe: &str, class: &str) -> Option<WindowInfo>;
-    /// Whether a process runs elevated (as administrator).
-    fn is_elevated(&self, pid: u32) -> bool;
-    fn self_elevated(&self) -> bool;
+    /// Whether Windows blocks Relay's input to a process: it runs at a higher
+    /// integrity level (usually: as administrator, while Relay doesn't).
+    fn input_blocked(&self, pid: u32) -> bool;
     /// False on the lock screen or a UAC prompt, where no input can be sent.
     fn input_desktop_available(&self) -> bool;
 }
@@ -94,9 +91,8 @@ pub trait Injector: Send {
 
 /// Sleeps with sub-millisecond precision and can be woken early.
 pub trait Timer: Send {
-    fn now_ms(&self) -> f64;
-    /// Waits until `deadline` (in [`Timer::now_ms`] time). Returns true when
-    /// woken early by the waker.
+    /// Waits until `deadline` (in [`Platform::now_ms`] time). Returns true
+    /// when woken early by the waker.
     fn wait_until(&mut self, deadline: f64) -> bool;
     /// Wakes a pending or the next [`Timer::wait_until`].
     fn waker(&self) -> Arc<dyn Fn() + Send + Sync>;
@@ -111,10 +107,13 @@ pub struct Platform {
     pub hook: Box<dyn InputHook>,
     pub screen: Arc<dyn Screen>,
     pub windows: Arc<dyn WindowQuery>,
+    /// A new translator, owned by the recorder thread.
     pub translator: fn() -> Box<dyn CharTranslator>,
+    /// A new injector, owned by the playback thread.
     pub injector: fn() -> Box<dyn Injector>,
-    /// A timer for the playback thread; also raises that thread's priority and
-    /// opts the process out of timer throttling.
+    /// A timer for the calling thread, which must be the playback thread: it
+    /// raises that thread's priority, and opts the process out of timer
+    /// throttling until the timer is dropped.
     pub timer: fn() -> Box<dyn Timer>,
     /// Monotonic milliseconds, the time base of [`RawInput::time`].
     pub now_ms: fn() -> f64,

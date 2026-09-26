@@ -15,9 +15,10 @@ export type { Step } from "./ipc/bindings/Step";
 import type { Step } from "./ipc/bindings/Step";
 export type StepOf<K extends Step["kind"]> = Extract<Step, { kind: K }>;
 
-/** The UI's session mode (the engine's `Mode` arrives in M2/M3). */
-export type Mode = "idle" | "count" | "rec" | "play" | "pause";
-export type Tab = "events" | "lib" | "trig" | "options";
+export type { Mode } from "./ipc/bindings/Mode";
+export type { Settings } from "./ipc/bindings/Settings";
+
+export type Tab = "steps" | "library" | "triggers" | "settings";
 export type ExportFormat = "rly" | "json";
 
 export type { MacroTriggers } from "./ipc/bindings/MacroTriggers";

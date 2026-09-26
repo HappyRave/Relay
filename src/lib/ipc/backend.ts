@@ -11,6 +11,7 @@ import type { PickedPixel } from "./bindings/PickedPixel";
 import type { ImportResult } from "./bindings/ImportResult";
 import type { MacroTriggers } from "./bindings/MacroTriggers";
 import type { TriggerStatus } from "./bindings/TriggerStatus";
+import { DEFAULT_SETTINGS } from "../defaults";
 import { isTauri } from "../platform/window";
 
 export interface Backend {
@@ -28,7 +29,6 @@ export interface Backend {
   /** Reverts the last edit, or with `redo` re-applies the last undone one. */
   undoEdit(id: string, redo: boolean): Promise<MacroView>;
   setPlaybackOptions(id: string, options: PlaybackOptions): Promise<MacroView>;
-  exportText(id: string, format: ExportFormat): Promise<string>;
   /** Asks where to save, then writes the export. Returns the path, or null if cancelled. */
   exportMacro(id: string, format: ExportFormat, defaultName: string): Promise<string | null>;
   /** Asks for files, then imports them. Returns null if cancelled. */
@@ -76,7 +76,6 @@ const tauriBackend: Backend = {
   editMacro: (id, op) => invoke("edit_macro", { id, op }),
   undoEdit: (id, redo) => invoke("undo_edit", { id, redo }),
   setPlaybackOptions: (id, options) => invoke("set_playback_options", { id, options }),
-  exportText: (id, format) => invoke("export_text", { id, format }),
   exportMacro: async (id, format, defaultName) => {
     const path = await save({
       defaultPath: defaultName,
@@ -125,17 +124,8 @@ function browserBackend(): Backend {
     items = structuredClone(m.default as unknown as FixtureItem[]);
   });
   const loadedAt = Date.now();
-  let settings: Settings = {
-    capture_moves: true,
-    capture_keys: true,
-    countdown: true,
-    esc_stops_recording: true,
-    ignore_injected: true,
-    path_mode: "full",
-    show_click_labels: true,
-    close_to_tray: true,
-    keep_on_top: "always",
-  };
+  let settings: Settings = DEFAULT_SETTINGS;
+  let triggersPaused = false;
   const find = async (id: string) => {
     await ready;
     const item = items.find((i) => i.view.id === id);
@@ -190,22 +180,26 @@ function browserBackend(): Backend {
       emit = onMessage;
     },
     toggleRecord: async () => {
+      // Like the app: F9 does nothing while a macro plays.
+      if (mode.mode === "playing" || mode.mode === "paused") return;
       halt();
       if (mode.mode === "countdown" || mode.mode === "recording") return setMode("idle");
-      if (mode.mode !== "idle") return;
-      const start = performance.now();
-      if (!settings.countdown) return setMode("recording");
-      setMode("countdown");
-      timer = setInterval(() => {
-        const left = 3000 - (performance.now() - start);
-        if (left > 0) return emit({ type: "countdown", left_ms: left });
-        halt();
+      const startRecording = () => {
         setMode("recording");
         const recStart = performance.now();
         timer = setInterval(() => {
           const desktop = current?.recording.virtual_desktop ?? { x: 0, y: 0, w: 1920, h: 1080 };
           emit({ type: "rec_progress", elapsed_ms: performance.now() - recStart, desktop, moves: [], steps: null });
         }, 100);
+      };
+      if (!settings.countdown) return startRecording();
+      const start = performance.now();
+      setMode("countdown");
+      timer = setInterval(() => {
+        const left = 3000 - (performance.now() - start);
+        if (left > 0) return emit({ type: "countdown", left_ms: left });
+        halt();
+        startRecording();
       }, 50);
     },
     togglePlay: async (from) => {
@@ -259,17 +253,8 @@ function browserBackend(): Backend {
       }
       return item.view;
     },
-    exportText: async (id) => JSON.stringify((await find(id)).view, null, 2),
-    // The browser can't write files where it likes, so the export downloads.
-    exportMacro: async (id, _format, defaultName) => {
-      const text = JSON.stringify((await find(id)).view, null, 2);
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(new Blob([text], { type: "application/json" }));
-      a.download = defaultName;
-      a.click();
-      URL.revokeObjectURL(a.href);
-      return defaultName;
-    },
+    // The fixture has views, not the events a .rly holds.
+    exportMacro: async () => unavailable(),
     importMacros: async () => unavailable(),
     duplicateMacro: async () => unavailable(),
     deleteMacro: async () => unavailable(),
@@ -279,12 +264,14 @@ function browserBackend(): Backend {
     samplePixel: async () => null,
     pickPixel: async () => unavailable(),
     // Triggers only live in memory here, so the tab can be tried out.
-    getTriggers: async (id) => ({ triggers: triggersFor(id), next_run: null, hotkey_error: null, paused: false }),
+    getTriggers: async (id) => ({ triggers: triggersFor(id), next_run: null, hotkey_error: null, paused: triggersPaused }),
     setTriggers: async (id, t) => {
       browserTriggers.set(id, t);
-      return { triggers: t, next_run: null, hotkey_error: null, paused: false };
+      return { triggers: t, next_run: null, hotkey_error: null, paused: triggersPaused };
     },
-    setTriggersPaused: async () => {},
+    setTriggersPaused: async (paused) => {
+      triggersPaused = paused;
+    },
     listProcesses: async () => ["chrome.exe", "excel.exe", "notepad.exe"],
     getAutostart: async () => false,
     setAutostart: async () => false,

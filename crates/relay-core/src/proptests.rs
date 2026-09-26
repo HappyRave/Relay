@@ -27,9 +27,18 @@ fn action() -> impl Strategy<Value = Action> {
     prop_oneof![
         pos.clone().prop_map(|(x, y)| Action::Click { x, y }),
         pos.clone().prop_map(|(x, y)| Action::Drag { x, y }),
-        prop::sample::select(vec![("KeyA", Some("a")), ("KeyB", Some("b")), ("Enter", Some("\r")), ("Tab", None), ("F2", None)])
-            .prop_map(|(code, ch)| Action::Tap { code, ch }),
-        (prop::sample::select(vec!["ControlLeft", "AltLeft", "ShiftLeft", "MetaLeft"]), prop::sample::select(vec!["KeyS", "KeyW", "Tab"]))
+        prop::sample::select(vec![
+            ("KeyA", Some("a")),
+            ("KeyB", Some("b")),
+            ("Enter", Some("\r")),
+            ("Tab", None),
+            ("F2", None)
+        ])
+        .prop_map(|(code, ch)| Action::Tap { code, ch }),
+        (
+            prop::sample::select(vec!["ControlLeft", "AltLeft", "ShiftLeft", "MetaLeft"]),
+            prop::sample::select(vec!["KeyS", "KeyW", "Tab"])
+        )
             .prop_map(|(modifier, code)| Action::Combo { modifier, code }),
         prop::sample::select(vec![-120, 120]).prop_map(|delta| Action::Wheel { delta }),
         pos.prop_map(|(x, y)| Action::Move { x, y }),
@@ -41,7 +50,12 @@ fn action() -> impl Strategy<Value = Action> {
 fn record(actions: &[(Action, u32)]) -> Vec<Event> {
     let mut ev = Vec::new();
     let mut t = 0u32;
-    let key = |t, code: &str, down, ch: Option<&str>| Event::Key { t, down, key: KeyStroke::code(code), ch: ch.map(Into::into) };
+    let key = |t, code: &str, down, ch: Option<&str>| Event::Key {
+        t,
+        down,
+        key: KeyStroke::code(code),
+        ch: ch.map(Into::into),
+    };
     let btn = |t, x, y, down| Event::Button { t, x, y, btn: MouseBtn::Left, down, label: String::new() };
     for (a, gap) in actions {
         match a {
@@ -61,6 +75,8 @@ fn record(actions: &[(Action, u32)]) -> Vec<Event> {
             Action::Wheel { delta } => ev.push(Event::Wheel { t, x: 0, y: 0, delta: *delta, horizontal: false }),
             Action::Move { x, y } => ev.push(Event::Move { t, x: *x, y: *y }),
             Action::Wait { dur } => {
+                // A cursor sample at the same time as the wait, as recordings have.
+                ev.push(Event::Move { t, x: 1, y: 1 });
                 ev.push(Event::Wait { t, dur: *dur, label: String::new() });
                 t += dur;
             }
@@ -87,7 +103,8 @@ fn edit(steps: usize, dur: u32) -> impl Strategy<Value = EditOp> {
         }),
         (idx.clone(), 0..3000u32).prop_map(|(index, dur)| EditOp::SetWaitDuration { index, dur }),
         idx.clone().prop_map(|index| EditOp::SetLabel { index, label: "x".into() }),
-        (idx, 0..3000u32).prop_map(|(index, dur)| EditOp::SetPause { index, dur }),
+        (idx.clone(), 0..3000u32).prop_map(|(index, dur)| EditOp::SetPause { index, dur }),
+        (idx, 0..3u32).prop_map(|(index, dur)| EditOp::SetWaitDuration { index, dur }),
         (0..1500u32).prop_map(|max| EditOp::CapPauses { max }),
     ]
 }

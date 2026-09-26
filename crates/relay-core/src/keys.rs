@@ -199,7 +199,10 @@ mod tests {
 
     #[test]
     fn labels_round_trip_to_codes() {
-        for l in ["Ctrl", "Alt", "Shift", "Win", "A", "7", "Enter", "Tab", "F2", "Esc", "Left", "-", "PgUp", "Del", "Ins", "Num 3", "Home", "Space"] {
+        for l in [
+            "Ctrl", "Alt", "Shift", "Win", "A", "7", "Enter", "Tab", "F2", "Esc", "Left", "-", "PgUp", "Del", "Ins",
+            "Num 3", "Home", "Space",
+        ] {
             assert_eq!(label(&code_for_label(l)), l, "{l}");
         }
     }

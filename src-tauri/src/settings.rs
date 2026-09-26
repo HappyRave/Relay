@@ -83,10 +83,8 @@ pub struct SettingsStore {
 impl SettingsStore {
     pub fn open(dir: &Path) -> Self {
         let path = dir.join("settings.json");
-        let current = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
+        let current =
+            std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
         SettingsStore { path, current }
     }
 

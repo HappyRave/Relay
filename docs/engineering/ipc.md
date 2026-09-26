@@ -32,7 +32,7 @@ flowchart LR
 
 ## Commands
 
-All commands are in [`src-tauri/src/commands.rs`](../../src-tauri/src/commands.rs), and all are wrapped by [`src/lib/ipc/backend.ts`](../../src/lib/ipc/backend.ts), which is the only place the UI calls `invoke`.
+All commands are in [`src-tauri/src/commands.rs`](../../src-tauri/src/commands.rs), and all are wrapped by [`src/lib/ipc/backend.ts`](../../src/lib/ipc/backend.ts), which is the only place the UI calls `invoke`. Commands that write files are `#[tauri::command(async)]`, off the main thread; the others are quick and run on it.
 
 ### Session
 
@@ -58,7 +58,6 @@ Session commands only send a `Cmd` to the coordinator and return right away. The
 | `duplicate_macro` | `id` | The copy's id |
 | `delete_macro` | `id` | Refused with `busy` while a session runs |
 | `restore_macro` | `id` | |
-| `export_text` | `id, format: "rly" \| "json"` | The file contents (used by the browser preview's download) |
 | `export_macro` | `id, format, path` | Writes the file |
 | `import_macros` | `paths: string[]` | `ImportResult { imported: id[], problems: string[] }` |
 
@@ -98,10 +97,10 @@ Save and open dialogs are shown by the UI with `@tauri-apps/plugin-dialog`, and 
 | Message | Sent by | When | Payload |
 | --- | --- | --- | --- |
 | `session` | Coordinator | Every mode change | `mode`, `macro_id` |
-| `countdown` | Countdown thread | Every 50 ms | `left_ms` |
+| `countdown` | Coordinator | Every 50 ms | `left_ms` |
 | `rec_progress` | Recorder thread | Every 100 ms | `elapsed_ms`, `desktop`, new `moves`, `steps` when they changed |
 | `play_tick` | Engine | Every 33 ms, and right after any command | `t`, `advancing`, `speed`, `loop_idx`, `loops` |
-| `finished` | Engine or coordinator | Playback ended | `reason`, `timing` (p50, p99, max lateness) |
+| `finished` | Coordinator | Playback ended, once per playback | `reason`, `timing` (p50, p99, max lateness) |
 | `saved` | Coordinator | A recording was saved | `id` |
 | `library_changed` | Coordinator | A run was counted, a recording saved | |
 | `toggle_compact` | Hotkey handler | Ctrl+Shift+M | |
@@ -123,7 +122,7 @@ The cap of 100 ms means that if ticks stop arriving (a pixel check froze the eng
 
 ## Errors
 
-Commands return `Result<T, IpcError>`, and `IpcError` serializes as `{ code, message }`:
+Commands return `Result<T, IpcError>`, and `IpcError` serializes as `{ code, message }`. A save that fails after an edit is not an error of the command: the edit is kept, the command returns the new state, and an `error` message tells the user it wasn't saved.
 
 | Code | From |
 | --- | --- |
@@ -149,13 +148,13 @@ sequenceDiagram
     participant C as edit_macro
     participant L as Library
     U->>S: change a wait to 1.2 s
-    S->>S: seq = ++editSeq
+    S->>S: seq = ++viewSeq
     S->>C: invoke(edit_macro, {id, op: set_wait_duration})
-    C->>L: edit::apply, then save the .rly
-    C-->>S: MacroView (new steps, moves, duration)
-    alt seq is still the latest
-        S->>S: view = result, refresh the Library
-    else a newer edit started
+    C->>L: edit::apply, record for undo, save the .rly
+    C-->>S: MacroView (new steps, moves, duration, can_undo)
+    alt seq is still the latest and macro id is still open
+        S->>S: view = result (refresh the Library if its row changed)
+    else another request replaced the view
         S->>S: drop this result
     end
 ```

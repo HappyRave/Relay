@@ -13,9 +13,11 @@ mod tray;
 mod triggers;
 mod window_ctl;
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::time::Duration;
 
-use tauri::{Manager, WindowEvent};
+use parking_lot::Mutex;
+use tauri::{Manager, RunEvent, WindowEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -29,7 +31,7 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--autostart"]),
         ))
-        .manage(hotkeys::MacroHotkeys::default())
+        .manage(hotkeys::Hotkeys::default())
         .manage(triggers::TriggerState::default())
         .manage(coordinator::SessionMode::default())
         .manage(history::EditHistory::default())
@@ -44,7 +46,6 @@ pub fn run() {
             commands::edit_macro,
             commands::undo_edit,
             commands::set_playback_options,
-            commands::export_text,
             commands::export_macro,
             commands::import_macros,
             commands::duplicate_macro,
@@ -73,12 +74,7 @@ pub fn run() {
                 WindowEvent::Moved(_) => window_ctl::on_moved(&main, &state),
                 WindowEvent::ScaleFactorChanged { .. } => window_ctl::replace(&main, &state),
                 // Alt+F4 and friends: keep running in the tray unless the user opted out.
-                WindowEvent::CloseRequested { api, .. }
-                    if app.state::<Mutex<settings::SettingsStore>>().lock().unwrap().current.close_to_tray =>
-                {
-                    api.prevent_close();
-                    let _ = main.hide();
-                }
+                WindowEvent::CloseRequested { api, .. } if window_ctl::close_or_hide(&main) => api.prevent_close(),
                 _ => {}
             }
         })
@@ -87,7 +83,7 @@ pub fn run() {
             app.manage(logging::init(&dir));
             let (library, problems) = library::Library::open(&dir);
             for p in problems {
-                tracing::warn!("skipped a macro file: {p}");
+                tracing::warn!("library: {p}");
             }
             app.manage(Mutex::new(library));
             app.manage(Mutex::new(settings::SettingsStore::open(&dir)));
@@ -99,10 +95,12 @@ pub fn run() {
             app.manage(coordinator::spawn(app.handle().clone(), platform.clone(), emit));
             triggers::spawn(app.handle().clone(), platform);
 
-            let window_state = window_ctl::WindowState::open(&dir);
+            // Managed before the window moves, since moving it raises events that read it.
+            app.manage(window_ctl::WindowState::open(&dir));
+            let window_state = app.state::<window_ctl::WindowState>();
             if let Some(window) = app.get_webview_window("main") {
                 window_ctl::apply_modernist_frame(&window);
-                let keep_on_top = app.state::<Mutex<settings::SettingsStore>>().lock().unwrap().current.keep_on_top;
+                let keep_on_top = app.state::<Mutex<settings::SettingsStore>>().lock().current.keep_on_top;
                 window_ctl::apply_on_top(&window, keep_on_top, false);
                 // Place it where it was, then show it (the window starts hidden, so it never jumps).
                 let css = if window_state.prefs().expanded { window_ctl::EXPANDED } else { window_ctl::COMPACT };
@@ -112,11 +110,17 @@ pub fn run() {
                     window.show()?;
                 }
             }
-            app.manage(window_state);
             window_ctl::spawn_autosave(app.handle().clone());
             tray::create(app.handle())?;
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running Relay");
+        .build(tauri::generate_context!())
+        .expect("error while building Relay")
+        .run(|app, event| {
+            // Quitting (tray, close button, Windows shutting down) mid-session:
+            // stop cleanly, so no key stays held and a recording is saved.
+            if let RunEvent::Exit = event {
+                app.state::<coordinator::CoordinatorHandle>().shutdown(Duration::from_secs(3));
+            }
+        });
 }

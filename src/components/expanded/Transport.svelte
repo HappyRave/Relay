@@ -13,19 +13,24 @@
   ];
   const pb = $derived(relay.playback);
   const infinite = $derived(pb.repeat === "forever");
-  /** The count to return to when leaving "forever". */
+  /** The count to return to when leaving "forever" (remembered when entering it). */
   let lastCount = $state(1);
   const count = $derived(pb.repeat === "forever" ? lastCount : pb.repeat.count);
-  $effect(() => {
-    if (pb.repeat !== "forever") lastCount = pb.repeat.count;
-  });
+
+  function toggleForever() {
+    if (pb.repeat === "forever") relay.setPlayback({ repeat: { count: lastCount } });
+    else {
+      lastCount = pb.repeat.count;
+      relay.setPlayback({ repeat: "forever" });
+    }
+  }
   const cur = $derived(Math.min(relay.cur, relay.duration));
 </script>
 
 <div class="transport">
   <div class="clock">
     <div class="big">{fmtTime(cur)}</div>
-    <div class="of">of {relay.mode === "rec" ? "recording" : fmtTime(relay.duration)}</div>
+    <div class="of">of {relay.mode === "recording" ? "recording" : fmtTime(relay.duration)}</div>
   </div>
   <div class="buttons">
     <button class="btn btn-icon btn-secondary" title="Previous step" aria-label="Previous step" onclick={() => relay.jump(-1)}>
@@ -55,7 +60,7 @@
         title="Loop forever"
         aria-label="Loop forever"
         aria-pressed={infinite}
-        onclick={() => relay.setPlayback({ repeat: infinite ? { count: lastCount } : "forever" })}><Icon name="loop" size={15} /></button
+        onclick={toggleForever}><Icon name="loop" size={15} /></button
       >
     </div>
   </div>

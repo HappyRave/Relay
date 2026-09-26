@@ -35,27 +35,26 @@ struct Envelope<'a> {
     version: u64,
     #[serde(flatten)]
     body: &'a Macro,
+    /// Derived, for developers reading an export; ignored when importing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    steps: Option<Vec<Step>>,
 }
 
-#[derive(Serialize)]
-struct Export<'a> {
-    format: &'static str,
-    version: u64,
-    #[serde(flatten)]
-    body: &'a Macro,
-    /// Derived, for developers reading the file; ignored when importing.
-    steps: Vec<Step>,
+impl<'a> Envelope<'a> {
+    fn new(body: &'a Macro, steps: Option<Vec<Step>>) -> Self {
+        Envelope { format: FORMAT, version: VERSION, body, steps }
+    }
 }
 
 /// Serializes a macro as a compact `.rly` document.
 pub fn to_rly(m: &Macro) -> String {
-    serde_json::to_string(&Envelope { format: FORMAT, version: VERSION, body: m }).expect("macro serializes")
+    serde_json::to_string(&Envelope::new(m, None)).expect("macro serializes")
 }
 
 /// The pretty-printed JSON export, including the derived steps.
 pub fn to_export_json(m: &Macro) -> String {
     let steps = group_steps(&m.events, (&m.recording).into());
-    serde_json::to_string_pretty(&Export { format: FORMAT, version: VERSION, body: m, steps }).expect("macro serializes")
+    serde_json::to_string_pretty(&Envelope::new(m, Some(steps))).expect("macro serializes")
 }
 
 /// Parses a `.rly` (or exported `.json`) document of any supported version.
@@ -94,7 +93,9 @@ fn migrate(from: u64, obj: &mut Map<String, Value>) -> Result<(), FormatError> {
 /// stores presses and releases, so each high-level event is expanded.
 fn migrate_v0(obj: &mut Map<String, Value>) -> Result<(), FormatError> {
     let bad = |what: &str| FormatError::Invalid(format!("v0 event without {what}"));
-    let events = obj.remove("events").and_then(|e| e.as_array().cloned()).ok_or_else(|| bad("list"))?;
+    let Some(Value::Array(events)) = obj.remove("events") else {
+        return Err(bad("list"));
+    };
     let mut out = Vec::new();
     for e in &events {
         let t = e["t"].as_f64().ok_or_else(|| bad("t"))?.round() as u64;
@@ -120,8 +121,9 @@ fn migrate_v0(obj: &mut Map<String, Value>) -> Result<(), FormatError> {
                 for i in 0..count {
                     let down = t + i * 120;
                     let mut d = json!({ "type": "button", "t": down, "x": x, "y": y, "btn": btn, "down": true });
-                    if i == 0 && !text("label").is_empty() {
-                        d["label"] = json!(text("label"));
+                    let label = text("label");
+                    if i == 0 && !label.is_empty() {
+                        d["label"] = json!(label);
                     }
                     out.push(d);
                     out.push(json!({ "type": "button", "t": down + 60, "x": x, "y": y, "btn": btn, "down": false }));
@@ -129,7 +131,11 @@ fn migrate_v0(obj: &mut Map<String, Value>) -> Result<(), FormatError> {
             }
             "key" => {
                 let combo = text("key");
-                let parts: Vec<String> = combo.split(" + ").map(code_for_label).collect();
+                let parts: Vec<&str> = combo.split('+').map(str::trim).collect();
+                if parts.iter().any(|p| p.is_empty()) {
+                    return Err(bad("key"));
+                }
+                let parts: Vec<String> = parts.into_iter().map(code_for_label).collect();
                 let (main, mods) = parts.split_last().ok_or_else(|| bad("key"))?;
                 for m in mods {
                     out.push(key_ev(t, m, true, None));
@@ -193,9 +199,28 @@ mod tests {
                 Event::Move { t: 0, x: 960, y: 540 },
                 Event::Button { t: 120, x: 960, y: 540, btn: MouseBtn::Left, down: true, label: "Save".into() },
                 Event::Button { t: 180, x: 960, y: 540, btn: MouseBtn::Left, down: false, label: String::new() },
-                Event::Key { t: 400, down: true, key: KeyStroke { code: "KeyS".into(), vk: 0x53, scan: 0x1F, ext: false }, ch: Some("s".into()) },
-                Event::Key { t: 450, down: false, key: KeyStroke { code: "KeyS".into(), vk: 0x53, scan: 0x1F, ext: false }, ch: None },
-                Event::PixelWait { t: 600, dur: 900, x: 10, y: 20, color: Rgb(0xEC, 0x30, 0x13), tolerance: 8, timeout_ms: 5000, label: String::new() },
+                Event::Key {
+                    t: 400,
+                    down: true,
+                    key: KeyStroke { code: "KeyS".into(), vk: 0x53, scan: 0x1F, ext: false },
+                    ch: Some("s".into()),
+                },
+                Event::Key {
+                    t: 450,
+                    down: false,
+                    key: KeyStroke { code: "KeyS".into(), vk: 0x53, scan: 0x1F, ext: false },
+                    ch: None,
+                },
+                Event::PixelWait {
+                    t: 600,
+                    dur: 900,
+                    x: 10,
+                    y: 20,
+                    color: Rgb(0xEC, 0x30, 0x13),
+                    tolerance: 8,
+                    timeout_ms: 5000,
+                    label: String::new(),
+                },
             ],
         }
     }

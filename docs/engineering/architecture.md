@@ -64,7 +64,7 @@ Relay is a handful of long-lived threads that talk over [crossbeam](https://crat
 ```mermaid
 flowchart LR
     hk["Hotkey handler<br/>(Tauri main thread)"] -- Cmd --> C
-    ui["Commands<br/>(Tauri IPC threads)"] -- Cmd --> C
+    ui["Commands<br/>(main thread, or the async pool)"] -- Cmd --> C
     tray["Tray menu"] -- Cmd --> C
     T["relay-schedule<br/>relay-app-launch<br/>relay-pixel-trigger"] -- "Cmd::RunMacro" --> C
     C(["relay-coordinator<br/>session state machine"])
@@ -73,20 +73,21 @@ flowchart LR
     R -- "RecProgress" --> E[("Emitter<br/>Channel&lt;EngineMsg&gt;")]
     R -- "Escape / HookLost" --> C
     C -- "spawn / EngineCmd" --> P["relay-engine<br/>high priority"]
-    P -- "PlayTick / Finished" --> E
+    P -- "PlayTick" --> E
     P -- "EngineDone" --> C
-    C -- "Session / Notice" --> E
+    C -- "Session / Finished / Notice" --> E
     E --> W["WebView (UI)"]
 ```
 
 | Thread | Lives | Does |
 | --- | --- | --- |
-| **relay-coordinator** | Whole run | Owns the session mode. Applies `session::step`, then performs the effects: start or stop the hook, recorder and engine, swap global hotkeys, emit mode changes. The single place where sessions change. |
+| **relay-coordinator** | Whole run | Owns the session mode. Applies `session::step`, then performs the effects: start or stop the hook, recorder and engine, ask for the global hotkeys of the new state, emit mode changes. Runs the recording countdown in its own loop. The single place where sessions change. |
 | **relay-hook** | During a session | Installs the low-level hooks and pumps their messages. Callbacks only filter, timestamp and `try_send`. |
 | **relay-recorder** | While recording | Turns raw input into events, sends live progress 10 times a second, runs the hook watchdog. |
 | **relay-engine** | While playing | Injects events on time with the precision timer, polls pixel checks, reports ticks 30 times a second. Runs at `THREAD_PRIORITY_HIGHEST`. |
 | **relay-schedule**, **relay-app-launch**, **relay-pixel-trigger** | Whole run | Poll every 5 s, 2 s and 250 ms, and ask the coordinator to run a macro when a trigger fires. |
-| **Tauri main thread** | Whole run | The window, the tray and the global hotkey handler (`RegisterHotKey` messages arrive here). |
+| **Tauri main thread** | Whole run | The window, the tray, the global hotkey handler (`RegisterHotKey` messages arrive here), hotkey registration, and the commands that don't write files. |
+| **relay-stop-keys** | While playing | Forwards Esc and stop keys from the watching hook to the coordinator. |
 
 ## How a recording flows
 
@@ -106,7 +107,7 @@ sequenceDiagram
     C->>C: step(Idle, ToggleRecord) → Countdown
     C-->>UI: Session{countdown}, Countdown{left_ms}…
     C->>C: CountdownDone → Recording
-    C->>H: start(HookConfig{record: true, drop F9, swallow Esc})
+    C->>H: start(HookMode::Record{own window, skip F9, Esc stops})
     C->>R: spawn(Recorder)
     loop every input event
         U->>H: mouse / keyboard
@@ -117,7 +118,7 @@ sequenceDiagram
     end
     U->>HK: F9
     HK->>C: ToggleRecord → Idle
-    C->>H: stop
+    C->>H: drop the hook session
     C->>R: finish() → events
     C->>L: insert_front(Macro) and write .rly
     C-->>UI: Saved{id}, LibraryChanged, Session{idle}
@@ -125,7 +126,7 @@ sequenceDiagram
 
 What happens to an event on the way:
 
-1. **Hook callback** ([`windows/hook.rs`](../../crates/relay-platform/src/windows/hook.rs)): drops Relay's own injected input (tagged with `RELAY_MAGIC` in `dwExtraInfo`) and, by default, anyone else's injected input. It drops clicks inside Relay's window, keys while Relay is in front, and F9. Esc is swallowed and reported as `RawKind::Escape`. Everything else is timestamped with `QueryPerformanceCounter` and sent without blocking.
+1. **Hook callback** ([`windows/hook.rs`](../../crates/relay-platform/src/windows/hook.rs)): drops Relay's own injected input (tagged with `RELAY_MAGIC` in `dwExtraInfo`) and, by default, anyone else's injected input. It leaves out clicks on Relay's window (the window under the cursor), keys typed while Relay is in front, and F9, and a release always goes the way its press went. Esc is swallowed and reported as `RawKind::Escape`. Everything else is timestamped with `QueryPerformanceCounter` and sent without blocking.
 2. **Recorder** ([`recorder.rs`](../../crates/relay-platform/src/recorder.rs)): converts to macro time, throttles cursor samples to one per 16 ms, translates key presses into the characters they type (with the current layout, without disturbing dead keys), maps scan codes to W3C key codes, and drops the kill switch.
 3. **On stop**: trailing modifiers (the Ctrl and Alt of a kill switch) are trimmed, presses are balanced by `normalize`, and a recording without real content is discarded. The window under the first click becomes the macro's *anchor window*.
 
@@ -143,11 +144,11 @@ sequenceDiagram
     participant UI
 
     U->>C: F10 / play button (from = playhead)
-    C->>C: step(Idle, TogglePlay) → Playing, hotkeys = {F10, Kill}
+    C->>C: step(Idle, TogglePlay) → Playing, hotkeys = {F10, Kill}, generation += 1
     C->>W: foreground is Relay? restore_previous()
-    C->>W: target elevated? → Notice
+    C->>W: input blocked (integrity)? → Notice
     C->>C: Window mode? offset = anchor moved by (dx, dy)
-    C->>H: start(HookConfig{record: false, swallow Esc, stop_on_key})
+    C->>H: start(HookMode::Watch{stop_on_key, pass F10})
     C->>P: spawn(PlayPlan{events, steps, speed, repeat, jitter, offset, from})
     loop until done
         P->>P: timer.wait_until(next deadline)
@@ -156,10 +157,11 @@ sequenceDiagram
     end
     alt Esc or any key
         H->>C: Escape / StopKey → StopPlayback
-        C->>P: stop() (Drop releases held input)
+        C->>P: stop() → timing (Drop releases held input)
+        C-->>UI: Finished{stopped, timing}
     else finished
-        P-->>UI: Finished{completed, timing}
-        P->>C: EngineDone → count the run
+        P->>C: EngineDone{generation, completed, timing}
+        C-->>UI: Finished{completed, timing}, count the run
     end
     C-->>UI: Session{idle}
 ```
@@ -174,19 +176,20 @@ flowchart LR
     A["Process appeared (2 s poll)<br/>+ delay"] --> F
     X["Pixel edge (250 ms poll)"] --> F
     K["Macro hotkey<br/>(RegisterHotKey)"] --> F
-    F -- "paused?" --> N1["drop"]
     F -- "Cmd::RunMacro" --> C{"Coordinator"}
+    C -- "triggers paused" --> N1["drop"]
     C -- "not idle" --> N2["Notice: Skipped … Relay was busy"]
     C -- "desktop locked / UAC" --> N3["log and skip"]
     C -- "idle" --> P["step(Idle, Trigger) → Playing from 0"]
 ```
 
-The trigger threads don't decide whether a macro can run. They only detect the event and send `Cmd::RunMacro`. The coordinator, which knows the session mode, decides. See [The app → Triggers](app.md#triggers).
+The trigger threads don't decide whether a macro can run. They only detect the event and send `Cmd::RunMacro`. The coordinator, which knows the session mode and whether triggers are paused, decides. See [The app → Triggers](app.md#triggers).
 
 ## Design principles
 
 - **A pure core.** Everything that can be a pure function is one, in `relay-core`: grouping, edits, the clock, the session state machine, schedules. They take time as a parameter (`now: f64`) instead of reading a clock, so they're tested exhaustively, including with property tests, and run on Linux CI.
 - **One owner per piece of state.** The coordinator owns the session. The engine owns what it pressed. The hook thread owns the hooks. Other threads send messages.
+- **Never wait on the main thread while holding a lock.** Window, tray and hotkey calls from other threads block until the main thread runs them; hotkey registration only ever runs there.
 - **Effects, not calls.** `session::step(mode, input) → (mode, effects)` returns what should happen, and the coordinator performs it. The table of transitions is readable in one screen, and tests assert it.
 - **Never leave input stuck.** The engine tracks every key and button it pressed and releases them on stop, seek, loop end, `Drop` and panic (the release profile unwinds instead of aborting for this reason). Edits keep presses balanced.
 - **Don't fight Windows.** Hook callbacks do the minimum, since Windows silently removes slow hooks (and Relay detects and reinstalls one when it happens). Hotkeys go through `RegisterHotKey`, which works even when an elevated window is in front. Elevated targets, the lock screen and UAC are detected and explained instead of failing silently.

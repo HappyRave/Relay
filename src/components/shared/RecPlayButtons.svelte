@@ -6,16 +6,21 @@
   let { variant }: { variant: "bar" | "square" } = $props();
 </script>
 
-<button class="rec {variant}" title="Record (F9)" aria-label="Record" onclick={relay.toggleRec}>
+<button
+  class="rec {variant}"
+  title={relay.recording ? "Stop recording (F9)" : "Record (F9)"}
+  aria-label={relay.recording ? "Stop recording" : "Record"}
+  onclick={relay.toggleRec}
+>
   {#if relay.recording}<Icon name="square" size={20} />{:else}<Icon name="record" size={22} />{/if}
 </button>
 <button
   class="play {variant}"
   title="Play / pause (F10)"
-  aria-label={relay.mode === "play" ? "Pause" : "Play"}
+  aria-label={relay.mode === "playing" ? "Pause" : "Play"}
   onclick={relay.togglePlay}
 >
-  {#if relay.mode === "play"}<Icon name="pause" size={20} />{:else}<Icon name="play" size={20} />{/if}
+  {#if relay.mode === "playing"}<Icon name="pause" size={20} />{:else}<Icon name="play" size={20} />{/if}
 </button>
 
 <style>

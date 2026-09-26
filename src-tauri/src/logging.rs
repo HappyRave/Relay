@@ -2,8 +2,8 @@
 //! and a panic hook that records crashes there. Logs say what happened
 //! (sessions, triggers, errors), never what was typed.
 
+use parking_lot::Mutex;
 use std::path::Path;
-use std::sync::Mutex;
 
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::{Builder, Rotation};

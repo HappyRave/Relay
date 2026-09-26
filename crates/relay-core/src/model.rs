@@ -38,7 +38,8 @@ impl Rgb {
 
     pub fn parse(s: &str) -> Option<Rgb> {
         let h = s.strip_prefix('#')?;
-        if h.len() != 6 || !h.is_ascii() {
+        // Not just the length: from_str_radix would also accept "+1".
+        if h.len() != 6 || !h.bytes().all(|b| b.is_ascii_hexdigit()) {
             return None;
         }
         let c = |i: usize| u8::from_str_radix(&h[i..i + 2], 16).ok();
@@ -140,7 +141,7 @@ impl Event {
     /// When the event is over: `t` for instant events, `t + dur` for waits.
     pub fn end(&self) -> Ms {
         match self {
-            Event::Wait { t, dur, .. } | Event::PixelWait { t, dur, .. } => t + dur,
+            Event::Wait { t, dur, .. } | Event::PixelWait { t, dur, .. } => t.saturating_add(*dur),
             e => e.t(),
         }
     }
@@ -241,6 +242,16 @@ pub enum Repeat {
     Forever,
 }
 
+impl Repeat {
+    /// How many times the macro plays (at least once), or `None` for forever.
+    pub fn loops(self) -> Option<u32> {
+        match self {
+            Repeat::Count(n) => Some(n.max(1)),
+            Repeat::Forever => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct PlaybackOptions {
@@ -304,6 +315,7 @@ mod tests {
         assert!(!c.within(Rgb(0xE0, 0x38, 0x13), 8));
         assert!(Rgb::parse("EC3013").is_none());
         assert!(Rgb::parse("#EC30").is_none());
+        assert!(Rgb::parse("#+1+2+3").is_none());
     }
 
     #[test]

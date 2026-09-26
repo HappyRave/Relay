@@ -6,9 +6,9 @@ use relay_core::keys::{self, KeyStroke};
 use relay_core::model::{Event, Ms};
 use relay_core::view::MovePoint;
 
+use crate::CharTranslator;
 use crate::keymap;
 use crate::types::{HeldKeys, RawInput, RawKind};
-use crate::CharTranslator;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RecorderConfig {
@@ -29,6 +29,9 @@ pub struct Recorder {
     start: f64,
     events: Vec<Event>,
     last_move: Option<(Ms, i32, i32)>,
+    /// The latest cursor sample skipped by the throttle, so the cursor's
+    /// final position before an action (or the end) is still recorded.
+    pending_move: Option<(Ms, i32, i32)>,
     held: HeldKeys,
     translator: Box<dyn CharTranslator>,
     first_press: Option<(i32, i32)>,
@@ -51,6 +54,7 @@ impl Recorder {
             start,
             events: Vec::new(),
             last_move: None,
+            pending_move: None,
             held: HeldKeys::new(),
             translator,
             first_press: None,
@@ -68,18 +72,21 @@ impl Recorder {
 
     pub fn push(&mut self, raw: RawInput) {
         let t = self.elapsed(raw.time);
+        if !matches!(raw.kind, RawKind::Move { .. }) {
+            self.flush_move();
+        }
         match raw.kind {
             RawKind::Move { x, y } => {
                 if !self.cfg.capture_moves {
                     return;
                 }
-                if let Some((lt, lx, ly)) = self.last_move
-                    && ((lx, ly) == (x, y) || t.saturating_sub(lt) < self.cfg.move_interval_ms)
-                {
-                    return;
+                match self.last_move {
+                    Some((_, lx, ly)) if (lx, ly) == (x, y) => self.pending_move = None,
+                    Some((lt, ..)) if t.saturating_sub(lt) < self.cfg.move_interval_ms => {
+                        self.pending_move = Some((t, x, y));
+                    }
+                    _ => self.record_move(t, x, y),
                 }
-                self.last_move = Some((t, x, y));
-                self.events.push(Event::Move { t, x, y });
             }
             RawKind::Button { x, y, btn, down } => {
                 if down && self.first_press.is_none() {
@@ -91,8 +98,20 @@ impl Recorder {
                 self.events.push(Event::Wheel { t, x, y, delta, horizontal });
             }
             RawKind::Key { vk, scan, ext, down } => {
-                if !self.cfg.capture_keys || (vk == VK_END && self.ctrl_alt_held()) {
-                    return; // Ctrl + Alt + End is the kill switch, not macro input.
+                // Ctrl + Alt + End is the kill switch, not macro input. (The
+                // Windows hook already lets it through unreported; this keeps
+                // the recorder right on its own.)
+                if !self.cfg.capture_keys || (vk == keymap::VK_END && self.ctrl_alt_held()) {
+                    return;
+                }
+                if vk == keymap::VK_PACKET {
+                    // Unicode text sent by another program (SendInput with
+                    // KEYEVENTF_UNICODE): `scan` is a UTF-16 unit, not a key,
+                    // so it's kept as text and replayed as text.
+                    let ch = down.then(|| String::from_utf16_lossy(&[scan]));
+                    let key = KeyStroke::code("Unidentified");
+                    self.events.push(Event::Key { t, down, key, ch });
+                    return;
                 }
                 let ch = if down { self.translator.translate(vk, scan, &self.held) } else { None };
                 if down {
@@ -114,33 +133,56 @@ impl Recorder {
         new
     }
 
+    fn record_move(&mut self, t: Ms, x: i32, y: i32) {
+        self.last_move = Some((t, x, y));
+        self.pending_move = None;
+        self.events.push(Event::Move { t, x, y });
+    }
+
+    fn flush_move(&mut self) {
+        if let Some((t, x, y)) = self.pending_move.take() {
+            self.record_move(t, x, y);
+        }
+    }
+
     fn ctrl_alt_held(&self) -> bool {
-        let any = |ks: [u16; 3]| ks.iter().any(|k| self.held.contains(k));
-        any([0x11, 0xA2, 0xA3]) && any([0x12, 0xA4, 0xA5])
+        self.held.iter().any(|&k| keymap::is_ctrl_vk(k)) && self.held.iter().any(|&k| keymap::is_alt_vk(k))
     }
 
     pub fn finish(mut self, now: f64) -> Recording {
         let duration_ms = self.elapsed(now);
+        self.flush_move();
         trim_trailing_modifiers(&mut self.events);
         normalize(&mut self.events);
         Recording { events: self.events, first_press: self.first_press, duration_ms }
     }
 }
 
-const VK_END: u16 = 0x23;
-
-/// Drops modifier presses after the last real action: they belong to the
-/// hotkey that stopped the recording (Ctrl + Alt of the kill switch).
+/// Drops modifiers pressed after the last real action, with their releases:
+/// they belong to the hotkey that stopped the recording (Ctrl + Alt of the
+/// kill switch). The release of a modifier pressed earlier stays.
 fn trim_trailing_modifiers(events: &mut Vec<Event>) {
-    let is_modifier = |e: &Event| matches!(e, Event::Key { key, .. } if keys::modifier(&key.code).is_some());
-    let last_action = events
-        .iter()
-        .rposition(|e| !matches!(e, Event::Move { .. }) && !is_modifier(e))
-        .map_or(0, |i| i + 1);
+    let modifier = |e: &Event| match e {
+        Event::Key { key, down, .. } if keys::modifier(&key.code).is_some() => Some((key.code.clone(), *down)),
+        _ => None,
+    };
+    let last_action =
+        events.iter().rposition(|e| !matches!(e, Event::Move { .. }) && modifier(e).is_none()).map_or(0, |i| i + 1);
+    let mut late: Vec<String> = Vec::new();
     let mut i = 0;
     events.retain(|e| {
         i += 1;
-        i <= last_action || !is_modifier(e)
+        if i <= last_action {
+            return true;
+        }
+        match modifier(e) {
+            Some((code, true)) => {
+                late.push(code);
+                false
+            }
+            Some((code, false)) => !late.contains(&code),
+            None => true,
+        }
     });
 }
 
@@ -249,6 +291,41 @@ mod tests {
         assert_eq!(rec.events.len(), 2, "{:?}", rec.events);
         let steps = group_steps(&rec.events, GroupOptions::default());
         assert_eq!(steps.len(), 1);
+    }
+
+    #[test]
+    fn a_modifier_held_through_the_last_action_keeps_its_release() {
+        let mut r = Recorder::new(RecorderConfig::default(), 0.0, Box::new(Us));
+        r.push(key(0.0, 0xA2, 0x1D, true));
+        r.push(raw(50.0, RawKind::Button { x: 1, y: 1, btn: MouseBtn::Left, down: true }));
+        r.push(raw(90.0, RawKind::Button { x: 1, y: 1, btn: MouseBtn::Left, down: false }));
+        r.push(key(150.0, 0xA2, 0x1D, false));
+        r.push(raw(900.0, RawKind::Move { x: 500, y: 500 }));
+        let rec = r.finish(1000.0);
+        let ups: Vec<_> =
+            rec.events.iter().filter(|e| matches!(e, Event::Key { down: false, .. })).map(|e| e.t()).collect();
+        assert_eq!(ups, [150], "Ctrl is released where it was, not at the end");
+    }
+
+    #[test]
+    fn the_last_cursor_position_before_an_action_is_kept() {
+        let mut r = Recorder::new(RecorderConfig::default(), 0.0, Box::new(Us));
+        r.push(raw(0.0, RawKind::Move { x: 1, y: 1 }));
+        r.push(raw(5.0, RawKind::Move { x: 9, y: 9 })); // throttled…
+        for e in tap(300.0, 0x41, 0x1E) {
+            r.push(e);
+        }
+        let moves: Vec<_> = r.events().iter().filter_map(|e| e.pos()).collect();
+        assert_eq!(moves, [(1, 1), (9, 9)], "…but kept before the key");
+    }
+
+    #[test]
+    fn unicode_from_other_programs_is_recorded_as_text() {
+        let mut r = Recorder::new(RecorderConfig::default(), 0.0, Box::new(Us));
+        r.push(key(0.0, 0xE7, 'é' as u16, true));
+        r.push(key(10.0, 0xE7, 'é' as u16, false));
+        let Event::Key { key: k, ch, .. } = &r.events()[0] else { panic!() };
+        assert_eq!((k.scan, k.vk, ch.as_deref()), (0, 0, Some("é")));
     }
 
     #[test]

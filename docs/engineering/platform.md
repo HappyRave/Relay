@@ -33,16 +33,16 @@ pub fn platform() -> Platform              // the backend for the current OS
 
 | Trait | Methods | Windows implementation |
 | --- | --- | --- |
-| `InputHook` / `HookSession` | `start(HookConfig, Sender<RawInput>)`, `update(cfg)`, `stop()` | `WH_KEYBOARD_LL` + `WH_MOUSE_LL` on a dedicated thread |
+| `InputHook` / `HookSession` | `start(HookConfig, Sender<RawInput>)`; dropping the session removes the hooks | `WH_KEYBOARD_LL` + `WH_MOUSE_LL` on a dedicated thread |
 | `Injector` | `move_to`, `button`, `wheel`, `key` | `SendInput` |
-| `Timer` | `now_ms`, `wait_until(deadline)`, `waker()` | High-resolution waitable timer + spin |
+| `Timer` | `wait_until(deadline)`, `waker()` | High-resolution waitable timer + spin |
 | `Screen` | `monitors`, `virtual_desktop`, `cursor_pos`, `double_click`, `pixel` | `EnumDisplayMonitors`, `GetDpiForMonitor`, `GetPixel` |
-| `WindowQuery` | `root_window_at`, `foreground`, `restore_previous`, `find_window`, `is_elevated`, `self_elevated`, `input_desktop_available` | Win32 windowing, DWM and token APIs |
+| `WindowQuery` | `root_window_at`, `foreground`, `restore_previous`, `find_window`, `input_blocked`, `input_desktop_available` | Win32 windowing, DWM and token APIs |
 | `CharTranslator` | `translate(vk, scan, held)` | `ToUnicodeEx` |
 
-Injectors, translators and timers are created by factory functions (`fn() -> Box<dyn …>`) because they're used on the thread that creates them: the timer raises *its* thread's priority, for instance.
+Injectors, translators and timers are created by factory functions (`fn() -> Box<dyn …>`) so each thread that uses one owns its own. For the timer it also matters where it's created: it raises the calling thread's priority, and opts the process out of power throttling until it's dropped.
 
-`now_ms` is `QueryPerformanceCounter` converted to milliseconds. Every timestamp in Relay, from hook callbacks to engine deadlines, uses this one monotonic clock.
+`Platform::now_ms` is `QueryPerformanceCounter` converted to milliseconds. Every timestamp in Relay, from hook callbacks to engine deadlines, uses this one monotonic clock; the timer waits for deadlines in it.
 
 ## Low-level input hooks
 
@@ -50,40 +50,42 @@ Injectors, translators and timers are created by factory functions (`fn() -> Box
 
 Windows calls low-level hook procedures on the message loop of the thread that installed them, and **silently removes a hook that takes too long** (the `LowLevelHooksTimeout`, around 300 ms to 1 s). So:
 
-- `start` spawns a `relay-hook` thread that installs both hooks, reports success or failure back, and pumps messages until it receives `WM_QUIT` from `stop`.
-- The callbacks **only filter, timestamp and `try_send`** to a bounded channel. No allocation, no locks, no logging. If the channel is full, the event is dropped rather than blocking Windows' input queue.
-- The filter settings live in an `ArcSwap<HookConfig>`, so `update` can change them without a lock.
+- `start` spawns a `relay-hook` thread that installs both hooks (unhooking the first if the second fails), reports success or failure back, and pumps messages. Dropping the returned session posts `WM_QUIT` and joins the thread, which removes the hooks, so a session can't be left running by accident.
+- The callbacks **only filter, timestamp and `try_send`** to a bounded channel. No allocation, no blocking, no logging. If the channel is full, the event is dropped rather than stalling Windows' input queue.
+- The configuration is fixed for the session's lifetime:
 
-What the callbacks do with each event:
+```rust
+pub struct HookConfig { pub mode: HookMode, pub ignore_injected: bool }
+
+pub enum HookMode {
+    /// A recording: report input, leaving out Relay's own window and `skip_vks` (F9).
+    Record { own_window: isize, skip_vks: Vec<u16>, esc_stops: bool },
+    /// A playback: report Esc and, with `stop_on_key`, any other key but modifiers and `pass_vks` (F10).
+    Watch { stop_on_key: bool, pass_vks: Vec<u16> },
+}
+```
+
+**A release always goes the way its press went.** The keyboard callback remembers, per virtual key, whether the press was *reported*, *skipped* (passed through unrecorded: typed into Relay, or F9) or *swallowed* (Esc, a stop key). The release follows: a reported press has its release reported, even if Relay has come to the front meanwhile; a swallowed press has its release swallowed, so the app never sees a release without its press. Auto-repeats follow the first press the same way. A release whose press came before the hook started is let through unrecorded.
+
+What else the callbacks decide:
 
 ```mermaid
 flowchart TD
     E["Keyboard or mouse event"] --> M{"dwExtraInfo == RELAY_MAGIC<br/>or (injected and ignore_injected)?"}
     M -- yes --> P1["pass through, not reported"]
-    M -- no --> K{"key?"}
-    K -- "Esc and swallow_escape" --> S1["report Escape, swallow"]
+    M -- no --> K{"key"}
     K -- "End with Ctrl+Alt held" --> P2["pass through (kill switch)"]
-    K -- "other key, record = false" --> SK{"stop_on_key and<br/>not modifier / F10?"}
-    SK -- yes --> S2["report StopKey, swallow"]
-    SK -- no --> P3["pass through"]
-    K -- "record = true" --> R1{"in drop_vks, or Relay<br/>is the foreground window?"}
-    R1 -- yes --> P4["pass through, not reported"]
-    R1 -- no --> OUT["report Key{vk, scan, ext, down}"]
-    E --> MO{"mouse, record = true"}
-    MO -- "press inside own_rect" --> I["remember button, don't report"]
-    MO -- "release of a button pressed inside" --> I2["don't report"]
-    MO -- "wheel inside own_rect" --> I3["don't report"]
-    MO -- otherwise --> OUT2["report Move / Button / Wheel"]
+    K -- "a release or a repeat" --> F["same fate as its press"]
+    K -- "Record: Esc, esc_stops" --> S1["report Escape, swallow"]
+    K -- "Record: skip_vks, or Relay in front" --> P3["pass through, not reported"]
+    K -- "Record: anything else" --> R["report Key{vk, scan, ext, down}"]
+    K -- "Watch: Esc, or a stop key" --> S2["report Escape / StopKey, swallow"]
+    E --> MO{"mouse (Record only)"}
+    MO -- "press or wheel over Relay's window" --> I["don't report (and not the release)"]
+    MO -- otherwise --> OUT["report Move / Button / Wheel"]
 ```
 
-| `HookConfig` field | Recording | Playback |
-| --- | --- | --- |
-| `record` | `true` | `false`: nothing is reported except Esc and stop keys |
-| `own_rect`, `own_window` | Relay's window, to drop UI clicks and keys | The same |
-| `swallow_escape` | From settings (*Esc stops recording*, default `true`). Off, Esc is recorded like any key. | `true` |
-| `ignore_injected` | From settings (default `true`) | The same |
-| `drop_vks` | `[F9]` | `[F10]` |
-| `stop_on_key` | `false` | From the macro |
+"Over Relay's window" is decided per press, from the top-level window under the cursor (`WindowFromPoint` + `GetAncestor`), so it's right wherever the widget has been moved, and when another window covers it (*Keep on top: Never*). Only presses and wheel events look it up, not the frequent moves.
 
 Two details that took debugging:
 
@@ -117,11 +119,11 @@ Every `INPUT` carries `RELAY_MAGIC` in `dwExtraInfo`.
 
 `std::thread::sleep` on Windows has 1 to 15 ms of slack, which is visible in fast macros. The playback timer:
 
-1. **Sleeps** on a waitable timer created with `CREATE_WAITABLE_TIMER_HIGH_RESOLUTION` until 1 ms before the deadline (falling back to a normal waitable timer on older Windows).
+1. **Sleeps** on a waitable timer created with `CREATE_WAITABLE_TIMER_HIGH_RESOLUTION` until 1 ms before the deadline (falling back to a normal waitable timer on older Windows, and to a plain sleep if a wait fails).
 2. **Spins** for the last millisecond, checking the waker event.
 3. Waits on the timer **and** a wake event with `WaitForMultipleObjects`, so a pause, seek or stop from the coordinator interrupts it immediately. `wait_until` returns `true` when woken early.
 
-Creating it also sets `THREAD_PRIORITY_HIGHEST` on the engine thread and opts the process out of **power throttling** (`PROCESS_POWER_THROTTLING_EXECUTION_SPEED` and `IGNORE_TIMER_RESOLUTION`). Windows 11 otherwise coarsens the timers of background processes, and Relay is usually in the background while it plays.
+Creating it also sets `THREAD_PRIORITY_HIGHEST` on the engine thread and opts the process out of **power throttling** (`PROCESS_POWER_THROTTLING_EXECUTION_SPEED` and `IGNORE_TIMER_RESOLUTION`). Windows 11 otherwise coarsens the timers of background processes, and Relay is usually in the background while it plays. Dropping the timer, at the end of the playback, hands throttling back to Windows, so an idle Relay doesn't cost battery.
 
 Measured over a 10-minute release-build soak, 12,000 events: median and p99 lateness under 0.01 ms, worst case about 1 ms.
 
@@ -132,7 +134,7 @@ Measured over a 10-minute release-build soak, 12,000 events: median and p99 late
 - **Monitors**: `EnumDisplayMonitors` + `GetMonitorInfoW` (bounds, work area, primary flag, device name) + `GetDpiForMonitor` (effective DPI).
 - **Virtual desktop**: `SM_XVIRTUALSCREEN` … `SM_CYVIRTUALSCREEN`.
 - **Double-click settings**: `GetDoubleClickTime` and `SM_CXDOUBLECLK`/`SM_CYDOUBLECLK`, stored with each recording for step grouping.
-- **Pixel**: `GetPixel` on the screen DC. That's a few microseconds per sample, which is plenty for pixel checks every 30 ms and triggers every 250 ms.
+- **Pixel**: `GetPixel` on the screen DC. It takes about 10 ms, because reading the screen waits for the compositor; a cached DC or a 1×1 `BitBlt` measured the same. That's fine for pixel checks every 30 ms and triggers every 250 ms. (Something much faster would need DXGI desktop duplication.)
 
 The app is **per-monitor DPI aware (v2)** through `src-tauri/app.manifest`. Every coordinate in Relay, recorded or injected, is a physical pixel, so display scaling never distorts a macro.
 
@@ -144,9 +146,9 @@ The app is **per-monitor DPI aware (v2)** through `src-tauri/app.manifest`. Ever
 | --- | --- |
 | `root_window_at(x, y)` | `WindowFromPoint` → `GetAncestor(GA_ROOT)`. The rect is the visible frame from `DWMWA_EXTENDED_FRAME_BOUNDS` (`GetWindowRect` includes invisible resize borders). Returns the exe name, class, title and rect. Used for the anchor window. |
 | `foreground()` | `GetForegroundWindow` + owning process id |
-| `restore_previous(own)` | A `SetWinEventHook(EVENT_SYSTEM_FOREGROUND)` thread records the last foreground window of **another** process. If it's gone, the first real window below Relay in z-order (visible, not minimized, not a tool window, not cloaked on another virtual desktop). Then `SetForegroundWindow`. |
+| `restore_previous(own)` | A `SetWinEventHook(EVENT_SYSTEM_FOREGROUND)` thread records the last foreground window of **another** process. If it's gone, or Windows refuses to activate it, the first real window below Relay in z-order that can be activated (visible, not minimized, not a tool window, not cloaked on another virtual desktop). |
 | `find_window(exe, class)` | `EnumWindows` for the topmost visible window of that exe and class. Used by *Window* coordinates. |
-| `is_elevated(pid)`, `self_elevated()` | `OpenProcessToken` + `TokenElevation` |
+| `input_blocked(pid)` | Compares the process's integrity level with Relay's (`TokenIntegrityLevel`), which is what UIPI checks. A token Relay can't read counts as higher, unless Relay is itself high. |
 | `input_desktop_available()` | `OpenInputDesktop` fails on the secure desktop (lock screen, UAC prompt) |
 
 Process names come from `QueryFullProcessImageNameW`, so they work without admin rights for most processes.
@@ -169,6 +171,8 @@ A negative result is a dead key, which types nothing by itself.
 
 - `code(scan, ext, vk)` maps a set-1 scan code (as Windows reports it) to a W3C `code`, falling back to the virtual key for keys without a known scan code (media keys, injected input).
 - `scan_for_code(code)` goes back, for replaying keys that were stored without a scan code.
+- Windows reports Pause as scan 0x45 and NumLock as *extended* 0x45 (the reverse of what you'd expect); the map follows, and the injector sends Pause by virtual key since its scan code is ambiguous.
+- `is_modifier_vk`, `is_ctrl_vk` and `is_alt_vk` are the one definition of those keys, for the hook and the recorder.
 
 ## The recorder
 
@@ -177,11 +181,11 @@ A negative result is a dead key, which types nothing by itself.
 `Recorder` turns `RawInput`s into `Event`s. Character translation is injected, so it's tested with synthetic input and a fake US translator.
 
 - **Time**: raw QPC milliseconds minus the recording start, rounded to `Ms`.
-- **Moves**: dropped when unchanged, and throttled to one per `move_interval_ms` (16 ms), or ignored entirely without *Capture mouse path*.
-- **Keys**: dropped without *Capture keystrokes*. End with Ctrl and Alt held (the kill switch) is dropped. Each down gets its character from the translator.
+- **Moves**: dropped when unchanged, and throttled to one per `move_interval_ms` (16 ms), or ignored entirely without *Capture mouse path*. The last sample the throttle skipped is still recorded before the next action, so the cursor is where it really was.
+- **Keys**: dropped without *Capture keystrokes*. End with Ctrl and Alt held (the kill switch) is dropped. Each down gets its character from the translator. Unicode text another program sent (`VK_PACKET`) is kept as text, not as a key: its scan code is a UTF-16 unit.
 - **First press**: the position of the first button down, to find the anchor window.
 - **`take_new_moves`** returns the cursor samples since the last call, for live progress.
-- **`finish`**: trims modifier presses after the last real action (the Ctrl and Alt of the kill switch that stopped it), then `normalize`.
+- **`finish`**: drops modifiers *pressed* after the last real action, with their releases (the Ctrl and Alt of the kill switch that stopped it). The release of a modifier pressed earlier stays where it was. Then `normalize`.
 - **`is_meaningful(events)`**: at least one non-move event, or at least 5 moves. Otherwise the recording is discarded.
 
 ## Processes
@@ -192,7 +196,7 @@ A negative result is a dead key, which types nothing by itself.
 
 ## The stub backend
 
-[`stub.rs`](../../crates/relay-platform/src/stub.rs) is compiled on every non-Windows target. Hooks and injection return `PlatformError::Unsupported`, the screen reports a 1920×1080 virtual desktop, and the timer uses `std::thread::sleep`. It exists so `relay-core` and `relay-platform` build, lint and test on Linux CI.
+[`stub.rs`](../../crates/relay-platform/src/stub.rs) is compiled on every non-Windows target. Hooks and injection return `PlatformError::Unsupported`, the screen reports one 1920×1080 monitor, and the timer waits on a condition variable (wakeable, not precise). It exists so `relay-core` and `relay-platform` build, lint and test on Linux CI.
 
 ## Adding a backend
 

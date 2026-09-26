@@ -1,17 +1,22 @@
 /** mm:ss.cc, as in the design (`00:07.35`). */
 export function fmtTime(ms: number): string {
-  ms = Math.max(0, ms);
-  const s = ms / 1000;
-  const m = Math.floor(s / 60);
-  return String(m).padStart(2, "0") + ":" + (s % 60).toFixed(2).padStart(5, "0");
+  // Round once, in centiseconds, so 59.996 s is 01:00.00 and not 00:60.00.
+  const cs = Math.round(Math.max(0, ms) / 10);
+  const m = Math.floor(cs / 6000);
+  const s = (cs % 6000) / 100;
+  return String(m).padStart(2, "0") + ":" + s.toFixed(2).padStart(5, "0");
 }
 
-/** "Recording 3" → "recording-3", used for export file names. */
+/** "Déplacer fenêtre 3" → "déplacer-fenêtre-3", for export file names ("" when nothing is left). */
 export function slug(name: string): string {
-  return name.replace(/[^\w]+/g, "-").toLowerCase();
+  return name
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase();
 }
 
-export const pad4 = (n: number) => String(Math.round(n)).padStart(4, "0");
+/** A coordinate as 4 digits, with its sign when negative (monitors left of the primary). */
+export const pad4 = (n: number) => (n < 0 ? "-" : "") + String(Math.abs(Math.round(n))).padStart(4, "0");
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 

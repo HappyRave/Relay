@@ -19,7 +19,7 @@ use serde::Serialize;
 use ts_rs::TS;
 
 use crate::coordinator::Cmd;
-use crate::ipc::{EngineMsg, Emitter};
+use crate::ipc::{Emitter, EngineMsg};
 
 const TICK_MS: f64 = 33.0;
 /// How often a pixel check samples the screen.
@@ -67,6 +67,52 @@ pub struct TimingStats {
     pub max_ms: f64,
 }
 
+/// Lateness in 10 µs buckets up to 20 ms (later counts in the last one), so
+/// an endless loop measures in constant memory.
+struct Lateness {
+    buckets: Vec<u32>,
+    count: u32,
+    max: f64,
+}
+
+impl Lateness {
+    const BUCKET_MS: f64 = 0.01;
+    const BUCKETS: usize = 2000;
+
+    fn new() -> Self {
+        Lateness { buckets: vec![0; Self::BUCKETS], count: 0, max: 0.0 }
+    }
+
+    fn add(&mut self, ms: f64) {
+        let ms = ms.max(0.0);
+        let i = ((ms / Self::BUCKET_MS) as usize).min(Self::BUCKETS - 1);
+        self.buckets[i] += 1;
+        self.count = self.count.saturating_add(1);
+        self.max = self.max.max(ms);
+    }
+
+    fn quantile(&self, q: f64) -> f64 {
+        let rank = ((self.count as f64 - 1.0) * q).round() as u32;
+        let mut seen = 0;
+        for (i, n) in self.buckets.iter().enumerate() {
+            seen += n;
+            if seen > rank {
+                return (i as f64 * Self::BUCKET_MS).min(self.max);
+            }
+        }
+        self.max
+    }
+
+    fn stats(&self) -> Option<TimingStats> {
+        (self.count > 0).then(|| TimingStats {
+            events: self.count,
+            p50_ms: self.quantile(0.5),
+            p99_ms: self.quantile(0.99),
+            max_ms: self.max,
+        })
+    }
+}
+
 pub struct Engine {
     plan: PlayPlan,
     injector: Box<dyn Injector>,
@@ -82,14 +128,14 @@ pub struct Engine {
     clock: PlayClock,
     keys_down: Vec<KeyStroke>,
     buttons_down: Vec<MouseBtn>,
-    lateness: Vec<f64>,
+    lateness: Lateness,
     /// The first injection failure, reported once.
     pub injection_error: Option<String>,
 }
 
 impl Engine {
     pub fn new(plan: PlayPlan, injector: Box<dyn Injector>, pixel: PixelReader, now: f64) -> Self {
-        let from = if plan.from + 1 >= plan.duration { 0 } else { plan.from };
+        let from = if plan.from.saturating_add(1) >= plan.duration { 0 } else { plan.from };
         let times = plan_times(&plan.events, &plan.steps, plan.jitter_ms, plan.seed);
         let idx = times.partition_point(|&t| t < from as f64);
         let clock = PlayClock::new(from, now, plan.speed);
@@ -106,16 +152,13 @@ impl Engine {
             clock,
             keys_down: Vec::new(),
             buttons_down: Vec::new(),
-            lateness: Vec::new(),
+            lateness: Lateness::new(),
             injection_error: None,
         }
     }
 
     pub fn loops(&self) -> Option<u32> {
-        match self.plan.repeat {
-            Repeat::Count(n) => Some(n.max(1)),
-            Repeat::Forever => None,
-        }
+        self.plan.repeat.loops()
     }
 
     pub fn loop_idx(&self) -> u32 {
@@ -158,7 +201,7 @@ impl Engine {
         let t = self.clock.at(now);
         while self.idx < self.times.len() && self.times[self.idx] <= t {
             if let Some(deadline) = self.clock.deadline(self.times[self.idx]) {
-                self.lateness.push((now - deadline).max(0.0));
+                self.lateness.add(now - deadline);
             }
             let i = self.idx;
             self.idx += 1;
@@ -182,16 +225,23 @@ impl Engine {
             }
             self.dispatch(i);
         }
-        if self.idx == self.times.len() && t >= self.plan.duration as f64 {
+        let duration = self.plan.duration as f64;
+        if self.idx == self.times.len() && t >= duration {
             self.release_all();
             if self.loops().is_some_and(|n| self.loop_idx + 1 >= n) {
                 return Some(FinishReason::Completed);
             }
             self.loop_idx += 1;
             // A fresh humanize pattern each loop.
-            self.times = plan_times(&self.plan.events, &self.plan.steps, self.plan.jitter_ms, self.plan.seed ^ self.loop_idx as u64);
+            self.times = plan_times(
+                &self.plan.events,
+                &self.plan.steps,
+                self.plan.jitter_ms,
+                self.plan.seed ^ self.loop_idx as u64,
+            );
             self.idx = 0;
-            self.clock.seek(0.0, now);
+            // Carry the overshoot into the next loop, so loops don't drift.
+            self.clock.seek((t - duration).min(duration), now);
         }
         None
     }
@@ -243,27 +293,20 @@ impl Engine {
         self.clock.set_speed(speed, now);
     }
 
+    /// Jumps to macro time `t`, releasing what's held; stays paused if paused.
     pub fn seek(&mut self, t: f64, now: f64) {
         self.release_all();
-        self.waiting = None;
         let t = t.clamp(0.0, self.plan.duration as f64);
-        self.clock.seek(t, now);
-        if self.user_paused.is_some() {
-            self.clock.pause(now);
-        } else {
+        if self.waiting.take().is_some() && self.user_paused.is_none() {
+            // The pixel check had frozen the clock; the jump leaves the check.
             self.clock.resume(now);
         }
+        self.clock.seek(t, now);
         self.idx = self.times.partition_point(|&x| x < t);
     }
 
     pub fn stats(&self) -> Option<TimingStats> {
-        if self.lateness.is_empty() {
-            return None;
-        }
-        let mut l = self.lateness.clone();
-        l.sort_by(f64::total_cmp);
-        let at = |q: f64| l[((l.len() - 1) as f64 * q).round() as usize];
-        Some(TimingStats { events: l.len() as u32, p50_ms: at(0.5), p99_ms: at(0.99), max_ms: *l.last().unwrap() })
+        self.lateness.stats()
     }
 
     fn check(&mut self, r: relay_platform::Result<()>) {
@@ -302,7 +345,7 @@ impl Engine {
                     self.keys_down.push(key);
                 }
             }
-            // Time passes; pixel checks poll the screen from M4.
+            // Waits only take time; `advance` handles pixel checks before dispatching.
             Event::Wait { .. } | Event::PixelWait { .. } => {}
         }
     }
@@ -332,11 +375,11 @@ pub enum EngineCmd {
     Stop,
 }
 
-/// A running engine thread.
+/// A running engine thread. Dropping it stops the engine.
 pub struct EngineHandle {
     tx: Sender<EngineCmd>,
     wake: Arc<dyn Fn() + Send + Sync>,
-    thread: Option<JoinHandle<()>>,
+    thread: Option<JoinHandle<Option<TimingStats>>>,
 }
 
 impl EngineHandle {
@@ -345,44 +388,84 @@ impl EngineHandle {
         (self.wake)();
     }
 
-    /// Stops playback, releases held input and waits for the thread.
-    pub fn stop(mut self) {
+    /// Stops playback, releases held input, waits for the thread and
+    /// returns the timing so far.
+    pub fn stop(mut self) -> Option<TimingStats> {
         self.send(EngineCmd::Stop);
+        self.thread.take().and_then(|t| t.join().ok().flatten())
+    }
+}
+
+impl Drop for EngineHandle {
+    fn drop(&mut self) {
         if let Some(t) = self.thread.take() {
+            self.send(EngineCmd::Stop);
             let _ = t.join();
         }
     }
 }
 
-pub fn spawn(plan: PlayPlan, platform: &Platform, emit: Arc<Emitter>, coordinator: Sender<Cmd>) -> EngineHandle {
+/// Tells the coordinator the engine ended on its own, even by panicking.
+struct Done {
+    coordinator: Sender<Cmd>,
+    generation: u64,
+    /// `None` until the engine ends; a panic leaves it `None` → `Error`.
+    outcome: Option<(FinishReason, Option<TimingStats>)>,
+    /// Stopped by the coordinator, which already knows.
+    stopped: bool,
+}
+
+impl Drop for Done {
+    fn drop(&mut self) {
+        if self.stopped {
+            return;
+        }
+        let (reason, timing) = self.outcome.take().unwrap_or((FinishReason::Error, None));
+        let _ = self.coordinator.send(Cmd::EngineDone { generation: self.generation, reason, timing });
+    }
+}
+
+/// Runs `plan` on a new engine thread. `generation` identifies this playback
+/// in the [`Cmd::EngineDone`] it sends when it ends on its own.
+pub fn spawn(
+    plan: PlayPlan,
+    platform: &Platform,
+    emit: Arc<Emitter>,
+    coordinator: Sender<Cmd>,
+    generation: u64,
+) -> EngineHandle {
     let (tx, rx) = unbounded::<EngineCmd>();
     let (wake_tx, wake_rx) = crossbeam_channel::bounded(1);
-    let (make_timer, make_injector) = (platform.timer, platform.injector);
+    let (make_timer, make_injector, now_ms) = (platform.timer, platform.injector, platform.now_ms);
     let screen = platform.screen.clone();
     let thread = std::thread::Builder::new()
         .name("relay-engine".into())
         .spawn(move || {
+            let mut done = Done { coordinator, generation, outcome: None, stopped: false };
             // Created on this thread: the timer also raises this thread's priority.
             let mut timer = make_timer();
             let _ = wake_tx.send(timer.waker());
             let pixel: PixelReader = Box::new(move |x, y| screen.pixel(x, y));
-            let mut engine = Engine::new(plan, make_injector(), pixel, timer.now_ms());
+            let mut engine = Engine::new(plan, make_injector(), pixel, now_ms());
             let mut reported_error = false;
             let mut next_tick = f64::MIN;
             loop {
                 loop {
-                    let now = timer.now_ms();
+                    let now = now_ms();
                     match rx.try_recv() {
                         Ok(EngineCmd::Pause) => engine.pause(now),
                         Ok(EngineCmd::Resume) => engine.resume(now),
                         Ok(EngineCmd::Seek(t)) => engine.seek(t, now),
                         Ok(EngineCmd::Speed(v)) => engine.set_speed(v, now),
-                        Ok(EngineCmd::Stop) | Err(TryRecvError::Disconnected) => return, // Drop releases input
+                        Ok(EngineCmd::Stop) | Err(TryRecvError::Disconnected) => {
+                            done.stopped = true;
+                            return engine.stats(); // dropping the engine releases input
+                        }
                         Err(TryRecvError::Empty) => break,
                     }
                     next_tick = f64::MIN; // report the change right away
                 }
-                let now = timer.now_ms();
+                let now = now_ms();
                 let finished = engine.advance(now);
                 if !reported_error && let Some(e) = &engine.injection_error {
                     reported_error = true;
@@ -399,14 +482,15 @@ pub fn spawn(plan: PlayPlan, platform: &Platform, emit: Arc<Emitter>, coordinato
                     });
                 }
                 if let Some(reason) = finished {
-                    tracing::info!(?reason, timing = ?engine.stats(), "playback finished");
                     if reason == FinishReason::PixelTimeout {
                         let step = engine.timed_out_step.map_or(String::new(), |n| format!(" at step {n}"));
-                        emit.send(EngineMsg::Notice { message: format!("Pixel check timed out{step}; playback stopped.") });
+                        emit.send(EngineMsg::Notice {
+                            message: format!("Pixel check timed out{step}; playback stopped."),
+                        });
                     }
-                    emit.send(EngineMsg::Finished { reason, timing: engine.stats() });
-                    let _ = coordinator.send(Cmd::EngineDone(reason));
-                    return;
+                    let stats = engine.stats();
+                    done.outcome = Some((reason, stats.clone()));
+                    return stats;
                 }
                 let deadline = engine.next_deadline().map_or(next_tick, |d| d.min(next_tick));
                 timer.wait_until(deadline);
@@ -469,7 +553,8 @@ mod tests {
 
     #[test]
     fn injects_on_schedule_and_measures_lateness() {
-        let (mut e, rec) = engine(vec![key(0, "KeyA", true), key(100, "KeyA", false), key(200, "KeyB", true)], Repeat::Count(1), 1.0);
+        let (mut e, rec) =
+            engine(vec![key(0, "KeyA", true), key(100, "KeyA", false), key(200, "KeyB", true)], Repeat::Count(1), 1.0);
         assert_eq!(e.advance(0.0), None);
         assert_eq!(rec.take(), ["KeyA down"]);
         assert_eq!(e.next_deadline(), Some(100.0));
@@ -486,6 +571,41 @@ mod tests {
     }
 
     #[test]
+    fn loops_carry_their_overshoot() {
+        let (mut e, _rec) = engine(vec![key(0, "KeyA", true), key(100, "KeyA", false)], Repeat::Count(3), 1.0);
+        e.advance(0.0);
+        e.advance(100.0);
+        // The macro lasts 600 ms; we wake 40 ms late for the loop end.
+        assert_eq!(e.advance(640.0), None);
+        assert_eq!(e.loop_idx(), 1);
+        assert_eq!(e.macro_time(640.0), 40.0);
+    }
+
+    #[test]
+    fn a_seek_while_paused_stays_paused() {
+        let (mut e, _rec) = engine(vec![key(0, "KeyA", true), key(1000, "KeyA", false)], Repeat::Count(1), 1.0);
+        e.advance(0.0);
+        e.pause(100.0);
+        e.seek(500.0, 200.0);
+        assert!(e.paused());
+        assert_eq!(e.macro_time(9000.0), 500.0);
+    }
+
+    #[test]
+    fn lateness_quantiles() {
+        let mut l = Lateness::new();
+        for i in 0..100 {
+            l.add(i as f64 * 0.1);
+        }
+        l.add(80.0);
+        let s = l.stats().unwrap();
+        assert_eq!(s.events, 101);
+        assert!((s.p50_ms - 5.0).abs() < 0.02, "{s:?}");
+        assert!((s.p99_ms - 9.9).abs() < 0.02, "{s:?}");
+        assert_eq!(s.max_ms, 80.0);
+    }
+
+    #[test]
     fn speed_halves_deadlines() {
         let (mut e, rec) = engine(vec![key(0, "KeyA", true), key(1000, "KeyA", false)], Repeat::Count(1), 2.0);
         e.advance(0.0);
@@ -498,7 +618,11 @@ mod tests {
 
     #[test]
     fn pause_seek_and_speed_changes() {
-        let (mut e, rec) = engine(vec![key(0, "KeyA", true), key(1000, "KeyA", false), key(2000, "KeyB", true)], Repeat::Count(1), 1.0);
+        let (mut e, rec) = engine(
+            vec![key(0, "KeyA", true), key(1000, "KeyA", false), key(2000, "KeyB", true)],
+            Repeat::Count(1),
+            1.0,
+        );
         e.advance(0.0);
         e.pause(300.0);
         assert_eq!(e.next_deadline(), None);
@@ -529,7 +653,8 @@ mod tests {
 
     #[test]
     fn dropping_mid_drag_releases_the_button() {
-        let (mut e, rec) = engine(vec![btn(0, true), Event::Move { t: 50, x: 90, y: 20 }, btn(100, false)], Repeat::Count(1), 1.0);
+        let (mut e, rec) =
+            engine(vec![btn(0, true), Event::Move { t: 50, x: 90, y: 20 }, btn(100, false)], Repeat::Count(1), 1.0);
         e.advance(60.0);
         drop(e);
         assert_eq!(rec.take(), ["move 10,20", "Left down", "move 90,20", "Left up"]);
@@ -537,7 +662,16 @@ mod tests {
 
     fn pixel_macro() -> Vec<Event> {
         vec![
-            Event::PixelWait { t: 100, dur: 900, x: 5, y: 6, color: Rgb(255, 0, 0), tolerance: 8, timeout_ms: 5000, label: String::new() },
+            Event::PixelWait {
+                t: 100,
+                dur: 900,
+                x: 5,
+                y: 6,
+                color: Rgb(255, 0, 0),
+                tolerance: 8,
+                timeout_ms: 5000,
+                label: String::new(),
+            },
             key(1000, "KeyA", true),
             key(1040, "KeyA", false),
         ]
@@ -548,7 +682,17 @@ mod tests {
         let events = pixel_macro();
         let steps = relay_core::steps::group_steps(&events, Default::default());
         let duration = relay_core::timeline::duration(&events);
-        let plan = PlayPlan { events, steps, duration, repeat: Repeat::Count(1), speed: 1.0, jitter_ms: 0, seed: 0, offset: (0, 0), from: 0 };
+        let plan = PlayPlan {
+            events,
+            steps,
+            duration,
+            repeat: Repeat::Count(1),
+            speed: 1.0,
+            jitter_ms: 0,
+            seed: 0,
+            offset: (0, 0),
+            from: 0,
+        };
         // The fake screen turns red at `turns_red_at` (wall ms), read through a shared clock.
         let now = Arc::new(Mutex::new(0.0));
         let clock = now.clone();

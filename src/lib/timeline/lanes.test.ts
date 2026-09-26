@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { currentStepIndex, jumpTarget, keyChips, moveSegments, pct, ruler } from "./lanes";
+import { currentStepIndex, jumpTarget, keyChips, moveSegments, pct, ruler, startedCount } from "./lanes";
 import type { Step } from "../types";
 
 const keys = (t: number, combo: string): Step => ({ kind: "keys", t, end: t + 350, pause: 0, combo: combo.split(" + "), items: [] });
@@ -34,11 +34,11 @@ describe("ruler", () => {
 
 describe("keyChips", () => {
   it("sizes TYPE chips by their text and caps KEYS chips at 9%", () => {
-    const chips = keyChips([keys(0, "Ctrl + A"), type(5000, "hello")], 10000, 100);
-    expect(chips[0]).toMatchObject({ label: "Ctrl + A", past: true, w: 9 });
+    const chips = keyChips([keys(0, "Ctrl + A"), type(5000, "hello")], 10000);
+    expect(chips[0]).toMatchObject({ label: "Ctrl + A", t: 0, w: 9 });
     expect(chips[1].label).toBe("hello");
-    expect(chips[1].past).toBe(false);
     expect(chips[1].w).toBeCloseTo(4.25);
+    expect(startedCount(chips, 100)).toBe(1);
   });
 });
 
@@ -47,6 +47,8 @@ describe("step navigation", () => {
   it("finds the current step", () => {
     expect(currentStepIndex(steps, 500)).toBe(-1);
     expect(currentStepIndex(steps, 2500)).toBe(1);
+    expect(currentStepIndex(steps, 3000)).toBe(2);
+    expect(startedCount([], 100)).toBe(0);
   });
   it("jumps to the previous and next steps", () => {
     expect(jumpTarget(steps, 2030, -1, 5000)).toBe(1000);

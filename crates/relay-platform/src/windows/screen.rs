@@ -74,6 +74,8 @@ impl Screen for WinScreen {
         }
     }
 
+    /// About 10 ms: reading the screen waits for the compositor, whichever
+    /// GDI call does it (GetPixel, BitBlt), with or without a cached DC.
     fn pixel(&self, x: i32, y: i32) -> Option<Rgb> {
         unsafe {
             // The screen DC spans the virtual desktop, primary monitor at (0, 0).

@@ -3,7 +3,6 @@
   import StepEditor from "./StepEditor.svelte";
   import { tick } from "svelte";
   import { relay } from "../../../lib/state/relay.svelte";
-  import { currentStepIndex } from "../../../lib/timeline/lanes";
   import { fmtTime, plural } from "../../../lib/format";
   import type { Step } from "../../../lib/types";
 
@@ -19,8 +18,7 @@
   const COUNT_NAME = ["", "Click", "Double click", "Triple click"];
 
   const steps = $derived(relay.steps);
-  const cur = $derived(Math.min(relay.cur, relay.duration));
-  const curIdx = $derived(currentStepIndex(steps, cur));
+  const curIdx = $derived(relay.curStepIdx);
   const anchor = $derived(relay.view?.recording.anchor_window?.rect);
 
   function where(x: number, y: number): string {
@@ -53,27 +51,28 @@
     }
   }
 
-  /** The step whose editor is open (chosen by clicking its row). */
-  let selected = $state<number | null>(null);
   /** Pauses at least this long get a marker above their step. */
   const SHOW_PAUSE_MS = 1000;
-  // Close the editor when the list changes shape (another macro, a deletion).
-  $effect(() => {
-    if (selected != null && selected >= steps.length) selected = null;
-  });
+
+  /** Which step a row shows, stable across edits of that step (not its row number). */
+  const identity = (s: Step) => `${relay.view?.id}:${s.kind}:${s.items[0]}`;
+  /** The step whose editor is open (chosen by clicking its row). */
+  let selected = $state<string | null>(null);
+  /** Its row, or -1 once it's gone (another macro, a deletion, an undo). */
+  const open = $derived(selected == null ? -1 : steps.findIndex((s) => identity(s) === selected));
 
   async function choose(i: number, s: Step) {
     relay.seek(s.t);
-    selected = selected === i ? null : i;
+    selected = selected === identity(s) ? null : identity(s);
     // Bring a newly opened editor into view.
     await tick();
-    if (selected === i) list?.children[i]?.scrollIntoView({ block: "nearest" });
+    if (open === i) list?.children[i]?.scrollIntoView({ block: "nearest" });
   }
 
   let list: HTMLDivElement | undefined = $state();
   // Keep the active row in view while playing.
   $effect(() => {
-    if (relay.mode !== "play" || curIdx < 0 || !list) return;
+    if (relay.mode !== "playing" || curIdx < 0 || !list) return;
     list.children[curIdx]?.scrollIntoView({ block: "nearest" });
   });
 </script>
@@ -98,19 +97,24 @@
   {#each steps as s, i (s.items[0] ?? i)}
     {@const [detail, sub] = describe(s)}
     <div class="item">
-      {#if s.pause >= SHOW_PAUSE_MS && relay.mode !== "rec"}
+      {#if s.pause >= SHOW_PAUSE_MS && relay.mode !== "recording"}
         <div class="pause" aria-hidden="true">{(s.pause / 1000).toFixed(1)} s pause</div>
       {/if}
       <div
         class="row"
         class:active={i === curIdx}
-        class:selected={i === selected}
-        class:future={s.t > cur}
+        class:selected={i === open}
+        class:future={i > curIdx}
         role="button"
         tabindex="0"
-        aria-expanded={i === selected}
+        aria-expanded={i === open}
         onclick={() => choose(i, s)}
-        onkeydown={(e) => e.key === "Enter" && choose(i, s)}
+        onkeydown={(e) => {
+          // Only the row itself; Enter on its delete button deletes.
+          if (e.target !== e.currentTarget || (e.key !== "Enter" && e.key !== " ")) return;
+          e.preventDefault();
+          choose(i, s);
+        }}
       >
         <span class="time">{fmtTime(s.t)}</span>
         <span class="type">{TYPE_NAME[s.kind]}</span>
@@ -127,12 +131,11 @@
           disabled={relay.recording || !relay.editable}
           onclick={(e) => {
             e.stopPropagation();
-            selected = null;
             relay.deleteStep(i);
           }}><Icon name="x" size={14} /></button
         >
       </div>
-      {#if i === selected && relay.mode === "idle" && relay.editable}
+      {#if i === open && relay.mode === "idle" && relay.editable}
         <StepEditor step={s} index={i} />
       {/if}
     </div>
