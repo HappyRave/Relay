@@ -163,7 +163,9 @@ class Page {
  * keeping the data, to check what survives.
  */
 export class App {
-  constructor({ port = 9300 + Math.floor(Math.random() * 500), dir } = {}) {
+  // RELAY_E2E_PORT fixes the port, for machines where WebView2 takes its arguments from
+  // the registry instead of the environment (see .github/workflows/ci.yml).
+  constructor({ port = Number(process.env.RELAY_E2E_PORT) || 9300 + Math.floor(Math.random() * 500), dir } = {}) {
     this.port = port;
     this.dir = dir ?? mkdtempSync(join(tmpdir(), "relay-e2e-"));
     this.proc = null;

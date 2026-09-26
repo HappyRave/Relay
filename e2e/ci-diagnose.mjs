@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const exe = resolve(process.env.RELAY_EXE ?? "target/debug/relay.exe");
-const port = 9444;
+const port = Number(process.env.RELAY_E2E_PORT) || 9444;
 const run = (cmd) => {
   try {
     return execSync(cmd, { encoding: "utf8" }).trim();
