@@ -58,7 +58,8 @@ impl Injector for SendInputInjector {
             )
         };
         // Absolute coordinates are 0..=65535 across the whole virtual desktop.
-        let norm = |p: i32, origin: i32, size: i32| ((p - origin) as f64 * 65535.0 / (size - 1).max(1) as f64).round() as i32;
+        let norm =
+            |p: i32, origin: i32, size: i32| ((p - origin) as f64 * 65535.0 / (size - 1).max(1) as f64).round() as i32;
         send(&[mouse(
             norm(x, vx, vw),
             norm(y, vy, vh),
@@ -126,7 +127,9 @@ impl Injector for SendInputInjector {
             (true, Some(text)) => {
                 let inputs: Vec<INPUT> = text
                     .encode_utf16()
-                    .flat_map(|u| [keyboard(0, u, KEYEVENTF_UNICODE), keyboard(0, u, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP)])
+                    .flat_map(|u| {
+                        [keyboard(0, u, KEYEVENTF_UNICODE), keyboard(0, u, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP)]
+                    })
                     .collect();
                 send(&inputs)
             }

@@ -12,7 +12,7 @@ use relay_platform::recorder::{Recorder, Recording};
 use relay_platform::{RawInput, RawKind, Screen};
 
 use crate::coordinator::Cmd;
-use crate::ipc::{EngineMsg, Emitter};
+use crate::ipc::{Emitter, EngineMsg};
 
 const POLL: Duration = Duration::from_millis(25);
 const PROGRESS_EVERY_MS: f64 = 100.0;
@@ -30,7 +30,13 @@ pub struct HookWatchdog {
 
 impl HookWatchdog {
     pub fn new(now: f64) -> Self {
-        HookWatchdog { last_cursor: None, last_event: now, last_alarm: f64::MIN, silence_ms: 1000.0, cooldown_ms: 5000.0 }
+        HookWatchdog {
+            last_cursor: None,
+            last_event: now,
+            last_alarm: f64::MIN,
+            silence_ms: 1000.0,
+            cooldown_ms: 5000.0,
+        }
     }
 
     /// A mouse event arrived from the hook.

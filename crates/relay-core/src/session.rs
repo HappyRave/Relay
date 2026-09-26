@@ -135,7 +135,9 @@ pub fn step(mode: Mode, input: Input, cfg: &SessionConfig) -> (Mode, Vec<Effect>
         (Idle, Input::Trigger(_)) => to(Playing, vec![SetHotkeys(HotkeySet::Playing), StartPlayback { from: 0 }]),
 
         (Countdown, Input::CountdownDone) => to(Recording, vec![StartRecording]),
-        (Countdown, Input::ToggleRecord | Input::Stop(_)) => to(Idle, vec![CancelCountdown, SetHotkeys(HotkeySet::Idle)]),
+        (Countdown, Input::ToggleRecord | Input::Stop(_)) => {
+            to(Idle, vec![CancelCountdown, SetHotkeys(HotkeySet::Idle)])
+        }
 
         (Recording, Input::ToggleRecord | Input::Stop(_)) => to(Idle, vec![StopRecording, SetHotkeys(HotkeySet::Idle)]),
 

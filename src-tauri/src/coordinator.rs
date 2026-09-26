@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, unbounded};
 use parking_lot::{Mutex, RwLock};
-use relay_core::model::{CoordMode, Event, Macro, Rect, RecordingMeta};
+use relay_core::model::{CoordMode, Event, Macro, RecordingMeta, Rect};
 use relay_core::session::{self, Effect, FinishReason, HotkeySet, Input, Mode, RunSource, SessionConfig};
 use relay_core::steps::{GroupOptions, group_steps};
 use relay_core::timeline;
@@ -22,7 +22,7 @@ use uuid::Uuid;
 
 use crate::engine::{self, EngineCmd, EngineHandle, PlayPlan, TimingStats};
 use crate::hotkeys;
-use crate::ipc::{EngineMsg, Emitter};
+use crate::ipc::{Emitter, EngineMsg};
 use crate::library::Library;
 use crate::rec_thread::{RecContext, RecThread};
 use crate::settings::{Settings, SettingsStore};
@@ -45,14 +45,24 @@ pub enum Cmd {
     StopKey,
     /// Playback `generation` ended on its own: completed, a pixel check
     /// timed out, or the engine failed.
-    EngineDone { generation: u64, reason: FinishReason, timing: Option<TimingStats> },
+    EngineDone {
+        generation: u64,
+        reason: FinishReason,
+        timing: Option<TimingStats>,
+    },
     /// The UI selected a macro.
     Select(Uuid),
     Seek(f64),
     /// Macro `id`'s speed changed (applies if it's the one playing).
-    Speed { id: Uuid, speed: f64 },
+    Speed {
+        id: Uuid,
+        speed: f64,
+    },
     /// A trigger (or a macro hotkey) wants to run a macro.
-    RunMacro { id: Uuid, source: RunSource },
+    RunMacro {
+        id: Uuid,
+        source: RunSource,
+    },
     /// From the tray or the Triggers tab.
     SetTriggersPaused(bool),
     /// The recorder's watchdog saw the cursor move without hook events.
@@ -388,7 +398,11 @@ impl Coordinator {
         };
         let (ms, px) = self.platform.screen.double_click();
         let recorder = Recorder::new(
-            RecorderConfig { capture_moves: settings.capture_moves, capture_keys: settings.capture_keys, move_interval_ms: 16 },
+            RecorderConfig {
+                capture_moves: settings.capture_moves,
+                capture_keys: settings.capture_keys,
+                move_interval_ms: 16,
+            },
             (self.platform.now_ms)(),
             (self.platform.translator)(),
         );

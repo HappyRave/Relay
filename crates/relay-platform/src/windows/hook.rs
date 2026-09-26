@@ -118,8 +118,14 @@ fn run_hook_thread(cfg: HookConfig, tx: Sender<RawInput>, ready: Sender<Result<u
         // Create this thread's message queue before anyone posts WM_QUIT to it.
         let _ = PeekMessageW(&mut msg, None, 0, 0, PM_NOREMOVE);
         CTX.with(|c| {
-            *c.borrow_mut() =
-                Some(Ctx { tx, cfg, reported: VkSet::default(), skipped: VkSet::default(), swallowed: VkSet::default(), pressed_inside: 0 })
+            *c.borrow_mut() = Some(Ctx {
+                tx,
+                cfg,
+                reported: VkSet::default(),
+                skipped: VkSet::default(),
+                swallowed: VkSet::default(),
+                pressed_inside: 0,
+            })
         });
         let module = GetModuleHandleW(None).ok().map(|m| HINSTANCE(m.0));
         let installed = SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_proc), module, 0).and_then(|kb| {

@@ -90,8 +90,15 @@ fn class_of(hwnd: HWND) -> String {
 /// The visible frame; GetWindowRect includes invisible resize borders.
 fn frame_of(hwnd: HWND) -> Option<RECT> {
     let mut r = RECT::default();
-    unsafe { DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, &mut r as *mut _ as *mut c_void, size_of::<RECT>() as u32) }
-        .ok()?;
+    unsafe {
+        DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_EXTENDED_FRAME_BOUNDS,
+            &mut r as *mut _ as *mut c_void,
+            size_of::<RECT>() as u32,
+        )
+    }
+    .ok()?;
     Some(r)
 }
 
@@ -235,8 +242,8 @@ fn integrity_of(process: HANDLE) -> Option<u32> {
         let mut len = 0u32;
         let _ = GetTokenInformation(token, TokenIntegrityLevel, None, 0, &mut len);
         let mut buf = vec![0u8; len as usize];
-        let ok =
-            GetTokenInformation(token, TokenIntegrityLevel, Some(buf.as_mut_ptr() as *mut c_void), len, &mut len).is_ok();
+        let ok = GetTokenInformation(token, TokenIntegrityLevel, Some(buf.as_mut_ptr() as *mut c_void), len, &mut len)
+            .is_ok();
         let _ = CloseHandle(token);
         if !ok || buf.len() < size_of::<TOKEN_MANDATORY_LABEL>() {
             return None;

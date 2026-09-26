@@ -12,10 +12,28 @@ pub struct RawInput {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RawKind {
-    Move { x: i32, y: i32 },
-    Button { x: i32, y: i32, btn: MouseBtn, down: bool },
-    Wheel { x: i32, y: i32, delta: i32, horizontal: bool },
-    Key { vk: u16, scan: u16, ext: bool, down: bool },
+    Move {
+        x: i32,
+        y: i32,
+    },
+    Button {
+        x: i32,
+        y: i32,
+        btn: MouseBtn,
+        down: bool,
+    },
+    Wheel {
+        x: i32,
+        y: i32,
+        delta: i32,
+        horizontal: bool,
+    },
+    Key {
+        vk: u16,
+        scan: u16,
+        ext: bool,
+        down: bool,
+    },
     /// Esc was pressed during a session (and swallowed).
     Escape,
     /// Another key was pressed during playback with "stop on key press" (swallowed).

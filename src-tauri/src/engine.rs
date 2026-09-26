@@ -19,7 +19,7 @@ use serde::Serialize;
 use ts_rs::TS;
 
 use crate::coordinator::Cmd;
-use crate::ipc::{EngineMsg, Emitter};
+use crate::ipc::{Emitter, EngineMsg};
 
 const TICK_MS: f64 = 33.0;
 /// How often a pixel check samples the screen.
@@ -233,7 +233,12 @@ impl Engine {
             }
             self.loop_idx += 1;
             // A fresh humanize pattern each loop.
-            self.times = plan_times(&self.plan.events, &self.plan.steps, self.plan.jitter_ms, self.plan.seed ^ self.loop_idx as u64);
+            self.times = plan_times(
+                &self.plan.events,
+                &self.plan.steps,
+                self.plan.jitter_ms,
+                self.plan.seed ^ self.loop_idx as u64,
+            );
             self.idx = 0;
             // Carry the overshoot into the next loop, so loops don't drift.
             self.clock.seek((t - duration).min(duration), now);
@@ -479,7 +484,9 @@ pub fn spawn(
                 if let Some(reason) = finished {
                     if reason == FinishReason::PixelTimeout {
                         let step = engine.timed_out_step.map_or(String::new(), |n| format!(" at step {n}"));
-                        emit.send(EngineMsg::Notice { message: format!("Pixel check timed out{step}; playback stopped.") });
+                        emit.send(EngineMsg::Notice {
+                            message: format!("Pixel check timed out{step}; playback stopped."),
+                        });
                     }
                     let stats = engine.stats();
                     done.outcome = Some((reason, stats.clone()));
@@ -546,7 +553,8 @@ mod tests {
 
     #[test]
     fn injects_on_schedule_and_measures_lateness() {
-        let (mut e, rec) = engine(vec![key(0, "KeyA", true), key(100, "KeyA", false), key(200, "KeyB", true)], Repeat::Count(1), 1.0);
+        let (mut e, rec) =
+            engine(vec![key(0, "KeyA", true), key(100, "KeyA", false), key(200, "KeyB", true)], Repeat::Count(1), 1.0);
         assert_eq!(e.advance(0.0), None);
         assert_eq!(rec.take(), ["KeyA down"]);
         assert_eq!(e.next_deadline(), Some(100.0));
@@ -610,7 +618,11 @@ mod tests {
 
     #[test]
     fn pause_seek_and_speed_changes() {
-        let (mut e, rec) = engine(vec![key(0, "KeyA", true), key(1000, "KeyA", false), key(2000, "KeyB", true)], Repeat::Count(1), 1.0);
+        let (mut e, rec) = engine(
+            vec![key(0, "KeyA", true), key(1000, "KeyA", false), key(2000, "KeyB", true)],
+            Repeat::Count(1),
+            1.0,
+        );
         e.advance(0.0);
         e.pause(300.0);
         assert_eq!(e.next_deadline(), None);
@@ -641,7 +653,8 @@ mod tests {
 
     #[test]
     fn dropping_mid_drag_releases_the_button() {
-        let (mut e, rec) = engine(vec![btn(0, true), Event::Move { t: 50, x: 90, y: 20 }, btn(100, false)], Repeat::Count(1), 1.0);
+        let (mut e, rec) =
+            engine(vec![btn(0, true), Event::Move { t: 50, x: 90, y: 20 }, btn(100, false)], Repeat::Count(1), 1.0);
         e.advance(60.0);
         drop(e);
         assert_eq!(rec.take(), ["move 10,20", "Left down", "move 90,20", "Left up"]);
@@ -649,7 +662,16 @@ mod tests {
 
     fn pixel_macro() -> Vec<Event> {
         vec![
-            Event::PixelWait { t: 100, dur: 900, x: 5, y: 6, color: Rgb(255, 0, 0), tolerance: 8, timeout_ms: 5000, label: String::new() },
+            Event::PixelWait {
+                t: 100,
+                dur: 900,
+                x: 5,
+                y: 6,
+                color: Rgb(255, 0, 0),
+                tolerance: 8,
+                timeout_ms: 5000,
+                label: String::new(),
+            },
             key(1000, "KeyA", true),
             key(1040, "KeyA", false),
         ]
@@ -660,7 +682,17 @@ mod tests {
         let events = pixel_macro();
         let steps = relay_core::steps::group_steps(&events, Default::default());
         let duration = relay_core::timeline::duration(&events);
-        let plan = PlayPlan { events, steps, duration, repeat: Repeat::Count(1), speed: 1.0, jitter_ms: 0, seed: 0, offset: (0, 0), from: 0 };
+        let plan = PlayPlan {
+            events,
+            steps,
+            duration,
+            repeat: Repeat::Count(1),
+            speed: 1.0,
+            jitter_ms: 0,
+            seed: 0,
+            offset: (0, 0),
+            from: 0,
+        };
         // The fake screen turns red at `turns_red_at` (wall ms), read through a shared clock.
         let now = Arc::new(Mutex::new(0.0));
         let clock = now.clone();

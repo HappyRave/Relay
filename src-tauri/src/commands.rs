@@ -23,7 +23,7 @@ use uuid::Uuid;
 use crate::coordinator::{Cmd, CoordinatorHandle, SessionMode};
 use crate::history::{EditHistory, Snapshot};
 use crate::hotkeys;
-use crate::ipc::{EngineMsg, Emitter};
+use crate::ipc::{Emitter, EngineMsg};
 use crate::library::{Library, LibraryError};
 use crate::settings::{Settings, SettingsStore};
 

@@ -11,7 +11,7 @@ use relay_core::keys::KeyStroke;
 use relay_core::model::MouseBtn;
 
 use crate::{
-    CharTranslator, HeldKeys, HookConfig, HookSession, InputHook, Injector, Platform, PlatformError, RawInput, Result,
+    CharTranslator, HeldKeys, HookConfig, HookSession, Injector, InputHook, Platform, PlatformError, RawInput, Result,
     Screen, Timer, WindowQuery, WindowRef,
 };
 

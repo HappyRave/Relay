@@ -22,7 +22,7 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 use uuid::Uuid;
 
 use crate::coordinator::{Cmd, CoordinatorHandle};
-use crate::ipc::{EngineMsg, Emitter};
+use crate::ipc::{Emitter, EngineMsg};
 use crate::library::Library;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

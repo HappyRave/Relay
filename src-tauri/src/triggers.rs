@@ -4,8 +4,8 @@
 //! Macro hotkeys live in `hotkeys`.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use parking_lot::Mutex;
 use std::time::Duration;
@@ -64,7 +64,10 @@ pub fn spawn(app: AppHandle, platform: Arc<Platform>) {
     let a = app.clone();
     std::thread::Builder::new().name("relay-schedule".into()).spawn(move || schedule_loop(a)).expect("spawn scheduler");
     let a = app.clone();
-    std::thread::Builder::new().name("relay-app-launch".into()).spawn(move || app_launch_loop(a)).expect("spawn app watcher");
+    std::thread::Builder::new()
+        .name("relay-app-launch".into())
+        .spawn(move || app_launch_loop(a))
+        .expect("spawn app watcher");
     std::thread::Builder::new()
         .name("relay-pixel-trigger".into())
         .spawn(move || pixel_loop(app, platform))

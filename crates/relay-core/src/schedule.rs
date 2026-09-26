@@ -18,7 +18,10 @@ pub struct WeeklySchedule {
 impl Default for WeeklySchedule {
     /// Weekdays at 09:00.
     fn default() -> Self {
-        WeeklySchedule { days: [true, true, true, true, true, false, false], time: NaiveTime::from_hms_opt(9, 0, 0).unwrap() }
+        WeeklySchedule {
+            days: [true, true, true, true, true, false, false],
+            time: NaiveTime::from_hms_opt(9, 0, 0).unwrap(),
+        }
     }
 }
 
@@ -67,7 +70,9 @@ mod tests {
         WeeklySchedule { days, time: NaiveTime::parse_from_str(hm, "%H:%M").unwrap() }
     }
     fn at(y: i32, m: u32, d: u32, h: u32, min: u32) -> DateTime<chrono_tz::Tz> {
-        Brussels.from_local_datetime(&NaiveDate::from_ymd_opt(y, m, d).unwrap().and_hms_opt(h, min, 0).unwrap()).unwrap()
+        Brussels
+            .from_local_datetime(&NaiveDate::from_ymd_opt(y, m, d).unwrap().and_hms_opt(h, min, 0).unwrap())
+            .unwrap()
     }
     const WEEKDAYS: [bool; 7] = [true, true, true, true, true, false, false];
 

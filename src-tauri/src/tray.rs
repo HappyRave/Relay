@@ -2,7 +2,7 @@
 //! the widget is hidden. Left-click toggles the widget; the menu has the
 //! session controls, the macros folder and Quit.
 
-use relay_core::session::{Input, Mode, FinishReason};
+use relay_core::session::{FinishReason, Input, Mode};
 use tauri::menu::{CheckMenuItem, CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager};

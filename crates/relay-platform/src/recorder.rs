@@ -6,9 +6,9 @@ use relay_core::keys::{self, KeyStroke};
 use relay_core::model::{Event, Ms};
 use relay_core::view::MovePoint;
 
+use crate::CharTranslator;
 use crate::keymap;
 use crate::types::{HeldKeys, RawInput, RawKind};
-use crate::CharTranslator;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RecorderConfig {
@@ -302,7 +302,8 @@ mod tests {
         r.push(key(150.0, 0xA2, 0x1D, false));
         r.push(raw(900.0, RawKind::Move { x: 500, y: 500 }));
         let rec = r.finish(1000.0);
-        let ups: Vec<_> = rec.events.iter().filter(|e| matches!(e, Event::Key { down: false, .. })).map(|e| e.t()).collect();
+        let ups: Vec<_> =
+            rec.events.iter().filter(|e| matches!(e, Event::Key { down: false, .. })).map(|e| e.t()).collect();
         assert_eq!(ups, [150], "Ctrl is released where it was, not at the end");
     }
 

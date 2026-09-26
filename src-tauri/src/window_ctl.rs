@@ -2,8 +2,8 @@
 //! remembered across runs, zoomed down on small screens, square corners,
 //! and no focus stealing during sessions.
 
-use std::path::PathBuf;
 use parking_lot::Mutex;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -76,7 +76,10 @@ pub fn zoom_for_work_area(w: u32, h: u32, scale: f64) -> f64 {
 
 fn contains(m: &Monitor, (x, y): (i32, i32)) -> bool {
     let r = m.work_area();
-    x >= r.position.x && y > r.position.y && x < r.position.x + r.size.width as i32 && y <= r.position.y + r.size.height as i32
+    x >= r.position.x
+        && y > r.position.y
+        && x < r.position.x + r.size.width as i32
+        && y <= r.position.y + r.size.height as i32
 }
 
 /// Sizes and positions the window for a widget of `css` size, keeping its
@@ -158,13 +161,15 @@ pub fn on_moved(window: &WebviewWindow, state: &WindowState) {
 
 /// Saves a moved position once dragging has paused for half a second.
 pub fn spawn_autosave(app: AppHandle) {
-    std::thread::spawn(move || loop {
-        std::thread::sleep(Duration::from_millis(250));
-        let state = app.state::<WindowState>();
-        let due = state.dirty.lock().is_some_and(|t| t.elapsed() >= Duration::from_millis(500));
-        if due {
-            *state.dirty.lock() = None;
-            state.save();
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(Duration::from_millis(250));
+            let state = app.state::<WindowState>();
+            let due = state.dirty.lock().is_some_and(|t| t.elapsed() >= Duration::from_millis(500));
+            if due {
+                *state.dirty.lock() = None;
+                state.save();
+            }
         }
     });
 }
@@ -174,7 +179,8 @@ pub fn spawn_autosave(app: AppHandle) {
 fn set_client_rect(window: &WebviewWindow, x: i32, y: i32, w: i32, h: i32) {
     use windows::Win32::UI::WindowsAndMessaging::{SWP_NOACTIVATE, SWP_NOZORDER, SetWindowPos};
     // The outer frame includes invisible resize borders around the client area.
-    let (Ok(op), Ok(os), Ok(ip), Ok(is)) = (window.outer_position(), window.outer_size(), window.inner_position(), window.inner_size())
+    let (Ok(op), Ok(os), Ok(ip), Ok(is)) =
+        (window.outer_position(), window.outer_size(), window.inner_position(), window.inner_size())
     else {
         return;
     };
@@ -202,7 +208,9 @@ pub fn apply_on_top(window: &WebviewWindow, setting: crate::settings::KeepOnTop,
 /// from the app being recorded or played into.
 #[cfg(windows)]
 pub fn set_no_activate(window: &WebviewWindow, on: bool) {
-    use windows::Win32::UI::WindowsAndMessaging::{GWL_EXSTYLE, GetWindowLongPtrW, SetWindowLongPtrW, WS_EX_NOACTIVATE};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GWL_EXSTYLE, GetWindowLongPtrW, SetWindowLongPtrW, WS_EX_NOACTIVATE,
+    };
     let Ok(hwnd) = window.hwnd() else { return };
     unsafe {
         let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
@@ -224,8 +232,7 @@ pub fn set_no_activate(_window: &WebviewWindow, _on: bool) {}
 pub fn apply_modernist_frame(window: &WebviewWindow) {
     use std::ffi::c_void;
     use windows::Win32::Graphics::Dwm::{
-        DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND,
-        DwmSetWindowAttribute,
+        DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND, DwmSetWindowAttribute,
     };
 
     let Ok(hwnd) = window.hwnd() else { return };

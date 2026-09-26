@@ -55,7 +55,8 @@ fn build(script: &[Op]) -> Vec<Value> {
                 for i in 1..=n {
                     let u = ease(i as f64 / n as f64);
                     let v = 1.0 - u;
-                    let (qx, qy) = (v * v * px + 2.0 * v * u * cx + u * u * x, v * v * py + 2.0 * v * u * cy + u * u * y);
+                    let (qx, qy) =
+                        (v * v * px + 2.0 * v * u * cx + u * u * x, v * v * py + 2.0 * v * u * cy + u * u * y);
                     let (sx, sy) = at(qx, qy);
                     ev.push(json!({ "t": (t + i as f64 * dur / n as f64).round(), "type": "move", "x": sx, "y": sy }));
                 }
@@ -85,7 +86,9 @@ fn build(script: &[Op]) -> Vec<Value> {
             }
             Pixel(ms, label) => {
                 let (x, y) = at(px, py);
-                ev.push(json!({ "t": t, "type": "cond", "dur": ms, "label": label, "x": x, "y": y, "color": "#9B9797" }));
+                ev.push(
+                    json!({ "t": t, "type": "cond", "dur": ms, "label": label, "x": x, "y": y, "color": "#9B9797" }),
+                );
                 t += ms;
             }
         }
@@ -108,12 +111,7 @@ fn sample(n: u128, name: &str, script: &[Op], runs: u32, last_run_ago_h: Option<
         rect: Rect { x: 48, y: 36, w: 1416, h: 936 },
     });
     m.playback.repeat = Repeat::Count(3);
-    Sample {
-        macro_: m,
-        runs,
-        last_run_ago: last_run_ago_h.map(TimeDelta::hours),
-        hotkey: hotkey.map(Into::into),
-    }
+    Sample { macro_: m, runs, last_run_ago: last_run_ago_h.map(TimeDelta::hours), hotkey: hotkey.map(Into::into) }
 }
 
 pub fn invoice() -> Sample {
@@ -236,7 +234,8 @@ mod tests {
     #[test]
     fn invoice_groups_into_the_designs_twelve_steps() {
         let m = invoice().macro_;
-        let steps: Vec<String> = group_steps(&m.events, (&m.recording).into()).iter().map(|s| describe(&s.kind)).collect();
+        let steps: Vec<String> =
+            group_steps(&m.events, (&m.recording).into()).iter().map(|s| describe(&s.kind)).collect();
         assert_eq!(
             steps,
             [

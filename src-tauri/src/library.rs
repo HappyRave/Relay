@@ -153,7 +153,10 @@ impl Library {
             for f in files.flatten() {
                 let path = f.path();
                 if path.extension().is_some_and(|e| e == "rly") {
-                    match fs::read_to_string(&path).map_err(|e| e.to_string()).and_then(|s| format::from_rly(&s).map_err(|e| e.to_string())) {
+                    match fs::read_to_string(&path)
+                        .map_err(|e| e.to_string())
+                        .and_then(|s| format::from_rly(&s).map_err(|e| e.to_string()))
+                    {
                         Ok(m) => loaded.push(m),
                         Err(e) => problems.push(format!("{}: {e}", path.display())),
                     }
@@ -161,7 +164,8 @@ impl Library {
             }
         }
 
-        let mut lib = Library { dir: dir.to_path_buf(), entries: Vec::new(), trash: HashMap::new(), triggers: Arc::new([]) };
+        let mut lib =
+            Library { dir: dir.to_path_buf(), entries: Vec::new(), trash: HashMap::new(), triggers: Arc::new([]) };
         if index.is_none() && loaded.is_empty() {
             lib.seed_samples();
             return (lib, problems);
@@ -357,11 +361,7 @@ impl Library {
         let index = Index {
             version: 1,
             order: self.entries.iter().map(|e| e.macro_.id).collect(),
-            entries: self
-                .entries
-                .iter()
-                .map(|e| (e.macro_.id, IndexEntry::of(e)))
-                .collect(),
+            entries: self.entries.iter().map(|e| (e.macro_.id, IndexEntry::of(e))).collect(),
             trash: self.trash.clone(),
         };
         write_atomic(&self.dir.join("library.json"), &serde_json::to_string_pretty(&index).expect("index serializes"))
@@ -386,7 +386,8 @@ mod tests {
         let rec_id = rec.id;
         lib.insert_front(rec).unwrap();
         let invoice = lib.list()[1].id;
-        relay_core::edit::apply(&mut lib.get_mut(invoice).unwrap().macro_, EditOp::Rename { name: "Renamed".into() }).unwrap();
+        relay_core::edit::apply(&mut lib.get_mut(invoice).unwrap().macro_, EditOp::Rename { name: "Renamed".into() })
+            .unwrap();
         lib.save(invoice).unwrap();
 
         let (again, _) = Library::open(dir.path());

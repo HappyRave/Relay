@@ -75,7 +75,8 @@ pub enum EditError {
 
 pub fn apply(m: &mut Macro, op: EditOp) -> Result<(), EditError> {
     // Every edit but a rename addresses or respects steps.
-    let steps = if matches!(op, EditOp::Rename { .. }) { Vec::new() } else { group_steps(&m.events, (&m.recording).into()) };
+    let steps =
+        if matches!(op, EditOp::Rename { .. }) { Vec::new() } else { group_steps(&m.events, (&m.recording).into()) };
     let get = |index: u32| steps.get(index as usize).ok_or(EditError::NoSuchStep(index));
     match op {
         EditOp::Rename { name } => m.name = name,
