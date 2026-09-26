@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, unbounded};
 use parking_lot::{Mutex, RwLock};
-use relay_core::model::{CoordMode, Event, Macro, RecordingMeta, Rect};
+use relay_core::model::{CoordMode, Event, Macro, Ms, RecordingMeta, Rect};
 use relay_core::session::{self, Effect, FinishReason, HotkeySet, Input, Mode, RunSource, SessionConfig};
 use relay_core::steps::{GroupOptions, group_steps};
 use relay_core::timeline;
@@ -49,6 +49,8 @@ pub enum Cmd {
         generation: u64,
         reason: FinishReason,
         timing: Option<TimingStats>,
+        /// With `PixelTimeout`: the recorded time of the check's step.
+        timed_out_at: Option<Ms>,
     },
     /// The UI selected a macro.
     Select(Uuid),
@@ -121,6 +123,8 @@ struct Recording {
 struct Playback {
     engine: EngineHandle,
     generation: u64,
+    /// The macro's length, where a completed run leaves the playhead.
+    duration: Ms,
     /// Watches for Esc and stop keys; `None` if it couldn't start.
     _hook: Option<Box<dyn HookSession>>,
     /// Whether the window was made click-through for this playback.
@@ -209,12 +213,14 @@ impl Coordinator {
             Cmd::HotkeyPlay => self.input(Input::TogglePlay { from: self.idle_playhead.round() as u32 }),
             Cmd::Escape => self.input(Input::Stop(FinishReason::Stopped)),
             Cmd::StopKey => self.input(Input::Stop(FinishReason::KeyPressed)),
-            Cmd::EngineDone { generation, reason, timing } => {
+            Cmd::EngineDone { generation, reason, timing, timed_out_at } => {
                 // A late message from a playback that was already stopped.
                 if self.playback.as_ref().is_none_or(|p| p.generation != generation) {
                     return;
                 }
+                let duration = self.playback.as_ref().map_or(0, |p| p.duration);
                 self.end_playback();
+                self.idle_playhead = playhead_after(reason, duration, timed_out_at);
                 if reason == FinishReason::Completed {
                     self.count_run();
                 }
@@ -227,10 +233,11 @@ impl Coordinator {
                     self.idle_playhead = 0.0;
                 }
             }
-            Cmd::Seek(t) => match &self.playback {
-                Some(p) => p.engine.send(EngineCmd::Seek(t)),
-                None => self.idle_playhead = t,
-            },
+            Cmd::Seek(t) => {
+                // Kept during playback too, like the UI's playhead.
+                self.idle_playhead = t;
+                self.engine_cmd(EngineCmd::Seek(t));
+            }
             Cmd::Speed { id, speed } => {
                 if self.current == Some(id) {
                     self.engine_cmd(EngineCmd::Speed(speed));
@@ -279,6 +286,7 @@ impl Coordinator {
             Effect::ResumePlayback => self.engine_cmd(EngineCmd::Resume),
             Effect::StopPlayback(reason) => {
                 let timing = self.end_playback();
+                self.idle_playhead = playhead_after(reason, 0, None);
                 self.emit.send(EngineMsg::Finished { reason, timing });
             }
             Effect::SetHotkeys(set) => hotkeys::set_active(&self.app, set),
@@ -495,8 +503,9 @@ impl Coordinator {
         let hook = self.watch_for_stop_keys(&m);
 
         self.generation += 1;
+        let duration = timeline::duration(&m.events);
         let plan = PlayPlan {
-            duration: timeline::duration(&m.events),
+            duration,
             repeat: m.playback.repeat,
             speed: m.playback.speed as f64,
             jitter_ms: if m.playback.humanize { m.playback.jitter_ms } else { 0 },
@@ -507,7 +516,7 @@ impl Coordinator {
             events: m.events,
         };
         let engine = engine::spawn(plan, &self.platform, self.emit.clone(), self.tx.clone(), self.generation);
-        self.playback = Some(Playback { engine, generation: self.generation, _hook: hook, click_through });
+        self.playback = Some(Playback { engine, generation: self.generation, duration, _hook: hook, click_through });
     }
 
     /// Started from Relay's own button: give the keyboard back to the app the
@@ -594,6 +603,17 @@ fn clicks_inside(m: &Macro, r: Rect, offset: (i32, i32)) -> bool {
     m.events.iter().any(|e| matches!(e, Event::Button { x, y, .. } if r.contains(x + offset.0, y + offset.1)))
 }
 
+/// Where F10 plays from after a playback of `duration` ms ended, mirroring the
+/// UI's playhead: a stop rewinds to the start, a completed run stays at the end
+/// (so the next play starts over), a timed-out pixel check stays on its step.
+fn playhead_after(reason: FinishReason, duration: Ms, timed_out_at: Option<Ms>) -> f64 {
+    match reason {
+        FinishReason::Completed => duration as f64,
+        FinishReason::PixelTimeout => timed_out_at.unwrap_or(0) as f64,
+        FinishReason::Stopped | FinishReason::KeyPressed | FinishReason::Killed | FinishReason::Error => 0.0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -621,5 +641,15 @@ mod tests {
         // Recorded at (100, 100); the anchor window moved by (500, 400).
         assert!(clicks_inside(&clicking_at(100, 100), widget, (500, 400)));
         assert!(!clicks_inside(&clicking_at(900, 700), widget, (-800, 0)));
+    }
+
+    #[test]
+    fn the_hotkey_playhead_follows_how_playback_ended() {
+        for r in [FinishReason::Stopped, FinishReason::KeyPressed, FinishReason::Killed, FinishReason::Error] {
+            assert_eq!(playhead_after(r, 5000, Some(1200)), 0.0, "{r:?} rewinds");
+        }
+        assert_eq!(playhead_after(FinishReason::Completed, 5000, None), 5000.0, "stays at the end");
+        assert_eq!(playhead_after(FinishReason::PixelTimeout, 5000, Some(1200)), 1200.0, "stays on the check");
+        assert_eq!(playhead_after(FinishReason::PixelTimeout, 5000, None), 0.0);
     }
 }

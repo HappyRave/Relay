@@ -175,6 +175,11 @@ impl Engine {
         self.loop_idx
     }
 
+    /// The recorded time of the step whose pixel check timed out.
+    pub fn timed_out_at(&self) -> Option<Ms> {
+        self.timed_out_step.and_then(|n| self.plan.steps.get(n - 1)).map(|s| s.t)
+    }
+
     pub fn macro_time(&self, now: f64) -> f64 {
         self.clock.at(now).min(self.plan.duration as f64)
     }
@@ -431,6 +436,8 @@ struct Done {
     generation: u64,
     /// `None` until the engine ends; a panic leaves it `None` → `Error`.
     outcome: Option<(FinishReason, Option<TimingStats>)>,
+    /// The recorded time of the step whose pixel check timed out.
+    timed_out_at: Option<Ms>,
     /// Stopped by the coordinator, which already knows.
     stopped: bool,
 }
@@ -441,7 +448,8 @@ impl Drop for Done {
             return;
         }
         let (reason, timing) = self.outcome.take().unwrap_or((FinishReason::Error, None));
-        let _ = self.coordinator.send(Cmd::EngineDone { generation: self.generation, reason, timing });
+        let timed_out_at = self.timed_out_at;
+        let _ = self.coordinator.send(Cmd::EngineDone { generation: self.generation, reason, timing, timed_out_at });
     }
 }
 
@@ -461,7 +469,7 @@ pub fn spawn(
     let thread = std::thread::Builder::new()
         .name("relay-engine".into())
         .spawn(move || {
-            let mut done = Done { coordinator, generation, outcome: None, stopped: false };
+            let mut done = Done { coordinator, generation, outcome: None, timed_out_at: None, stopped: false };
             // Created on this thread: the timer also raises this thread's priority.
             let mut timer = make_timer();
             let _ = wake_tx.send(timer.waker());
@@ -508,6 +516,7 @@ pub fn spawn(
                     }
                     let stats = engine.stats();
                     done.outcome = Some((reason, stats.clone()));
+                    done.timed_out_at = engine.timed_out_at();
                     return stats;
                 }
                 let deadline = engine.next_deadline().map_or(next_tick, |d| d.min(next_tick));
@@ -934,6 +943,15 @@ mod tests {
         // 900 ms of the 5 s timeout were used before the pause.
         assert_eq!(run_to(&mut e, &now, 64_000.0), None);
         assert_eq!(run_to(&mut e, &now, 64_200.0), Some(FinishReason::PixelTimeout));
+    }
+
+    #[test]
+    fn a_timed_out_check_tells_its_steps_time() {
+        let (mut e, _rec, now) = pixel_engine(f64::INFINITY);
+        assert_eq!(e.timed_out_at(), None);
+        run_to(&mut e, &now, 100.0);
+        assert_eq!(run_to(&mut e, &now, 5100.0), Some(FinishReason::PixelTimeout));
+        assert_eq!(e.timed_out_at(), Some(100), "where the playhead stays");
     }
 
     #[test]
