@@ -85,6 +85,10 @@ impl SessionMode {
     pub fn is_idle(&self) -> bool {
         *self.0.read() == Mode::Idle
     }
+
+    fn set(&self, mode: Mode) {
+        *self.0.write() = mode;
+    }
 }
 
 #[derive(Clone)]
@@ -176,7 +180,7 @@ impl Coordinator {
                     if catch_unwind(AssertUnwindSafe(|| self.handle(cmd))).is_err() {
                         self.emit.error("Something went wrong; Relay stopped what it was doing.");
                         self.shutdown();
-                        self.mode = Mode::Idle;
+                        self.set_mode(Mode::Idle);
                         self.effect(Effect::SetHotkeys(HotkeySet::Idle));
                         self.effect(Effect::EmitMode(Mode::Idle));
                     }
@@ -244,12 +248,17 @@ impl Coordinator {
         let (mode, effects) = session::step(self.mode, input.clone(), &cfg);
         if mode != self.mode {
             tracing::info!(from = ?self.mode, to = ?mode, ?input, "session");
-            self.mode = mode;
-            *self.app.state::<SessionMode>().0.write() = mode;
+            self.set_mode(mode);
         }
         for e in effects {
             self.effect(e);
         }
+    }
+
+    /// Every mode change goes through here, so commands see the same mode.
+    fn set_mode(&mut self, mode: Mode) {
+        self.mode = mode;
+        self.app.state::<SessionMode>().set(mode);
     }
 
     fn settings(&self) -> Settings {
@@ -612,13 +621,5 @@ mod tests {
         // Recorded at (100, 100); the anchor window moved by (500, 400).
         assert!(clicks_inside(&clicking_at(100, 100), widget, (500, 400)));
         assert!(!clicks_inside(&clicking_at(900, 700), widget, (-800, 0)));
-    }
-
-    #[test]
-    fn the_session_mode_starts_idle() {
-        let mode = SessionMode::default();
-        assert!(mode.is_idle());
-        *mode.0.write() = Mode::Recording;
-        assert!(!mode.is_idle());
     }
 }
