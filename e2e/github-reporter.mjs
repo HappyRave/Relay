@@ -7,8 +7,11 @@ const escape = (s) => String(s).replace(/%/g, "%25").replace(/\r/g, "%0D").repla
 
 export default async function* githubReporter(source) {
   for await (const event of source) {
-    if (event.type !== "test:fail" || event.data.details?.type === "suite") continue;
+    // Suites fail too when a hook does (the app didn't start, say): report those.
+    if (event.type !== "test:fail") continue;
     const { name, file, line, details } = event.data;
+    // Tests cancelled because their suite failed: the suite's own error says why.
+    if (details?.error?.failureType === "cancelledByParent") continue;
     const error = details?.error?.cause ?? details?.error;
     const message = error?.message ?? String(error);
     const path = file && relative(process.cwd(), file.startsWith("file:") ? fileURLToPath(file) : file).replaceAll("\\", "/");

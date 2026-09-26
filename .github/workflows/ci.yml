@@ -37,7 +37,11 @@ jobs:
             target/release/relay.exe
           if-no-files-found: error
       - name: End-to-end tests (the release build, driven over DevTools)
-        run: npm run test:e2e -- --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./e2e/github-reporter.mjs --test-reporter-destination=stdout
+        run: >-
+          node --test --test-concurrency=1
+          --test-reporter=spec --test-reporter-destination=stdout
+          --test-reporter=./e2e/github-reporter.mjs --test-reporter-destination=stdout
+          e2e/
         env:
           RELAY_EXE: target/release/relay.exe
 
