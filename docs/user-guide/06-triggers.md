@@ -64,7 +64,8 @@ The line under **Schedule** shows when it will run next, for example *Next run: 
 Things to know:
 
 - Times are in your PC's local time, and they follow daylight saving changes.
-- If the PC was asleep or off at the scheduled time, the run is **skipped**, not made up later. A run that's more than 2 minutes late is skipped.
+- If the PC was asleep or off at the scheduled time, the run is **skipped**, not made up later. Relay still runs it if it notices up to 2 minutes late (the PC woke just after), but not later than that.
+- If the clock jumps back (it's corrected after waking up, say), a run that already happened doesn't happen again.
 - A schedule checks the clock every few seconds, so a run can start up to 5 seconds after the minute.
 
 ## When app launches
@@ -73,7 +74,9 @@ Things to know:
 2. Set the **delay** in seconds (2 s by default). It gives the program's window time to appear before the macro starts clicking.
 3. Turn the switch on.
 
-The macro runs each time the program **starts**. A program that's already running when you turn the trigger on (or when Relay starts) doesn't count until it's closed and opened again. Relay looks for new programs every 2 seconds.
+The macro runs each time the program **starts**, counting from the moment you turn the trigger on: a program you open right after does count. A program that's already running then (or when Relay starts) doesn't count until it's closed and opened again. Relay looks for new programs every 2 seconds, so a program closed and reopened within 2 seconds may not be noticed. Opening a second window of a program that's already running doesn't count either, since the program didn't start.
+
+If you turn the trigger off during the delay, the macro doesn't run.
 
 > [!TIP]
 > Not sure of the file name? Start the program, then open the field's suggestions, or look in Task Manager → **Details**.
@@ -85,7 +88,7 @@ The macro runs each time the program **starts**. A program that's already runnin
 
 The line under the title reads, for example, *1248, 680 becomes #EC3013*.
 
-The trigger fires when the pixel **becomes** that color: it has to be a different color first, then match twice in a row (about half a second). A pixel that stays that color runs the macro **once**, not over and over. It fires again only after the pixel changes to something else and back.
+The trigger fires when the pixel **becomes** that color: it has to be a different color first, then match twice in a row (about half a second). A pixel that stays that color runs the macro **once**, not over and over. It fires again only after the pixel shows another color twice in a row too (so the mouse passing over it doesn't count), then comes back. Changing the trigger's position, color or tolerance starts over: the pixel has to change again.
 
 Relay checks the pixel 4 times a second, with a tolerance of 8 per color channel. See [Choosing a good pixel](05-pixel-checks.md#choosing-a-good-pixel).
 
