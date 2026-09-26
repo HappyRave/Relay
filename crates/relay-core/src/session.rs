@@ -128,7 +128,7 @@ pub fn step(mode: Mode, input: Input, cfg: &SessionConfig) -> (Mode, Vec<Effect>
         },
 
         (Idle, Input::ToggleRecord) if cfg.record_countdown_ms > 0 => {
-            to(Countdown, vec![StartCountdown { ms: cfg.record_countdown_ms }, SetHotkeys(HotkeySet::Recording)])
+            to(Countdown, vec![SetHotkeys(HotkeySet::Recording), StartCountdown { ms: cfg.record_countdown_ms }])
         }
         (Idle, Input::ToggleRecord) => to(Recording, vec![SetHotkeys(HotkeySet::Recording), StartRecording]),
         (Idle, Input::TogglePlay { from }) => to(Playing, vec![SetHotkeys(HotkeySet::Playing), StartPlayback { from }]),
@@ -163,11 +163,110 @@ mod tests {
         step(mode, input, &SessionConfig::default())
     }
 
+    /// Every input in every mode: the new mode and the exact effects, in order.
+    #[test]
+    fn every_transition() {
+        use FinishReason::*;
+        let idle = |fx: &[Effect]| (Idle, [fx, &[SetHotkeys(HotkeySet::Idle), EmitMode(Idle)]].concat());
+        let killed = |first: Effect| (Idle, vec![first, SetHotkeys(HotkeySet::Idle), PauseTriggers, EmitMode(Idle)]);
+        let play = |from| (Playing, vec![SetHotkeys(HotkeySet::Playing), StartPlayback { from }, EmitMode(Playing)]);
+        let ignored = |m: Mode| (m, vec![]);
+        let inputs = [
+            Input::ToggleRecord,
+            Input::TogglePlay { from: 700 },
+            Input::Stop(Stopped),
+            Input::Stop(KeyPressed),
+            Input::Kill,
+            Input::CountdownDone,
+            Input::PlaybackFinished(Completed),
+            Input::Trigger(RunSource::Schedule),
+        ];
+        type Row = [(Mode, Vec<Effect>); 8];
+        let table: [(Mode, Row); 5] = [
+            (
+                Idle,
+                [
+                    (
+                        Countdown,
+                        vec![SetHotkeys(HotkeySet::Recording), StartCountdown { ms: 3000 }, EmitMode(Countdown)],
+                    ),
+                    play(700),
+                    ignored(Idle),
+                    ignored(Idle),
+                    (Idle, vec![PauseTriggers]),
+                    ignored(Idle),
+                    ignored(Idle),
+                    play(0),
+                ],
+            ),
+            (
+                Countdown,
+                [
+                    idle(&[CancelCountdown]),
+                    ignored(Countdown),
+                    idle(&[CancelCountdown]),
+                    idle(&[CancelCountdown]),
+                    killed(CancelCountdown),
+                    (Recording, vec![StartRecording, EmitMode(Recording)]),
+                    ignored(Countdown),
+                    ignored(Countdown),
+                ],
+            ),
+            (
+                Recording,
+                [
+                    idle(&[StopRecording]),
+                    ignored(Recording),
+                    idle(&[StopRecording]),
+                    idle(&[StopRecording]),
+                    killed(StopRecording), // the kill switch keeps the recording
+                    ignored(Recording),
+                    ignored(Recording),
+                    ignored(Recording),
+                ],
+            ),
+            (
+                Playing,
+                [
+                    ignored(Playing),
+                    (Paused, vec![PausePlayback, EmitMode(Paused)]),
+                    idle(&[StopPlayback(Stopped)]),
+                    idle(&[StopPlayback(KeyPressed)]),
+                    killed(StopPlayback(Killed)),
+                    ignored(Playing),
+                    idle(&[]),
+                    ignored(Playing),
+                ],
+            ),
+            (
+                Paused,
+                [
+                    ignored(Paused),
+                    (Playing, vec![ResumePlayback, EmitMode(Playing)]),
+                    idle(&[StopPlayback(Stopped)]),
+                    idle(&[StopPlayback(KeyPressed)]),
+                    killed(StopPlayback(Killed)),
+                    ignored(Paused),
+                    idle(&[]),
+                    ignored(Paused),
+                ],
+            ),
+        ];
+        for (mode, row) in table {
+            for (input, want) in inputs.iter().zip(row) {
+                assert_eq!(run(mode, input.clone()), want, "{mode:?} + {input:?}");
+            }
+        }
+        // Without a countdown, recording starts at once.
+        let (m, fx) = step(Idle, Input::ToggleRecord, &SessionConfig { record_countdown_ms: 0 });
+        assert_eq!((m, fx), (Recording, vec![SetHotkeys(HotkeySet::Recording), StartRecording, EmitMode(Recording)]));
+    }
+
     #[test]
     fn record_with_countdown_then_stop() {
         let (m, fx) = run(Idle, Input::ToggleRecord);
         assert_eq!(m, Countdown);
-        assert_eq!(fx[0], StartCountdown { ms: 3000 });
+        assert!(fx.contains(&StartCountdown { ms: 3000 }));
         let (m, fx) = run(m, Input::CountdownDone);
         assert_eq!((m, fx[0].clone()), (Recording, StartRecording));
         let (m, fx) = run(m, Input::ToggleRecord);

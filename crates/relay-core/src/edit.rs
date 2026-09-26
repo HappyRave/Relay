@@ -78,6 +78,9 @@ pub fn apply(m: &mut Macro, op: EditOp) -> Result<(), EditError> {
     let steps =
         if matches!(op, EditOp::Rename { .. }) { Vec::new() } else { group_steps(&m.events, (&m.recording).into()) };
     let get = |index: u32| steps.get(index as usize).ok_or(EditError::NoSuchStep(index));
+    // Events that saturated at `Ms::MAX` have lost how far past it they were,
+    // so moving them back can land them inside a wait that also ends there.
+    let saturated = m.events.iter().any(|e| e.end() == Ms::MAX);
     match op {
         EditOp::Rename { name } => m.name = name,
 
@@ -147,12 +150,13 @@ pub fn apply(m: &mut Macro, op: EditOp) -> Result<(), EditError> {
 
         EditOp::SetLabel { index, label: new } => {
             let step = get(index)?;
-            let first = step.items[0] as usize;
-            match &mut m.events[first] {
-                Event::Button { label, down: true, .. }
-                | Event::Wait { label, .. }
-                | Event::PixelWait { label, .. } => {
-                    *label = new;
+            // The first press, not the first item: a Shift-click starts with Shift.
+            let target = step.items.iter().map(|&i| i as usize).find(|&i| {
+                matches!(m.events[i], Event::Button { down: true, .. } | Event::Wait { .. } | Event::PixelWait { .. })
+            });
+            match target.map(|i| &mut m.events[i]) {
+                Some(Event::Button { label, .. } | Event::Wait { label, .. } | Event::PixelWait { label, .. }) => {
+                    *label = new
                 }
                 _ => return Err(EditError::WrongKind(index)),
             }
@@ -167,6 +171,9 @@ pub fn apply(m: &mut Macro, op: EditOp) -> Result<(), EditError> {
             let long: Vec<_> = steps.iter().filter(|s| s.pause > max).map(|s| (s.t - s.pause, s.t, max)).collect();
             retime_pauses(&mut m.events, &long);
         }
+    }
+    if saturated {
+        normalize(&mut m.events);
     }
     m.modified_at = Utc::now();
     Ok(())
@@ -204,9 +211,12 @@ fn retime_pauses(events: &mut [Event], pauses: &[(Ms, Ms, Ms)]) {
 /// Moves `at` just past the step it falls on, from its start to its end (a
 /// press, a drag, a wait), so a step's own release is never pushed behind the
 /// inserted wait. Clicking a step puts the playhead on its start, so an
-/// insertion there lands after that step.
+/// insertion there lands after that step. A step ending at `Ms::MAX` can't
+/// be passed: the insertion stops there.
 fn snap_insertion(steps: &[Step], mut at: Ms) -> Ms {
-    while let Some(s) = steps.iter().find(|s| s.t <= at && at <= s.end) {
+    while at < Ms::MAX
+        && let Some(s) = steps.iter().find(|s| s.t <= at && at <= s.end)
+    {
         at = s.end.saturating_add(1);
     }
     at
@@ -215,7 +225,8 @@ fn snap_insertion(steps: &[Step], mut at: Ms) -> Ms {
 fn insert_timed(events: &mut Vec<Event>, steps: &[Step], at: Ms, dur: Ms, make: impl FnOnce(Ms) -> Event) {
     let at = snap_insertion(steps, at);
     shift_from(events, at, dur as i64);
-    let pos = events.partition_point(|e| e.t() < at);
+    // Nothing moves past `Ms::MAX`, so a wait there goes after what's already there.
+    let pos = if at == Ms::MAX { events.len() } else { events.partition_point(|e| e.t() < at) };
     events.insert(pos, make(at));
 }
 
@@ -254,16 +265,32 @@ impl Press {
     }
 }
 
-/// Sorts events by time, drops releases whose press is missing (it happened
-/// before recording started) and releases anything still held at the end.
+/// Sorts events by time, moves anything that comes after a wait but before
+/// its end to its end, drops releases whose press is missing (it happened before recording
+/// started) and releases anything still held at the end.
 pub fn normalize(events: &mut Vec<Event>) {
     events.sort_by_key(Event::t);
+    // What comes after a wait happens once it's over (an event at the same
+    // time is listed before it). Sorted, so pushing events to the end of the
+    // wait before them keeps the order.
+    let mut wait_end: Option<Ms> = None;
+    for e in events.iter_mut() {
+        if let Some(end) = wait_end
+            && e.t() < end
+        {
+            *e.t_mut() = end;
+        }
+        if matches!(e, Event::Wait { .. } | Event::PixelWait { .. }) {
+            wait_end = Some(e.end());
+        }
+    }
     // Presses still held, oldest first (only a handful at any time).
     let mut held: Vec<Press> = Vec::new();
     let mut cursor = (0, 0);
     events.retain(|e| {
-        if let Some(p) = e.pos() {
-            cursor = p;
+        // A pixel check's position isn't the cursor's.
+        if let Event::Move { x, y, .. } | Event::Button { x, y, .. } | Event::Wheel { x, y, .. } = e {
+            cursor = (*x, *y);
         }
         let Some((press, down)) = Press::of(e) else {
             return true;
@@ -303,10 +330,16 @@ pub fn check_invariants(events: &[Event]) -> Result<(), String> {
     if normalized != events {
         return Err("presses are not balanced".into());
     }
-    for w in events.iter().filter(|e| matches!(e, Event::Wait { .. } | Event::PixelWait { .. })) {
-        let (start, end) = (w.t(), w.end());
-        if let Some(e) = events.iter().find(|e| e.t() > start && e.t() < end) {
+    // Sorted, so an event during a wait is one listed after it, before its end.
+    let mut wait: Option<(Ms, Ms)> = None;
+    for e in events {
+        if let Some((start, end)) = wait
+            && e.t() < end
+        {
             return Err(format!("{e:?} happens during the wait at {start}..{end}"));
+        }
+        if matches!(e, Event::Wait { .. } | Event::PixelWait { .. }) {
+            wait = Some((e.t(), e.end()));
         }
     }
     Ok(())
@@ -335,6 +368,59 @@ mod tests {
         normalize(&mut ev);
         assert_eq!(ev, vec![key(10, "KeyB", true), Event::Move { t: 20, x: 1, y: 1 }, key(20, "KeyB", false)]);
         assert!(check_invariants(&ev).is_ok());
+    }
+
+    #[test]
+    fn normalize_moves_what_happens_during_a_wait_to_its_end() {
+        let wait = |t, dur| Event::Wait { t, dur, label: String::new() };
+        let pixel = Event::PixelWait {
+            t: 2000,
+            dur: 500,
+            x: 1,
+            y: 1,
+            color: Rgb(1, 2, 3),
+            tolerance: 8,
+            timeout_ms: 5000,
+            label: String::new(),
+        };
+        let mut ev = vec![
+            Event::Move { t: 100, x: 1, y: 1 }, // listed before the wait: before it
+            wait(100, 1000),
+            wait(100, 10), // listed after: once the first is over
+            Event::Move { t: 100, x: 1, y: 1 },
+            key(400, "KeyA", true),
+            key(450, "KeyA", false),
+            wait(900, 300), // inside the first: pushed out, and it then ends later
+            key(1150, "KeyB", true),
+            key(1500, "KeyB", false),
+            pixel,
+            Event::Move { t: 2200, x: 2, y: 2 },
+            Event::Move { t: 2500, x: 3, y: 3 },
+        ];
+        normalize(&mut ev);
+        let ts: Vec<_> = ev.iter().map(Event::t).collect();
+        assert_eq!(ts, [100, 100, 1100, 1110, 1110, 1110, 1110, 1410, 1500, 2000, 2500, 2500]);
+        check_invariants(&ev).unwrap();
+    }
+
+    #[test]
+    fn a_release_normalize_adds_is_where_the_cursor_was_not_on_a_pixel_check() {
+        let pixel = Event::PixelWait {
+            t: 100,
+            dur: 0,
+            x: 900,
+            y: 900,
+            color: Rgb(1, 2, 3),
+            tolerance: 8,
+            timeout_ms: 5000,
+            label: String::new(),
+        };
+        let b = Event::Button { t: 0, x: 5, y: 5, btn: MouseBtn::Left, down: true, label: String::new() };
+        let mut ev = vec![b, pixel];
+        normalize(&mut ev);
+        assert!(matches!(ev[2], Event::Button { x: 5, y: 5, down: false, .. }), "{ev:?}");
+        let steps = group_steps(&ev, (&RecordingMeta::single_1080p()).into());
+        assert!(matches!(steps[0].kind, StepKind::Click { .. }), "still a click, not a drag");
     }
 
     #[test]
@@ -450,6 +536,168 @@ mod tests {
         apply(&mut m, EditOp::SetPause { index: 0, dur: Ms::MAX }).unwrap();
         apply(&mut m, EditOp::SetWaitDuration { index: 0, dur: Ms::MAX }).unwrap();
         assert!(matches!(m.events[0], Event::Wait { dur: MAX_DUR, .. }));
+
+        // Inserting inside a step that ends at the very last millisecond stops there.
+        let b = |t, down| Event::Button { t, x: 5, y: 5, btn: MouseBtn::Left, down, label: String::new() };
+        let mut m = mac(vec![b(Ms::MAX - 50, true), b(Ms::MAX, false)]);
+        apply(&mut m, EditOp::InsertWait { at: Ms::MAX - 20, dur: 500, label: String::new() }).unwrap();
+        let pixel = EditOp::InsertPixelWait {
+            at: Ms::MAX - 50,
+            dur: Ms::MAX,
+            x: 1,
+            y: 2,
+            color: Rgb(1, 2, 3),
+            tolerance: 8,
+            timeout_ms: 5000,
+            label: String::new(),
+        };
+        apply(&mut m, pixel).unwrap();
+        assert!(matches!(m.events[1], Event::Button { t: Ms::MAX, down: false, .. }), "{:?}", m.events);
+        assert!(matches!(m.events[2], Event::Wait { t: Ms::MAX, dur: 500, .. }));
+        assert!(matches!(m.events[3], Event::PixelWait { t: Ms::MAX, dur: MAX_DUR, .. }));
+        check_invariants(&m.events).unwrap();
+
+        // A wait whose end saturated, with a key after it (saturated too):
+        // shortening an earlier wait moves both back, and the key stays after the wait.
+        let mut m = mac(vec![
+            Event::Wait { t: 0, dur: 500, label: String::new() },
+            Event::Wait { t: Ms::MAX - 100, dur: 1000, label: String::new() },
+            key(Ms::MAX, "KeyA", true),
+            key(Ms::MAX, "KeyA", false),
+        ]);
+        check_invariants(&m.events).unwrap();
+        apply(&mut m, EditOp::SetWaitDuration { index: 0, dur: 300 }).unwrap();
+        check_invariants(&m.events).unwrap();
+        assert_eq!((m.events[1].t(), m.events[2].t()), (Ms::MAX - 300, Ms::MAX), "{:?}", m.events);
+        let _ = crate::view::MacroView::of(&m);
+    }
+
+    fn pixel_at(at: Ms, dur: Ms) -> EditOp {
+        EditOp::InsertPixelWait {
+            at,
+            dur,
+            x: 10,
+            y: 20,
+            color: Rgb(1, 2, 3),
+            tolerance: 8,
+            timeout_ms: 5000,
+            label: String::new(),
+        }
+    }
+    fn steps(m: &Macro) -> Vec<Step> {
+        group_steps(&m.events, (&m.recording).into())
+    }
+
+    #[test]
+    fn a_pixel_check_is_inserted_like_a_wait_and_deleting_it_closes_the_gap() {
+        let original = mac([click(0), click(1000)].concat());
+        let mut m = original.clone();
+        apply(&mut m, pixel_at(500, 700)).unwrap();
+        let ts: Vec<_> = m.events.iter().map(Event::t).collect();
+        assert_eq!(ts, [0, 80, 500, 1700, 1780]);
+        assert!(matches!(m.events[2], Event::PixelWait { x: 10, y: 20, dur: 700, timeout_ms: 5000, .. }));
+        check_invariants(&m.events).unwrap();
+        apply(&mut m, EditOp::DeleteStep { index: 1 }).unwrap();
+        assert_eq!(m.events, original.events);
+    }
+
+    #[test]
+    fn updating_a_pixel_check_keeps_its_time_and_duration() {
+        let mut m = mac([click(0), click(1000)].concat());
+        apply(&mut m, pixel_at(500, 700)).unwrap();
+        let update =
+            |index| EditOp::UpdatePixelWait { index, x: -3, y: 4, color: Rgb(9, 8, 7), tolerance: 0, timeout_ms: 100 };
+        apply(&mut m, update(1)).unwrap();
+        assert_eq!(
+            m.events[2],
+            Event::PixelWait {
+                t: 500,
+                dur: 700,
+                x: -3,
+                y: 4,
+                color: Rgb(9, 8, 7),
+                tolerance: 0,
+                timeout_ms: 100,
+                label: String::new()
+            }
+        );
+        assert_eq!(apply(&mut m, update(0)), Err(EditError::WrongKind(0)));
+        assert_eq!(apply(&mut m, update(3)), Err(EditError::NoSuchStep(3)));
+    }
+
+    #[test]
+    fn waits_and_pixel_checks_take_labels_but_typing_and_shortcuts_dont() {
+        let typed = vec![
+            Event::Key { t: 2000, down: true, key: KeyStroke::code("KeyA"), ch: Some("a".into()) },
+            key(2040, "KeyA", false),
+        ];
+        let mut m = mac([click(0).to_vec(), typed].concat());
+        apply(&mut m, EditOp::InsertWait { at: 500, dur: 300, label: String::new() }).unwrap();
+        apply(&mut m, pixel_at(1000, 300)).unwrap();
+        apply(&mut m, EditOp::SetLabel { index: 1, label: "Dialog".into() }).unwrap();
+        apply(&mut m, EditOp::SetLabel { index: 2, label: "Red".into() }).unwrap();
+        let s = steps(&m);
+        assert!(matches!(&s[1].kind, StepKind::Wait { label, .. } if label == "Dialog"));
+        assert!(matches!(&s[2].kind, StepKind::PixelWait { label, .. } if label == "Red"));
+        assert!(matches!(s[3].kind, StepKind::Type { .. }));
+        assert_eq!(apply(&mut m, EditOp::SetLabel { index: 3, label: "x".into() }), Err(EditError::WrongKind(3)));
+        let mut m = mac(vec![
+            key(0, "ControlLeft", true),
+            key(10, "KeyS", true),
+            key(20, "KeyS", false),
+            key(30, "ControlLeft", false),
+        ]);
+        assert_eq!(apply(&mut m, EditOp::SetLabel { index: 0, label: "x".into() }), Err(EditError::WrongKind(0)));
+    }
+
+    #[test]
+    fn the_first_steps_pause_counts_from_the_start() {
+        let mv = |t| Event::Move { t, x: t as i32, y: 0 };
+        let mut m = mac([vec![mv(0), mv(500)], click(1000).to_vec()].concat());
+        assert_eq!(steps(&m)[0].pause, 1000);
+        apply(&mut m, EditOp::SetPause { index: 0, dur: 200 }).unwrap();
+        assert_eq!(m.events.iter().map(Event::t).collect::<Vec<_>>(), [0, 100, 200, 280]);
+        apply(&mut m, EditOp::SetPause { index: 0, dur: 0 }).unwrap();
+        assert_eq!(m.events.iter().map(Event::t).collect::<Vec<_>>(), [0, 0, 0, 80]);
+        check_invariants(&m.events).unwrap();
+        // A pause of 0 between two steps.
+        let mut m = mac([click(0), click(3000)].concat());
+        apply(&mut m, EditOp::SetPause { index: 1, dur: 0 }).unwrap();
+        assert_eq!(m.events.iter().map(Event::t).collect::<Vec<_>>(), [0, 80, 80, 160]);
+    }
+
+    #[test]
+    fn capping_pauses_can_join_typed_text() {
+        // Intended: with the pause gone the characters were typed without a
+        // break, so they're one TYPE step. The keystrokes replayed are the same.
+        let typed = |t, code: &str, c: &str| {
+            [Event::Key { t, down: true, key: KeyStroke::code(code), ch: Some(c.into()) }, key(t + 40, code, false)]
+        };
+        let mut m = mac([typed(0, "KeyA", "a"), typed(3000, "KeyB", "b")].concat());
+        assert_eq!(steps(&m).len(), 2);
+        apply(&mut m, EditOp::CapPauses { max: 100 }).unwrap();
+        let s = steps(&m);
+        assert_eq!(s.len(), 1);
+        assert!(matches!(&s[0].kind, StepKind::Type { text, .. } if text == "ab"));
+        check_invariants(&m.events).unwrap();
+    }
+
+    #[test]
+    fn deleting_one_of_two_shortcuts_keeps_the_shared_ctrl() {
+        let mut m = mac(vec![
+            key(0, "ControlLeft", true),
+            key(50, "KeyC", true),
+            key(90, "KeyC", false),
+            key(150, "KeyV", true),
+            key(190, "KeyV", false),
+            key(220, "ControlLeft", false),
+        ]);
+        apply(&mut m, EditOp::DeleteStep { index: 0 }).unwrap();
+        assert_eq!(m.events.len(), 4);
+        let s = steps(&m);
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].kind, StepKind::Keys { combo: vec!["Ctrl".into(), "V".into()] });
+        assert_eq!(s[0].items, vec![0, 1, 2, 3], "and the Ctrl is now V's alone");
     }
 
     #[test]
@@ -457,5 +705,25 @@ mod tests {
         let mut m = mac(click(0).to_vec());
         apply(&mut m, EditOp::SetLabel { index: 0, label: "Save".into() }).unwrap();
         assert!(matches!(&m.events[0], Event::Button { label, .. } if label == "Save"));
+    }
+
+    #[test]
+    fn a_click_owning_its_modifier_is_labeled_on_the_press() {
+        let b = |t, x, down| Event::Button { t, x, y: 5, btn: MouseBtn::Left, down, label: String::new() };
+        let shift_click =
+            vec![key(0, "ShiftLeft", true), b(50, 5, true), b(90, 5, false), key(200, "ShiftLeft", false)];
+        let ctrl_drag =
+            vec![key(0, "ControlLeft", true), b(50, 5, true), b(400, 300, false), key(500, "ControlLeft", false)];
+        for events in [shift_click, ctrl_drag] {
+            let mut m = mac(events);
+            apply(&mut m, EditOp::SetLabel { index: 0, label: "Pick".into() }).unwrap();
+            assert!(
+                matches!(&m.events[1], Event::Button { label, down: true, .. } if label == "Pick"),
+                "{:?}",
+                m.events
+            );
+            let kind = &group_steps(&m.events, (&m.recording).into())[0].kind;
+            assert!(matches!(kind, StepKind::Click { label, .. } | StepKind::Drag { label, .. } if label == "Pick"));
+        }
     }
 }

@@ -71,12 +71,14 @@ pub struct MacroTriggers {
 }
 
 /// Fires when a pixel starts matching the target color: two consecutive
-/// matching samples after at least one non-matching one. Re-arms only once the
-/// pixel stops matching again, so a pixel that stays red fires once.
+/// matching samples after two consecutive non-matching ones. So a pixel that
+/// stays red fires once, even if the cursor passes over it for one poll, and
+/// a single-frame flicker doesn't fire.
 #[derive(Debug, Default, Clone)]
 pub struct PixelEdge {
     armed: bool,
-    streak: u8,
+    matches: u8,
+    misses: u8,
 }
 
 impl PixelEdge {
@@ -86,12 +88,14 @@ impl PixelEdge {
 
     pub fn update(&mut self, matches: bool) -> bool {
         if !matches {
-            self.armed = true;
-            self.streak = 0;
+            self.matches = 0;
+            self.misses = self.misses.saturating_add(1);
+            self.armed |= self.misses >= 2;
             return false;
         }
-        self.streak = self.streak.saturating_add(1);
-        if self.armed && self.streak >= 2 {
+        self.misses = 0;
+        self.matches = self.matches.saturating_add(1);
+        if self.armed && self.matches >= 2 {
             self.armed = false;
             return true;
         }
@@ -122,15 +126,28 @@ impl ProcessLaunchEdge {
 mod tests {
     use super::*;
 
+    fn run(samples: &[u8]) -> Vec<bool> {
+        let mut e = PixelEdge::new();
+        samples.iter().map(|&m| e.update(m == 1)).collect()
+    }
+
     #[test]
     fn pixel_fires_once_per_change() {
-        let mut e = PixelEdge::new();
-        let fired: Vec<bool> = [true, true, false, true, true, true, false, true, false, true, true]
-            .into_iter()
-            .map(|m| e.update(m))
-            .collect();
         // Matching from the start doesn't fire; a single matching sample doesn't either.
-        assert_eq!(fired, [false, false, false, false, true, false, false, false, false, false, true]);
+        let fired = run(&[1, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0, 1, 1]);
+        let at: Vec<_> = fired.iter().enumerate().filter(|(_, f)| **f).map(|(i, _)| i).collect();
+        assert_eq!(at, [5, 13]);
+    }
+
+    #[test]
+    fn pixel_needs_two_misses_to_rearm() {
+        // The cursor passes over a red pixel for one poll: no second fire.
+        let fired = run(&[0, 0, 1, 1, 0, 1, 1, 0, 1, 1]);
+        assert_eq!(fired.iter().filter(|f| **f).count(), 1, "{fired:?}");
+        assert!(fired[3]);
+        // At the start too: one miss doesn't arm it.
+        assert!(!run(&[0, 1, 1]).contains(&true));
+        assert_eq!(run(&[0, 0, 1, 1]), [false, false, false, true]);
     }
 
     #[test]

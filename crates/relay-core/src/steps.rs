@@ -55,14 +55,15 @@ pub struct Step {
 #[derive(Debug, Clone, Copy)]
 pub struct GroupOptions {
     pub double_click_ms: Ms,
+    /// The width of the double-click rectangle (`SM_CXDOUBLECLK`), which is
+    /// centred on the first click: the second may be half of it away.
     pub double_click_px: u32,
 }
 
 impl GroupOptions {
-    /// The system double-click settings. The distance is at least the click
-    /// slop, or a click that didn't count as a drag couldn't double.
+    /// The system double-click settings.
     pub fn new(double_click_ms: Ms, double_click_px: u32) -> Self {
-        GroupOptions { double_click_ms, double_click_px: double_click_px.max(CLICK_SLOP_PX as u32) }
+        GroupOptions { double_click_ms, double_click_px }
     }
 }
 
@@ -84,6 +85,14 @@ struct PendingButton {
     t: Ms,
     x: i32,
     y: i32,
+    /// The cursor went further than the slop while the button was down.
+    moved: bool,
+}
+
+impl PendingButton {
+    fn beyond_slop(&self, x: i32, y: i32) -> bool {
+        (x - self.x).abs().max((y - self.y).abs()) > CLICK_SLOP_PX
+    }
 }
 
 struct LastClick {
@@ -128,7 +137,11 @@ pub fn group_steps(events: &[Event], opts: GroupOptions) -> Vec<Step> {
     for (i, ev) in events.iter().enumerate() {
         let idx = i as u32;
         match ev {
-            Event::Move { .. } => {}
+            Event::Move { x, y, .. } => {
+                for p in pending.values_mut() {
+                    p.moved |= p.beyond_slop(*x, *y);
+                }
+            }
 
             Event::Button { t, x, y, btn, down: true, label } => {
                 let step = push(
@@ -137,7 +150,7 @@ pub fn group_steps(events: &[Event], opts: GroupOptions) -> Vec<Step> {
                     i,
                     StepKind::Click { x: *x, y: *y, btn: *btn, count: 1, label: label.clone() },
                 );
-                pending.insert(*btn, PendingButton { step, t: *t, x: *x, y: *y });
+                pending.insert(*btn, PendingButton { step, t: *t, x: *x, y: *y, moved: false });
                 wrap(&mut active_mods, step);
             }
 
@@ -145,8 +158,8 @@ pub fn group_steps(events: &[Event], opts: GroupOptions) -> Vec<Step> {
                 let Some(p) = pending.remove(btn) else {
                     continue;
                 };
-                let moved = (x - p.x).abs().max((y - p.y).abs()) > CLICK_SLOP_PX;
-                if moved {
+                // A lasso that comes back to where it started is still a drag.
+                if p.moved || p.beyond_slop(*x, *y) {
                     let s = &mut steps[p.step];
                     s.items.push(idx);
                     s.end = *t;
@@ -162,7 +175,7 @@ pub fn group_steps(events: &[Event], opts: GroupOptions) -> Vec<Step> {
                         && lc.step + 1 == p.step
                         && p.step + 1 == steps.len()
                         && p.t.saturating_sub(lc.t_down) <= opts.double_click_ms
-                        && (p.x - lc.x).unsigned_abs().max((p.y - lc.y).unsigned_abs()) <= opts.double_click_px
+                        && (p.x - lc.x).unsigned_abs().max((p.y - lc.y).unsigned_abs()) <= opts.double_click_px / 2
                 });
                 if let Some(lc) = merge {
                     let target = lc.step;
@@ -199,7 +212,7 @@ pub fn group_steps(events: &[Event], opts: GroupOptions) -> Vec<Step> {
                         StepKind::Scroll { delta: d, horizontal: h, .. }
                             if *h == *horizontal
                                 && d.signum() == delta.signum()
-                                && t.saturating_sub(s.end) <= SCROLL_GAP_MS =>
+                                && t.saturating_sub(s.end) < SCROLL_GAP_MS =>
                         {
                             *d = d.saturating_add(*delta);
                             s.items.push(idx);
@@ -235,7 +248,7 @@ pub fn group_steps(events: &[Event], opts: GroupOptions) -> Vec<Step> {
                     continue;
                 }
                 let mods: BTreeSet<Modifier> = active_mods.iter().map(|p| p.modifier).collect();
-                let alt_gr = active_mods.iter().any(|p| keys::is_alt_gr(&p.code));
+                let alt_gr = keys::is_alt_gr(active_mods.iter().map(|p| p.code.as_str()));
                 let printable = ch.as_deref().filter(|s| !s.is_empty() && !s.chars().any(char::is_control));
                 let shortcut = mods.contains(&Modifier::Win)
                     || (!alt_gr && (mods.contains(&Modifier::Ctrl) || mods.contains(&Modifier::Alt)));
@@ -401,6 +414,19 @@ mod tests {
     }
 
     #[test]
+    fn a_drag_that_returns_to_its_start_is_a_drag() {
+        let mv = |t, x| Event::Move { t, x, y: 10 };
+        let lasso = [btn(0, 10, 10, true), mv(100, 200), mv(200, 12), btn(300, 10, 10, false)];
+        let s = group(&lasso);
+        assert_eq!(s.len(), 1);
+        assert!(matches!(s[0].kind, StepKind::Drag { x: 10, to_x: 10, .. }), "{:?}", s[0].kind);
+        assert_eq!(s[0].items, vec![0, 3]);
+        // A wobble within the slop is still a click.
+        let wobble = [btn(0, 10, 10, true), mv(50, 14), btn(100, 10, 10, false)];
+        assert!(matches!(group(&wobble)[0].kind, StepKind::Click { .. }));
+    }
+
+    #[test]
     fn double_click_merges_within_system_time() {
         let ev = [btn(0, 10, 10, true), btn(60, 10, 10, false), btn(200, 11, 10, true), btn(260, 11, 10, false)];
         let s = group(&ev);
@@ -410,6 +436,20 @@ mod tests {
 
         let slow = [btn(0, 10, 10, true), btn(60, 10, 10, false), btn(900, 10, 10, true), btn(960, 10, 10, false)];
         assert_eq!(group(&slow).len(), 2);
+    }
+
+    #[test]
+    fn double_click_distance_is_half_the_system_rectangle() {
+        let two = |dx| {
+            [btn(0, 10, 10, true), btn(60, 10, 10, false), btn(200, 10 + dx, 10, true), btn(260, 10 + dx, 10, false)]
+        };
+        let steps = |px, dx| group_steps(&two(dx), GroupOptions::new(500, px)).len();
+        // The Windows default is a 4 px wide rectangle: 2 px either way.
+        assert_eq!((steps(4, 2), steps(4, -2), steps(4, 3)), (1, 1, 2));
+        assert_eq!((steps(5, 2), steps(5, 3)), (1, 2));
+        // Not widened to the click slop: a 1 px rectangle needs the same pixel.
+        assert_eq!((steps(1, 0), steps(1, 1)), (1, 2));
+        assert_eq!((steps(20, 10), steps(20, 11)), (1, 2));
     }
 
     #[test]
@@ -505,6 +545,21 @@ mod tests {
     }
 
     #[test]
+    fn right_alt_without_ctrl_is_alt() {
+        // US layout: right Alt has no AltGr, and Right Alt + F opens a menu.
+        let ev = [
+            key(0, "AltRight", true, None),
+            key(30, "KeyF", true, Some("f")),
+            key(70, "KeyF", false, None),
+            key(90, "AltRight", false, None),
+        ];
+        let s = group(&ev);
+        assert_eq!(s.len(), 1, "{s:#?}");
+        assert_eq!(s[0].kind, StepKind::Keys { combo: vec!["Alt".into(), "F".into()] });
+        assert_eq!(s[0].items, vec![0, 1, 2, 3]);
+    }
+
+    #[test]
     fn non_printable_keys_and_lone_modifiers() {
         let mut ev = Vec::new();
         ev.extend(tap(0, "Enter", Some("\r")));
@@ -542,6 +597,111 @@ mod tests {
         let s = group(&[w(0, -120), w(50, -120), w(100, 120)]);
         assert_eq!(s.len(), 2);
         assert!(matches!(s[0].kind, StepKind::Scroll { delta: -240, .. }));
+    }
+
+    #[test]
+    fn gaps_merge_below_the_limit_not_at_it() {
+        let w = |t| Event::Wheel { t, x: 0, y: 0, delta: -120, horizontal: false };
+        assert_eq!(group(&[w(0), w(299)]).len(), 1);
+        assert_eq!(group(&[w(0), w(300)]).len(), 2);
+        let typed = |gap| [tap(0, "KeyA", Some("a")), tap(gap, "KeyB", Some("b"))].concat();
+        assert_eq!(group(&typed(499)).len(), 1);
+        assert_eq!(group(&typed(500)).len(), 2);
+    }
+
+    fn press(t: Ms, x: i32, b: MouseBtn, down: bool) -> Event {
+        Event::Button { t, x, y: 10, btn: b, down, label: String::new() }
+    }
+
+    #[test]
+    fn triple_and_right_double_clicks() {
+        let clicks = |b, n: u32| {
+            (0..n).flat_map(|i| [press(i * 150, 10, b, true), press(i * 150 + 50, 10, b, false)]).collect::<Vec<_>>()
+        };
+        let s = group(&clicks(MouseBtn::Left, 3));
+        assert_eq!(s.len(), 1);
+        assert!(matches!(s[0].kind, StepKind::Click { count: 3, btn: MouseBtn::Left, .. }));
+        assert_eq!((s[0].items.len(), s[0].end), (6, 350));
+        let s = group(&clicks(MouseBtn::Right, 2));
+        assert_eq!(s.len(), 1);
+        assert!(matches!(s[0].kind, StepKind::Click { count: 2, btn: MouseBtn::Right, .. }));
+        // Different buttons don't merge.
+        let mixed = [
+            press(0, 10, MouseBtn::Left, true),
+            press(50, 10, MouseBtn::Left, false),
+            press(150, 10, MouseBtn::Middle, true),
+            press(200, 10, MouseBtn::Middle, false),
+        ];
+        assert_eq!(group(&mixed).len(), 2);
+    }
+
+    #[test]
+    fn modifier_drags_and_scrolls_own_their_modifier() {
+        for m in ["ShiftLeft", "ControlLeft"] {
+            let ev = [
+                key(0, m, true, None),
+                btn(50, 10, 10, true),
+                Event::Move { t: 100, x: 100, y: 10 },
+                btn(200, 100, 10, false),
+                key(300, m, false, None),
+            ];
+            let s = group(&ev);
+            assert_eq!(s.len(), 1, "{m}: {s:?}");
+            assert!(matches!(s[0].kind, StepKind::Drag { x: 10, to_x: 100, .. }));
+            assert_eq!((s[0].t, s[0].end, s[0].items.clone()), (0, 300, vec![0, 1, 3, 4]));
+        }
+        let w = |t| Event::Wheel { t, x: 0, y: 0, delta: 120, horizontal: false };
+        let zoom = [key(0, "ControlLeft", true, None), w(50), w(100), key(200, "ControlLeft", false, None)];
+        let s = group(&zoom);
+        assert_eq!(s.len(), 1);
+        assert!(matches!(s[0].kind, StepKind::Scroll { delta: 240, .. }));
+        assert_eq!(s[0].items, vec![0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn horizontal_and_vertical_scrolls_stay_apart() {
+        let w = |t, horizontal| Event::Wheel { t, x: 0, y: 0, delta: 120, horizontal };
+        let s = group(&[w(0, false), w(50, true), w(100, true), w(150, false)]);
+        let kinds: Vec<_> = s
+            .iter()
+            .map(|s| match s.kind {
+                StepKind::Scroll { delta, horizontal, .. } => (delta, horizontal),
+                _ => panic!(),
+            })
+            .collect();
+        assert_eq!(kinds, [(120, false), (240, true), (120, false)]);
+    }
+
+    #[test]
+    fn a_key_held_across_a_click_is_its_own_step() {
+        let ev = [
+            key(0, "KeyA", true, Some("a")),
+            btn(100, 5, 5, true),
+            btn(150, 5, 5, false),
+            key(600, "KeyA", false, None),
+        ];
+        let s = group(&ev);
+        assert_eq!(s.len(), 2, "{s:?}");
+        assert!(matches!(&s[0].kind, StepKind::Type { text, .. } if text == "a"));
+        assert_eq!((s[0].t, s[0].end, s[0].items.clone()), (0, 600, vec![0, 3]));
+        assert!(matches!(s[1].kind, StepKind::Click { count: 1, .. }));
+        assert_eq!((s[1].items.clone(), s[1].pause), (vec![1, 2], 0), "no pause: the key is still down");
+    }
+
+    #[test]
+    fn composed_characters_and_emoji_are_text() {
+        let ev = [tap(0, "BracketLeft", Some("ê")), tap(100, "Unidentified", Some("😀")), tap(200, "KeyE", Some("^e"))]
+            .concat();
+        let s = group(&ev);
+        assert_eq!(s.len(), 1);
+        let StepKind::Type { text, chars } = &s[0].kind else { panic!() };
+        assert_eq!(text, "ê😀^e");
+        assert_eq!(chars.iter().map(|c| c.ch.as_str()).collect::<Vec<_>>(), ["ê", "😀", "^e"]);
+        // A dead key types nothing by itself: it's a key, between two TYPE steps.
+        let ev = [tap(0, "KeyA", Some("a")), tap(100, "BracketLeft", None), tap(200, "KeyE", Some("e"))].concat();
+        let s = group(&ev);
+        assert_eq!(s.len(), 3);
+        assert_eq!(s[1].kind, StepKind::Keys { combo: vec!["[".into()] });
     }
 
     #[test]

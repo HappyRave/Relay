@@ -109,6 +109,54 @@ mod tests {
     }
 
     #[test]
+    fn across_midnight_and_the_year_end() {
+        let every_day = sched([true; 7], "00:00");
+        assert_eq!(next_run(&at(2026, 9, 24, 23, 59), &every_day), Some(at(2026, 9, 25, 0, 0)));
+        assert_eq!(next_run(&at(2026, 9, 25, 0, 0), &every_day), Some(at(2026, 9, 26, 0, 0)), "strictly after");
+        // Thursday 2026-12-31: the next weekday is Friday 2027-01-01.
+        assert_eq!(next_run(&at(2026, 12, 31, 18, 0), &sched(WEEKDAYS, "09:00")), Some(at(2027, 1, 1, 9, 0)));
+        let sat = sched([false, false, false, false, false, true, false], "23:59");
+        assert_eq!(next_run(&at(2026, 12, 31, 18, 0), &sat), Some(at(2027, 1, 2, 23, 59)));
+    }
+
+    #[test]
+    fn inside_the_repeated_hour_it_does_not_run_again() {
+        // 02:30 already ran at +02:00; at the first 02:40 the second 02:30 (+01:00) is still ahead.
+        let sun = sched([false, false, false, false, false, false, true], "02:30");
+        let first_0240 = Brussels
+            .from_local_datetime(&NaiveDate::from_ymd_opt(2026, 10, 25).unwrap().and_hms_opt(2, 40, 0).unwrap())
+            .earliest()
+            .unwrap();
+        let next = next_run(&first_0240, &sun).unwrap();
+        assert_eq!(next.date_naive(), NaiveDate::from_ymd_opt(2026, 11, 1).unwrap());
+    }
+
+    #[test]
+    fn a_dst_gap_at_midnight_runs_at_the_first_minute() {
+        // Chile skips 00:00–01:00 on Sunday 2026-09-06.
+        let tz = chrono_tz::America::Santiago;
+        let midnight = NaiveDate::from_ymd_opt(2026, 9, 6).unwrap().and_hms_opt(0, 0, 0).unwrap();
+        assert!(tz.from_local_datetime(&midnight).earliest().is_none(), "the gap moved");
+        let now = tz.with_ymd_and_hms(2026, 9, 5, 12, 0, 0).unwrap();
+        let sun = sched([false, false, false, false, false, false, true], "00:00");
+        let next = next_run(&now, &sun).unwrap();
+        assert_eq!(next, tz.with_ymd_and_hms(2026, 9, 6, 1, 0, 0).unwrap());
+    }
+
+    #[test]
+    fn times_must_be_hours_and_minutes() {
+        let parse = |t: &str| {
+            serde_json::from_str::<WeeklySchedule>(&format!(
+                r#"{{"days":[true,true,true,true,true,true,true],"time":"{t}"}}"#
+            ))
+        };
+        assert_eq!(parse("23:59").unwrap().time, NaiveTime::from_hms_opt(23, 59, 0).unwrap());
+        for bad in ["25:00", "09:00:00", "9", "", "12:60"] {
+            assert!(parse(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
     fn serializes_time_as_hours_and_minutes() {
         let s = sched(WEEKDAYS, "09:05");
         let json = serde_json::to_string(&s).unwrap();

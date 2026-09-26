@@ -37,6 +37,9 @@ pub struct Recorder {
     first_press: Option<(i32, i32)>,
     /// Index of the first event not yet reported by [`Recorder::take_new_moves`].
     reported: usize,
+    /// The first half of a character outside the BMP (an emoji) sent as
+    /// Unicode, waiting for its second half.
+    high_surrogate: Option<u16>,
 }
 
 /// What a finished recording produced.
@@ -59,6 +62,7 @@ impl Recorder {
             translator,
             first_press: None,
             reported: 0,
+            high_surrogate: None,
         }
     }
 
@@ -107,8 +111,19 @@ impl Recorder {
                 if vk == keymap::VK_PACKET {
                     // Unicode text sent by another program (SendInput with
                     // KEYEVENTF_UNICODE): `scan` is a UTF-16 unit, not a key,
-                    // so it's kept as text and replayed as text.
-                    let ch = down.then(|| String::from_utf16_lossy(&[scan]));
+                    // so it's kept as text and replayed as text. A character
+                    // outside the BMP comes as two units: it's recorded once,
+                    // with the second.
+                    if (0xD800..0xDC00).contains(&scan) {
+                        if down {
+                            self.high_surrogate = Some(scan);
+                        }
+                        return;
+                    }
+                    let ch = down.then(|| {
+                        let units: Vec<u16> = self.high_surrogate.take().into_iter().chain([scan]).collect();
+                        String::from_utf16_lossy(&units)
+                    });
                     let key = KeyStroke::code("Unidentified");
                     self.events.push(Event::Key { t, down, key, ch });
                     return;
@@ -158,9 +173,10 @@ impl Recorder {
     }
 }
 
-/// Drops modifiers pressed after the last real action, with their releases:
-/// they belong to the hotkey that stopped the recording (Ctrl + Alt of the
-/// kill switch). The release of a modifier pressed earlier stays.
+/// Drops modifiers pressed after the last real action and still held at
+/// the end: they belong to the hotkey that stopped the recording (Ctrl + Alt
+/// of the kill switch). A modifier tapped at the end (Win) is kept, and so is
+/// the release of a modifier pressed earlier.
 fn trim_trailing_modifiers(events: &mut Vec<Event>) {
     let modifier = |e: &Event| match e {
         Event::Key { key, down, .. } if keys::modifier(&key.code).is_some() => Some((key.code.clone(), *down)),
@@ -168,28 +184,27 @@ fn trim_trailing_modifiers(events: &mut Vec<Event>) {
     };
     let last_action =
         events.iter().rposition(|e| !matches!(e, Event::Move { .. }) && modifier(e).is_none()).map_or(0, |i| i + 1);
-    let mut late: Vec<String> = Vec::new();
-    let mut i = 0;
-    events.retain(|e| {
-        i += 1;
-        if i <= last_action {
-            return true;
-        }
+    // From the end: a press (or its auto-repeat) with no release after it is still held.
+    let mut released: Vec<String> = Vec::new();
+    let mut held = vec![false; events.len()];
+    for (i, e) in events.iter().enumerate().skip(last_action).rev() {
         match modifier(e) {
-            Some((code, true)) => {
-                late.push(code);
-                false
-            }
-            Some((code, false)) => !late.contains(&code),
-            None => true,
+            Some((code, false)) => released.push(code),
+            Some((code, true)) => held[i] = !released.contains(&code),
+            None => {}
         }
+    }
+    let mut i = 0;
+    events.retain(|_| {
+        i += 1;
+        !held[i - 1]
     });
 }
 
-/// True when a recording has something worth keeping (not just a stray twitch).
+/// True when a recording has something worth keeping: a click, a key or a
+/// scroll. Cursor movement alone never counts.
 pub fn is_meaningful(events: &[Event]) -> bool {
-    let actions = events.iter().filter(|e| !matches!(e, Event::Move { .. })).count();
-    actions > 0 || events.len() >= 5
+    events.iter().any(|e| matches!(e, Event::Button { .. } | Event::Key { .. } | Event::Wheel { .. }))
 }
 
 #[cfg(test)]
@@ -275,7 +290,80 @@ mod tests {
         r.push(key(0.0, 0x41, 0x1E, true));
         r.push(raw(10.0, RawKind::Move { x: 1, y: 1 }));
         r.push(raw(20.0, RawKind::Button { x: 1, y: 1, btn: MouseBtn::Left, down: true }));
-        assert_eq!(r.events().len(), 1);
+        assert_eq!(
+            r.events(),
+            [Event::Button { t: 20, x: 1, y: 1, btn: MouseBtn::Left, down: true, label: String::new() }],
+            "only the click"
+        );
+    }
+
+    #[test]
+    fn without_the_path_clicks_keep_their_positions() {
+        let cfg = RecorderConfig { capture_moves: false, ..Default::default() };
+        let mut r = Recorder::new(cfg, 0.0, Box::new(Us));
+        r.push(raw(0.0, RawKind::Move { x: 5, y: 5 }));
+        r.push(raw(100.0, RawKind::Button { x: 300, y: 400, btn: MouseBtn::Right, down: true }));
+        r.push(raw(150.0, RawKind::Move { x: 310, y: 400 }));
+        r.push(raw(200.0, RawKind::Button { x: 320, y: 400, btn: MouseBtn::Right, down: false }));
+        let rec = r.finish(300.0);
+        assert!(rec.events.iter().all(|e| !matches!(e, Event::Move { .. })));
+        assert_eq!(rec.events.iter().filter_map(Event::pos).collect::<Vec<_>>(), [(300, 400), (320, 400)]);
+        assert_eq!(rec.first_press, Some((300, 400)));
+    }
+
+    #[test]
+    fn wheels_both_ways_on_any_monitor() {
+        let mut r = Recorder::new(RecorderConfig::default(), 0.0, Box::new(Us));
+        r.push(raw(0.0, RawKind::Wheel { x: -1500, y: -200, delta: -120, horizontal: false }));
+        r.push(raw(40.0, RawKind::Wheel { x: -1500, y: -200, delta: 240, horizontal: true }));
+        r.push(raw(90.0, RawKind::Button { x: -1500, y: -200, btn: MouseBtn::Middle, down: true }));
+        r.push(raw(120.0, RawKind::Button { x: -1500, y: -200, btn: MouseBtn::Middle, down: false }));
+        let rec = r.finish(200.0);
+        assert_eq!(
+            rec.events[..2],
+            [
+                Event::Wheel { t: 0, x: -1500, y: -200, delta: -120, horizontal: false },
+                Event::Wheel { t: 40, x: -1500, y: -200, delta: 240, horizontal: true },
+            ]
+        );
+        assert_eq!(rec.first_press, Some((-1500, -200)), "a monitor left of and above the primary");
+        let steps = group_steps(&rec.events, GroupOptions::default());
+        assert_eq!(steps.len(), 3);
+    }
+
+    #[test]
+    fn input_from_before_the_start_is_at_zero() {
+        let mut r = Recorder::new(RecorderConfig::default(), 1000.0, Box::new(Us));
+        r.push(raw(990.0, RawKind::Button { x: 1, y: 1, btn: MouseBtn::Left, down: true }));
+        r.push(raw(1040.0, RawKind::Button { x: 1, y: 1, btn: MouseBtn::Left, down: false }));
+        assert_eq!(r.events().iter().map(Event::t).collect::<Vec<_>>(), [0, 40]);
+        assert_eq!(r.elapsed(900.0), 0);
+    }
+
+    #[test]
+    fn esc_and_stop_keys_are_not_input() {
+        let mut r = Recorder::new(RecorderConfig::default(), 0.0, Box::new(Us));
+        r.push(raw(0.0, RawKind::Move { x: 1, y: 1 }));
+        r.push(raw(5.0, RawKind::Move { x: 2, y: 2 })); // throttled
+        r.push(raw(10.0, RawKind::Escape));
+        r.push(raw(20.0, RawKind::StopKey));
+        assert!(r.events().iter().all(|e| matches!(e, Event::Move { .. })), "{:?}", r.events());
+        // (They still flush the cursor's last position, as any non-move input does.)
+        assert_eq!(r.events().len(), 2);
+    }
+
+    #[test]
+    fn the_kill_switch_with_right_ctrl_is_not_recorded() {
+        let mut r = Recorder::new(RecorderConfig::default(), 0.0, Box::new(Us));
+        for e in tap(0.0, 0x41, 0x1E) {
+            r.push(e);
+        }
+        r.push(raw(500.0, RawKind::Key { vk: 0xA3, scan: 0x1D, ext: true, down: true }));
+        r.push(raw(510.0, RawKind::Key { vk: 0xA5, scan: 0x38, ext: true, down: true }));
+        r.push(raw(520.0, RawKind::Key { vk: 0x23, scan: 0x4F, ext: true, down: true }));
+        let rec = r.finish(600.0);
+        assert_eq!(rec.events.len(), 2, "{:?}", rec.events);
+        assert!(rec.events.iter().all(|e| matches!(e, Event::Key { key, .. } if key.code == "KeyA")));
     }
 
     #[test]
@@ -291,6 +379,21 @@ mod tests {
         assert_eq!(rec.events.len(), 2, "{:?}", rec.events);
         let steps = group_steps(&rec.events, GroupOptions::default());
         assert_eq!(steps.len(), 1);
+    }
+
+    #[test]
+    fn a_modifier_tapped_at_the_end_is_kept() {
+        let mut r = Recorder::new(RecorderConfig::default(), 0.0, Box::new(Us));
+        for e in tap(0.0, 0x41, 0x1E) {
+            r.push(e);
+        }
+        // Win, to open the Start menu, then F9 (not recorded) stops.
+        r.push(raw(500.0, RawKind::Key { vk: 0x5B, scan: 0x5B, ext: true, down: true }));
+        r.push(raw(560.0, RawKind::Key { vk: 0x5B, scan: 0x5B, ext: true, down: false }));
+        let rec = r.finish(900.0);
+        let steps = group_steps(&rec.events, GroupOptions::default());
+        assert_eq!(steps.len(), 2, "{:?}", rec.events);
+        assert_eq!(steps[1].kind, StepKind::Keys { combo: vec!["Win".into()] });
     }
 
     #[test]
@@ -329,6 +432,38 @@ mod tests {
     }
 
     #[test]
+    fn unicode_outside_the_bmp_is_one_character() {
+        let mut units = [0u16; 2];
+        '😀'.encode_utf16(&mut units);
+        let [high, low] = units;
+        let mut r = Recorder::new(RecorderConfig::default(), 0.0, Box::new(Us));
+        // Senders release each unit before the next, or press both first.
+        for order in [
+            [(high, true), (high, false), (low, true), (low, false)],
+            [(high, true), (low, true), (high, false), (low, false)],
+        ] {
+            for (unit, down) in order {
+                r.push(key(0.0, 0xE7, unit, down));
+            }
+        }
+        let keys: Vec<_> = r
+            .events()
+            .iter()
+            .map(|e| match e {
+                Event::Key { down, ch, .. } => (*down, ch.as_deref()),
+                e => panic!("{e:?}"),
+            })
+            .collect();
+        assert_eq!(keys, [(true, Some("😀")), (false, None), (true, Some("😀")), (false, None)]);
+        // A lone half is still recorded, as the replacement character.
+        let mut r = Recorder::new(RecorderConfig::default(), 0.0, Box::new(Us));
+        r.push(key(0.0, 0xE7, high, true));
+        r.push(key(10.0, 0xE7, 'a' as u16, true));
+        let Event::Key { ch, .. } = &r.events()[0] else { panic!() };
+        assert_eq!(ch.as_deref(), Some("\u{FFFD}a"));
+    }
+
+    #[test]
     fn new_moves_are_reported_once() {
         let mut r = Recorder::new(RecorderConfig::default(), 0.0, Box::new(Us));
         r.push(raw(0.0, RawKind::Move { x: 1, y: 1 }));
@@ -340,7 +475,20 @@ mod tests {
 
     #[test]
     fn meaningful_recordings() {
-        assert!(!is_meaningful(&[Event::Move { t: 0, x: 0, y: 0 }]));
-        assert!(is_meaningful(&[Event::Wheel { t: 0, x: 0, y: 0, delta: 120, horizontal: false }]));
+        let moves = |n: u32| (0..n).map(|i| Event::Move { t: i * 16, x: i as i32, y: 0 }).collect::<Vec<_>>();
+        for n in [0, 1, 4, 5, 100] {
+            assert!(!is_meaningful(&moves(n)), "{n} moves");
+        }
+        let with = |e: Event| [moves(3), vec![e]].concat();
+        assert!(is_meaningful(&with(Event::Wheel { t: 50, x: 0, y: 0, delta: 120, horizontal: false })));
+        assert!(is_meaningful(&with(Event::Button {
+            t: 50,
+            x: 0,
+            y: 0,
+            btn: MouseBtn::Left,
+            down: true,
+            label: String::new()
+        })));
+        assert!(is_meaningful(&with(Event::Key { t: 50, down: true, key: KeyStroke::code("KeyA"), ch: None })));
     }
 }
