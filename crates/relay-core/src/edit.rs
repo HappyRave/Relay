@@ -78,6 +78,9 @@ pub fn apply(m: &mut Macro, op: EditOp) -> Result<(), EditError> {
     let steps =
         if matches!(op, EditOp::Rename { .. }) { Vec::new() } else { group_steps(&m.events, (&m.recording).into()) };
     let get = |index: u32| steps.get(index as usize).ok_or(EditError::NoSuchStep(index));
+    // Events that saturated at `Ms::MAX` have lost how far past it they were,
+    // so moving them back can land them inside a wait that also ends there.
+    let saturated = m.events.iter().any(|e| e.end() == Ms::MAX);
     match op {
         EditOp::Rename { name } => m.name = name,
 
@@ -169,6 +172,9 @@ pub fn apply(m: &mut Macro, op: EditOp) -> Result<(), EditError> {
             retime_pauses(&mut m.events, &long);
         }
     }
+    if saturated {
+        normalize(&mut m.events);
+    }
     m.modified_at = Utc::now();
     Ok(())
 }
@@ -259,23 +265,23 @@ impl Press {
     }
 }
 
-/// Sorts events by time, moves anything that happens inside a wait to its
-/// end, drops releases whose press is missing (it happened before recording
+/// Sorts events by time, moves anything that comes after a wait but before
+/// its end to its end, drops releases whose press is missing (it happened before recording
 /// started) and releases anything still held at the end.
 pub fn normalize(events: &mut Vec<Event>) {
     events.sort_by_key(Event::t);
-    // Sorted, so pushing an event to the end of the wait it's in keeps the order.
-    let mut wait: Option<(Ms, Ms)> = None;
+    // What comes after a wait happens once it's over (an event at the same
+    // time is listed before it). Sorted, so pushing events to the end of the
+    // wait before them keeps the order.
+    let mut wait_end: Option<Ms> = None;
     for e in events.iter_mut() {
-        if let Some((start, end)) = wait
-            && e.t() > start
+        if let Some(end) = wait_end
             && e.t() < end
         {
             *e.t_mut() = end;
         }
-        // Two waits can start together: the longer one counts.
-        if matches!(e, Event::Wait { .. } | Event::PixelWait { .. }) && wait.is_none_or(|(_, end)| e.end() > end) {
-            wait = Some((e.t(), e.end()));
+        if matches!(e, Event::Wait { .. } | Event::PixelWait { .. }) {
+            wait_end = Some(e.end());
         }
     }
     // Presses still held, oldest first (only a handful at any time).
@@ -324,10 +330,16 @@ pub fn check_invariants(events: &[Event]) -> Result<(), String> {
     if normalized != events {
         return Err("presses are not balanced".into());
     }
-    for w in events.iter().filter(|e| matches!(e, Event::Wait { .. } | Event::PixelWait { .. })) {
-        let (start, end) = (w.t(), w.end());
-        if let Some(e) = events.iter().find(|e| e.t() > start && e.t() < end) {
+    // Sorted, so an event during a wait is one listed after it, before its end.
+    let mut wait: Option<(Ms, Ms)> = None;
+    for e in events {
+        if let Some((start, end)) = wait
+            && e.t() < end
+        {
             return Err(format!("{e:?} happens during the wait at {start}..{end}"));
+        }
+        if matches!(e, Event::Wait { .. } | Event::PixelWait { .. }) {
+            wait = Some((e.t(), e.end()));
         }
     }
     Ok(())
@@ -372,8 +384,9 @@ mod tests {
             label: String::new(),
         };
         let mut ev = vec![
+            Event::Move { t: 100, x: 1, y: 1 }, // listed before the wait: before it
             wait(100, 1000),
-            wait(100, 10), // starts with the longer one: doesn't end it early
+            wait(100, 10), // listed after: once the first is over
             Event::Move { t: 100, x: 1, y: 1 },
             key(400, "KeyA", true),
             key(450, "KeyA", false),
@@ -386,7 +399,7 @@ mod tests {
         ];
         normalize(&mut ev);
         let ts: Vec<_> = ev.iter().map(Event::t).collect();
-        assert_eq!(ts, [100, 100, 100, 1100, 1100, 1100, 1400, 1500, 2000, 2500, 2500]);
+        assert_eq!(ts, [100, 100, 1100, 1110, 1110, 1110, 1110, 1410, 1500, 2000, 2500, 2500]);
         check_invariants(&ev).unwrap();
     }
 
@@ -543,6 +556,19 @@ mod tests {
         assert!(matches!(m.events[2], Event::Wait { t: Ms::MAX, dur: 500, .. }));
         assert!(matches!(m.events[3], Event::PixelWait { t: Ms::MAX, dur: MAX_DUR, .. }));
         check_invariants(&m.events).unwrap();
+
+        // A wait whose end saturated, with a key after it (saturated too):
+        // shortening an earlier wait moves both back, and the key stays after the wait.
+        let mut m = mac(vec![
+            Event::Wait { t: 0, dur: 500, label: String::new() },
+            Event::Wait { t: Ms::MAX - 100, dur: 1000, label: String::new() },
+            key(Ms::MAX, "KeyA", true),
+            key(Ms::MAX, "KeyA", false),
+        ]);
+        check_invariants(&m.events).unwrap();
+        apply(&mut m, EditOp::SetWaitDuration { index: 0, dur: 300 }).unwrap();
+        check_invariants(&m.events).unwrap();
+        assert_eq!((m.events[1].t(), m.events[2].t()), (Ms::MAX - 300, Ms::MAX), "{:?}", m.events);
         let _ = crate::view::MacroView::of(&m);
     }
 
