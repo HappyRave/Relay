@@ -16,6 +16,26 @@ Element.prototype.setPointerCapture ??= function () {};
 Element.prototype.releasePointerCapture ??= function () {};
 Element.prototype.hasPointerCapture ??= () => false;
 
+// Frames at 60 Hz, stamped with performance.now() as browsers do (jsdom's
+// own frames use another time origin, which breaks playhead extrapolation).
+let frames = 0;
+const pending = new Map<number, ReturnType<typeof setTimeout>>();
+window.requestAnimationFrame = (cb) => {
+  const id = ++frames;
+  pending.set(
+    id,
+    setTimeout(() => {
+      pending.delete(id);
+      cb(performance.now());
+    }, 16),
+  );
+  return id;
+};
+window.cancelAnimationFrame = (id) => {
+  clearTimeout(pending.get(id));
+  pending.delete(id);
+};
+
 // jsdom has <dialog> but not its modal behavior.
 const dialog = HTMLDialogElement.prototype;
 dialog.showModal ??= function (this: HTMLDialogElement) {
