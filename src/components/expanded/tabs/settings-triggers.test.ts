@@ -114,8 +114,11 @@ describe("Settings tab", () => {
 
   test("a setting that fails to save flips back and says why", async () => {
     render(SettingsTab);
-    core.fail("update_settings", "Couldn't save settings: access denied");
+    core.hold("update_settings");
     await userEvent.click(toggle("3-second countdown"));
+    await settle();
+    expect(toggle("3-second countdown")).toHaveAttribute("aria-checked", "false"); // shown at once
+    core.held[0].reject({ code: "io", message: "Couldn't save settings: access denied" });
     await settle();
     expect(toggle("3-second countdown")).toHaveAttribute("aria-checked", "true");
     expect(relay.error).toBe("Couldn't save settings: access denied");

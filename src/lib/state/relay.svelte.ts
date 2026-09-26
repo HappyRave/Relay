@@ -120,6 +120,13 @@ export class RelayStore {
   /** The open macro's name as Rust has it, for when a blank one is abandoned. */
   private savedName = "";
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
+  // Settings, triggers and their pause are saved optimistically: a change
+  // shows at once, only the newest request's answer is shown, and when that
+  // fails the last state Rust confirmed comes back (an older answer, or a
+  // failure, never overwrites a newer change).
+  private settingsSaves = { seq: 0, savedSeq: 0, saved: DEFAULT_SETTINGS, failed: false };
+  private triggerSaves = { seq: 0, savedSeq: 0, saved: null as TriggerStatus | null, failed: false };
+  private pauseSaves = { seq: 0, saved: false };
   /** A just-saved recording to open once the session is back to idle. */
   private pendingLoad: string | null = null;
 
@@ -173,6 +180,7 @@ export class RelayStore {
     this.ready = true;
     await this.run(this.backend.subscribe(this.onEngine));
     this.settings = (await this.run(this.backend.getSettings())) ?? this.settings;
+    this.settingsSaves.saved = this.settings;
     await this.refreshLibrary();
     if (this.library[0]) await this.loadMacro(this.library[0].id);
     this.autostart = await this.backend.getAutostart().catch(() => false);
@@ -275,7 +283,7 @@ export class RelayStore {
         this.refreshLibrary();
         break;
       case "triggers_paused":
-        this.triggersPaused = msg.paused;
+        this.triggersPaused = this.pauseSaves.saved = msg.paused;
         break;
       case "toggle_compact":
         this.expanded = !this.expanded;
@@ -443,10 +451,14 @@ export class RelayStore {
     this.triggerStatus = null; // the old macro's triggers mustn't be edited into this one
     this.cur = 0;
     this.loopIdx = 0;
+    const saves = this.triggerSaves;
+    const loading = ++saves.seq; // answers to changes made to the macro left behind are dropped
+    saves.failed = false;
     const status = await this.run(this.backend.getTriggers(id));
-    if (status && this.view?.id === id) {
-      this.triggerStatus = status;
-      this.triggersPaused = status.paused;
+    if (status && this.view?.id === id && loading === saves.seq) {
+      this.triggerStatus = saves.saved = status;
+      saves.savedSeq = loading;
+      this.triggersPaused = this.pauseSaves.saved = status.paused;
     }
   }
 
@@ -674,26 +686,37 @@ export class RelayStore {
 
   // — triggers —
 
-  /** Saves the open macro's triggers; a refused hotkey puts the old triggers back. */
+  /** Saves the open macro's triggers; a refused hotkey puts the saved triggers back. */
   setTriggers = async (patch: Partial<MacroTriggers>) => {
     const id = this.view?.id;
     const current = this.triggerStatus;
     if (!id || !current) return;
+    const saves = this.triggerSaves;
+    const seq = ++saves.seq;
+    saves.failed = false;
     const next = { ...current.triggers, ...patch };
     this.triggerStatus = { ...current, triggers: next };
-    try {
-      const status = await this.backend.setTriggers(id, next);
-      if (this.view?.id === id) this.triggerStatus = status;
-      await this.refreshLibrary();
-    } catch (e) {
-      if (this.view?.id === id) this.triggerStatus = current;
-      this.fail(e);
+    const status = await this.run(this.backend.setTriggers(id, next));
+    if (this.view?.id !== id || seq <= saves.savedSeq) return; // for a macro left since, or older than what's shown
+    if (status) {
+      saves.saved = status;
+      saves.savedSeq = seq;
     }
+    const latest = seq === saves.seq;
+    if (latest) saves.failed = !status;
+    if (latest || saves.failed) this.triggerStatus = latest && status ? status : saves.saved;
+    if (status) await this.refreshLibrary(); // the hotkey column
   };
 
   setTriggersPaused = async (paused: boolean) => {
+    const seq = ++this.pauseSaves.seq;
     this.triggersPaused = paused;
-    await this.run(this.backend.setTriggersPaused(paused));
+    try {
+      await this.backend.setTriggersPaused(paused); // confirmed by a triggers_paused message
+    } catch (e) {
+      if (seq === this.pauseSaves.seq) this.triggersPaused = this.pauseSaves.saved;
+      this.fail(e);
+    }
   };
 
   /** "Pick" for the pixel trigger: watch the pixel under the cursor. */
@@ -710,10 +733,18 @@ export class RelayStore {
   // — settings —
 
   updateSettings = async (patch: Partial<Settings>) => {
-    const before = this.settings;
-    this.settings = { ...before, ...patch };
+    const saves = this.settingsSaves;
+    const seq = ++saves.seq;
+    saves.failed = false;
+    this.settings = { ...this.settings, ...patch };
     const saved = await this.run(this.backend.updateSettings(this.settings));
-    this.settings = saved ?? before;
+    if (saved && seq > saves.savedSeq) {
+      saves.saved = saved;
+      saves.savedSeq = seq;
+    }
+    const latest = seq === saves.seq;
+    if (latest) saves.failed = !saved;
+    if (latest || saves.failed) this.settings = latest && saved ? saved : saves.saved;
   };
 
   setAutostart = async (enabled: boolean) => {

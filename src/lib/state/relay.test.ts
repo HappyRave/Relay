@@ -602,6 +602,14 @@ describe("library", () => {
 });
 
 describe("step edits", () => {
+  test("an edit that couldn't be written is kept and shown, and the error says so", async () => {
+    core.saveError = "disk full";
+    await relay.edit({ op: "delete_step", index: 0 });
+    expect(relay.steps).toHaveLength(11);
+    expect(relay.canUndo).toBe(true);
+    expect(relay.toast).toMatchObject({ kind: "error", message: "Couldn't save the change: disk full. It's kept until you quit." });
+  });
+
   test("each edit sends its op for the open macro and shows the result", async () => {
     await relay.edit({ op: "set_label", index: 0, label: "File" });
     expect(core.calls).toEqual([{ cmd: "edit_macro", args: { id: A, op: { op: "set_label", index: 0, label: "File" } } }]);
@@ -1116,17 +1124,66 @@ describe("triggers", () => {
     expect(relay.triggers?.hotkey.combo).toBe("Ctrl + Alt + 2");
   });
 
+  test("of two quick changes answered out of order, the newer one stays", async () => {
+    core.hold("set_triggers");
+    const one = relay.setTriggers({ schedule: { ...relay.triggers!.schedule, enabled: true } });
+    const two = relay.setTriggers({ pixel: { ...relay.triggers!.pixel, enabled: true } });
+    await settle();
+    const [h1, h2] = core.held;
+    const t = relay.triggers!;
+    expect([t.schedule.enabled, t.pixel.enabled]).toEqual([true, true]);
+    h2.resolve({ triggers: h2.args.triggers, next_run: "2026-09-25T09:00:00+02:00", hotkey_error: null, paused: false });
+    await two;
+    h1.resolve({ triggers: h1.args.triggers, next_run: "2026-09-25T09:00:00+02:00", hotkey_error: null, paused: false });
+    await one;
+    expect(relay.triggers?.pixel.enabled).toBe(true);
+    expect(relay.triggers?.schedule.enabled).toBe(true);
+  });
+
+  test("an older change failing doesn't undo a newer one; the newer failing goes back to what was saved", async () => {
+    core.hold("set_triggers");
+    const before = relay.triggerStatus;
+    const one = relay.setTriggers({ pixel: { ...relay.triggers!.pixel, enabled: true } });
+    const two = relay.setTriggers({ pixel: { ...relay.triggers!.pixel, x: 5 } });
+    await settle();
+    const [h1, h2] = core.held;
+    h1.reject({ code: "io", message: "disk full" });
+    await one;
+    expect(relay.triggers?.pixel).toMatchObject({ enabled: true, x: 5 }); // still the newest
+    h2.reject({ code: "io", message: "disk full" });
+    await two;
+    expect(relay.triggerStatus).toBe(before);
+    expect(relay.error).toBe("disk full");
+  });
+
+  test("turning a hotkey off takes it out of the Library", async () => {
+    await relay.setTriggers({ hotkey: { enabled: true, combo: "Ctrl + Alt + 9" } });
+    expect(relay.library[0].hotkey).toBe("Ctrl + Alt + 9");
+    await relay.setTriggers({ hotkey: { enabled: false, combo: "Ctrl + Alt + 9" } });
+    expect(relay.library[0].hotkey).toBeNull();
+  });
+
   test("with no triggers loaded, nothing is sent", async () => {
     relay.triggerStatus = null;
     await relay.setTriggers({ hotkey: { enabled: false, combo: "" } });
     expect(core.commands()).toEqual([]);
   });
 
-  test("Resume unpauses triggers", async () => {
-    relay.triggersPaused = true;
+  test("Resume unpauses triggers, as the engine confirms", async () => {
+    core.emit({ type: "triggers_paused", paused: true });
     await relay.setTriggersPaused(false);
     expect(relay.triggersPaused).toBe(false);
     expect(core.calls).toEqual([{ cmd: "set_triggers_paused", args: { paused: false } }]);
+    await settle();
+    expect(relay.triggersPaused).toBe(false);
+  });
+
+  test("a failed Resume shows triggers paused again", async () => {
+    core.emit({ type: "triggers_paused", paused: true });
+    core.fail("set_triggers_paused", "the coordinator is gone");
+    await relay.setTriggersPaused(false);
+    expect(relay.triggersPaused).toBe(true);
+    expect(relay.error).toBe("the coordinator is gone");
   });
 
   test("running programs are listed for suggestions", async () => {
@@ -1140,6 +1197,40 @@ describe("settings", () => {
     await relay.updateSettings({ countdown: false });
     expect(core.calls).toEqual([{ cmd: "update_settings", args: { settings: { ...DEFAULT_SETTINGS, countdown: false } } }]);
     expect(relay.settings.countdown).toBe(false);
+  });
+
+  test("of two quick changes answered out of order, both stay", async () => {
+    core.hold("update_settings");
+    const one = relay.updateSettings({ countdown: false });
+    const two = relay.updateSettings({ path_mode: "trail" });
+    await settle();
+    const [h1, h2] = core.held;
+    h2.resolve({ ...DEFAULT_SETTINGS, countdown: false, path_mode: "trail" });
+    await two;
+    h1.resolve({ ...DEFAULT_SETTINGS, countdown: false });
+    await one;
+    expect(relay.settings).toEqual({ ...DEFAULT_SETTINGS, countdown: false, path_mode: "trail" });
+  });
+
+  test("an older save failing doesn't undo a newer change", async () => {
+    core.hold("update_settings");
+    const one = relay.updateSettings({ countdown: false });
+    const two = relay.updateSettings({ path_mode: "trail" });
+    await settle();
+    const [h1, h2] = core.held;
+    h1.reject({ code: "io", message: "nope" });
+    await one;
+    expect(relay.settings).toMatchObject({ countdown: false, path_mode: "trail" });
+    h2.resolve({ ...DEFAULT_SETTINGS, countdown: false, path_mode: "trail" });
+    await two;
+    expect(relay.settings).toEqual({ ...DEFAULT_SETTINGS, countdown: false, path_mode: "trail" });
+  });
+
+  test("a change that couldn't be written is kept, and the error says so", async () => {
+    core.saveError = "access denied";
+    await relay.updateSettings({ countdown: false });
+    expect(relay.settings.countdown).toBe(false);
+    expect(relay.error).toBe("Couldn't save the change: access denied. It's kept until you quit.");
   });
 
   test("a failed save puts the old settings back", async () => {
