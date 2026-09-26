@@ -569,29 +569,43 @@ mod tests {
     fn duplicate_trash_restore_and_import() {
         let dir = tempfile::tempdir().unwrap();
         let (mut lib, _) = Library::open(dir.path());
-        let invoice = lib.list()[0].id;
+        let [invoice, timesheet, ..] = ids(&lib)[..] else { panic!("four samples") };
+        set_hotkey(&mut lib, invoice, true, "Ctrl + Alt + 1");
+        assert_eq!(lib.get(invoice).unwrap().hotkey().as_deref(), Some("Ctrl + Alt + 1"));
 
         let copy = lib.duplicate(invoice).unwrap().value;
         let names: Vec<_> = lib.list().into_iter().map(|i| i.name).collect();
         assert_eq!(names[..2], ["Export invoice to PDF".to_string(), "Export invoice to PDF (copy)".to_string()]);
         assert_eq!(lib.get(copy).unwrap().runs, 0);
         assert_eq!(lib.get(copy).unwrap().hotkey(), None);
+        assert_eq!(lib.get(copy).unwrap().triggers, MacroTriggers::default(), "a copy has no triggers");
         assert_eq!(lib.get(copy).unwrap().macro_.events, lib.get(invoice).unwrap().macro_.events);
         lib.duplicate(invoice).unwrap().saved.unwrap();
         assert_eq!(lib.list()[1].name, "Export invoice to PDF (copy) 2");
 
-        // Trash keeps the file and the stats; restore puts it back in place.
-        lib.trash(invoice).unwrap().saved.unwrap();
-        assert!(lib.get(invoice).is_none());
-        assert!(dir.path().join("macros/.trash").join(format!("{invoice}.rly")).exists());
+        // Trash keeps the file, the stats and the triggers; restore puts it back in place.
+        let mut triggers = lib.get(timesheet).unwrap().triggers.clone();
+        triggers.hotkey = HotkeyTrigger { enabled: true, combo: "Ctrl + Alt + 2".into() };
+        triggers.app_launch.enabled = true;
+        triggers.app_launch.exe = "excel.exe".into();
+        lib.set_triggers(timesheet, triggers.clone()).unwrap().saved.unwrap();
+        let (order, runs) = (ids(&lib), lib.get(timesheet).unwrap().runs);
+        assert_eq!(order[3], timesheet);
+        assert!(runs > 0);
+        lib.trash(timesheet).unwrap().saved.unwrap();
+        assert!(lib.get(timesheet).is_none());
+        assert!(!lib.all_triggers().iter().any(|(id, _)| *id == timesheet), "its triggers go with it");
+        assert!(dir.path().join("macros/.trash").join(format!("{timesheet}.rly")).exists());
         let (reopened, problems) = Library::open(dir.path());
         assert!(problems.is_empty());
-        assert!(reopened.get(invoice).is_none(), "trashed macros stay out after a restart");
+        assert!(reopened.get(timesheet).is_none(), "trashed macros stay out after a restart");
         let (mut lib, _) = (reopened, ());
-        lib.restore(invoice).unwrap().saved.unwrap();
-        assert_eq!(lib.list()[0].id, invoice);
-        assert_eq!(lib.get(invoice).unwrap().runs, 148);
-        assert!(matches!(lib.restore(invoice), Err(LibraryError::NotFound(_))));
+        assert_eq!(lib.restore(timesheet).unwrap().value, None);
+        assert_eq!(ids(&lib), order);
+        assert_eq!(lib.get(timesheet).unwrap().runs, runs);
+        assert_eq!(lib.get(timesheet).unwrap().triggers, triggers);
+        assert_eq!(lib.all_triggers().iter().find(|(id, _)| *id == timesheet).unwrap().1, triggers, "and live");
+        assert!(matches!(lib.restore(timesheet), Err(LibraryError::NotFound(_))));
 
         // Importing a macro that's already here makes a copy with a new id.
         let exported = relay_core::format::to_rly(&lib.get(invoice).unwrap().macro_);
