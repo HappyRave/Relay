@@ -18,7 +18,7 @@ Thanks for helping. Relay is [MIT-licensed](LICENSE), and contributions are acce
 | Windows | 10 or 11, 64-bit | The app. The core crates also build on Linux and macOS. |
 | Rust | stable, 1.95 or later | MSVC toolchain (`rustup default stable-x86_64-pc-windows-msvc`). 1.95 is `rust-version` in `Cargo.toml`, set by the dependencies and checked in CI. |
 | Visual Studio Build Tools | 2022 | "Desktop development with C++" |
-| Node.js | 24 LTS recommended (20 or later works) | CI uses the latest 24.x |
+| Node.js | 26 recommended (22.12 or later works) | CI uses the latest 26.x |
 | WebView2 runtime | | Included with Windows 11 |
 
 ## First run
