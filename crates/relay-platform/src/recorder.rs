@@ -290,7 +290,80 @@ mod tests {
         r.push(key(0.0, 0x41, 0x1E, true));
         r.push(raw(10.0, RawKind::Move { x: 1, y: 1 }));
         r.push(raw(20.0, RawKind::Button { x: 1, y: 1, btn: MouseBtn::Left, down: true }));
-        assert_eq!(r.events().len(), 1);
+        assert_eq!(
+            r.events(),
+            [Event::Button { t: 20, x: 1, y: 1, btn: MouseBtn::Left, down: true, label: String::new() }],
+            "only the click"
+        );
+    }
+
+    #[test]
+    fn without_the_path_clicks_keep_their_positions() {
+        let cfg = RecorderConfig { capture_moves: false, ..Default::default() };
+        let mut r = Recorder::new(cfg, 0.0, Box::new(Us));
+        r.push(raw(0.0, RawKind::Move { x: 5, y: 5 }));
+        r.push(raw(100.0, RawKind::Button { x: 300, y: 400, btn: MouseBtn::Right, down: true }));
+        r.push(raw(150.0, RawKind::Move { x: 310, y: 400 }));
+        r.push(raw(200.0, RawKind::Button { x: 320, y: 400, btn: MouseBtn::Right, down: false }));
+        let rec = r.finish(300.0);
+        assert!(rec.events.iter().all(|e| !matches!(e, Event::Move { .. })));
+        assert_eq!(rec.events.iter().filter_map(Event::pos).collect::<Vec<_>>(), [(300, 400), (320, 400)]);
+        assert_eq!(rec.first_press, Some((300, 400)));
+    }
+
+    #[test]
+    fn wheels_both_ways_on_any_monitor() {
+        let mut r = Recorder::new(RecorderConfig::default(), 0.0, Box::new(Us));
+        r.push(raw(0.0, RawKind::Wheel { x: -1500, y: -200, delta: -120, horizontal: false }));
+        r.push(raw(40.0, RawKind::Wheel { x: -1500, y: -200, delta: 240, horizontal: true }));
+        r.push(raw(90.0, RawKind::Button { x: -1500, y: -200, btn: MouseBtn::Middle, down: true }));
+        r.push(raw(120.0, RawKind::Button { x: -1500, y: -200, btn: MouseBtn::Middle, down: false }));
+        let rec = r.finish(200.0);
+        assert_eq!(
+            rec.events[..2],
+            [
+                Event::Wheel { t: 0, x: -1500, y: -200, delta: -120, horizontal: false },
+                Event::Wheel { t: 40, x: -1500, y: -200, delta: 240, horizontal: true },
+            ]
+        );
+        assert_eq!(rec.first_press, Some((-1500, -200)), "a monitor left of and above the primary");
+        let steps = group_steps(&rec.events, GroupOptions::default());
+        assert_eq!(steps.len(), 3);
+    }
+
+    #[test]
+    fn input_from_before_the_start_is_at_zero() {
+        let mut r = Recorder::new(RecorderConfig::default(), 1000.0, Box::new(Us));
+        r.push(raw(990.0, RawKind::Button { x: 1, y: 1, btn: MouseBtn::Left, down: true }));
+        r.push(raw(1040.0, RawKind::Button { x: 1, y: 1, btn: MouseBtn::Left, down: false }));
+        assert_eq!(r.events().iter().map(Event::t).collect::<Vec<_>>(), [0, 40]);
+        assert_eq!(r.elapsed(900.0), 0);
+    }
+
+    #[test]
+    fn esc_and_stop_keys_are_not_input() {
+        let mut r = Recorder::new(RecorderConfig::default(), 0.0, Box::new(Us));
+        r.push(raw(0.0, RawKind::Move { x: 1, y: 1 }));
+        r.push(raw(5.0, RawKind::Move { x: 2, y: 2 })); // throttled
+        r.push(raw(10.0, RawKind::Escape));
+        r.push(raw(20.0, RawKind::StopKey));
+        assert!(r.events().iter().all(|e| matches!(e, Event::Move { .. })), "{:?}", r.events());
+        // (They still flush the cursor's last position, as any non-move input does.)
+        assert_eq!(r.events().len(), 2);
+    }
+
+    #[test]
+    fn the_kill_switch_with_right_ctrl_is_not_recorded() {
+        let mut r = Recorder::new(RecorderConfig::default(), 0.0, Box::new(Us));
+        for e in tap(0.0, 0x41, 0x1E) {
+            r.push(e);
+        }
+        r.push(raw(500.0, RawKind::Key { vk: 0xA3, scan: 0x1D, ext: true, down: true }));
+        r.push(raw(510.0, RawKind::Key { vk: 0xA5, scan: 0x38, ext: true, down: true }));
+        r.push(raw(520.0, RawKind::Key { vk: 0x23, scan: 0x4F, ext: true, down: true }));
+        let rec = r.finish(600.0);
+        assert_eq!(rec.events.len(), 2, "{:?}", rec.events);
+        assert!(rec.events.iter().all(|e| matches!(e, Event::Key { key, .. } if key.code == "KeyA")));
     }
 
     #[test]
