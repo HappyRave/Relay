@@ -85,6 +85,10 @@ struct TrashEntry {
     /// Missing in older libraries.
     #[serde(default, deserialize_with = "present", skip_serializing_if = "Option::is_none")]
     next: Option<Option<Uuid>>,
+    /// Its name, so new recordings don't take it. Read from its file for
+    /// older libraries.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    name: String,
     #[serde(flatten)]
     meta: IndexEntry,
 }
@@ -230,6 +234,12 @@ impl Library {
 
         let index = index.unwrap_or_default();
         lib.trash = index.trash.clone();
+        for (id, t) in lib.trash.iter_mut().filter(|(_, t)| t.name.is_empty()) {
+            let file = fs::read_to_string(dir.join("macros").join(".trash").join(format!("{id}.rly")));
+            if let Some(m) = file.ok().and_then(|s| format::from_rly(&s).ok()) {
+                t.name = m.name;
+            }
+        }
         let rank = |id: &Uuid| index.order.iter().position(|o| o == id).unwrap_or(usize::MAX);
         // Indexed macros in their saved order, then any unindexed files newest first.
         loaded.sort_by(|a, b| rank(&a.id).cmp(&rank(&b.id)).then(b.modified_at.cmp(&a.modified_at)));
@@ -340,7 +350,8 @@ impl Library {
         if file.is_err() {
             self.unsaved_trash.insert(id, e.macro_.clone());
         }
-        self.trash.insert(id, TrashEntry { position, next, meta: IndexEntry::of(&e) });
+        let name = e.macro_.name.clone();
+        self.trash.insert(id, TrashEntry { position, next, name, meta: IndexEntry::of(&e) });
         self.refresh_triggers();
         let index = self.save_index();
         Ok(Change::saved(file.and(index)))
@@ -461,13 +472,19 @@ impl Library {
         self.dir.join("macros").join(".trash").join(format!("{id}.rly"))
     }
 
-    /// `name`, or `name 2`, `name 3`… if a macro already has it.
+    /// `name`, or `name 2`, `name 3`… if a macro already has it. A name
+    /// that ends in a number counts on from it: "Report 2" becomes "Report 3".
     fn unique_name(&self, name: &str) -> String {
         let taken = |n: &str| self.entries.iter().any(|e| e.macro_.name == n);
         if !taken(name) {
             return name.to_string();
         }
-        (2..).map(|i| format!("{name} {i}")).find(|n| !taken(n)).expect("a free name")
+        let numbered = name
+            .rsplit_once(' ')
+            .filter(|(base, n)| !base.is_empty() && !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+            .and_then(|(base, n)| Some((base, n.parse::<u32>().ok().filter(|&n| n < u32::MAX)?)));
+        let (base, n) = numbered.unwrap_or((name, 1));
+        (n + 1..).map(|i| format!("{base} {i}")).find(|n| !taken(n)).expect("a free name")
     }
 
     /// Every macro's triggers, for the trigger runtime (cheap to call).
@@ -486,12 +503,15 @@ impl Library {
         self.triggers = self.entries.iter().map(|e| (e.macro_.id, e.triggers.clone())).collect();
     }
 
-    /// The next free "Recording N" name.
+    /// The next free "Recording N" name, counting the trash too, so a
+    /// restored macro doesn't share its name with a newer recording.
     pub fn next_recording_name(&self) -> String {
         let n = self
             .entries
             .iter()
-            .filter_map(|e| e.macro_.name.strip_prefix("Recording ")?.parse::<u32>().ok())
+            .map(|e| e.macro_.name.as_str())
+            .chain(self.trash.values().map(|t| t.name.as_str()))
+            .filter_map(|name| name.strip_prefix("Recording ")?.parse::<u32>().ok())
             .max()
             .unwrap_or(0);
         format!("Recording {}", n + 1)
@@ -705,6 +725,50 @@ mod tests {
         set_hotkey(&mut lib, timesheet, false, "Alt+Ctrl+1");
         assert_eq!(lib.restore(invoice).unwrap().value, None);
         assert!(lib.get(invoice).unwrap().triggers.hotkey.enabled);
+    }
+
+    #[test]
+    fn a_taken_name_ending_in_a_number_counts_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut lib, _) = Library::open(dir.path());
+        let named = |n: &str| Macro::new(n, RecordingMeta::single_1080p(), vec![]);
+        let names = ["Daily report", "Daily report 2", "Daily report 7", "Win 10", "Report 007"];
+        lib.import(names.map(named).into()).saved.unwrap();
+        assert_eq!(lib.unique_name("Daily report"), "Daily report 3");
+        assert_eq!(lib.unique_name("Daily report 2"), "Daily report 3");
+        assert_eq!(lib.unique_name("Daily report 7"), "Daily report 8");
+        assert_eq!(lib.unique_name("Daily report 5"), "Daily report 5", "free");
+        assert_eq!(lib.unique_name("Win 10"), "Win 11");
+        assert_eq!(lib.unique_name("Report 007"), "Report 8");
+        assert_eq!(lib.unique_name("Export invoice to PDF"), "Export invoice to PDF 2");
+        lib.import(vec![named("Big 4294967295"), named("Big 4294967295")]).saved.unwrap();
+        assert_eq!(lib.list()[1].name, "Big 4294967295 2", "too big to count on");
+        // Duplicating counts after "(copy)".
+        let copy = lib.duplicate(lib.list()[0].id).unwrap().value;
+        assert_eq!(lib.get(copy).unwrap().macro_.name, "Big 4294967295 (copy)");
+        let copy = lib.duplicate(lib.list()[0].id).unwrap().value;
+        assert_eq!(lib.get(copy).unwrap().macro_.name, "Big 4294967295 (copy) 2");
+    }
+
+    #[test]
+    fn recording_names_skip_the_ones_in_the_trash() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut lib, _) = Library::open(dir.path());
+        for _ in 0..3 {
+            let rec = Macro::new(lib.next_recording_name(), RecordingMeta::single_1080p(), vec![]);
+            lib.insert_front(rec).unwrap();
+        }
+        let [r3, r2, ..] = ids(&lib)[..] else { panic!() };
+        lib.trash(r3).unwrap().saved.unwrap();
+        lib.trash(r2).unwrap().saved.unwrap();
+        assert_eq!(lib.next_recording_name(), "Recording 4");
+        // Older libraries don't have the trash's names: they're read from its files.
+        let path = dir.path().join("library.json");
+        let index = fs::read_to_string(&path).unwrap();
+        assert!(index.contains(r#""name": "Recording 3","#), "{index}");
+        fs::write(&path, index.replace(r#""name": "Recording 3","#, "")).unwrap();
+        let (lib, _) = Library::open(dir.path());
+        assert_eq!(lib.next_recording_name(), "Recording 4");
     }
 
     #[test]
