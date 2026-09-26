@@ -55,14 +55,15 @@ pub struct Step {
 #[derive(Debug, Clone, Copy)]
 pub struct GroupOptions {
     pub double_click_ms: Ms,
+    /// The width of the double-click rectangle (`SM_CXDOUBLECLK`), which is
+    /// centred on the first click: the second may be half of it away.
     pub double_click_px: u32,
 }
 
 impl GroupOptions {
-    /// The system double-click settings. The distance is at least the click
-    /// slop, or a click that didn't count as a drag couldn't double.
+    /// The system double-click settings.
     pub fn new(double_click_ms: Ms, double_click_px: u32) -> Self {
-        GroupOptions { double_click_ms, double_click_px: double_click_px.max(CLICK_SLOP_PX as u32) }
+        GroupOptions { double_click_ms, double_click_px }
     }
 }
 
@@ -174,7 +175,7 @@ pub fn group_steps(events: &[Event], opts: GroupOptions) -> Vec<Step> {
                         && lc.step + 1 == p.step
                         && p.step + 1 == steps.len()
                         && p.t.saturating_sub(lc.t_down) <= opts.double_click_ms
-                        && (p.x - lc.x).unsigned_abs().max((p.y - lc.y).unsigned_abs()) <= opts.double_click_px
+                        && (p.x - lc.x).unsigned_abs().max((p.y - lc.y).unsigned_abs()) <= opts.double_click_px / 2
                 });
                 if let Some(lc) = merge {
                     let target = lc.step;
@@ -435,6 +436,20 @@ mod tests {
 
         let slow = [btn(0, 10, 10, true), btn(60, 10, 10, false), btn(900, 10, 10, true), btn(960, 10, 10, false)];
         assert_eq!(group(&slow).len(), 2);
+    }
+
+    #[test]
+    fn double_click_distance_is_half_the_system_rectangle() {
+        let two = |dx| {
+            [btn(0, 10, 10, true), btn(60, 10, 10, false), btn(200, 10 + dx, 10, true), btn(260, 10 + dx, 10, false)]
+        };
+        let steps = |px, dx| group_steps(&two(dx), GroupOptions::new(500, px)).len();
+        // The Windows default is a 4 px wide rectangle: 2 px either way.
+        assert_eq!((steps(4, 2), steps(4, -2), steps(4, 3)), (1, 1, 2));
+        assert_eq!((steps(5, 2), steps(5, 3)), (1, 2));
+        // Not widened to the click slop: a 1 px rectangle needs the same pixel.
+        assert_eq!((steps(1, 0), steps(1, 1)), (1, 2));
+        assert_eq!((steps(20, 10), steps(20, 11)), (1, 2));
     }
 
     #[test]
