@@ -30,6 +30,16 @@ describe("Library tab", () => {
     expect(items[0]).toHaveClass("active");
   });
 
+  test("turning a hotkey off takes it out of the list", async () => {
+    await relay.setTriggers({ hotkey: { enabled: true, combo: "Ctrl + Alt + 1" } });
+    render(LibraryTab);
+    expect(rows()[0]).toHaveTextContent("Ctrl + Alt + 1");
+    await relay.setTriggers({ hotkey: { enabled: false, combo: "Ctrl + Alt + 1" } });
+    await settle();
+    expect(rows()[0]).not.toHaveTextContent("Ctrl + Alt + 1");
+    expect(rows()[0]).toHaveTextContent("—");
+  });
+
   test("an empty library says how to make a macro", async () => {
     core.entries = [];
     await relay.refreshLibrary();

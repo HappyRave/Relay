@@ -13,13 +13,15 @@ import type { RelayStore } from "../lib/state/relay.svelte";
 let relay: RelayStore;
 const A = "00000000-0000-0000-0000-000000000001";
 
-/** A ResizeObserver the test can trigger. */
-let resize: (w: number, h: number) => void = () => {};
+/** Resize observers the test can trigger: every one sees the widget at `w` × `h`. */
+let observers: ((w: number, h: number) => void)[] = [];
+const resize = (w: number, h: number) => observers.forEach((o) => o(w, h));
 const RealResizeObserver = globalThis.ResizeObserver;
 beforeEach(() => {
+  observers = [];
   globalThis.ResizeObserver = class {
     constructor(cb: ResizeObserverCallback) {
-      resize = (w, h) => cb([{ borderBoxSize: [{ inlineSize: w, blockSize: h }] } as unknown as ResizeObserverEntry], this);
+      observers.push((w, h) => cb([{ borderBoxSize: [{ inlineSize: w, blockSize: h }] } as unknown as ResizeObserverEntry], this));
     }
     observe() {}
     unobserve() {}
@@ -239,11 +241,26 @@ describe("the browser preview", () => {
   });
 
   test("the widget scales down to fit a small window", async () => {
-    const { container } = render(App);
-    await settle();
-    resize(944, 616);
-    await settle();
-    const host = container.querySelector(".host") as HTMLElement;
-    expect(host.style.transform).toMatch(/scale\((0\.\d+|1)\)/);
+    const was = [window.innerWidth, window.innerHeight];
+    const setWindow = (w: number, h: number) => {
+      Object.defineProperty(window, "innerWidth", { value: w, configurable: true });
+      Object.defineProperty(window, "innerHeight", { value: h, configurable: true });
+    };
+    try {
+      setWindow(1400, 900);
+      const { container } = render(App);
+      await settle();
+      resize(944, 616);
+      await settle();
+      const host = container.querySelector(".host") as HTMLElement;
+      expect(host.style.transform).toContain("scale(1)"); // it fits
+      setWindow(800, 600);
+      resize(944, 616);
+      await settle();
+      // The width is what limits it: (800 − 32) / 944, less than (600 − 52 − 16) / 616.
+      expect(host.style.transform).toContain(`scale(${768 / 944})`);
+    } finally {
+      setWindow(was[0], was[1]);
+    }
   });
 });
