@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const exe = resolve(process.env.RELAY_EXE ?? "target/debug/relay.exe");
-const port = Number(process.env.RELAY_E2E_PORT) || 9444;
+const port = 9444;
 const run = (cmd) => {
   try {
     return execSync(cmd, { encoding: "utf8" }).trim();
@@ -30,7 +30,7 @@ const proc = spawn(exe, [], {
   env: {
     ...process.env,
     RELAY_DATA_DIR: mkdtempSync(join(tmpdir(), "relay-diag-")),
-    WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}`,
+    RELAY_DEVTOOLS_PORT: String(port),
   },
   stdio: ["ignore", "pipe", "pipe"],
 });

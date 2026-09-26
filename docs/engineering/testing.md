@@ -132,7 +132,7 @@ npm run test:e2e
 
 The build puts the app, with the UI built in, at `target/debug/relay.exe`. Quit Relay before running the tests: only one copy runs at a time, so the tests would reach yours instead (the harness checks for this). Set `RELAY_EXE` to test another build, such as `target/release/relay.exe`.
 
-[`e2e/harness.mjs`](../../e2e/harness.mjs) starts Relay on a scratch data folder (`RELAY_DATA_DIR`), with remote debugging on a random port. It clicks the page's own controls by their accessible names (`page.click("Play")`) and reads the store (`page.store("mode")`). Where the UI would open a native dialog, it calls the command instead (`page.invoke("import_macros", …)`). Then it checks the files Relay writes. `app.restart()` quits and relaunches on the same folder, to check what survives.
+[`e2e/harness.mjs`](../../e2e/harness.mjs) starts Relay on a scratch data folder (`RELAY_DATA_DIR`), with remote debugging on a random port (`RELAY_DEVTOOLS_PORT`: Relay passes it to WebView2 itself, since `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` isn't honored on CI runners). It clicks the page's own controls by their accessible names (`page.click("Play")`) and reads the store (`page.store("mode")`). Where the UI would open a native dialog, it calls the command instead (`page.invoke("import_macros", …)`). Then it checks the files Relay writes. `app.restart()` quits and relaunches on the same folder, to check what survives.
 
 The tests never send input to the desktop. Macros that get played contain only waits and pixel checks (`waitingMacro()`). The triggers fire on real events: `ping.exe` launching, a scheduled minute arriving, and, for the pixel trigger, a patch of Relay's own window changing color.
 
