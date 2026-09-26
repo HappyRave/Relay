@@ -52,6 +52,11 @@ fn actions(set: HotkeySet) -> &'static [Action] {
     }
 }
 
+/// Which of Relay's own hotkeys `pressed` is.
+fn action_for(pressed: &Shortcut) -> Option<Action> {
+    ALL.into_iter().find(|&a| shortcut(a) == *pressed)
+}
+
 /// The wanted hotkey set, and what the last refresh registered.
 pub struct Hotkeys(Mutex<State>);
 
@@ -176,7 +181,7 @@ pub fn conflict(lib: &Library, id: Uuid, combo: &str) -> Option<String> {
         Ok(s) => s,
         Err(e) => return Some(e),
     };
-    if ALL.iter().any(|&a| shortcut(a) == s) {
+    if action_for(&s).is_some() {
         return Some(format!("{combo} is one of Relay's own hotkeys"));
     }
     lib.all_triggers()
@@ -193,7 +198,7 @@ pub fn plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
                 return;
             }
             let coordinator = app.state::<CoordinatorHandle>();
-            if let Some(action) = ALL.into_iter().find(|&a| shortcut(a) == *pressed) {
+            if let Some(action) = action_for(pressed) {
                 match action {
                     Action::Record => coordinator.send(Cmd::Input(Input::ToggleRecord)),
                     Action::Play => coordinator.send(Cmd::HotkeyPlay),
@@ -243,5 +248,77 @@ mod tests {
         lib.set_triggers(ids[1], t).unwrap();
         assert!(conflict(&lib, ids[0], "Ctrl + Alt + 7").unwrap().contains("Fill weekly timesheet"));
         assert_eq!(conflict(&lib, ids[1], "Ctrl + Alt + 7"), None, "its own combo is fine");
+    }
+
+    #[test]
+    fn each_session_state_registers_only_what_it_needs() {
+        assert_eq!(actions(HotkeySet::Idle), ALL);
+        // Recording: F9 stops it, and F10/Ctrl+Shift+M reach the recorded app.
+        assert_eq!(actions(HotkeySet::Recording), [Action::Record, Action::Kill]);
+        assert_eq!(actions(HotkeySet::Playing), [Action::Play, Action::Kill]);
+        for set in [HotkeySet::Idle, HotkeySet::Recording, HotkeySet::Playing] {
+            assert!(actions(set).contains(&Action::Kill), "the kill switch works in {set:?}");
+        }
+    }
+
+    #[test]
+    fn relays_own_hotkeys_are_recognized() {
+        assert_eq!(action_for(&Shortcut::new(None, Code::F9)), Some(Action::Record));
+        assert_eq!(action_for(&Shortcut::new(None, Code::F10)), Some(Action::Play));
+        assert_eq!(
+            action_for(&Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyM)),
+            Some(Action::Compact)
+        );
+        assert_eq!(
+            action_for(&Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::End)),
+            Some(Action::Kill)
+        );
+        assert_eq!(action_for(&Shortcut::new(Some(Modifiers::SHIFT), Code::F9)), None, "modifiers matter");
+        assert_eq!(action_for(&Shortcut::new(None, Code::F11)), None);
+    }
+
+    #[test]
+    fn function_keys_alone_are_allowed_up_to_f24() {
+        assert_eq!(parse_combo("F1").unwrap(), Shortcut::new(None, Code::F1));
+        assert_eq!(parse_combo("F24").unwrap(), Shortcut::new(None, Code::F24));
+        assert!(parse_combo("F25").is_err());
+        assert!(parse_combo("F0").is_err());
+        assert!(parse_combo("Enter").unwrap_err().contains("Add Ctrl"));
+    }
+
+    #[test]
+    fn combos_tolerate_spacing_and_modifier_order() {
+        let want = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyK);
+        assert_eq!(parse_combo("Ctrl+Shift+K").unwrap(), want);
+        assert_eq!(parse_combo("  Shift +Ctrl+   K ").unwrap(), want);
+        assert_eq!(parse_combo("Ctrl + Ctrl + Shift + K").unwrap(), want, "a repeated modifier counts once");
+        assert_eq!(parse_combo("Ctrl + + K").unwrap(), Shortcut::new(Some(Modifiers::CONTROL), Code::KeyK));
+        assert!(parse_combo(" + ").is_err());
+    }
+
+    #[test]
+    fn unknown_keys_and_lowercase_modifiers_are_explained() {
+        assert!(parse_combo("Ctrl + Banana").unwrap_err().contains("Banana"));
+        assert!(parse_combo("ctrl + K").unwrap_err().contains("modifier"));
+    }
+
+    #[test]
+    fn disabled_and_broken_hotkeys_dont_conflict() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut lib, _) = Library::open(dir.path());
+        let ids: Vec<Uuid> = lib.list().into_iter().map(|i| i.id).collect();
+        let set = |lib: &mut Library, id, enabled, combo: &str| {
+            let mut t = lib.get(id).unwrap().triggers.clone();
+            t.hotkey = relay_core::triggers::HotkeyTrigger { enabled, combo: combo.into() };
+            lib.set_triggers(id, t).unwrap();
+        };
+        set(&mut lib, ids[1], false, "Ctrl + Alt + 7");
+        assert_eq!(conflict(&lib, ids[0], "Ctrl + Alt + 7"), None, "a disabled hotkey frees its combo");
+        set(&mut lib, ids[1], true, "Ctrl + Banana");
+        assert_eq!(conflict(&lib, ids[0], "Ctrl + Alt + 7"), None);
+        // The same combo written differently still conflicts.
+        set(&mut lib, ids[1], true, "Alt+Ctrl+7");
+        assert!(conflict(&lib, ids[0], "Ctrl + Alt + 7").is_some());
+        assert!(conflict(&lib, ids[0], "Q").unwrap().contains("Add Ctrl"), "a bad combo reports why");
     }
 }
