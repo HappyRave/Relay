@@ -521,10 +521,8 @@ impl Coordinator {
 
     /// Clicks under the always-on-top widget must reach the app beneath it.
     fn click_through_if_needed(&self, m: &Macro, own_rect: Option<Rect>, offset: (i32, i32)) -> bool {
-        let under_widget = own_rect.is_some_and(|r| {
-            m.events.iter().any(|e| matches!(e, Event::Button { x, y, .. } if r.contains(x + offset.0, y + offset.1)))
-        });
-        under_widget && self.app.get_webview_window("main").is_some_and(|w| w.set_ignore_cursor_events(true).is_ok())
+        own_rect.is_some_and(|r| clicks_inside(m, r, offset))
+            && self.app.get_webview_window("main").is_some_and(|w| w.set_ignore_cursor_events(true).is_ok())
     }
 
     /// Watches for Esc and, if the macro wants it, any other key.
@@ -579,5 +577,48 @@ impl Coordinator {
                 (0, 0)
             }
         }
+    }
+}
+
+/// Whether the macro clicks inside `r` when played `offset` away from where it was recorded.
+fn clicks_inside(m: &Macro, r: Rect, offset: (i32, i32)) -> bool {
+    m.events.iter().any(|e| matches!(e, Event::Button { x, y, .. } if r.contains(x + offset.0, y + offset.1)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use relay_core::model::{MouseBtn, RecordingMeta};
+
+    fn clicking_at(x: i32, y: i32) -> Macro {
+        let mut events = vec![Event::Move { t: 0, x: 500, y: 500 }];
+        events.push(Event::Button { t: 10, x, y, btn: MouseBtn::Left, down: true, label: String::new() });
+        events.push(Event::Button { t: 20, x, y, btn: MouseBtn::Left, down: false, label: String::new() });
+        Macro::new("m", RecordingMeta::single_1080p(), events)
+    }
+
+    #[test]
+    fn clicks_under_the_widget_are_found() {
+        let widget = Rect { x: 488, y: 444, w: 944, h: 612 };
+        assert!(clicks_inside(&clicking_at(900, 700), widget, (0, 0)));
+        assert!(!clicks_inside(&clicking_at(100, 100), widget, (0, 0)));
+        // Moves don't count: only a click needs to reach the app beneath.
+        assert!(!clicks_inside(&clicking_at(100, 100), Rect { x: 490, y: 490, w: 20, h: 20 }, (0, 0)));
+    }
+
+    #[test]
+    fn the_window_offset_moves_the_clicks() {
+        let widget = Rect { x: 488, y: 444, w: 944, h: 612 };
+        // Recorded at (100, 100); the anchor window moved by (500, 400).
+        assert!(clicks_inside(&clicking_at(100, 100), widget, (500, 400)));
+        assert!(!clicks_inside(&clicking_at(900, 700), widget, (-800, 0)));
+    }
+
+    #[test]
+    fn the_session_mode_starts_idle() {
+        let mode = SessionMode::default();
+        assert!(mode.is_idle());
+        *mode.0.write() = Mode::Recording;
+        assert!(!mode.is_idle());
     }
 }

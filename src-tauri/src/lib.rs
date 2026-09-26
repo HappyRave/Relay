@@ -19,6 +19,25 @@ use std::time::Duration;
 use parking_lot::Mutex;
 use tauri::{Manager, RunEvent, WindowEvent};
 
+/// The app's config, plus a DevTools port when `RELAY_DEVTOOLS_PORT` is set, for the
+/// end-to-end tests. WebView2's own `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` does the
+/// same, but isn't honored everywhere (CI runners ignore it); arguments the app
+/// passes itself always are.
+fn context() -> tauri::Context {
+    let mut context = tauri::generate_context!();
+    if let Some(port) = std::env::var("RELAY_DEVTOOLS_PORT").ok().and_then(|p| p.parse::<u16>().ok()) {
+        for w in &mut context.config_mut().app.windows {
+            // Setting any arguments replaces wry's defaults, so keep them.
+            let base = w
+                .additional_browser_args
+                .take()
+                .unwrap_or_else(|| "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection".into());
+            w.additional_browser_args = Some(format!("{base} --remote-debugging-port={port}"));
+        }
+    }
+    context
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -114,7 +133,7 @@ pub fn run() {
             tray::create(app.handle())?;
             Ok(())
         })
-        .build(tauri::generate_context!())
+        .build(context())
         .expect("error while building Relay")
         .run(|app, event| {
             // Quitting (tray, close button, Windows shutting down) mid-session:

@@ -52,4 +52,21 @@ mod tests {
         assert_eq!(fs::read_to_string(p.with_extension("tmp")).unwrap(), "mine");
         assert_eq!(fs::read_dir(p.parent().unwrap()).unwrap().count(), 2);
     }
+
+    #[test]
+    fn atomic_write_fails_cleanly_when_the_target_is_a_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("taken");
+        fs::create_dir(&p).unwrap();
+        assert!(write_atomic(&p, "x").is_err());
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1, "no temporary file left behind");
+    }
+
+    #[test]
+    fn atomic_write_keeps_unicode_intact() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("m.rly");
+        write_atomic(&p, "Café × 日本 🎹").unwrap();
+        assert_eq!(fs::read_to_string(&p).unwrap(), "Café × 日本 🎹");
+    }
 }

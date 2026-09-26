@@ -50,8 +50,10 @@ The first build takes a few minutes. After that, Rust changes rebuild incrementa
 | `cargo test --workspace` | Every Rust test. **Also regenerates** the TypeScript bindings and the browser fixture. |
 | `cargo test -p relay-core` | Just the core, in seconds |
 | `cargo clippy --workspace --all-targets -- -D warnings` | Lints, as strict as CI |
-| `npm test` | Vitest |
+| `npm test` | Vitest: the store and every component, against a fake Rust core |
+| `npm run test:coverage` | The same, with a coverage report in `coverage/` |
 | `npm run check` | svelte-check: types and accessibility |
+| `npm run test:e2e` | The real app, end to end. Build it first with `npx tauri build --debug --no-bundle`, and quit Relay. |
 | `npx tauri build` | The release build and installer in `target/release/bundle/nsis/` |
 
 `npm run dev` and `npm run tauri dev` both use port 1420, so stop one before starting the other.
@@ -63,8 +65,8 @@ The first build takes a few minutes. After that, Rust changes rebuild incrementa
 | How events become steps, edits, the file format, timing, sessions, schedules | `crates/relay-core` | Unit tests and property tests in the same crate |
 | Hooks, injection, the timer, screen or window queries | `crates/relay-platform/src/windows` | The end-to-end harness (see [Testing](docs/engineering/testing.md#end-to-end-testing)) |
 | Recording conversion or the key map | `crates/relay-platform/src/{recorder,keymap}.rs` | Unit tests with synthetic input |
-| Threads, commands, storage, triggers, the window, the tray | `src-tauri/src` | Unit tests, and the app |
-| The UI | `src/` | Vitest for `lib/`, `npm run dev` for components |
+| Threads, commands, storage, triggers, the window, the tray | `src-tauri/src` | Unit tests, and the end-to-end suite in `e2e/` |
+| The UI | `src/` | Vitest, next to the code: a component test for each control ([how](docs/engineering/testing.md#the-frontend)) |
 
 A rule of thumb: if it can be a pure function, it goes in `relay-core`, takes time as an argument, and gets a test.
 
@@ -102,7 +104,8 @@ A rule of thumb: if it can be a pure function, it goes in `relay-core`, takes ti
 - [ ] `cargo test --workspace` passes and regenerated files are committed
 - [ ] `cargo clippy --workspace --all-targets -- -D warnings` is clean
 - [ ] `npm test` and `npm run check` pass
-- [ ] New logic in `relay-core` or `lib/` has tests
+- [ ] `npm run test:e2e` passes, if you changed the app or the UI
+- [ ] New logic has tests, and new controls have a component test
 - [ ] Behavior changes are tried in the real app (`npm run tauri dev`)
 - [ ] The [user guide](docs/user-guide/README.md) and [engineering guide](docs/engineering/README.md) are updated if behavior or architecture changed
 - [ ] `CHANGELOG.md` has an entry under *Unreleased* for anything users will notice

@@ -24,7 +24,8 @@ import type {
 import type { EngineMsg } from "../ipc/bindings/EngineMsg";
 import type { PickedPixel } from "../ipc/bindings/PickedPixel";
 import type { TimingStats } from "../ipc/bindings/TimingStats";
-import { backend, type IpcError } from "../ipc/backend";
+import type { FinishReason } from "../ipc/bindings/FinishReason";
+import { backend as defaultBackend, type Backend, type IpcError } from "../ipc/backend";
 import { DEFAULT_PLAYBACK, DEFAULT_SETTINGS } from "../defaults";
 import { isTauri, savedExpanded } from "../platform/window";
 import { lastIndexAtOrBefore } from "../preview/geometry";
@@ -46,8 +47,16 @@ export interface Toast {
   action?: { label: string; run: () => void };
 }
 
-class RelayStore {
-  readonly editable = backend.editable;
+export class RelayStore {
+  private readonly backend: Backend;
+
+  constructor(backend: Backend = defaultBackend) {
+    this.backend = backend;
+  }
+
+  get editable(): boolean {
+    return this.backend.editable;
+  }
 
   // — session (from the engine stream) —
   mode = $state<Mode>("idle");
@@ -55,7 +64,8 @@ class RelayStore {
   cur = $state(0);
   countLeft = $state(0);
   loopIdx = $state(0);
-  /** Timing of the last playback (for diagnostics and the end-to-end tests). */
+  /** How and with what timing the last playback ended (for diagnostics and the end-to-end tests). */
+  lastFinish: FinishReason | null = null;
   lastTiming: TimingStats | null = null;
 
   // — data (from commands) —
@@ -145,11 +155,11 @@ class RelayStore {
   async init() {
     this.expanded = await savedExpanded().catch(() => true);
     this.ready = true;
-    await this.run(backend.subscribe(this.onEngine));
-    this.settings = (await this.run(backend.getSettings())) ?? this.settings;
+    await this.run(this.backend.subscribe(this.onEngine));
+    this.settings = (await this.run(this.backend.getSettings())) ?? this.settings;
     await this.refreshLibrary();
     if (this.library[0]) await this.loadMacro(this.library[0].id);
-    this.autostart = await backend.getAutostart().catch(() => false);
+    this.autostart = await this.backend.getAutostart().catch(() => false);
   }
 
   start() {
@@ -164,6 +174,8 @@ class RelayStore {
 
   dispose() {
     cancelAnimationFrame(this.raf);
+    cancelAnimationFrame(this.seekFrame);
+    this.seekFrame = 0;
     if (this.listening) window.removeEventListener("keydown", this.onKey, true);
     this.listening = false;
     clearTimeout(this.toastTimer);
@@ -221,6 +233,7 @@ class RelayStore {
         break;
       case "finished":
         this.loopIdx = 0;
+        this.lastFinish = msg.reason;
         if (msg.timing) this.lastTiming = msg.timing;
         // Any stop rewinds (Stop, Esc, a key press, the kill switch). A completed run stays at
         // the end, and a timed-out pixel check stays on its step so the row is highlighted.
@@ -317,15 +330,15 @@ class RelayStore {
 
   toggleRec = () => {
     if (this.playing) return;
-    return this.run(backend.toggleRecord());
+    return this.run(this.backend.toggleRecord());
   };
 
   togglePlay = () => {
     if (this.recording || !this.view) return;
-    return this.run(backend.togglePlay(this.cur >= this.duration - 1 ? 0 : this.cur));
+    return this.run(this.backend.togglePlay(this.cur >= this.duration - 1 ? 0 : this.cur));
   };
 
-  stop = () => this.run(backend.stop());
+  stop = () => this.run(this.backend.stop());
 
   /** Moves the playhead now; the engine hears about it at most once per frame. */
   seek = (t: number) => {
@@ -333,15 +346,15 @@ class RelayStore {
     const clamped = Math.max(0, Math.min(this.duration, t));
     this.cur = clamped;
     this.tick = { ...this.tick, t: clamped, at: performance.now() };
-    if (!this.seekQueued) {
-      this.seekQueued = true;
-      requestAnimationFrame(() => {
-        this.seekQueued = false;
-        this.run(backend.seek(this.cur));
+    if (!this.seekFrame) {
+      this.seekFrame = requestAnimationFrame(() => {
+        this.seekFrame = 0;
+        this.run(this.backend.seek(this.cur));
       });
     }
   };
-  private seekQueued = false;
+  /** The frame that will send the latest seek, or 0. */
+  private seekFrame = 0;
 
   jump = (dir: -1 | 1) => this.seek(jumpTarget(this.steps, this.cur, dir, this.duration));
 
@@ -357,7 +370,7 @@ class RelayStore {
   // — library —
 
   async refreshLibrary() {
-    this.library = (await this.run(backend.listMacros())) ?? this.library;
+    this.library = (await this.run(this.backend.listMacros())) ?? this.library;
   }
 
   loadMacro = async (id: string) => {
@@ -370,13 +383,13 @@ class RelayStore {
   private async showMacro(id: string) {
     await this.flushRename();
     const seq = ++this.viewSeq;
-    const view = await this.run(backend.loadMacro(id));
+    const view = await this.run(this.backend.loadMacro(id));
     if (!view || seq !== this.viewSeq) return;
     this.view = view;
     this.triggerStatus = null; // the old macro's triggers mustn't be edited into this one
     this.cur = 0;
     this.loopIdx = 0;
-    const status = await this.run(backend.getTriggers(id));
+    const status = await this.run(this.backend.getTriggers(id));
     if (status && this.view?.id === id) {
       this.triggerStatus = status;
       this.triggersPaused = status.paused;
@@ -384,7 +397,7 @@ class RelayStore {
   }
 
   duplicateMacro = async (id: string) => {
-    const copy = await this.run(backend.duplicateMacro(id));
+    const copy = await this.run(this.backend.duplicateMacro(id));
     if (!copy) return;
     await this.refreshLibrary();
     await this.loadMacro(copy);
@@ -396,7 +409,7 @@ class RelayStore {
     const idx = this.library.findIndex((m) => m.id === id);
     const name = this.library[idx]?.name ?? "macro";
     try {
-      await backend.deleteMacro(id);
+      await this.backend.deleteMacro(id);
     } catch (e) {
       return this.fail(e);
     }
@@ -413,7 +426,7 @@ class RelayStore {
   restoreMacro = async (id: string) => {
     this.dismissToast();
     try {
-      await backend.restoreMacro(id);
+      await this.backend.restoreMacro(id);
     } catch (e) {
       return this.fail(e);
     }
@@ -423,7 +436,7 @@ class RelayStore {
   };
 
   importMacros = async () => {
-    const result = await this.run(backend.importMacros());
+    const result = await this.run(this.backend.importMacros());
     if (!result) return;
     await this.refreshLibrary();
     if (result.imported[0]) await this.loadMacro(result.imported[0]);
@@ -441,7 +454,7 @@ class RelayStore {
     if (!this.editable) return this.fail({ code: "unavailable", message: "Editing needs the Relay app" });
     // An Undo offered for an earlier change would now undo this one instead.
     if (this.toast?.action) this.dismissToast();
-    return this.apply(this.view.id, backend.editMacro(this.view.id, op));
+    return this.apply(this.view.id, this.backend.editMacro(this.view.id, op));
   };
 
   /** Shows a command's result for macro `id`, unless another request replaced the view since. */
@@ -472,7 +485,7 @@ class RelayStore {
     if (!r) return;
     clearTimeout(r.timer);
     this.rename_ = null;
-    await this.run(backend.editMacro(r.id, { op: "rename", name: r.name }).then((view) => {
+    await this.run(this.backend.editMacro(r.id, { op: "rename", name: r.name }).then((view) => {
       if (this.view?.id === r.id) this.view = { ...view, name: this.view.name };
     }));
     await this.refreshLibrary();
@@ -485,7 +498,7 @@ class RelayStore {
     if (!this.view || !(redo ? this.canRedo : this.canUndo)) return;
     this.dismissToast();
     await this.flushRename();
-    if (this.view) await this.apply(this.view.id, backend.undoEdit(this.view.id, redo));
+    if (this.view) await this.apply(this.view.id, this.backend.undoEdit(this.view.id, redo));
   }
 
   deleteStep = async (index: number) => {
@@ -516,7 +529,7 @@ class RelayStore {
     const p = this.cursorAt(this.cur);
     const x = Math.round(p.x);
     const y = Math.round(p.y);
-    const color = (await backend.samplePixel(x, y).catch(() => null)) ?? "#EC3013";
+    const color = (await this.backend.samplePixel(x, y).catch(() => null)) ?? "#EC3013";
     return this.edit({ op: "insert_pixel_wait", at, dur: 800, x, y, color, tolerance: 8, timeout_ms: 5000, label: "" });
   };
 
@@ -530,7 +543,7 @@ class RelayStore {
     this.picking = PICK_SECONDS;
     const countdown = setInterval(() => (this.picking = Math.max(1, this.picking - 1)), 1000);
     try {
-      const p = await this.run(backend.pickPixel(PICK_SECONDS * 1000));
+      const p = await this.run(this.backend.pickPixel(PICK_SECONDS * 1000));
       if (p && this.view?.id === id) await use(p);
     } finally {
       clearInterval(countdown);
@@ -554,7 +567,7 @@ class RelayStore {
   setPlayback = (patch: Partial<PlaybackOptions>) => {
     if (!this.view) return;
     this.previewPlayback(patch);
-    return this.apply(this.view.id, backend.setPlaybackOptions(this.view.id, this.view.playback));
+    return this.apply(this.view.id, this.backend.setPlaybackOptions(this.view.id, this.view.playback));
   };
 
   /** Shows new playback options without saving them (while a slider moves). */
@@ -572,7 +585,7 @@ class RelayStore {
     const next = { ...current.triggers, ...patch };
     this.triggerStatus = { ...current, triggers: next };
     try {
-      const status = await backend.setTriggers(id, next);
+      const status = await this.backend.setTriggers(id, next);
       if (this.view?.id === id) this.triggerStatus = status;
       await this.refreshLibrary();
     } catch (e) {
@@ -583,7 +596,7 @@ class RelayStore {
 
   setTriggersPaused = async (paused: boolean) => {
     this.triggersPaused = paused;
-    await this.run(backend.setTriggersPaused(paused));
+    await this.run(this.backend.setTriggersPaused(paused));
   };
 
   /** "Pick" for the pixel trigger: watch the pixel under the cursor. */
@@ -594,7 +607,7 @@ class RelayStore {
     });
 
   loadProcesses = async () => {
-    this.processes = (await backend.listProcesses().catch(() => null)) ?? this.processes;
+    this.processes = (await this.backend.listProcesses().catch(() => null)) ?? this.processes;
   };
 
   // — settings —
@@ -602,26 +615,35 @@ class RelayStore {
   updateSettings = async (patch: Partial<Settings>) => {
     const before = this.settings;
     this.settings = { ...before, ...patch };
-    const saved = await this.run(backend.updateSettings(this.settings));
+    const saved = await this.run(this.backend.updateSettings(this.settings));
     this.settings = saved ?? before;
   };
 
   setAutostart = async (enabled: boolean) => {
-    this.autostart = (await this.run(backend.setAutostart(enabled))) ?? this.autostart;
+    this.autostart = (await this.run(this.backend.setAutostart(enabled))) ?? this.autostart;
   };
 
   // — export —
 
   doExport = async () => {
     if (!this.view) return;
-    const path = await this.run(backend.exportMacro(this.view.id, this.exportFmt, this.exportName));
+    const path = await this.run(this.backend.exportMacro(this.view.id, this.exportFmt, this.exportName));
     if (!path) return; // cancelled or failed: keep the dialog open
     this.exportOpen = false;
     this.notify(`Saved ${path.split(/[\\/]/).pop()}`);
   };
 }
 
-export const relay = new RelayStore();
+export let relay = new RelayStore();
 
 // A handle for debugging and end-to-end tests (`window.__relay` in DevTools).
-(window as unknown as { __relay: RelayStore }).__relay = relay;
+const expose = () => ((window as unknown as { __relay: RelayStore }).__relay = relay);
+expose();
+
+/** Replaces the store with a fresh one (for tests; components read `relay` live). */
+export function resetRelay(backend: Backend = defaultBackend): RelayStore {
+  relay.dispose();
+  relay = new RelayStore(backend);
+  expose();
+  return relay;
+}

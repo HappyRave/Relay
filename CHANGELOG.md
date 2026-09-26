@@ -15,6 +15,12 @@
 - **Dependencies:** everything updated to the latest stable versions: Rust 1.98.1, Node 26.10 and npm 12.1 (locally and in CI), the Rust lockfile, vitest 5.0.2, the `windows` crate 0.62 in `relay-platform`, and the CI actions (checkout, setup-node and upload-artifact v7, tauri-action v1). TypeScript stays on 6 because svelte-check doesn't support 7 yet, and the app keeps `windows` 0.61 to match Tauri.
 - **License:** Relay is now open source under the MIT License.
 - **Keep on top:** a new *Settings → Window* option chooses when the widget floats above other windows: always (as before), only while recording or playing, or never.
+- **Tests:** a much larger test suite in three layers ([how it works](docs/engineering/testing.md)):
+  - about 180 Rust tests, now also covering trigger timing, window placement, hotkey sets, the key map and the command helpers,
+  - about 390 frontend tests of the store and every button, switch and field, against a fake Rust core behind Tauri's IPC mock,
+  - 77 end-to-end tests that drive the built app (`npm run test:e2e`, also run in CI): the library and its files, editing, playback, settings, the window, and the schedule, app-launch and pixel triggers firing for real.
+- **Fixes found by the tests:** clearing a number field (a pixel check's position, tolerance or timeout, a pause, the app-launch delay) no longer sets it to 0 (or sends an invalid value for triggers); the browser preview's sample hotkeys no longer depend on load timing.
+- **`RELAY_DEVTOOLS_PORT`:** set it to open a WebView2 DevTools port, for the end-to-end tests and debugging.
 
 ## v1.1.0: Editing polish
 

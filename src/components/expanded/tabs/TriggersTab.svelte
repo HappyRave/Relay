@@ -20,7 +20,12 @@
     relay.setTriggers({ schedule: { ...t.schedule, schedule: { ...t.schedule.schedule, days } } });
   }
 
-  const num = (e: Event) => Number((e.currentTarget as HTMLInputElement).value);
+  /** Applies a number field's value; an empty or non-number one is put back instead. */
+  function withNumber(e: Event, current: number, apply: (v: number) => void) {
+    const input = e.currentTarget as HTMLInputElement;
+    if (Number.isFinite(input.valueAsNumber)) apply(input.valueAsNumber);
+    else input.value = String(current);
+  }
 </script>
 
 {#if relay.triggersPaused}
@@ -114,7 +119,10 @@
           aria-label="Delay in seconds"
           title="Delay in seconds"
           value={t.app_launch.delay_ms / 1000}
-          onchange={(e) => relay.setTriggers({ app_launch: { ...t.app_launch, delay_ms: Math.max(0, Math.round(num(e) * 1000)) } })}
+          onchange={(e) =>
+            withNumber(e, t.app_launch.delay_ms / 1000, (s) =>
+              relay.setTriggers({ app_launch: { ...t.app_launch, delay_ms: Math.max(0, Math.round(s * 1000)) } }),
+            )}
         />
       </div>
     </div>
@@ -135,14 +143,14 @@
           type="number"
           aria-label="X"
           value={t.pixel.x}
-          onchange={(e) => relay.setTriggers({ pixel: { ...t.pixel, x: num(e) } })}
+          onchange={(e) => withNumber(e, t.pixel.x, (x) => relay.setTriggers({ pixel: { ...t.pixel, x } }))}
         />
         <input
           class="input small"
           type="number"
           aria-label="Y"
           value={t.pixel.y}
-          onchange={(e) => relay.setTriggers({ pixel: { ...t.pixel, y: num(e) } })}
+          onchange={(e) => withNumber(e, t.pixel.y, (y) => relay.setTriggers({ pixel: { ...t.pixel, y } }))}
         />
         <input
           class="input small"

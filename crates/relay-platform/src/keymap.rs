@@ -185,4 +185,94 @@ mod tests {
         assert_eq!(code(0, false, 0x63), "Numpad3");
         assert_eq!(code(0, false, 0xB3), "VkB3");
     }
+
+    #[test]
+    fn every_scan_code_round_trips() {
+        let mut seen = std::collections::HashSet::new();
+        for ext in [false, true] {
+            for scan in 1..0x60u16 {
+                let Some(c) = scan_code(scan, ext) else { continue };
+                assert!(seen.insert(c), "{c} is mapped twice");
+                assert_eq!(scan_for_code(c), Some((scan, ext)), "{c}");
+            }
+        }
+        assert!(seen.len() > 100, "{}", seen.len());
+    }
+
+    #[test]
+    fn all_letters_digits_and_function_keys_have_scan_codes() {
+        for c in 'A'..='Z' {
+            assert!(scan_for_code(&format!("Key{c}")).is_some(), "Key{c}");
+        }
+        for d in 0..=9 {
+            assert!(scan_for_code(&format!("Digit{d}")).is_some(), "Digit{d}");
+            assert!(scan_for_code(&format!("Numpad{d}")).is_some(), "Numpad{d}");
+        }
+        for f in 1..=12 {
+            assert!(scan_for_code(&format!("F{f}")).is_some(), "F{f}");
+        }
+    }
+
+    #[test]
+    fn unknown_scan_codes_fall_back_to_the_virtual_key() {
+        // An extended scan code with no mapping, e.g. a media key.
+        assert_eq!(code(0x22, true, 0xB3), "VkB3");
+        assert_eq!(code(0x7F, false, 0x41), "KeyA");
+    }
+
+    #[test]
+    fn virtual_keys_cover_navigation_and_modifiers() {
+        let cases = [
+            (0x08, "Backspace"),
+            (0x09, "Tab"),
+            (0x0D, "Enter"),
+            (0x13, "Pause"),
+            (0x1B, "Escape"),
+            (0x20, "Space"),
+            (0x21, "PageUp"),
+            (0x22, "PageDown"),
+            (0x24, "Home"),
+            (0x25, "ArrowLeft"),
+            (0x26, "ArrowUp"),
+            (0x27, "ArrowRight"),
+            (0x28, "ArrowDown"),
+            (0x2C, "PrintScreen"),
+            (0x2D, "Insert"),
+            (0x2E, "Delete"),
+            (0x30, "Digit0"),
+            (0x39, "Digit9"),
+            (0x41, "KeyA"),
+            (0x5B, "MetaLeft"),
+            (0x5C, "MetaRight"),
+            (0x5D, "ContextMenu"),
+            (0x60, "Numpad0"),
+            (0x69, "Numpad9"),
+            (0x70, "F1"),
+            (0x87, "F24"),
+            (0x90, "NumLock"),
+            (0x91, "ScrollLock"),
+            (0xA0, "ShiftLeft"),
+            (0xA1, "ShiftRight"),
+            (0xA2, "ControlLeft"),
+            (0xA3, "ControlRight"),
+            (0xA4, "AltLeft"),
+            (0xA5, "AltRight"),
+            (0x07, "Vk07"),
+        ];
+        for (vk, want) in cases {
+            assert_eq!(vk_code(vk), want, "{vk:#x}");
+        }
+    }
+
+    #[test]
+    fn modifier_classes() {
+        for vk in [0x10, 0x11, 0x12, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0x5B, 0x5C] {
+            assert!(is_modifier_vk(vk), "{vk:#x}");
+        }
+        for vk in [0x41, 0x14, 0x5D, 0x0D] {
+            assert!(!is_modifier_vk(vk), "{vk:#x} (CapsLock, the menu key and Enter aren't)");
+        }
+        assert!(is_ctrl_vk(0x11) && is_ctrl_vk(0xA2) && is_ctrl_vk(0xA3) && !is_ctrl_vk(0x12));
+        assert!(is_alt_vk(0x12) && is_alt_vk(0xA4) && is_alt_vk(0xA5) && !is_alt_vk(0x11));
+    }
 }
