@@ -537,7 +537,7 @@ impl Coordinator {
         }
     }
 
-    /// Clicks under the always-on-top widget must reach the app beneath it.
+    /// Clicks and scrolling under the always-on-top widget must reach the app beneath it.
     fn click_through_if_needed(&self, m: &Macro, own_rect: Option<Rect>, offset: (i32, i32)) -> bool {
         own_rect.is_some_and(|r| clicks_inside(m, r, offset))
             && self.app.get_webview_window("main").is_some_and(|w| w.set_ignore_cursor_events(true).is_ok())
@@ -598,9 +598,12 @@ impl Coordinator {
     }
 }
 
-/// Whether the macro clicks inside `r` when played `offset` away from where it was recorded.
+/// Whether the macro clicks or scrolls inside `r` when played `offset` away
+/// from where it was recorded.
 fn clicks_inside(m: &Macro, r: Rect, offset: (i32, i32)) -> bool {
-    m.events.iter().any(|e| matches!(e, Event::Button { x, y, .. } if r.contains(x + offset.0, y + offset.1)))
+    m.events.iter().any(|e| {
+        matches!(e, Event::Button { x, y, .. } | Event::Wheel { x, y, .. } if r.contains(x + offset.0, y + offset.1))
+    })
 }
 
 /// What a trigger's request to run a macro gets.
@@ -677,6 +680,18 @@ mod tests {
         // Recorded at (100, 100); the anchor window moved by (500, 400).
         assert!(clicks_inside(&clicking_at(100, 100), widget, (500, 400)));
         assert!(!clicks_inside(&clicking_at(900, 700), widget, (-800, 0)));
+    }
+
+    #[test]
+    fn scrolling_under_the_widget_counts_too() {
+        let widget = Rect { x: 488, y: 444, w: 944, h: 612 };
+        let scrolling = |x, y| {
+            let events = vec![Event::Wheel { t: 10, x, y, delta: -120, horizontal: false }];
+            Macro::new("m", RecordingMeta::single_1080p(), events)
+        };
+        assert!(clicks_inside(&scrolling(900, 700), widget, (0, 0)));
+        assert!(!clicks_inside(&scrolling(100, 100), widget, (0, 0)));
+        assert!(clicks_inside(&scrolling(100, 100), widget, (500, 400)), "moved with the window");
     }
 
     #[test]
