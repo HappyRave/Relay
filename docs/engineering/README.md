@@ -27,7 +27,7 @@ How Relay works inside: for contributors, reviewers and anyone curious about bui
 | **UI** | [Svelte 5](https://svelte.dev/) (runes), Vite 8, no UI framework |
 | **OS access** | [`windows`](https://crates.io/crates/windows) crate (Win32), behind traits in `relay-platform` |
 | **Size** | about 4,500 lines in the two library crates, 3,100 in the app, 4,000 in the UI |
-| **Tests** | about 125 Rust tests including property tests and snapshots, plus Vitest |
+| **Tests** | about 180 Rust tests (including property tests and snapshots), 390 Vitest tests of the store and every component, and 76 end-to-end tests against the real app |
 | **Installer** | NSIS, per-user, about 2 MB |
 
 ## Getting set up

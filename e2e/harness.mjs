@@ -14,7 +14,7 @@ import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 
 const ROOT = resolve(import.meta.dirname, "..");
-export const EXE = process.env.RELAY_EXE ?? join(ROOT, "target", "debug", "relay.exe");
+export const EXE = resolve(process.env.RELAY_EXE ?? join(ROOT, "target", "debug", "relay.exe"));
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

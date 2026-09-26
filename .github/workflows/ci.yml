@@ -36,6 +36,10 @@ jobs:
             target/release/bundle/nsis/*.exe
             target/release/relay.exe
           if-no-files-found: error
+      - name: End-to-end tests (the release build, driven over DevTools)
+        run: npm run test:e2e
+        env:
+          RELAY_EXE: target/release/relay.exe
 
   # The core and platform crates must stay portable (the platform crate's
   # stub backend stands in for Windows here).
