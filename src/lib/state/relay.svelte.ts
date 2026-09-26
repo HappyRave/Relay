@@ -40,6 +40,7 @@ export const TRIM_PAUSE_MS = 1000;
 const MAX_EXTRAPOLATION_MS = 100;
 /** Seconds "Pick" waits before reading the pixel under the cursor. */
 const PICK_SECONDS = 3;
+export const MAX_REPEATS = 99;
 const EMPTY_DESKTOP: Rect = { x: 0, y: 0, w: 1920, h: 1080 };
 /** Inputs with their own Ctrl + Z. */
 const TEXT_INPUTS = ["text", "search", "number"];
@@ -686,6 +687,34 @@ export class RelayStore {
   /** Shows new playback options without saving them (while a slider moves). */
   previewPlayback = (patch: Partial<PlaybackOptions>) => {
     if (this.view) this.view = { ...this.view, playback: { ...this.view.playback, ...patch } };
+  };
+
+  /** Per macro, the repeat count to go back to when leaving "forever" (remembered when entering it). */
+  private lastCounts = $state.raw<Record<string, number>>({});
+  /** The repeat count: the saved one, or while looping forever, the one to go back to. */
+  repeatCount = $derived(
+    this.playback.repeat === "forever" ? ((this.view && this.lastCounts[this.view.id]) ?? 1) : this.playback.repeat.count,
+  );
+
+  toggleForever = () => {
+    const r = this.playback.repeat;
+    if (!this.view) return;
+    if (r === "forever") return this.setPlayback({ repeat: { count: this.repeatCount } });
+    this.lastCounts = { ...this.lastCounts, [this.view.id]: r.count };
+    return this.setPlayback({ repeat: "forever" });
+  };
+
+  /** One repeat fewer, down to 1; while looping forever, back to the remembered count. */
+  fewerRepeats = () => {
+    if (this.playback.repeat === "forever") return this.setPlayback({ repeat: { count: this.repeatCount } });
+    if (this.repeatCount > 1) return this.setPlayback({ repeat: { count: this.repeatCount - 1 } });
+  };
+
+  /** One repeat more, up to 99 (not while looping forever). */
+  moreRepeats = () => {
+    if (this.playback.repeat !== "forever" && this.repeatCount < MAX_REPEATS) {
+      return this.setPlayback({ repeat: { count: this.repeatCount + 1 } });
+    }
   };
 
   // — triggers —

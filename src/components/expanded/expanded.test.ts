@@ -209,14 +209,14 @@ describe("Transport", () => {
     await settle();
     expect(repeat()).toEqual({ count: 4 });
     expect(screen.getByText("4")).toBeInTheDocument();
-    for (let i = 0; i < 4; i++) await userEvent.click(screen.getByRole("button", { name: "Fewer repeats" }));
+    for (let i = 0; i < 3; i++) await userEvent.click(screen.getByRole("button", { name: "Fewer repeats" }));
     await settle();
     expect(repeat()).toEqual({ count: 1 });
+    expect(screen.getByRole("button", { name: "Fewer repeats" })).toBeDisabled();
     await relay.setPlayback({ repeat: { count: 99 } });
     await settle();
-    await userEvent.click(screen.getByRole("button", { name: "More repeats" }));
-    await settle();
-    expect(repeat()).toEqual({ count: 99 });
+    expect(screen.getByRole("button", { name: "More repeats" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Fewer repeats" })).toBeEnabled();
   });
 
   test("Loop forever, and back to the count it had", async () => {
@@ -233,13 +233,41 @@ describe("Transport", () => {
     expect(repeat()).toEqual({ count: 3 });
   });
 
-  test("+ while looping forever counts up from the remembered count", async () => {
+  test("while looping forever, + is off and − goes back to the remembered count", async () => {
     render(Transport);
     await userEvent.click(screen.getByRole("button", { name: "Loop forever" }));
     await settle();
-    await userEvent.click(screen.getByRole("button", { name: "More repeats" }));
+    expect(screen.getByRole("button", { name: "More repeats" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "Fewer repeats" }));
     await settle();
-    expect(repeat()).toEqual({ count: 4 });
+    expect(repeat()).toEqual({ count: 3 });
+    expect(screen.getByText("3")).toBeInTheDocument();
+  });
+
+  test("at 1, − still leaves forever", async () => {
+    await relay.setPlayback({ repeat: { count: 1 } });
+    render(Transport);
+    await userEvent.click(screen.getByRole("button", { name: "Loop forever" }));
+    await settle();
+    expect(screen.getByRole("button", { name: "Fewer repeats" })).toBeEnabled();
+    await userEvent.click(screen.getByRole("button", { name: "Fewer repeats" }));
+    await settle();
+    expect(repeat()).toEqual({ count: 1 });
+  });
+
+  test("the remembered count is kept per macro, across the Transport being rebuilt", async () => {
+    const { unmount } = render(Transport);
+    await userEvent.click(screen.getByRole("button", { name: "Loop forever" })); // A had 3
+    await settle();
+    unmount();
+    await relay.loadMacro("00000000-0000-0000-0000-000000000002");
+    await relay.setPlayback({ repeat: { count: 7 } });
+    await relay.toggleForever();
+    await relay.loadMacro(A);
+    render(Transport);
+    await userEvent.click(screen.getByRole("button", { name: "Loop forever" }));
+    await settle();
+    expect(repeat()).toEqual({ count: 3 });
   });
 });
 
