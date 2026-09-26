@@ -150,6 +150,13 @@ impl Change {
     }
 }
 
+/// What [`Library::import`] added.
+pub struct Imported {
+    pub ids: Vec<Uuid>,
+    /// Why the rest weren't imported.
+    pub failed: Option<String>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum LibraryError {
     #[error("no macro with id {0}")]
@@ -390,21 +397,32 @@ impl Library {
 
     /// Adds imported macros at the top, in order, saving the index once. A
     /// macro that's already in the library is imported as a copy with a new
-    /// id. Returns the ids used.
-    pub fn import(&mut self, macros: Vec<Macro>) -> Result<Vec<Uuid>, LibraryError> {
-        let mut ids = Vec::with_capacity(macros.len());
+    /// id. If writing one fails, it and the rest aren't imported; the ones
+    /// before it are.
+    pub fn import(&mut self, macros: Vec<Macro>) -> Change<Imported> {
+        let total = macros.len();
+        let mut ids = Vec::with_capacity(total);
+        let mut failed = None;
         for (i, mut m) in macros.into_iter().enumerate() {
             if self.get(m.id).is_some() || self.trash.contains_key(&m.id) {
                 m.id = Uuid::new_v4();
             }
             m.name = self.unique_name(&m.name);
-            self.write_macro(&m)?;
+            if let Err(e) = self.write_macro(&m) {
+                let rest = match total - i - 1 {
+                    0 => String::new(),
+                    1 => " and the macro after it".into(),
+                    n => format!(" and the {n} macros after it"),
+                };
+                failed = Some(format!("Couldn't import “{}”{rest}: {e}", m.name));
+                break;
+            }
             ids.push(m.id);
             self.entries.insert(i, Entry::new(m));
         }
         self.refresh_triggers();
-        self.save_index()?;
-        Ok(ids)
+        let saved = if ids.is_empty() { Ok(()) } else { self.save_index() };
+        Change { value: Imported { ids, failed }, saved }
     }
 
     /// Where a trashed macro whose `next` this is goes back: before the first
@@ -557,7 +575,7 @@ mod tests {
 
         // Importing a macro that's already here makes a copy with a new id.
         let exported = relay_core::format::to_rly(&lib.get(invoice).unwrap().macro_);
-        let imported = lib.import(vec![relay_core::format::from_rly(&exported).unwrap()]).unwrap()[0];
+        let imported = lib.import(vec![relay_core::format::from_rly(&exported).unwrap()]).value.ids[0];
         assert_ne!(imported, invoice);
         assert_eq!(lib.list()[0].id, imported);
         assert_eq!(lib.list()[0].name, "Export invoice to PDF 2");
@@ -690,6 +708,34 @@ mod tests {
     }
 
     #[test]
+    fn an_import_that_fails_partway_keeps_what_it_imported() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut lib, _) = Library::open(dir.path());
+        let before = ids(&lib);
+        let macros: Vec<Macro> =
+            ["One", "Two", "Three", "Four"].map(|n| Macro::new(n, RecordingMeta::single_1080p(), vec![])).into();
+        let (one, two) = (macros[0].id, macros[1].id);
+        // "Two" can't be written.
+        fs::create_dir(dir.path().join("macros").join(format!("{two}.rly"))).unwrap();
+
+        let imported = lib.import(macros);
+        imported.saved.unwrap();
+        assert_eq!(imported.value.ids, [one]);
+        let failed = imported.value.failed.unwrap();
+        assert!(failed.starts_with("Couldn't import “Two” and the 2 macros after it: "), "{failed}");
+        assert_eq!(ids(&lib)[..], [&[one][..], &before].concat());
+        // And it's in the index, so it's in the Library after a restart too.
+        let (again, _) = Library::open(dir.path());
+        assert_eq!(ids(&again), ids(&lib));
+
+        let last = Macro::new("Last", RecordingMeta::single_1080p(), vec![]);
+        fs::create_dir(dir.path().join("macros").join(format!("{}.rly", last.id))).unwrap();
+        let imported = lib.import(vec![last]);
+        assert!(imported.value.ids.is_empty());
+        assert!(imported.value.failed.unwrap().starts_with("Couldn't import “Last”: "));
+    }
+
+    #[test]
     fn the_last_macro_goes_back_last() {
         let dir = tempfile::tempdir().unwrap();
         let (mut lib, _) = Library::open(dir.path());
@@ -697,8 +743,8 @@ mod tests {
         lib.trash(d).unwrap().saved.unwrap();
         lib.trash(b).unwrap().saved.unwrap();
         lib.trash(c).unwrap().saved.unwrap();
-        lib.import(vec![Macro::new("New 1", RecordingMeta::single_1080p(), vec![])]).unwrap();
-        lib.import(vec![Macro::new("New 2", RecordingMeta::single_1080p(), vec![])]).unwrap();
+        lib.import(vec![Macro::new("New 1", RecordingMeta::single_1080p(), vec![])]).saved.unwrap();
+        lib.import(vec![Macro::new("New 2", RecordingMeta::single_1080p(), vec![])]).saved.unwrap();
         assert!(fs::read_to_string(dir.path().join("library.json")).unwrap().contains(r#""next": null"#));
         let (mut lib, _) = Library::open(dir.path());
         for id in [d, b, c] {

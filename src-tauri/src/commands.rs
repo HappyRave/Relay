@@ -232,20 +232,17 @@ pub struct ImportResult {
 }
 
 /// Imports `.rly` files (and Relay `.json` exports). Each file is independent:
-/// a broken one is reported and the rest still import.
+/// a broken one is reported and the rest still import. If saving one fails,
+/// the ones before it are kept and the rest reported.
 #[tauri::command(async)]
 pub fn import_macros(app: AppHandle, paths: Vec<String>) -> ImportResult {
     // Read and parse without holding the library.
     let (macros, mut problems) = read_imports(&paths);
-    let imported = match library(&app).lock().import(macros) {
-        Ok(ids) => ids,
-        Err(e) => {
-            problems.push(e.to_string());
-            Vec::new()
-        }
-    };
+    let imported = library(&app).lock().import(macros);
+    report_unsaved(&app, imported.saved);
+    problems.extend(imported.value.failed);
     hotkeys::refresh(&app);
-    ImportResult { imported, problems }
+    ImportResult { imported: imported.value.ids, problems }
 }
 
 /// Reads and parses each file; a file that can't be read or parsed becomes a
