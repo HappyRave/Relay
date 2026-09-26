@@ -122,6 +122,19 @@ pub struct Library {
     index_unreadable: Option<String>,
 }
 
+/// A change that was made. If saving it failed, it's kept anyway (in memory,
+/// until Relay quits) and `saved` says why: see the `commands` module docs.
+pub struct Change<T = ()> {
+    pub value: T,
+    pub saved: std::io::Result<()>,
+}
+
+impl Change {
+    fn saved(saved: std::io::Result<()>) -> Self {
+        Change { value: (), saved }
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum LibraryError {
     #[error("no macro with id {0}")]
@@ -270,7 +283,7 @@ impl Library {
     }
 
     /// Copies a macro under a new id, right after the original. Returns the copy's id.
-    pub fn duplicate(&mut self, id: Uuid) -> Result<Uuid, LibraryError> {
+    pub fn duplicate(&mut self, id: Uuid) -> Result<Change<Uuid>, LibraryError> {
         let pos = self.position(id)?;
         let mut copy = self.entries[pos].macro_.clone();
         copy.id = Uuid::new_v4();
@@ -282,12 +295,11 @@ impl Library {
         // A copy starts with no triggers: two macros on one hotkey or schedule would collide.
         self.entries.insert(pos + 1, Entry::new(copy));
         self.refresh_triggers();
-        self.save_index()?;
-        Ok(new_id)
+        Ok(Change { value: new_id, saved: self.save_index() })
     }
 
     /// Moves a macro to the trash (its file to `macros\.trash`).
-    pub fn trash(&mut self, id: Uuid) -> Result<(), LibraryError> {
+    pub fn trash(&mut self, id: Uuid) -> Result<Change, LibraryError> {
         let position = self.position(id)?;
         let trash_dir = self.dir.join("macros").join(".trash");
         fs::create_dir_all(&trash_dir)?;
@@ -295,11 +307,11 @@ impl Library {
         let e = self.entries.remove(position);
         self.trash.insert(id, TrashEntry { position, meta: IndexEntry::of(&e) });
         self.refresh_triggers();
-        Ok(self.save_index()?)
+        Ok(Change::saved(self.save_index()))
     }
 
     /// Brings a trashed macro back where it was, with its stats.
-    pub fn restore(&mut self, id: Uuid) -> Result<(), LibraryError> {
+    pub fn restore(&mut self, id: Uuid) -> Result<Change, LibraryError> {
         let t = self.trash.get(&id).cloned().ok_or(LibraryError::NotFound(id))?;
         let from = self.dir.join("macros").join(".trash").join(format!("{id}.rly"));
         let m = format::from_rly(&fs::read_to_string(&from)?)?;
@@ -308,7 +320,7 @@ impl Library {
         let pos = t.position.min(self.entries.len());
         self.entries.insert(pos, Entry::with_stats(m, t.meta.runs, t.meta.last_run, t.meta.triggers()));
         self.refresh_triggers();
-        Ok(self.save_index()?)
+        Ok(Change::saved(self.save_index()))
     }
 
     /// Adds imported macros at the top, in order, saving the index once. A
@@ -352,11 +364,11 @@ impl Library {
         self.triggers.clone()
     }
 
-    pub fn set_triggers(&mut self, id: Uuid, triggers: MacroTriggers) -> Result<(), LibraryError> {
+    pub fn set_triggers(&mut self, id: Uuid, triggers: MacroTriggers) -> Result<Change, LibraryError> {
         let pos = self.position(id)?;
         self.entries[pos].triggers = triggers;
         self.refresh_triggers();
-        Ok(self.save_index()?)
+        Ok(Change::saved(self.save_index()))
     }
 
     fn refresh_triggers(&mut self) {
@@ -428,24 +440,24 @@ mod tests {
         let (mut lib, _) = Library::open(dir.path());
         let invoice = lib.list()[0].id;
 
-        let copy = lib.duplicate(invoice).unwrap();
+        let copy = lib.duplicate(invoice).unwrap().value;
         let names: Vec<_> = lib.list().into_iter().map(|i| i.name).collect();
         assert_eq!(names[..2], ["Export invoice to PDF".to_string(), "Export invoice to PDF (copy)".to_string()]);
         assert_eq!(lib.get(copy).unwrap().runs, 0);
         assert_eq!(lib.get(copy).unwrap().hotkey(), None);
         assert_eq!(lib.get(copy).unwrap().macro_.events, lib.get(invoice).unwrap().macro_.events);
-        lib.duplicate(invoice).unwrap();
+        lib.duplicate(invoice).unwrap().saved.unwrap();
         assert_eq!(lib.list()[1].name, "Export invoice to PDF (copy) 2");
 
         // Trash keeps the file and the stats; restore puts it back in place.
-        lib.trash(invoice).unwrap();
+        lib.trash(invoice).unwrap().saved.unwrap();
         assert!(lib.get(invoice).is_none());
         assert!(dir.path().join("macros/.trash").join(format!("{invoice}.rly")).exists());
         let (reopened, problems) = Library::open(dir.path());
         assert!(problems.is_empty());
         assert!(reopened.get(invoice).is_none(), "trashed macros stay out after a restart");
         let (mut lib, _) = (reopened, ());
-        lib.restore(invoice).unwrap();
+        lib.restore(invoice).unwrap().saved.unwrap();
         assert_eq!(lib.list()[0].id, invoice);
         assert_eq!(lib.get(invoice).unwrap().runs, 148);
         assert!(matches!(lib.restore(invoice), Err(LibraryError::NotFound(_))));
@@ -473,7 +485,7 @@ mod tests {
         on.hotkey.enabled = true;
         on.app_launch.enabled = true;
         on.app_launch.exe = "notepad.exe".into();
-        lib.set_triggers(invoice, on.clone()).unwrap();
+        lib.set_triggers(invoice, on.clone()).unwrap().saved.unwrap();
         let (again, _) = Library::open(dir.path());
         assert_eq!(again.get(invoice).unwrap().triggers, on);
         assert_eq!(again.list()[0].hotkey.as_deref(), Some("Ctrl + Alt + 1"));
@@ -497,6 +509,32 @@ mod tests {
         assert_eq!(lib.list().len(), 4, "the macros still load");
         assert_eq!(problems.len(), 1);
         assert!(dir.path().join("library.json.bad").exists());
+    }
+
+    #[test]
+    fn changes_are_kept_when_the_index_cant_be_saved() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut lib, _) = Library::open(dir.path());
+        let invoice = lib.list()[0].id;
+        // library.json can't be replaced now.
+        let index = dir.path().join("library.json");
+        fs::remove_file(&index).unwrap();
+        fs::create_dir(&index).unwrap();
+
+        let mut on = lib.get(invoice).unwrap().triggers.clone();
+        on.hotkey.enabled = true;
+        let changed = lib.set_triggers(invoice, on.clone()).unwrap();
+        assert!(changed.saved.is_err());
+        assert_eq!(lib.get(invoice).unwrap().triggers, on);
+        assert_eq!(lib.all_triggers().iter().find(|(id, _)| *id == invoice).unwrap().1, on, "and live");
+
+        let copy = lib.duplicate(invoice).unwrap();
+        assert!(copy.saved.is_err());
+        assert!(lib.get(copy.value).is_some());
+        assert!(lib.trash(copy.value).unwrap().saved.is_err());
+        assert!(lib.get(copy.value).is_none());
+        assert!(lib.restore(copy.value).unwrap().saved.is_err());
+        assert_eq!(lib.list()[1].id, copy.value);
     }
 
     /// Changes are kept but library.json isn't written: `index` is what it held.

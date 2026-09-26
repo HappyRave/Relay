@@ -172,7 +172,9 @@ pub fn set_playback_options(app: AppHandle, id: Uuid, options: PlaybackOptions) 
 
 #[tauri::command(async)]
 pub fn duplicate_macro(app: AppHandle, id: Uuid) -> Result<Uuid> {
-    Ok(library(&app).lock().duplicate(id)?)
+    let copy = library(&app).lock().duplicate(id)?;
+    report_unsaved(&app, copy.saved);
+    Ok(copy.value)
 }
 
 /// Moves a macro to the trash; it can be restored with [`restore_macro`].
@@ -181,14 +183,16 @@ pub fn delete_macro(app: AppHandle, id: Uuid) -> Result<()> {
     if !app.state::<SessionMode>().is_idle() {
         return Err(IpcError { code: "busy", message: "Stop the recording or playback first".into() });
     }
-    library(&app).lock().trash(id)?;
+    let trashed = library(&app).lock().trash(id)?;
+    report_unsaved(&app, trashed.saved);
     hotkeys::refresh(&app); // its hotkey goes with it
     Ok(())
 }
 
 #[tauri::command(async)]
 pub fn restore_macro(app: AppHandle, id: Uuid) -> Result<()> {
-    library(&app).lock().restore(id)?;
+    let restored = library(&app).lock().restore(id)?;
+    report_unsaved(&app, restored.saved);
     let _ = app.state::<crate::triggers::TriggerState>().triggers_changed();
     hotkeys::refresh(&app); // and its hotkey comes back
     Ok(())
@@ -327,7 +331,7 @@ pub fn get_triggers(app: AppHandle, id: Uuid) -> Result<TriggerStatus> {
 /// reported in `hotkey_error`, which is current when this returns.
 #[tauri::command(async)]
 pub fn set_triggers(app: AppHandle, id: Uuid, triggers: relay_core::triggers::MacroTriggers) -> Result<TriggerStatus> {
-    {
+    let changed = {
         let lib = library(&app);
         let mut lib = lib.lock();
         if triggers.hotkey.enabled
@@ -335,8 +339,10 @@ pub fn set_triggers(app: AppHandle, id: Uuid, triggers: relay_core::triggers::Ma
         {
             return Err(IpcError { code: "hotkey", message: why });
         }
-        lib.set_triggers(id, triggers)?;
-    }
+        lib.set_triggers(id, triggers)?
+    };
+    // The new triggers are live either way.
+    report_unsaved(&app, changed.saved);
     // A program started once this returns counts as a launch.
     let _ = app.state::<crate::triggers::TriggerState>().triggers_changed().recv_timeout(Duration::from_secs(1));
     hotkeys::refresh_and_wait(&app);
