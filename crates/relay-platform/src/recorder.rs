@@ -37,6 +37,9 @@ pub struct Recorder {
     first_press: Option<(i32, i32)>,
     /// Index of the first event not yet reported by [`Recorder::take_new_moves`].
     reported: usize,
+    /// The first half of a character outside the BMP (an emoji) sent as
+    /// Unicode, waiting for its second half.
+    high_surrogate: Option<u16>,
 }
 
 /// What a finished recording produced.
@@ -59,6 +62,7 @@ impl Recorder {
             translator,
             first_press: None,
             reported: 0,
+            high_surrogate: None,
         }
     }
 
@@ -107,8 +111,19 @@ impl Recorder {
                 if vk == keymap::VK_PACKET {
                     // Unicode text sent by another program (SendInput with
                     // KEYEVENTF_UNICODE): `scan` is a UTF-16 unit, not a key,
-                    // so it's kept as text and replayed as text.
-                    let ch = down.then(|| String::from_utf16_lossy(&[scan]));
+                    // so it's kept as text and replayed as text. A character
+                    // outside the BMP comes as two units: it's recorded once,
+                    // with the second.
+                    if (0xD800..0xDC00).contains(&scan) {
+                        if down {
+                            self.high_surrogate = Some(scan);
+                        }
+                        return;
+                    }
+                    let ch = down.then(|| {
+                        let units: Vec<u16> = self.high_surrogate.take().into_iter().chain([scan]).collect();
+                        String::from_utf16_lossy(&units)
+                    });
                     let key = KeyStroke::code("Unidentified");
                     self.events.push(Event::Key { t, down, key, ch });
                     return;
@@ -326,6 +341,38 @@ mod tests {
         r.push(key(10.0, 0xE7, 'é' as u16, false));
         let Event::Key { key: k, ch, .. } = &r.events()[0] else { panic!() };
         assert_eq!((k.scan, k.vk, ch.as_deref()), (0, 0, Some("é")));
+    }
+
+    #[test]
+    fn unicode_outside_the_bmp_is_one_character() {
+        let mut units = [0u16; 2];
+        '😀'.encode_utf16(&mut units);
+        let [high, low] = units;
+        let mut r = Recorder::new(RecorderConfig::default(), 0.0, Box::new(Us));
+        // Senders release each unit before the next, or press both first.
+        for order in [
+            [(high, true), (high, false), (low, true), (low, false)],
+            [(high, true), (low, true), (high, false), (low, false)],
+        ] {
+            for (unit, down) in order {
+                r.push(key(0.0, 0xE7, unit, down));
+            }
+        }
+        let keys: Vec<_> = r
+            .events()
+            .iter()
+            .map(|e| match e {
+                Event::Key { down, ch, .. } => (*down, ch.as_deref()),
+                e => panic!("{e:?}"),
+            })
+            .collect();
+        assert_eq!(keys, [(true, Some("😀")), (false, None), (true, Some("😀")), (false, None)]);
+        // A lone half is still recorded, as the replacement character.
+        let mut r = Recorder::new(RecorderConfig::default(), 0.0, Box::new(Us));
+        r.push(key(0.0, 0xE7, high, true));
+        r.push(key(10.0, 0xE7, 'a' as u16, true));
+        let Event::Key { ch, .. } = &r.events()[0] else { panic!() };
+        assert_eq!(ch.as_deref(), Some("\u{FFFD}a"));
     }
 
     #[test]
