@@ -132,6 +132,13 @@ impl LaunchWatch {
             .collect()
     }
 
+    /// Whether macro `id` still wants to run for `exe` starting, checked when
+    /// the delay after the launch ends: the macro may have been deleted, its
+    /// trigger turned off or pointed at another program, or triggers paused.
+    pub fn still_wanted(triggers: &[(Uuid, MacroTriggers)], id: Uuid, exe: &str, paused: bool) -> bool {
+        !paused && Self::wanted(triggers).iter().any(|(w, e, _)| *w == id && e == exe)
+    }
+
     /// The macros whose program started since the last tick, with their
     /// delay. `running` holds lower-case executable names.
     pub fn tick(&mut self, wanted: &[(Uuid, String, u32)], running: &HashSet<String>) -> Vec<(Uuid, u32)> {
@@ -230,10 +237,16 @@ fn app_launch_loop(app: AppHandle) {
         let running = if wanted.is_empty() { HashSet::new() } else { processes.running() };
         for (id, delay) in watch.tick(&wanted, &running) {
             let app = app.clone();
+            let exe = wanted.iter().find(|(w, ..)| *w == id).map(|(_, e, _)| e.clone()).unwrap_or_default();
             // Give the app's window time to appear.
             std::thread::spawn(move || {
                 std::thread::sleep(Duration::from_millis(delay as u64));
-                fire(&app, id, RunSource::AppLaunch);
+                let paused = app.state::<TriggerState>().paused();
+                if LaunchWatch::still_wanted(&snapshot(&app), id, &exe, paused) {
+                    fire(&app, id, RunSource::AppLaunch);
+                } else {
+                    tracing::info!(%id, "app-launch run dropped: the trigger changed during its delay");
+                }
             });
         }
         for w in waiting.drain(..) {
@@ -412,6 +425,19 @@ mod tests {
         // fresh edge takes that as its baseline instead of firing.
         w.tick(&[], &running(&["excel.exe"]));
         assert!(w.tick(&on, &running(&["excel.exe"])).is_empty());
+    }
+
+    #[test]
+    fn a_delayed_launch_run_checks_its_trigger_again() {
+        let on = vec![(id(1), launching("Excel.exe", 2000)), (id(2), launching("word.exe", 0))];
+        assert!(LaunchWatch::still_wanted(&on, id(1), "excel.exe", false));
+        assert!(!LaunchWatch::still_wanted(&on, id(1), "excel.exe", true), "triggers paused meanwhile");
+        let mut off = launching("excel.exe", 2000);
+        off.app_launch.enabled = false;
+        assert!(!LaunchWatch::still_wanted(&[(id(1), off)], id(1), "excel.exe", false), "turned off");
+        let other = vec![(id(1), launching("notepad.exe", 2000))];
+        assert!(!LaunchWatch::still_wanted(&other, id(1), "excel.exe", false), "now watches another program");
+        assert!(!LaunchWatch::still_wanted(&on[1..], id(1), "excel.exe", false), "the macro was deleted");
     }
 
     fn watching(x: i32, y: i32, color: Rgb) -> MacroTriggers {
