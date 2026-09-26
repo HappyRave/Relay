@@ -16,6 +16,7 @@ use relay_core::session::{self, Effect, FinishReason, HotkeySet, Input, Mode, Ru
 use relay_core::steps::{GroupOptions, group_steps};
 use relay_core::timeline;
 use relay_platform::recorder::{Recorder, RecorderConfig, is_meaningful};
+use relay_platform::types::MousePulse;
 use relay_platform::{HookConfig, HookMode, HookSession, Platform, RawInput, RawKind};
 use tauri::{AppHandle, Manager};
 use uuid::Uuid;
@@ -399,9 +400,11 @@ impl Coordinator {
     fn start_recording(&mut self) {
         let settings = self.settings();
         let (_, own_window) = self.own_window();
+        let mouse_pulse = Arc::new(MousePulse::default());
         let hook_cfg = HookConfig {
             mode: HookMode::Record { own_window, skip_vks: vec![VK_F9], esc_stops: settings.esc_stops_recording },
             ignore_injected: settings.ignore_injected,
+            mouse_pulse: Some(mouse_pulse.clone()),
         };
         let (raw_tx, raw_rx) = crossbeam_channel::bounded(8192);
         let hook = match self.platform.hook.start(hook_cfg.clone(), raw_tx.clone()) {
@@ -430,6 +433,7 @@ impl Coordinator {
             now_ms: self.platform.now_ms,
             emit: self.emit.clone(),
             coordinator: self.tx.clone(),
+            mouse_pulse,
         };
         let thread = RecThread::spawn(recorder, raw_rx, ctx);
         self.recording = Some(Recording { hook, hook_cfg, raw_tx, thread });
@@ -548,6 +552,7 @@ impl Coordinator {
         let cfg = HookConfig {
             mode: HookMode::Watch { stop_on_key: m.playback.stop_on_key, pass_vks: vec![VK_F10] },
             ignore_injected: self.settings().ignore_injected,
+            mouse_pulse: None,
         };
         let (raw_tx, raw_rx) = crossbeam_channel::bounded(64);
         match self.platform.hook.start(cfg, raw_tx) {

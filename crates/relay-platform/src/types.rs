@@ -1,4 +1,6 @@
 use std::collections::BTreeSet;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use relay_core::model::MouseBtn;
 
@@ -46,6 +48,26 @@ pub struct HookConfig {
     pub mode: HookMode,
     /// Ignore input injected by other programs (Relay's own is always ignored).
     pub ignore_injected: bool,
+    /// Beats on every mouse event the hook sees while recording, including
+    /// those it filters out, so a watchdog can tell a live hook from one
+    /// Windows removed (a filtered event reports nothing otherwise).
+    pub mouse_pulse: Option<Arc<MousePulse>>,
+}
+
+/// The time (see `Platform::now_ms`) of the latest mouse event a hook saw.
+/// An atomic: the hook callback must not allocate or block.
+#[derive(Debug, Default)]
+pub struct MousePulse(AtomicU64);
+
+impl MousePulse {
+    pub fn beat(&self, time: f64) {
+        self.0.store(time.to_bits(), Ordering::Relaxed);
+    }
+
+    /// The latest beat; 0 before any.
+    pub fn last(&self) -> f64 {
+        f64::from_bits(self.0.load(Ordering::Relaxed))
+    }
 }
 
 #[derive(Debug, Clone)]
