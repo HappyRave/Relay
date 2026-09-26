@@ -135,7 +135,7 @@ pub fn edit_macro(app: AppHandle, id: Uuid, op: EditOp) -> Result<MacroView> {
     let entry = lib.get_mut(id).ok_or(IpcError::not_found(id))?;
     let before = Snapshot::before(&entry.macro_, &op);
     relay_core::edit::apply(&mut entry.macro_, op.clone())?;
-    history.record(id, before, &op);
+    history.record(id, before, &op, &entry.macro_);
     let view = view_of(&entry.macro_, &history);
     report_unsaved(&app, lib.save(id));
     Ok(view)
@@ -508,7 +508,7 @@ mod tests {
         let op = EditOp::Rename { name: "Renamed".into() };
         let before = Snapshot::before(m, &op);
         relay_core::edit::apply(m, op.clone()).unwrap();
-        history.record(id, before, &op);
+        history.record(id, before, &op, m);
         let v = view_of(m, &history);
         assert_eq!((v.can_undo, v.can_redo, v.name.as_str()), (true, false, "Renamed"));
         history.undo(id, m);
