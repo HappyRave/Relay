@@ -41,6 +41,8 @@ const MAX_EXTRAPOLATION_MS = 100;
 /** Seconds "Pick" waits before reading the pixel under the cursor. */
 const PICK_SECONDS = 3;
 const EMPTY_DESKTOP: Rect = { x: 0, y: 0, w: 1920, h: 1080 };
+/** Inputs with their own Ctrl + Z. */
+const TEXT_INPUTS = ["text", "search", "number"];
 
 export interface Toast {
   kind: "error" | "info";
@@ -307,8 +309,10 @@ export class RelayStore {
       if (!isTauri() && this.mode !== "idle") this.stop();
       return;
     }
-    // Undo and redo, except in text fields, which have their own.
-    const typing = (e.target as HTMLElement | null)?.closest?.("input, textarea");
+    // Undo and redo, except in fields you type in, which have their own
+    // (a focused slider or switch doesn't).
+    const t = e.target;
+    const typing = t instanceof HTMLTextAreaElement || (t instanceof HTMLInputElement && TEXT_INPUTS.includes(t.type));
     if ((e.ctrlKey || e.metaKey) && !e.altKey && !typing && (key === "z" || key === "y")) {
       e.preventDefault();
       if (key === "y" || e.shiftKey) this.redo();

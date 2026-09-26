@@ -1309,6 +1309,31 @@ describe("keyboard", () => {
     input.remove();
   });
 
+  test.each(["number", "search"])("so do %s fields and text areas", async (type) => {
+    await relay.edit({ op: "delete_step", index: 0 });
+    const input = document.createElement("input");
+    input.type = type;
+    const area = document.createElement("textarea");
+    document.body.append(input, area);
+    key("z", { ctrlKey: true }, input);
+    key("z", { ctrlKey: true }, area);
+    await settle();
+    expect(core.argsOf("undo_edit")).toEqual([]);
+    input.remove();
+    area.remove();
+  });
+
+  test.each(["range", "checkbox"])("a focused %s doesn't block undo", async (type) => {
+    await relay.edit({ op: "delete_step", index: 0 });
+    const input = document.createElement("input");
+    input.type = type;
+    document.body.append(input);
+    key("z", { ctrlKey: true }, input);
+    await settle();
+    expect(core.argsOf("undo_edit")).toEqual([{ id: A, redo: false }]);
+    input.remove();
+  });
+
   test("Ctrl + Alt + Z isn't undo", async () => {
     await relay.edit({ op: "delete_step", index: 0 });
     key("z", { ctrlKey: true, altKey: true });

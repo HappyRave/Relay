@@ -65,6 +65,18 @@ describe("Header", () => {
     expect(core.argsOf("edit_macro")).toEqual([]);
   });
 
+  test("Ctrl + Z in the name field is the field's own undo", async () => {
+    relay.start();
+    await relay.edit({ op: "delete_step", index: 0 });
+    render(Header);
+    const name = screen.getByRole("textbox", { name: "Macro name" });
+    name.focus();
+    await fireEvent.keyDown(name, { key: "z", ctrlKey: true });
+    await settle();
+    expect(core.argsOf("undo_edit")).toEqual([]);
+    relay.dispose();
+  });
+
   test("Undo and Redo are enabled only when there's something to undo or redo", async () => {
     render(Header);
     const undo = screen.getByRole("button", { name: "Undo" });
