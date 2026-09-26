@@ -259,10 +259,25 @@ impl Press {
     }
 }
 
-/// Sorts events by time, drops releases whose press is missing (it happened
-/// before recording started) and releases anything still held at the end.
+/// Sorts events by time, moves anything that happens inside a wait to its
+/// end, drops releases whose press is missing (it happened before recording
+/// started) and releases anything still held at the end.
 pub fn normalize(events: &mut Vec<Event>) {
     events.sort_by_key(Event::t);
+    // Sorted, so pushing an event to the end of the wait it's in keeps the order.
+    let mut wait: Option<(Ms, Ms)> = None;
+    for e in events.iter_mut() {
+        if let Some((start, end)) = wait
+            && e.t() > start
+            && e.t() < end
+        {
+            *e.t_mut() = end;
+        }
+        // Two waits can start together: the longer one counts.
+        if matches!(e, Event::Wait { .. } | Event::PixelWait { .. }) && wait.is_none_or(|(_, end)| e.end() > end) {
+            wait = Some((e.t(), e.end()));
+        }
+    }
     // Presses still held, oldest first (only a handful at any time).
     let mut held: Vec<Press> = Vec::new();
     let mut cursor = (0, 0);
@@ -340,6 +355,38 @@ mod tests {
         normalize(&mut ev);
         assert_eq!(ev, vec![key(10, "KeyB", true), Event::Move { t: 20, x: 1, y: 1 }, key(20, "KeyB", false)]);
         assert!(check_invariants(&ev).is_ok());
+    }
+
+    #[test]
+    fn normalize_moves_what_happens_during_a_wait_to_its_end() {
+        let wait = |t, dur| Event::Wait { t, dur, label: String::new() };
+        let pixel = Event::PixelWait {
+            t: 2000,
+            dur: 500,
+            x: 1,
+            y: 1,
+            color: Rgb(1, 2, 3),
+            tolerance: 8,
+            timeout_ms: 5000,
+            label: String::new(),
+        };
+        let mut ev = vec![
+            wait(100, 1000),
+            wait(100, 10), // starts with the longer one: doesn't end it early
+            Event::Move { t: 100, x: 1, y: 1 },
+            key(400, "KeyA", true),
+            key(450, "KeyA", false),
+            wait(900, 300), // inside the first: pushed out, and it then ends later
+            key(1150, "KeyB", true),
+            key(1500, "KeyB", false),
+            pixel,
+            Event::Move { t: 2200, x: 2, y: 2 },
+            Event::Move { t: 2500, x: 3, y: 3 },
+        ];
+        normalize(&mut ev);
+        let ts: Vec<_> = ev.iter().map(Event::t).collect();
+        assert_eq!(ts, [100, 100, 100, 1100, 1100, 1100, 1400, 1500, 2000, 2500, 2500]);
+        check_invariants(&ev).unwrap();
     }
 
     #[test]

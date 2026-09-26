@@ -247,6 +247,17 @@ mod tests {
     }
 
     #[test]
+    fn loading_moves_events_out_of_waits() {
+        let mut m = fixed_macro();
+        // A hand-edited file: a key typed during the pixel check (600..1500).
+        m.events.push(Event::Key { t: 700, down: true, key: KeyStroke::code("KeyA"), ch: Some("a".into()) });
+        m.events.push(Event::Key { t: 750, down: false, key: KeyStroke::code("KeyA"), ch: None });
+        let loaded = from_rly(&to_rly(&m)).unwrap();
+        check_invariants(&loaded.events).unwrap();
+        assert_eq!(loaded.events.iter().map(Event::t).collect::<Vec<_>>(), [0, 120, 180, 400, 450, 600, 1500, 1500]);
+    }
+
+    #[test]
     fn migrates_the_m0_export() {
         let v0 = r##"{"format":"relay-macro","version":0,"name":"Old","events":[
             {"id":1,"t":0,"type":"move","x":100,"y":200},
