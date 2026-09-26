@@ -215,6 +215,7 @@ export class FakeCore {
       case "fit_window":
       case "hide_to_tray":
       case "quit":
+      case "plugin:window|start_dragging":
         return null;
       case "window_prefs":
         return this.window;

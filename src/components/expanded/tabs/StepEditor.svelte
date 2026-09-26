@@ -23,7 +23,13 @@
     relay.edit({ op: "update_pixel_wait", index, ...next, color: next.color.toUpperCase() });
   }
 
-  const num = (e: Event) => Number((e.currentTarget as HTMLInputElement).value);
+  /** A number field's value; when it's empty or not a number, NaN, and the field shows `current` again. */
+  function num(e: Event, current: number | string): number {
+    const input = e.currentTarget as HTMLInputElement;
+    const v = input.valueAsNumber;
+    if (Number.isNaN(v)) input.value = String(current);
+    return v;
+  }
 
   function setPause(seconds: number) {
     if (Number.isFinite(seconds) && seconds >= 0) relay.setPause(index, seconds * 1000);
@@ -34,13 +40,13 @@
   <div class="grid">
     <label class="pause" title="Idle time before this step, while only the mouse moves">
       Pause before s
-      <input class="input" type="number" min="0" step="0.1" value={(step.pause / 1000).toFixed(1)} onchange={(e) => setPause(num(e))} />
+      <input class="input" type="number" min="0" step="0.1" value={(step.pause / 1000).toFixed(1)} onchange={(e) => setPause(num(e, (step.pause / 1000).toFixed(1)))} />
     </label>
   </div>
   {#if step.kind === "pixel_wait"}
     <div class="grid">
-      <label>X<input class="input" type="number" value={step.x} onchange={(e) => updatePixel({ x: num(e) })} /></label>
-      <label>Y<input class="input" type="number" value={step.y} onchange={(e) => updatePixel({ y: num(e) })} /></label>
+      <label>X<input class="input" type="number" value={step.x} onchange={(e) => updatePixel({ x: num(e, step.x) })} /></label>
+      <label>Y<input class="input" type="number" value={step.y} onchange={(e) => updatePixel({ y: num(e, step.y) })} /></label>
       <label class="color">
         Color
         <span class="field">
@@ -60,11 +66,11 @@
       </label>
       <label>
         Tolerance
-        <input class="input" type="number" min="0" max="255" value={step.tolerance} onchange={(e) => updatePixel({ tolerance: Math.min(255, Math.max(0, num(e))) })} />
+        <input class="input" type="number" min="0" max="255" value={step.tolerance} onchange={(e) => updatePixel({ tolerance: Math.min(255, Math.max(0, num(e, step.tolerance))) })} />
       </label>
       <label>
         Timeout s
-        <input class="input" type="number" min="0.5" step="0.5" value={step.timeout_ms / 1000} onchange={(e) => updatePixel({ timeout_ms: Math.round(num(e) * 1000) })} />
+        <input class="input" type="number" min="0.5" step="0.5" value={step.timeout_ms / 1000} onchange={(e) => updatePixel({ timeout_ms: Math.round(num(e, step.timeout_ms / 1000) * 1000) })} />
       </label>
       <button class="btn btn-secondary pick" disabled={relay.picking > 0} onclick={() => relay.pickPixel(index)}>
         {relay.picking > 0 ? `Point at it… ${relay.picking}` : "Pick"}
@@ -74,7 +80,7 @@
     <div class="grid">
       <label>
         Duration s
-        <input class="input" type="number" min="0" step="0.1" value={step.dur / 1000} onchange={(e) => setWait(num(e))} />
+        <input class="input" type="number" min="0" step="0.1" value={step.dur / 1000} onchange={(e) => setWait(num(e, step.dur / 1000))} />
       </label>
     </div>
   {/if}
