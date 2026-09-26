@@ -77,15 +77,18 @@ pub fn show(app: &AppHandle) {
 
 /// The tooltip says what Relay is doing, since the widget may be hidden.
 pub fn set_mode(app: &AppHandle, mode: Mode) {
-    let text = match mode {
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        let _ = tray.set_tooltip(Some(tooltip(mode)));
+    }
+}
+
+fn tooltip(mode: Mode) -> &'static str {
+    match mode {
         Mode::Idle => "Relay",
         Mode::Countdown => "Relay — get ready",
         Mode::Recording => "Relay — recording (F9 to stop)",
         Mode::Playing => "Relay — playing (Esc to stop)",
         Mode::Paused => "Relay — paused",
-    };
-    if let Some(tray) = app.tray_by_id(TRAY_ID) {
-        let _ = tray.set_tooltip(Some(text));
     }
 }
 
@@ -100,4 +103,19 @@ fn open_folder(app: &AppHandle) {
     let _ = std::fs::create_dir_all(&dir);
     #[cfg(windows)]
     let _ = std::process::Command::new("explorer").arg(&dir).spawn();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_tooltip_says_what_relay_is_doing() {
+        assert_eq!(tooltip(Mode::Idle), "Relay");
+        assert_eq!(tooltip(Mode::Countdown), "Relay — get ready");
+        assert_eq!(tooltip(Mode::Paused), "Relay — paused");
+        // While input is being captured or sent, it says how to stop.
+        assert_eq!(tooltip(Mode::Recording), "Relay — recording (F9 to stop)");
+        assert_eq!(tooltip(Mode::Playing), "Relay — playing (Esc to stop)");
+    }
 }
