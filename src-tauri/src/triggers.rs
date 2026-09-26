@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use chrono::{DateTime, Local, TimeDelta, TimeZone};
+use crossbeam_channel::{Receiver, Sender, bounded, unbounded};
 use parking_lot::Mutex;
 use relay_core::model::Rgb;
 use relay_core::schedule::next_run;
@@ -35,10 +36,18 @@ const MISSED_AFTER: TimeDelta = TimeDelta::minutes(2);
 /// Every macro's triggers, as the library shares them.
 pub type AllTriggers = Arc<[(Uuid, MacroTriggers)]>;
 
-/// Whether triggers may fire. Paused by the kill switch, resumed from the tray or the Triggers tab.
-#[derive(Default)]
+/// Whether triggers may fire (paused by the kill switch, resumed from the
+/// tray or the Triggers tab), and a nudge for the app watcher when they change.
 pub struct TriggerState {
     paused: AtomicBool,
+    /// Each change sends a sender the watcher answers once it has looked.
+    changed: (Sender<Sender<()>>, Receiver<Sender<()>>),
+}
+
+impl Default for TriggerState {
+    fn default() -> Self {
+        TriggerState { paused: AtomicBool::new(false), changed: unbounded() }
+    }
 }
 
 impl TriggerState {
@@ -48,6 +57,23 @@ impl TriggerState {
 
     pub fn set_paused(&self, paused: bool) {
         self.paused.store(paused, Ordering::SeqCst);
+    }
+
+    /// Triggers were saved: the app watcher looks at the running programs now,
+    /// so a program started right after its trigger was switched on counts as
+    /// a launch (the baseline is taken at once, not up to a poll later). The
+    /// receiver hears when it has looked.
+    pub fn triggers_changed(&self) -> Receiver<()> {
+        let (done, looked) = bounded(1);
+        let _ = self.changed.0.send(done);
+        looked
+    }
+
+    /// Waits up to `timeout`, or less if triggers change; returns whom to tell after the next look.
+    fn wait_for_change(&self, timeout: Duration) -> Vec<Sender<()>> {
+        let mut waiting: Vec<_> = self.changed.1.recv_timeout(timeout).into_iter().collect();
+        waiting.extend(self.changed.1.try_iter());
+        waiting
     }
 }
 
@@ -188,6 +214,7 @@ fn schedule_loop(app: AppHandle) {
 fn app_launch_loop(app: AppHandle) {
     let mut processes = ProcessWatcher::new();
     let mut watch = LaunchWatch::default();
+    let mut waiting: Vec<Sender<()>> = Vec::new();
     loop {
         let wanted = LaunchWatch::wanted(&snapshot(&app));
         // Listing processes isn't free: only when something is watched.
@@ -200,7 +227,10 @@ fn app_launch_loop(app: AppHandle) {
                 fire(&app, id, RunSource::AppLaunch);
             });
         }
-        std::thread::sleep(APP_POLL);
+        for w in waiting.drain(..) {
+            let _ = w.send(());
+        }
+        waiting = app.state::<TriggerState>().wait_for_change(APP_POLL);
     }
 }
 
@@ -236,6 +266,26 @@ mod tests {
         MacroTriggers { schedule: ScheduleTrigger { enabled: true, schedule }, ..Default::default() }
     }
     const WEEKDAYS: [bool; 7] = [true, true, true, true, true, false, false];
+
+    #[test]
+    fn a_trigger_change_ends_the_app_watchers_wait_and_hears_when_it_looked() {
+        let s = TriggerState::default();
+        let first = s.triggers_changed();
+        let second = s.triggers_changed(); // two changes before it looks: one look answers both
+        let started = std::time::Instant::now();
+        let waiting = s.wait_for_change(Duration::from_secs(5));
+        assert!(started.elapsed() < Duration::from_secs(1), "woken early");
+        assert_eq!(waiting.len(), 2);
+        assert!(first.try_recv().is_err(), "not answered before the look");
+        for w in waiting {
+            w.send(()).unwrap();
+        }
+        assert!(first.try_recv().is_ok() && second.try_recv().is_ok());
+
+        let started = std::time::Instant::now();
+        assert!(s.wait_for_change(Duration::from_millis(100)).is_empty());
+        assert!(started.elapsed() >= Duration::from_millis(100), "without a change it waits the whole poll");
+    }
 
     #[test]
     fn trigger_state_pauses_and_resumes() {

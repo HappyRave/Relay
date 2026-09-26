@@ -43,12 +43,12 @@ describe("triggers", () => {
     await page.waitMode("idle");
   };
   /**
-   * Starts ping.exe for a few seconds. First waits out one poll of the app watcher (2 s),
-   * so it has seen ping not running: a program already running when the watcher first
-   * looks, or one restarted between two looks, isn't a launch.
+   * Starts ping.exe for a few seconds. By default it first waits out one poll of the app
+   * watcher (2 s), so the watcher has seen an earlier ping end: a program closed and
+   * started again between two looks isn't seen as a new launch.
    */
-  const ping = async (seconds) => {
-    await sleep(2500);
+  const ping = async (seconds, { afterPoll = true } = {}) => {
+    if (afterPoll) await sleep(2500);
     return spawn("ping", ["-n", String(seconds), "127.0.0.1"], { stdio: "ignore", windowsHide: true });
   };
 
@@ -154,6 +154,33 @@ describe("triggers", () => {
       }
     });
 
+    test("a program started right after its trigger is switched on counts as a launch", async () => {
+      const { app_launch } = (await status()).triggers;
+      await set({ app_launch: { ...app_launch, enabled: false } });
+      await sleep(2500); // the earlier ping has ended, and the watcher has seen it
+      await set({ app_launch: { ...app_launch, enabled: true } });
+      const p = await ping(6, { afterPoll: false });
+      try {
+        await firesAndRuns(target, 8000);
+      } finally {
+        p.kill();
+      }
+    });
+
+    test("a program already running when its trigger is switched on isn't a launch", async () => {
+      const { app_launch } = (await status()).triggers;
+      await set({ app_launch: { ...app_launch, enabled: false } });
+      const p = await ping(8);
+      try {
+        await sleep(500);
+        await set({ app_launch: { ...app_launch, enabled: true } });
+        await sleep(4000);
+        assert.equal(await page.store("mode"), "idle", "nothing ran");
+      } finally {
+        p.kill();
+      }
+    });
+
     test("while Relay is busy, the trigger is skipped with a notice", async () => {
       await page.run((id) => window.__relay.loadMacro(id), sample);
       await page.run(() => window.__relay.updateSettings({ countdown: false }));
@@ -251,6 +278,15 @@ describe("triggers", () => {
       what: "the log lines",
     });
     for (const source of ["Schedule", "AppLaunch", "Pixel"]) assert.match(log(), new RegExp(`source=${source}`));
+  });
+
+  test("quitting writes out the last log lines", async () => {
+    await app.quit();
+    const files = readdirSync(app.path("logs"));
+    const text = files.map((f) => readFileSync(app.path("logs", f), "utf8")).join("");
+    assert.match(text.trim().split("\n").at(-1), /Relay quit/);
+    assert.doesNotMatch(app.log, /Error reading the log directory/, "the first start found its log folder");
+    page = await app.start();
   });
 
   test("triggers survive a restart", async () => {

@@ -8,6 +8,7 @@
 
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use parking_lot::Mutex;
 use relay_core::model::{PlaybackOptions, Rgb};
@@ -188,6 +189,7 @@ pub fn delete_macro(app: AppHandle, id: Uuid) -> Result<()> {
 #[tauri::command(async)]
 pub fn restore_macro(app: AppHandle, id: Uuid) -> Result<()> {
     library(&app).lock().restore(id)?;
+    let _ = app.state::<crate::triggers::TriggerState>().triggers_changed();
     hotkeys::refresh(&app); // and its hotkey comes back
     Ok(())
 }
@@ -335,6 +337,8 @@ pub fn set_triggers(app: AppHandle, id: Uuid, triggers: relay_core::triggers::Ma
         }
         lib.set_triggers(id, triggers)?;
     }
+    // A program started once this returns counts as a launch.
+    let _ = app.state::<crate::triggers::TriggerState>().triggers_changed().recv_timeout(Duration::from_secs(1));
     hotkeys::refresh_and_wait(&app);
     trigger_status(&app, id)
 }

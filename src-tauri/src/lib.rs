@@ -140,6 +140,8 @@ pub fn run() {
             // stop cleanly, so no key stays held and a recording is saved.
             if let RunEvent::Exit = event {
                 app.state::<coordinator::CoordinatorHandle>().shutdown(Duration::from_secs(3));
+                tracing::info!("Relay quit");
+                app.state::<logging::LogGuard>().flush();
             }
         });
 }
