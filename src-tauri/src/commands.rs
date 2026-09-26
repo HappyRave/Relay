@@ -477,15 +477,29 @@ mod tests {
 
     #[test]
     fn exports_are_readable_again() {
-        let (_dir, lib) = library();
+        let (_dir, mut lib) = library();
         let id = lib.list()[0].id;
+        // Playback options other than the defaults, so they can't come back by chance.
+        lib.get_mut(id).unwrap().macro_.playback = PlaybackOptions {
+            speed: 2.5,
+            repeat: relay_core::model::Repeat::Forever,
+            humanize: false,
+            jitter_ms: 7,
+            stop_on_key: false,
+            coord_mode: relay_core::model::CoordMode::Window,
+        };
         let original = &lib.get(id).unwrap().macro_;
         for f in [ExportFormat::Rly, ExportFormat::Json] {
             let body = export_body(&lib, id, f).unwrap();
             let back = format::from_rly(&body).unwrap();
             assert_eq!(back.name, original.name, "{f:?}");
             assert_eq!(back.events, original.events, "{f:?}");
+            assert_eq!(back.playback, original.playback, "{f:?}");
         }
+        let repeat = PlaybackOptions { repeat: relay_core::model::Repeat::Count(3), ..original.playback.clone() };
+        lib.get_mut(id).unwrap().macro_.playback = repeat.clone();
+        let back = format::from_rly(&export_body(&lib, id, ExportFormat::Json).unwrap()).unwrap();
+        assert_eq!(back.playback, repeat);
         assert_eq!(
             export_body(&lib, Uuid::from_u128(u128::MAX), ExportFormat::Rly).map(|_| ()).unwrap_err().code,
             "not_found"
