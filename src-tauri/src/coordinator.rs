@@ -215,13 +215,13 @@ impl Coordinator {
             Cmd::StopKey => self.input(Input::Stop(FinishReason::KeyPressed)),
             Cmd::EngineDone { generation, reason, timing, timed_out_at } => {
                 // A late message from a playback that was already stopped.
-                if self.playback.as_ref().is_none_or(|p| p.generation != generation) {
+                if !is_current(self.playback.as_ref().map(|p| p.generation), generation) {
                     return;
                 }
                 let duration = self.playback.as_ref().map_or(0, |p| p.duration);
                 self.end_playback();
                 self.idle_playhead = playhead_after(reason, duration, timed_out_at);
-                if reason == FinishReason::Completed {
+                if counts_as_run(reason) {
                     self.count_run();
                 }
                 self.emit.send(EngineMsg::Finished { reason, timing });
@@ -321,20 +321,20 @@ impl Coordinator {
 
     /// A trigger fired: run its macro now if Relay is free and the screen is usable.
     fn run_triggered(&mut self, id: Uuid, source: RunSource) {
-        if self.app.state::<TriggerState>().paused() {
-            return;
-        }
-        let Some(name) = self.app.state::<Mutex<Library>>().lock().get(id).map(|e| e.macro_.name.clone()) else {
-            return;
-        };
-        if self.mode != Mode::Idle {
-            self.emit.send(EngineMsg::Notice { message: format!("Skipped “{name}”: Relay was busy") });
-            return;
-        }
-        if !self.platform.windows.input_desktop_available() {
-            // Locked, or a UAC prompt: nothing can be clicked or typed.
-            tracing::info!(%id, ?source, "trigger skipped: the input desktop isn't available (locked?)");
-            return;
+        let paused = self.app.state::<TriggerState>().paused();
+        let name = self.app.state::<Mutex<Library>>().lock().get(id).map(|e| e.macro_.name.clone());
+        let windows = &self.platform.windows;
+        match admit(paused, name.as_deref(), self.mode, || windows.input_desktop_available()) {
+            Admission::Run => {}
+            Admission::Ignore => return,
+            Admission::Busy(message) => {
+                self.emit.send(EngineMsg::Notice { message });
+                return;
+            }
+            Admission::NoDesktop => {
+                tracing::info!(%id, ?source, "trigger skipped: the input desktop isn't available (locked?)");
+                return;
+            }
         }
         tracing::info!(%id, ?source, "running a triggered macro");
         self.current = Some(id);
@@ -603,6 +603,42 @@ fn clicks_inside(m: &Macro, r: Rect, offset: (i32, i32)) -> bool {
     m.events.iter().any(|e| matches!(e, Event::Button { x, y, .. } if r.contains(x + offset.0, y + offset.1)))
 }
 
+/// What a trigger's request to run a macro gets.
+#[derive(Debug, PartialEq)]
+enum Admission {
+    Run,
+    /// Triggers are paused, or the macro is gone: nothing to say.
+    Ignore,
+    /// A session is running: tell the user the run was skipped.
+    Busy(String),
+    /// Locked, or a UAC prompt: nothing can be clicked or typed. Skipped quietly.
+    NoDesktop,
+}
+
+/// Whether a trigger may run macro `name` (`None`: not in the library) now.
+/// `desktop_available` is asked last, only when everything else allows the run.
+fn admit(paused: bool, name: Option<&str>, mode: Mode, desktop_available: impl FnOnce() -> bool) -> Admission {
+    let Some(name) = name.filter(|_| !paused) else { return Admission::Ignore };
+    if mode != Mode::Idle {
+        return Admission::Busy(format!("Skipped “{name}”: Relay was busy"));
+    }
+    if !desktop_available() {
+        return Admission::NoDesktop;
+    }
+    Admission::Run
+}
+
+/// Whether an `EngineDone` from playback `generation` is about the playback
+/// running now (`playing`), not a late one from a playback already stopped.
+fn is_current(playing: Option<u64>, generation: u64) -> bool {
+    playing == Some(generation)
+}
+
+/// A run counts (runs, last run) only when the macro played to the end.
+fn counts_as_run(reason: FinishReason) -> bool {
+    reason == FinishReason::Completed
+}
+
 /// Where F10 plays from after a playback of `duration` ms ended, mirroring the
 /// UI's playhead: a stop rewinds to the start, a completed run stays at the end
 /// (so the next play starts over), a timed-out pixel check stays on its step.
@@ -641,6 +677,51 @@ mod tests {
         // Recorded at (100, 100); the anchor window moved by (500, 400).
         assert!(clicks_inside(&clicking_at(100, 100), widget, (500, 400)));
         assert!(!clicks_inside(&clicking_at(900, 700), widget, (-800, 0)));
+    }
+
+    #[test]
+    fn trigger_admission() {
+        let unlocked = || true;
+        assert_eq!(admit(false, Some("Report"), Mode::Idle, unlocked), Admission::Run);
+        assert_eq!(admit(true, Some("Report"), Mode::Idle, unlocked), Admission::Ignore, "triggers paused");
+        assert_eq!(admit(false, None, Mode::Idle, unlocked), Admission::Ignore, "the macro was deleted");
+        for busy in [Mode::Countdown, Mode::Recording, Mode::Playing, Mode::Paused] {
+            assert_eq!(
+                admit(false, Some("Report"), busy, unlocked),
+                Admission::Busy("Skipped “Report”: Relay was busy".into()),
+                "{busy:?}"
+            );
+        }
+        assert_eq!(admit(true, Some("Report"), Mode::Playing, unlocked), Admission::Ignore, "paused says nothing");
+        assert_eq!(admit(false, Some("Report"), Mode::Idle, || false), Admission::NoDesktop, "locked");
+        // The desktop is only asked when the run could go ahead.
+        let asked = std::cell::Cell::new(false);
+        admit(false, Some("Report"), Mode::Playing, || {
+            asked.set(true);
+            true
+        });
+        assert!(!asked.get());
+    }
+
+    #[test]
+    fn only_the_current_playback_ends_it() {
+        assert!(is_current(Some(3), 3));
+        assert!(!is_current(Some(3), 2), "a late message from an older playback");
+        assert!(!is_current(None, 3), "nothing plays any more");
+    }
+
+    #[test]
+    fn only_a_completed_run_counts() {
+        assert!(counts_as_run(FinishReason::Completed));
+        for r in [
+            FinishReason::Stopped,
+            FinishReason::KeyPressed,
+            FinishReason::Killed,
+            FinishReason::PixelTimeout,
+            FinishReason::Error,
+        ] {
+            assert!(!counts_as_run(r), "{r:?}");
+        }
     }
 
     #[test]
