@@ -11,7 +11,7 @@ export default async function* githubReporter(source) {
     const { name, file, line, details } = event.data;
     const error = details?.error?.cause ?? details?.error;
     const message = error?.message ?? String(error);
-    const path = file && relative(process.cwd(), file.startsWith("file:") ? fileURLToPath(file) : file).replace(/\/g, "/");
+    const path = file && relative(process.cwd(), file.startsWith("file:") ? fileURLToPath(file) : file).replaceAll("\\", "/");
     const where = path ? `file=${path},line=${line ?? 1},` : "";
     yield `::error ${where}title=${escape(name)}::${escape(message.slice(0, 2000))}\n`;
   }
