@@ -85,6 +85,8 @@ pub fn next_scheduled<Tz: TimeZone>(t: &MacroTriggers, now: DateTime<Tz>) -> Opt
 /// Runs a schedule when its next run, as seen from the previous tick, has
 /// come. Comparing wall-clock times each tick survives sleep and clock changes.
 pub struct ScheduleWatch<Tz: TimeZone> {
+    /// The latest time seen: a clock set back (a resync after wake) doesn't
+    /// move it back, so a run already made isn't due again.
     last: DateTime<Tz>,
 }
 
@@ -107,7 +109,9 @@ impl<Tz: TimeZone> ScheduleWatch<Tz> {
                 }
             }
         }
-        self.last = now;
+        if now > self.last {
+            self.last = now;
+        }
         due
     }
 }
@@ -128,6 +132,13 @@ impl LaunchWatch {
             .collect()
     }
 
+    /// Whether macro `id` still wants to run for `exe` starting, checked when
+    /// the delay after the launch ends: the macro may have been deleted, its
+    /// trigger turned off or pointed at another program, or triggers paused.
+    pub fn still_wanted(triggers: &[(Uuid, MacroTriggers)], id: Uuid, exe: &str, paused: bool) -> bool {
+        !paused && Self::wanted(triggers).iter().any(|(w, e, _)| *w == id && e == exe)
+    }
+
     /// The macros whose program started since the last tick, with their
     /// delay. `running` holds lower-case executable names.
     pub fn tick(&mut self, wanted: &[(Uuid, String, u32)], running: &HashSet<String>) -> Vec<(Uuid, u32)> {
@@ -143,10 +154,13 @@ impl LaunchWatch {
     }
 }
 
+/// What a pixel trigger watches: where, and for which color.
+type PixelTarget = (i32, i32, Rgb, u8);
+
 /// Fires when a watched pixel turns its color.
 #[derive(Default)]
 pub struct PixelWatch {
-    edges: HashMap<Uuid, (PixelEdge, (i32, i32))>,
+    edges: HashMap<Uuid, (PixelEdge, PixelTarget)>,
 }
 
 impl PixelWatch {
@@ -161,10 +175,12 @@ impl PixelWatch {
         let mut fired = Vec::new();
         for (id, t) in wanted {
             let p = &t.pixel;
-            let entry = self.edges.entry(*id).or_insert_with(|| (PixelEdge::new(), (p.x, p.y)));
-            if entry.1 != (p.x, p.y) {
-                // Moved to another pixel: start over rather than fire on a stale edge.
-                *entry = (PixelEdge::new(), (p.x, p.y));
+            let target = (p.x, p.y, p.color, p.tolerance);
+            let entry = self.edges.entry(*id).or_insert_with(|| (PixelEdge::new(), target));
+            if entry.1 != target {
+                // Another pixel or color: start over rather than fire on a stale
+                // edge (picking the color the pixel has now isn't a change).
+                *entry = (PixelEdge::new(), target);
             }
             // An unreadable screen (locked, a UAC prompt) is no sample at all:
             // counting it as "doesn't match" would re-arm the edge.
@@ -221,10 +237,16 @@ fn app_launch_loop(app: AppHandle) {
         let running = if wanted.is_empty() { HashSet::new() } else { processes.running() };
         for (id, delay) in watch.tick(&wanted, &running) {
             let app = app.clone();
+            let exe = wanted.iter().find(|(w, ..)| *w == id).map(|(_, e, _)| e.clone()).unwrap_or_default();
             // Give the app's window time to appear.
             std::thread::spawn(move || {
                 std::thread::sleep(Duration::from_millis(delay as u64));
-                fire(&app, id, RunSource::AppLaunch);
+                let paused = app.state::<TriggerState>().paused();
+                if LaunchWatch::still_wanted(&snapshot(&app), id, &exe, paused) {
+                    fire(&app, id, RunSource::AppLaunch);
+                } else {
+                    tracing::info!(%id, "app-launch run dropped: the trigger changed during its delay");
+                }
             });
         }
         for w in waiting.drain(..) {
@@ -330,6 +352,19 @@ mod tests {
     }
 
     #[test]
+    fn a_clock_set_back_doesnt_run_a_schedule_twice() {
+        let triggers = vec![(id(1), scheduled("09:00", WEEKDAYS))];
+        let mut w = ScheduleWatch::new(at(24, 8, 59, 58));
+        assert_eq!(w.tick(at(24, 9, 0, 2), &triggers), [id(1)]);
+        // The clock is resynced 17 s back, then passes 09:00 again.
+        assert!(w.tick(at(24, 8, 59, 45), &triggers).is_empty());
+        assert!(w.tick(at(24, 9, 0, 1), &triggers).is_empty(), "already run");
+        assert!(w.tick(at(24, 9, 0, 7), &triggers).is_empty());
+        // The next day runs as usual.
+        assert_eq!(w.tick(at(25, 9, 0, 3), &triggers), [id(1)]);
+    }
+
+    #[test]
     fn schedules_respect_their_days_and_disabled_ones_never_fire() {
         let saturday_only = [false, false, false, false, false, true, false];
         let mut off = scheduled("09:00", WEEKDAYS);
@@ -392,6 +427,19 @@ mod tests {
         assert!(w.tick(&on, &running(&["excel.exe"])).is_empty());
     }
 
+    #[test]
+    fn a_delayed_launch_run_checks_its_trigger_again() {
+        let on = vec![(id(1), launching("Excel.exe", 2000)), (id(2), launching("word.exe", 0))];
+        assert!(LaunchWatch::still_wanted(&on, id(1), "excel.exe", false));
+        assert!(!LaunchWatch::still_wanted(&on, id(1), "excel.exe", true), "triggers paused meanwhile");
+        let mut off = launching("excel.exe", 2000);
+        off.app_launch.enabled = false;
+        assert!(!LaunchWatch::still_wanted(&[(id(1), off)], id(1), "excel.exe", false), "turned off");
+        let other = vec![(id(1), launching("notepad.exe", 2000))];
+        assert!(!LaunchWatch::still_wanted(&other, id(1), "excel.exe", false), "now watches another program");
+        assert!(!LaunchWatch::still_wanted(&on[1..], id(1), "excel.exe", false), "the macro was deleted");
+    }
+
     fn watching(x: i32, y: i32, color: Rgb) -> MacroTriggers {
         MacroTriggers { pixel: PixelTrigger { enabled: true, x, y, color, tolerance: 8 }, ..Default::default() }
     }
@@ -448,6 +496,34 @@ mod tests {
         let there = vec![(id(1), watching(9, 9, RED))];
         assert!(w.tick(&there, |_, _| Some(RED)).is_empty());
         assert!(w.tick(&there, |_, _| Some(RED)).is_empty());
+    }
+
+    #[test]
+    fn changing_the_color_or_tolerance_starts_over() {
+        const BLUE: Rgb = Rgb(0x10, 0x20, 0xF0);
+        let mut w = PixelWatch::default();
+        // Watching for red on a blue pixel: armed, waiting for red.
+        w.tick(&[(id(1), watching(0, 0, RED))], |_, _| Some(BLUE));
+        // The user types the pixel's current color as the target: no change happened.
+        let blue = vec![(id(1), watching(0, 0, BLUE))];
+        for _ in 0..3 {
+            assert!(w.tick(&blue, |_, _| Some(BLUE)).is_empty());
+        }
+
+        // Nearly red, just outside a tolerance of 0; raising the tolerance isn't a change either.
+        let nearly = Rgb(0xEC, 0x30, 0x18);
+        let mut strict = watching(0, 0, RED);
+        strict.pixel.tolerance = 0;
+        let mut w = PixelWatch::default();
+        w.tick(&[(id(1), strict)], |_, _| Some(nearly));
+        let loose = vec![(id(1), watching(0, 0, RED))];
+        for _ in 0..3 {
+            assert!(w.tick(&loose, |_, _| Some(nearly)).is_empty());
+        }
+        // An actual change still fires.
+        w.tick(&loose, |_, _| Some(WHITE));
+        w.tick(&loose, |_, _| Some(RED));
+        assert_eq!(w.tick(&loose, |_, _| Some(RED)), [id(1)]);
     }
 
     #[test]

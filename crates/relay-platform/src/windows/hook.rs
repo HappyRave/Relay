@@ -257,6 +257,10 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
         let time = now_ms();
         with_ctx(|ctx| {
             let HookMode::Record { own_window, .. } = ctx.cfg.mode else { return None };
+            // Before any filtering: dropped events prove the hook is alive too.
+            if let Some(pulse) = &ctx.cfg.mouse_pulse {
+                pulse.beat(time);
+            }
             let injected = info.flags & (LLMHF_INJECTED | LLMHF_LOWER_IL_INJECTED) != 0;
             if info.dwExtraInfo == RELAY_MAGIC || (injected && ctx.cfg.ignore_injected) {
                 return None;

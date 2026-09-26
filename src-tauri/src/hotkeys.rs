@@ -11,7 +11,7 @@
 //! and posts a refresh; the refresh reads the latest wanted set, so refreshes
 //! from anywhere, in any order, end in the right state.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
 use parking_lot::Mutex;
@@ -25,7 +25,7 @@ use crate::coordinator::{Cmd, CoordinatorHandle};
 use crate::ipc::{Emitter, EngineMsg};
 use crate::library::Library;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 enum Action {
     Record,
     Play,
@@ -66,11 +66,34 @@ struct State {
     registered: HashMap<u32, Uuid>,
     /// Why a macro's hotkey isn't registered.
     errors: HashMap<Uuid, String>,
+    reported: Reported,
 }
 
 impl Default for Hotkeys {
     fn default() -> Self {
-        Hotkeys(Mutex::new(State { wanted: HotkeySet::Idle, registered: HashMap::new(), errors: HashMap::new() }))
+        Hotkeys(Mutex::new(State {
+            wanted: HotkeySet::Idle,
+            registered: HashMap::new(),
+            errors: HashMap::new(),
+            reported: Reported::default(),
+        }))
+    }
+}
+
+/// Relay's own hotkeys whose registration failure was already reported. When
+/// another app owns one, every session change registers it again and fails
+/// again; the user hears about it once per run, not at every change.
+#[derive(Default)]
+struct Reported(HashSet<Action>);
+
+impl Reported {
+    /// The messages for the failures not reported before.
+    fn new_failures(&mut self, failed: Vec<(Action, String)>) -> Vec<String> {
+        failed
+            .into_iter()
+            .filter(|(a, _)| self.0.insert(*a))
+            .map(|(a, e)| format!("Couldn't register the {a:?} hotkey: {e}"))
+            .collect()
     }
 }
 
@@ -118,9 +141,10 @@ fn register(app: &AppHandle) {
     let emit = app.state::<std::sync::Arc<Emitter>>();
     let gs = app.global_shortcut();
     let _ = gs.unregister_all();
+    let mut failed = Vec::new();
     for &a in actions(wanted) {
         if let Err(e) = gs.register(shortcut(a)) {
-            emit.error(format!("Couldn't register the {a:?} hotkey: {e}"));
+            failed.push((a, e.to_string()));
         }
     }
     let mut registered = HashMap::new();
@@ -147,32 +171,73 @@ fn register(app: &AppHandle) {
         }
     }
     let hotkeys = app.state::<Hotkeys>();
-    let mut state = hotkeys.0.lock();
-    state.registered = registered;
-    state.errors = errors;
+    let report = {
+        let mut state = hotkeys.0.lock();
+        state.registered = registered;
+        state.errors = errors;
+        state.reported.new_failures(failed)
+    };
+    for message in report {
+        emit.error(message);
+    }
 }
 
 /// Parses a combo as shown in the UI ("Ctrl + Alt + 1", "Shift + F7").
-/// A plain key needs at least one modifier, except the function keys.
+/// A plain key needs at least one modifier, except the function keys; Shift
+/// alone isn't enough for a key that types (Shift + A is a capital A); and
+/// the last key can't be a modifier itself.
 pub fn parse_combo(combo: &str) -> Result<Shortcut, String> {
     let parts: Vec<&str> = combo.split('+').map(str::trim).filter(|p| !p.is_empty()).collect();
     let (key, mods) = parts.split_last().ok_or("The hotkey is empty")?;
+    let modifier = |p: &str| match p {
+        "Ctrl" => Some(Modifiers::CONTROL),
+        "Alt" => Some(Modifiers::ALT),
+        "Shift" => Some(Modifiers::SHIFT),
+        "Win" => Some(Modifiers::SUPER),
+        _ => None,
+    };
     let mut m = Modifiers::empty();
     for p in mods {
-        m |= match *p {
-            "Ctrl" => Modifiers::CONTROL,
-            "Alt" => Modifiers::ALT,
-            "Shift" => Modifiers::SHIFT,
-            "Win" => Modifiers::SUPER,
-            other => return Err(format!("“{other}” isn't a modifier (use Ctrl, Alt, Shift or Win)")),
-        };
+        m |= modifier(p).ok_or_else(|| format!("“{p}” isn't a modifier (use Ctrl, Alt, Shift or Win)"))?;
     }
-    let code = Code::from_str(&code_for_label(key)).map_err(|_| format!("“{key}” isn't a key Relay can use"))?;
+    if modifier(key).is_some() {
+        return Err(format!("Add a key after {key}: a hotkey can't end with a modifier"));
+    }
+    let code_name = code_for_label(key);
+    let code = Code::from_str(&code_name).map_err(|_| format!("“{key}” isn't a key Relay can use"))?;
     let is_fkey = matches!(key.strip_prefix('F').and_then(|n| n.parse::<u8>().ok()), Some(1..=24));
     if m.is_empty() && !is_fkey {
         return Err("Add Ctrl, Alt, Shift or Win, so the key still types normally".into());
     }
+    if m == Modifiers::SHIFT && types_a_character(&code_name) {
+        return Err(format!("Add Ctrl, Alt or Win: Shift + {key} is ordinary typing"));
+    }
     Ok(Shortcut::new((!m.is_empty()).then_some(m), code))
+}
+
+/// Whether the key with this code types something (a letter, a digit,
+/// punctuation, a space or a new line), so Shift + it is just typing.
+fn types_a_character(code: &str) -> bool {
+    let one_of = |prefix: &str| code.strip_prefix(prefix).is_some_and(|rest| rest.len() == 1);
+    one_of("Key")
+        || one_of("Digit")
+        || matches!(
+            code,
+            "Minus"
+                | "Equal"
+                | "BracketLeft"
+                | "BracketRight"
+                | "Backslash"
+                | "IntlBackslash"
+                | "Semicolon"
+                | "Quote"
+                | "Backquote"
+                | "Comma"
+                | "Period"
+                | "Slash"
+                | "Space"
+                | "Enter"
+        )
 }
 
 /// Why `combo` can't be `id`'s hotkey, if it can't.
@@ -262,6 +327,22 @@ mod tests {
     }
 
     #[test]
+    fn an_own_hotkey_that_fails_is_reported_once_per_run() {
+        let mut r = Reported::default();
+        let taken = || (Action::Record, "HotKey already registered".to_string());
+        assert_eq!(r.new_failures(vec![taken()]), ["Couldn't register the Record hotkey: HotKey already registered"]);
+        // Every session change registers again: the same failure isn't repeated.
+        assert!(r.new_failures(vec![taken()]).is_empty());
+        assert!(r.new_failures(vec![]).is_empty());
+        assert!(r.new_failures(vec![taken()]).is_empty(), "not even after it once worked");
+        // Another hotkey failing is news.
+        assert_eq!(
+            r.new_failures(vec![taken(), (Action::Play, "taken".into())]),
+            ["Couldn't register the Play hotkey: taken"]
+        );
+    }
+
+    #[test]
     fn relays_own_hotkeys_are_recognized() {
         assert_eq!(action_for(&Shortcut::new(None, Code::F9)), Some(Action::Record));
         assert_eq!(action_for(&Shortcut::new(None, Code::F10)), Some(Action::Play));
@@ -294,6 +375,48 @@ mod tests {
         assert_eq!(parse_combo("Ctrl + Ctrl + Shift + K").unwrap(), want, "a repeated modifier counts once");
         assert_eq!(parse_combo("Ctrl + + K").unwrap(), Shortcut::new(Some(Modifiers::CONTROL), Code::KeyK));
         assert!(parse_combo(" + ").is_err());
+    }
+
+    #[test]
+    fn shift_alone_isnt_enough_for_a_key_that_types() {
+        for combo in ["Shift + A", "Shift + 7", "Shift + -", "Shift + /", "Shift + ;", "Shift + Space", "Shift + Enter"]
+        {
+            let e = parse_combo(combo).unwrap_err();
+            assert!(e.starts_with("Add Ctrl, Alt or Win") && e.contains("is ordinary typing"), "{combo}: {e}");
+        }
+        assert_eq!(parse_combo("Shift + A").unwrap_err(), "Add Ctrl, Alt or Win: Shift + A is ordinary typing");
+        // Keys that don't type are fine with Shift alone.
+        for (combo, code) in [
+            ("Shift + F7", Code::F7),
+            ("Shift + Left", Code::ArrowLeft),
+            ("Shift + Home", Code::Home),
+            ("Shift + PgDn", Code::PageDown),
+            ("Shift + Del", Code::Delete),
+            ("Shift + Tab", Code::Tab),
+            ("Shift + Num 1", Code::Numpad1),
+        ] {
+            assert_eq!(parse_combo(combo).unwrap(), Shortcut::new(Some(Modifiers::SHIFT), code), "{combo}");
+        }
+        // With another modifier, a typing key is fine.
+        assert_eq!(
+            parse_combo("Ctrl + Shift + A").unwrap(),
+            Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyA)
+        );
+        assert!(parse_combo("Alt + Shift + Space").is_ok());
+    }
+
+    #[test]
+    fn a_hotkey_cant_end_with_a_modifier() {
+        for (combo, key) in
+            [("Ctrl + Shift", "Shift"), ("Alt + Ctrl", "Ctrl"), ("Shift", "Shift"), ("Ctrl + Win", "Win")]
+        {
+            assert_eq!(
+                parse_combo(combo).unwrap_err(),
+                format!("Add a key after {key}: a hotkey can't end with a modifier"),
+                "{combo}"
+            );
+        }
+        assert!(parse_combo("Ctrl + Alt").unwrap_err().contains("Add a key after Alt"));
     }
 
     #[test]

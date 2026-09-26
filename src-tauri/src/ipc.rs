@@ -1,6 +1,8 @@
 //! The session stream from Rust to the UI. The UI subscribes once with a
 //! Tauri `Channel`; everything session-related arrives on it in order.
 
+use std::collections::VecDeque;
+
 use parking_lot::Mutex;
 
 use relay_core::Step;
@@ -66,18 +68,46 @@ pub enum EngineMsg {
     },
 }
 
+/// How many errors and notices are kept for a UI that hasn't subscribed yet.
+const EARLY_LIMIT: usize = 20;
+
 #[derive(Default)]
-pub struct Emitter(Mutex<Option<Channel<EngineMsg>>>);
+pub struct Emitter(Mutex<Subscriber>);
+
+#[derive(Default)]
+struct Subscriber {
+    channel: Option<Channel<EngineMsg>>,
+    /// Errors and notices sent before the UI first subscribed (e.g. a hotkey
+    /// that couldn't be registered at startup), the latest [`EARLY_LIMIT`].
+    early: VecDeque<EngineMsg>,
+}
 
 impl Emitter {
-    /// Replaces the subscriber (a reloaded UI subscribes again).
+    /// Replaces the subscriber (a reloaded UI subscribes again). The first
+    /// one gets the errors and notices sent before it, in order.
     pub fn subscribe(&self, channel: Channel<EngineMsg>) {
-        *self.0.lock() = Some(channel);
+        let mut s = self.0.lock();
+        for msg in s.early.drain(..) {
+            let _ = channel.send(msg);
+        }
+        s.channel = Some(channel);
     }
 
+    /// Sends `msg` to the UI. Before it subscribes, errors and notices wait
+    /// for it; the rest (session state, ticks) would be stale by then.
     pub fn send(&self, msg: EngineMsg) {
-        if let Some(c) = self.0.lock().as_ref() {
-            let _ = c.send(msg);
+        let mut s = self.0.lock();
+        match &s.channel {
+            Some(c) => {
+                let _ = c.send(msg);
+            }
+            None if matches!(msg, EngineMsg::Error { .. } | EngineMsg::Notice { .. }) => {
+                if s.early.len() == EARLY_LIMIT {
+                    s.early.pop_front();
+                }
+                s.early.push_back(msg);
+            }
+            None => {}
         }
     }
 
@@ -106,10 +136,44 @@ mod tests {
     }
 
     #[test]
-    fn nothing_is_sent_before_the_ui_subscribes() {
+    fn errors_and_notices_wait_for_the_first_subscriber() {
         let e = Emitter::default();
+        e.error("Couldn't register the Record hotkey");
         e.send(EngineMsg::LibraryChanged);
-        e.error("lost");
+        e.send(EngineMsg::Session { mode: Mode::Idle, macro_id: None });
+        e.send(EngineMsg::Notice { message: "Triggers are paused".into() });
+        e.send(EngineMsg::PlayTick { t: 0.0, advancing: false, speed: 1.0, loop_idx: 0, loops: Some(1) });
+        let (c, got) = channel();
+        e.subscribe(c);
+        assert_eq!(
+            *got.lock(),
+            [
+                serde_json::json!({"type": "error", "message": "Couldn't register the Record hotkey"}),
+                serde_json::json!({"type": "notice", "message": "Triggers are paused"}),
+            ],
+            "in order, without the session and tick messages"
+        );
+        e.send(EngineMsg::LibraryChanged);
+        assert_eq!(got.lock().len(), 3, "then everything is sent");
+
+        // A reloaded UI doesn't get them again.
+        let (again, again_got) = channel();
+        e.subscribe(again);
+        assert!(again_got.lock().is_empty());
+    }
+
+    #[test]
+    fn only_the_latest_early_messages_are_kept() {
+        let e = Emitter::default();
+        for i in 0..EARLY_LIMIT + 5 {
+            e.error(format!("error {i}"));
+        }
+        let (c, got) = channel();
+        e.subscribe(c);
+        let got = got.lock();
+        assert_eq!(got.len(), EARLY_LIMIT);
+        assert_eq!(got[0], serde_json::json!({"type": "error", "message": "error 5"}));
+        assert_eq!(got[EARLY_LIMIT - 1], serde_json::json!({"type": "error", "message": "error 24"}));
     }
 
     #[test]
