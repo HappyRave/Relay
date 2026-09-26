@@ -11,7 +11,7 @@
 //! and posts a refresh; the refresh reads the latest wanted set, so refreshes
 //! from anywhere, in any order, end in the right state.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
 use parking_lot::Mutex;
@@ -25,7 +25,7 @@ use crate::coordinator::{Cmd, CoordinatorHandle};
 use crate::ipc::{Emitter, EngineMsg};
 use crate::library::Library;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 enum Action {
     Record,
     Play,
@@ -66,11 +66,34 @@ struct State {
     registered: HashMap<u32, Uuid>,
     /// Why a macro's hotkey isn't registered.
     errors: HashMap<Uuid, String>,
+    reported: Reported,
 }
 
 impl Default for Hotkeys {
     fn default() -> Self {
-        Hotkeys(Mutex::new(State { wanted: HotkeySet::Idle, registered: HashMap::new(), errors: HashMap::new() }))
+        Hotkeys(Mutex::new(State {
+            wanted: HotkeySet::Idle,
+            registered: HashMap::new(),
+            errors: HashMap::new(),
+            reported: Reported::default(),
+        }))
+    }
+}
+
+/// Relay's own hotkeys whose registration failure was already reported. When
+/// another app owns one, every session change registers it again and fails
+/// again; the user hears about it once per run, not at every change.
+#[derive(Default)]
+struct Reported(HashSet<Action>);
+
+impl Reported {
+    /// The messages for the failures not reported before.
+    fn new_failures(&mut self, failed: Vec<(Action, String)>) -> Vec<String> {
+        failed
+            .into_iter()
+            .filter(|(a, _)| self.0.insert(*a))
+            .map(|(a, e)| format!("Couldn't register the {a:?} hotkey: {e}"))
+            .collect()
     }
 }
 
@@ -118,9 +141,10 @@ fn register(app: &AppHandle) {
     let emit = app.state::<std::sync::Arc<Emitter>>();
     let gs = app.global_shortcut();
     let _ = gs.unregister_all();
+    let mut failed = Vec::new();
     for &a in actions(wanted) {
         if let Err(e) = gs.register(shortcut(a)) {
-            emit.error(format!("Couldn't register the {a:?} hotkey: {e}"));
+            failed.push((a, e.to_string()));
         }
     }
     let mut registered = HashMap::new();
@@ -147,9 +171,15 @@ fn register(app: &AppHandle) {
         }
     }
     let hotkeys = app.state::<Hotkeys>();
-    let mut state = hotkeys.0.lock();
-    state.registered = registered;
-    state.errors = errors;
+    let report = {
+        let mut state = hotkeys.0.lock();
+        state.registered = registered;
+        state.errors = errors;
+        state.reported.new_failures(failed)
+    };
+    for message in report {
+        emit.error(message);
+    }
 }
 
 /// Parses a combo as shown in the UI ("Ctrl + Alt + 1", "Shift + F7").
@@ -294,6 +324,22 @@ mod tests {
         for set in [HotkeySet::Idle, HotkeySet::Recording, HotkeySet::Playing] {
             assert!(actions(set).contains(&Action::Kill), "the kill switch works in {set:?}");
         }
+    }
+
+    #[test]
+    fn an_own_hotkey_that_fails_is_reported_once_per_run() {
+        let mut r = Reported::default();
+        let taken = || (Action::Record, "HotKey already registered".to_string());
+        assert_eq!(r.new_failures(vec![taken()]), ["Couldn't register the Record hotkey: HotKey already registered"]);
+        // Every session change registers again: the same failure isn't repeated.
+        assert!(r.new_failures(vec![taken()]).is_empty());
+        assert!(r.new_failures(vec![]).is_empty());
+        assert!(r.new_failures(vec![taken()]).is_empty(), "not even after it once worked");
+        // Another hotkey failing is news.
+        assert_eq!(
+            r.new_failures(vec![taken(), (Action::Play, "taken".into())]),
+            ["Couldn't register the Play hotkey: taken"]
+        );
     }
 
     #[test]
