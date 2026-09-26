@@ -18,15 +18,34 @@ beforeEach(async () => {
 const rows = () => screen.getAllByRole("button").filter((b) => b.classList.contains("item") || b.classList.contains("row"));
 
 describe("Library tab", () => {
-  test("lists every macro with its length, steps, runs, hotkey and last run", () => {
+  test("lists every macro with its length, steps, runs, hotkey and last run", async () => {
+    await relay.setTriggers({ hotkey: { enabled: true, combo: "Ctrl + Alt + 1" } });
     render(LibraryTab);
     const items = rows();
     expect(items).toHaveLength(4);
     expect(items[0]).toHaveTextContent("Export invoice to PDF");
     expect(items[0]).toHaveTextContent("10.2 s · 12 steps · 148 runs");
     expect(items[0]).toHaveTextContent("Ctrl + Alt + 1");
-    expect(items[2]).toHaveTextContent("—"); // no hotkey
+    expect(items[1]).toHaveTextContent("—"); // the samples' hotkeys are off
     expect(items[0]).toHaveClass("active");
+  });
+
+  test("turning a hotkey off takes it out of the list", async () => {
+    await relay.setTriggers({ hotkey: { enabled: true, combo: "Ctrl + Alt + 1" } });
+    render(LibraryTab);
+    expect(rows()[0]).toHaveTextContent("Ctrl + Alt + 1");
+    await relay.setTriggers({ hotkey: { enabled: false, combo: "Ctrl + Alt + 1" } });
+    await settle();
+    expect(rows()[0]).not.toHaveTextContent("Ctrl + Alt + 1");
+    expect(rows()[0]).toHaveTextContent("—");
+  });
+
+  test("an empty library says how to make a macro", async () => {
+    core.entries = [];
+    await relay.refreshLibrary();
+    render(LibraryTab);
+    expect(screen.getByText("No macros yet — press Record (F9) to make one.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Import/ })).toBeEnabled();
   });
 
   test("clicking a macro opens it", async () => {
@@ -56,7 +75,9 @@ describe("Library tab", () => {
     expect(core.commands()).toEqual(["duplicate_macro", "list_macros", "load_macro", "get_triggers"]);
     expect(core.argsOf("duplicate_macro")).toEqual([{ id: C }]);
     expect(rows()).toHaveLength(5);
-    expect(screen.getByText("Batch rename photos (copy)")).toBeInTheDocument();
+    expect(rows()[3]).toHaveTextContent("Batch rename photos (copy)"); // right after the original
+    expect(rows()[3]).toHaveClass("active"); // and opened
+    expect(relay.view?.name).toBe("Batch rename photos (copy)");
   });
 
   test("Delete moves that macro to the trash", async () => {
@@ -85,12 +106,13 @@ describe("Library tab", () => {
     expect(rows()[0]).toHaveTextContent("Typing…");
   });
 
-  test("Duplicate and Delete are hidden during a session", async () => {
+  test("Duplicate and Delete are hidden, and Import… is off, during a session", async () => {
     render(LibraryTab);
     core.emit({ type: "session", mode: "playing", macro_id: A });
     await settle();
     expect(screen.queryByRole("button", { name: /^Duplicate/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Delete/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /Import/ })).toBeDisabled();
   });
 
   test("Import… asks for files and imports them", async () => {
@@ -99,7 +121,9 @@ describe("Library tab", () => {
     await userEvent.click(screen.getByRole("button", { name: /Import/ }));
     await settle();
     expect(core.commands()).toEqual(["plugin:dialog|open", "import_macros", "list_macros", "load_macro", "get_triggers"]);
-    expect(screen.getByText("Weekly report")).toBeInTheDocument();
+    expect(rows()[0]).toHaveTextContent("Weekly report"); // at the top
+    expect(rows()[0]).toHaveClass("active");
+    expect(relay.toast).toMatchObject({ kind: "info", message: "Imported 1 macro" });
   });
 
   test("the browser preview can't change the library", async () => {
@@ -140,7 +164,9 @@ describe("Steps tab", () => {
     ["drag", { kind: "drag", btn: "Left", to_x: 300, to_y: 400, label: "" }, "Drag", "10, 20 px → 300, 400"],
     ["right drag", { kind: "drag", btn: "Right", to_x: 1, to_y: 2, label: "Box" }, "Right drag · Box", ""],
     ["scroll down", { kind: "scroll", delta: -240, horizontal: false }, "Scroll down", "2 notches at 10, 20 px"],
-    ["scroll up", { kind: "scroll", delta: 120, horizontal: false }, "Scroll up", "1 notches"],
+    ["scroll up", { kind: "scroll", delta: 120, horizontal: false }, "Scroll up", "1 notch at 10, 20 px"],
+    ["half-notch scroll", { kind: "scroll", delta: 60, horizontal: false }, "Scroll up", "0.5 notch at"],
+    ["precise scroll", { kind: "scroll", delta: -200, horizontal: false }, "Scroll down", "1.7 notches at"],
     ["scroll right", { kind: "scroll", delta: 120, horizontal: true }, "Scroll right", ""],
     ["scroll left", { kind: "scroll", delta: -120, horizontal: true }, "Scroll left", ""],
     ["keys", { kind: "keys", combo: ["Ctrl", "Shift", "S"] }, "Ctrl + Shift + S", "Key combination"],
@@ -163,10 +189,29 @@ describe("Steps tab", () => {
     expect(stepRows()[0]).toHaveTextContent("+86, +34 in window");
   });
 
+  test("in Window coordinates, a drag shows both ends in the window", async () => {
+    await relay.setPlayback({ coord_mode: "window" });
+    relay.view = {
+      ...relay.view!,
+      steps: [{ kind: "drag", t: 0, end: 10, pause: 0, items: [0, 1], x: 40, y: 50, to_x: 300, to_y: 400, btn: "Left", label: "" }],
+    };
+    render(StepsTab);
+    // The anchor window is at 48, 36: a start left of it is negative.
+    expect(stepRows()[0]).toHaveTextContent("-8, +14 → +252, +364 in window");
+  });
+
   test("long pauses are marked above their step", () => {
     render(StepsTab);
     expect(screen.getByText("1.4 s pause")).toBeInTheDocument();
     expect(screen.getAllByText(/s pause$/)).toHaveLength(1);
+  });
+
+  test("a pause trimmed to exactly 1 s isn't marked any more", async () => {
+    render(StepsTab);
+    await relay.trimPauses();
+    await settle();
+    expect(relay.steps[9].pause).toBe(1000);
+    expect(screen.queryByText(/s pause$/)).toBeNull();
   });
 
   test("the step under the playhead is highlighted, later ones dimmed", async () => {
@@ -194,6 +239,25 @@ describe("Steps tab", () => {
     stepRows()[3].focus();
     await userEvent.keyboard("{Enter}");
     expect(screen.getByRole("group", { name: "Edit step" })).toBeInTheDocument();
+  });
+
+  test("Space opens a step's editor, and again closes it", async () => {
+    render(StepsTab);
+    stepRows()[3].focus();
+    await userEvent.keyboard(" ");
+    expect(stepRows()[3]).toHaveAttribute("aria-expanded", "true");
+    expect(relay.cur).toBe(3500);
+    await userEvent.keyboard(" ");
+    expect(screen.queryByRole("group", { name: "Edit step" })).toBeNull();
+  });
+
+  test("Enter on a step's × deletes it instead of opening it", async () => {
+    render(StepsTab);
+    within(stepRows()[4]).getByRole("button", { name: "Delete step" }).focus();
+    await userEvent.keyboard("{Enter}");
+    await settle();
+    expect(core.argsOf("edit_macro")).toEqual([{ id: A, op: { op: "delete_step", index: 4 } }]);
+    expect(screen.queryByRole("group", { name: "Edit step" })).toBeNull();
   });
 
   test("× deletes that step (and doesn't open it)", async () => {
@@ -237,6 +301,20 @@ describe("Steps tab", () => {
     expect(screen.queryByText(/s pause$/)).toBeNull();
   });
 
+  test.each(["playing", "paused", "countdown"] as const)("editing is off while %s", async (mode) => {
+    render(StepsTab);
+    core.emit({ type: "session", mode, macro_id: A });
+    await settle();
+    for (const name of ["+ Wait", "+ Pixel check", "Trim pauses"]) expect(screen.getByRole("button", { name })).toBeDisabled();
+    expect(within(stepRows()[0]).getByRole("button", { name: "Delete step" })).toBeDisabled();
+  });
+
+  test("with no macro open, there's nothing to add to or trim", async () => {
+    relay.view = null;
+    render(StepsTab);
+    for (const name of ["+ Wait", "+ Pixel check", "Trim pauses"]) expect(screen.getByRole("button", { name })).toBeDisabled();
+  });
+
   test("the editor closes when its step goes away", async () => {
     render(StepsTab);
     await userEvent.click(stepRows()[2]);
@@ -251,6 +329,39 @@ describe("Steps tab", () => {
     await relay.edit({ op: "delete_step", index: 0 });
     await settle();
     expect(stepRows()[1]).toHaveAttribute("aria-expanded", "true");
+  });
+
+  test("the editor follows its step when a step is inserted before it, and through undo and redo", async () => {
+    render(StepsTab);
+    await userEvent.click(stepRows()[2]); // Wait 0.7 s · Dialog opens
+    relay.seek(0);
+    await relay.insertWait();
+    await settle();
+    expect(stepRows()[3]).toHaveAttribute("aria-expanded", "true");
+    expect(stepRows()[3]).toHaveTextContent("Dialog opens");
+    await relay.undo();
+    await settle();
+    expect(stepRows()[2]).toHaveAttribute("aria-expanded", "true");
+    await relay.redo();
+    await settle();
+    expect(stepRows()[3]).toHaveAttribute("aria-expanded", "true");
+  });
+
+  test("editing the open step keeps it open, though it looks different now", async () => {
+    render(StepsTab);
+    await userEvent.click(stepRows()[2]);
+    await relay.edit({ op: "set_label", index: 2, label: "Save dialog" });
+    await settle();
+    expect(stepRows()[2]).toHaveAttribute("aria-expanded", "true");
+    expect(stepRows()[2]).toHaveTextContent("Save dialog");
+  });
+
+  test("opening another macro closes the editor", async () => {
+    render(StepsTab);
+    await userEvent.click(stepRows()[2]);
+    await relay.loadMacro(B);
+    await settle();
+    expect(screen.queryByRole("group", { name: "Edit step" })).toBeNull();
   });
 
   test("no editor while playing", async () => {
@@ -290,8 +401,11 @@ describe("Step editor", () => {
     const pause = within(editor).getByLabelText(/Pause before/);
     expect(pause).toHaveValue(1.4);
     await change(pause, "2.5");
-    await change(pause, "-1"); // ignored
-    await change(pause, ""); // cleared: ignored and put back
+    await settle();
+    await change(pause, "-1"); // refused: put back
+    expect(pause).toHaveValue(2.5);
+    await change(pause, ""); // cleared: put back
+    expect(pause).toHaveValue(2.5);
     await settle();
     expect(ops()).toEqual([{ op: "set_pause", index: 9, dur: 2500 }]);
     expect(pause).toHaveValue(2.5); // the saved pause
@@ -312,7 +426,9 @@ describe("Step editor", () => {
     const dur = within(editor).getByLabelText(/Duration/);
     expect(dur).toHaveValue(0.7);
     await change(dur, "1.25");
+    await settle();
     await change(dur, "-3");
+    expect(dur).toHaveValue(1.25);
     await settle();
     await change(within(editor).getByLabelText("Label"), "Wait for dialog");
     await settle();
@@ -361,6 +477,29 @@ describe("Step editor", () => {
       ]);
     });
 
+    test("numbers are rounded to what Rust stores and clamped, and the field shows what's saved", async () => {
+      const e = await open(7);
+      const x = within(e).getByLabelText("X");
+      await change(x, "12.7");
+      expect(x).toHaveValue(13);
+      await settle();
+      const tolerance = within(e).getByLabelText("Tolerance");
+      await change(tolerance, "300");
+      await settle();
+      await change(tolerance, "300"); // already 255: nothing to save, but the field says 255
+      expect(tolerance).toHaveValue(255);
+      await settle();
+      const timeout = within(e).getByLabelText(/Timeout/);
+      await change(timeout, "0.2");
+      expect(timeout).toHaveValue(0.5);
+      await settle();
+      expect(ops()).toEqual([
+        { op: "update_pixel_wait", ...base, x: 13 },
+        { op: "update_pixel_wait", ...base, x: 13, tolerance: 255 },
+        { op: "update_pixel_wait", ...base, x: 13, tolerance: 255, timeout_ms: 500 },
+      ]);
+    });
+
     test("a color that isn't #RRGGBB is put back", async () => {
       const e = await open(7);
       const color = within(e).getByLabelText(/Color/);
@@ -392,6 +531,7 @@ describe("Step editor", () => {
       core.hold("pick_pixel");
       await fireEvent.click(within(e).getByRole("button", { name: "Pick" }));
       await settle();
+      expect(core.argsOf("pick_pixel")).toEqual([{ delayMs: 3000 }]);
       const pick = within(e).getByRole("button", { name: /Point at it/ });
       expect(pick).toHaveTextContent("Point at it… 3");
       expect(pick).toBeDisabled();

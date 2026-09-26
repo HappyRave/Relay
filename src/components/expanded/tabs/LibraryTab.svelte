@@ -49,11 +49,13 @@
         <span>{fmtLastRun(e.last_run)}</span>
       </div>
     </div>
+  {:else}
+    <div class="empty">No macros yet — press Record (F9) to make one.</div>
   {/each}
   <div class="footer">
     <span class="note">New recordings are saved here automatically.</span>
     {#if relay.editable}
-      <button class="btn btn-ghost import" onclick={relay.importMacros}>Import…<Icon name="import" size={13} /></button>
+      <button class="btn btn-ghost import" disabled={relay.mode !== "idle"} onclick={relay.importMacros}>Import…<Icon name="import" size={13} /></button>
     {/if}
   </div>
 </div>
@@ -101,6 +103,12 @@
     justify-content: space-between;
     font-size: 11px;
     color: var(--color-neutral-700);
+  }
+  .empty {
+    padding: 12px;
+    font-size: 12px;
+    color: var(--color-neutral-700);
+    border-bottom: 1px solid var(--color-neutral-300);
   }
   .footer {
     display: flex;

@@ -2,7 +2,7 @@
   import Icon from "../../ui/Icon.svelte";
   import StepEditor from "./StepEditor.svelte";
   import { tick } from "svelte";
-  import { relay } from "../../../lib/state/relay.svelte";
+  import { relay, TRIM_PAUSE_MS } from "../../../lib/state/relay.svelte";
   import { fmtTime, plural } from "../../../lib/format";
   import type { Step } from "../../../lib/types";
 
@@ -21,10 +21,18 @@
   const curIdx = $derived(relay.curStepIdx);
   const anchor = $derived(relay.view?.recording.anchor_window?.rect);
 
-  function where(x: number, y: number): string {
-    return relay.playback.coord_mode === "window" && anchor
-      ? `+${x - anchor.x}, +${y - anchor.y} in window`
-      : `${x}, ${y} px`;
+  const inWindow = $derived(relay.playback.coord_mode === "window" && !!anchor);
+  const signed = (n: number) => (n < 0 ? `${n}` : `+${n}`);
+  /** A position as played: on the screen, or relative to the anchor window. */
+  const at = (x: number, y: number) => (inWindow && anchor ? `${signed(x - anchor.x)}, ${signed(y - anchor.y)}` : `${x}, ${y}`);
+  const unit = $derived(inWindow ? " in window" : " px");
+  const where = (x: number, y: number) => at(x, y) + unit;
+
+  /** "1 notch", "2 notches", "0.5 notch": a wheel notch is 120; precise wheels send less. */
+  function notches(delta: number): string {
+    const n = Math.abs(delta) / 120;
+    const shown = Number.isInteger(n) ? String(n) : n < 0.05 ? n.toPrecision(1) : n.toFixed(1);
+    return `${shown} ${Number(shown) > 1 ? "notches" : "notch"}`;
   }
 
   function describe(s: Step): [string, string] {
@@ -34,9 +42,12 @@
         return [what + (s.label ? " · " + s.label : ""), where(s.x, s.y)];
       }
       case "drag":
-        return [`${s.btn === "Left" ? "Drag" : s.btn + " drag"}${s.label ? " · " + s.label : ""}`, `${where(s.x, s.y)} → ${s.to_x}, ${s.to_y}`];
+        return [
+          `${s.btn === "Left" ? "Drag" : s.btn + " drag"}${s.label ? " · " + s.label : ""}`,
+          inWindow ? `${at(s.x, s.y)} → ${at(s.to_x, s.to_y)}${unit}` : `${where(s.x, s.y)} → ${s.to_x}, ${s.to_y}`,
+        ];
       case "scroll":
-        return [`Scroll ${s.horizontal ? (s.delta > 0 ? "right" : "left") : s.delta > 0 ? "up" : "down"}`, `${Math.abs(s.delta) / 120} notches at ${where(s.x, s.y)}`];
+        return [`Scroll ${s.horizontal ? (s.delta > 0 ? "right" : "left") : s.delta > 0 ? "up" : "down"}`, `${notches(s.delta)} at ${where(s.x, s.y)}`];
       case "keys":
         return [s.combo.join(" + "), "Key combination"];
       case "type":
@@ -51,19 +62,14 @@
     }
   }
 
-  /** Pauses at least this long get a marker above their step. */
-  const SHOW_PAUSE_MS = 1000;
+  /** Pauses longer than this get a marker above their step (the length Trim pauses leaves). */
+  const SHOW_PAUSE_MS = TRIM_PAUSE_MS;
 
-  /** Which step a row shows, stable across edits of that step (not its row number). */
-  const identity = (s: Step) => `${relay.view?.id}:${s.kind}:${s.items[0]}`;
-  /** The step whose editor is open (chosen by clicking its row). */
-  let selected = $state<string | null>(null);
-  /** Its row, or -1 once it's gone (another macro, a deletion, an undo). */
-  const open = $derived(selected == null ? -1 : steps.findIndex((s) => identity(s) === selected));
+  /** The row whose editor is open (the store keeps it on its step across edits); none for live steps. */
+  const open = $derived(relay.mode === "recording" ? -1 : relay.selected);
 
-  async function choose(i: number, s: Step) {
-    relay.seek(s.t);
-    selected = selected === identity(s) ? null : identity(s);
+  async function choose(i: number) {
+    relay.selectStep(i);
     // Bring a newly opened editor into view.
     await tick();
     if (open === i) list?.children[i]?.scrollIntoView({ block: "nearest" });
@@ -79,16 +85,16 @@
 
 <div class="bar">
   <span class="count">{plural(steps.length, "step")}</span>
-  <button class="btn btn-ghost" disabled={relay.recording || !relay.editable} onclick={relay.insertWait}>+ Wait</button>
+  <button class="btn btn-ghost" disabled={!relay.canEdit} onclick={relay.insertWait}>+ Wait</button>
   <button
     class="btn btn-ghost"
-    disabled={relay.recording || !relay.editable}
+    disabled={!relay.canEdit}
     title="Wait until the pixel under the cursor matches"
     onclick={relay.insertPixelCheck}>+ Pixel check</button
   >
   <button
     class="btn btn-ghost"
-    disabled={relay.recording || !relay.editable || relay.longPauses === 0}
+    disabled={!relay.canEdit || relay.longPauses === 0}
     title="Shorten every pause longer than 1 s to 1 s"
     onclick={relay.trimPauses}>Trim pauses</button
   >
@@ -97,7 +103,7 @@
   {#each steps as s, i (s.items[0] ?? i)}
     {@const [detail, sub] = describe(s)}
     <div class="item">
-      {#if s.pause >= SHOW_PAUSE_MS && relay.mode !== "recording"}
+      {#if s.pause > SHOW_PAUSE_MS && relay.mode !== "recording"}
         <div class="pause" aria-hidden="true">{(s.pause / 1000).toFixed(1)} s pause</div>
       {/if}
       <div
@@ -108,12 +114,12 @@
         role="button"
         tabindex="0"
         aria-expanded={i === open}
-        onclick={() => choose(i, s)}
+        onclick={() => choose(i)}
         onkeydown={(e) => {
           // Only the row itself; Enter on its delete button deletes.
           if (e.target !== e.currentTarget || (e.key !== "Enter" && e.key !== " ")) return;
           e.preventDefault();
-          choose(i, s);
+          choose(i);
         }}
       >
         <span class="time">{fmtTime(s.t)}</span>
@@ -128,7 +134,7 @@
           class="del"
           title="Delete step"
           aria-label="Delete step"
-          disabled={relay.recording || !relay.editable}
+          disabled={!relay.canEdit}
           onclick={(e) => {
             e.stopPropagation();
             relay.deleteStep(i);

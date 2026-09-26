@@ -1,8 +1,13 @@
 <script lang="ts">
-  let { on, onchange, label }: { on: boolean; onchange: (v: boolean) => void; label: string } = $props();
+  let {
+    on,
+    onchange,
+    label,
+    disabled = false,
+  }: { on: boolean; onchange: (v: boolean) => void; label: string; disabled?: boolean } = $props();
 </script>
 
-<button class="toggle" class:on role="switch" aria-checked={on} aria-label={label} onclick={() => onchange(!on)}>
+<button class="toggle" class:on role="switch" aria-checked={on} aria-label={label} {disabled} onclick={() => onchange(!on)}>
   <span class="knob"></span>
 </button>
 
@@ -17,7 +22,11 @@
     padding: 0;
     cursor: pointer;
   }
-  .toggle:hover {
+  .toggle:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .toggle:hover:not(:disabled) {
     background: var(--color-neutral-200);
   }
   .knob {

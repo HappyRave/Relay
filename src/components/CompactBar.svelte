@@ -18,7 +18,7 @@
   <div class="info">
     <div class="row">
       <span class="badge" class:rec={relay.recording} class:play={relay.mode === "playing"}>{BADGE[relay.mode]}</span>
-      <span class="name">{relay.name}</span>
+      <span class="name">{relay.recording ? "New recording" : relay.name}</span>
       <span class="time">
         {fmtTime(cur)} <span class="of">/ {relay.mode === "recording" ? "recording" : fmtTime(relay.duration)}</span>
       </span>

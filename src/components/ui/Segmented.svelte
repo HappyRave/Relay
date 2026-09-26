@@ -5,12 +5,14 @@
     onchange,
     size = "sm",
     label,
+    disabled = false,
   }: {
     options: [T, string][];
     value: T;
     onchange: (v: T) => void;
     size?: "sm" | "md";
     label: string;
+    disabled?: boolean;
   } = $props();
 </script>
 
@@ -21,6 +23,7 @@
       class:active={v === value}
       role="radio"
       aria-checked={v === value}
+      {disabled}
       onclick={() => onchange(v)}>{text}</button
     >
   {/each}
@@ -39,7 +42,11 @@
     background: transparent;
     color: var(--color-text);
   }
-  .opt:not(.active):hover {
+  .opt:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+  .opt:not(.active):not(:disabled):hover {
     background: var(--color-neutral-200);
   }
   .sm {

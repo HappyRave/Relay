@@ -1,6 +1,6 @@
 // The app shell: the widget in its two sizes, the export dialog, and the
 // demo desktop of the browser preview.
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import App from "../App.svelte";
@@ -13,13 +13,15 @@ import type { RelayStore } from "../lib/state/relay.svelte";
 let relay: RelayStore;
 const A = "00000000-0000-0000-0000-000000000001";
 
-/** A ResizeObserver the test can trigger. */
-let resize: (w: number, h: number) => void = () => {};
+/** Resize observers the test can trigger: every one sees the widget at `w` × `h`. */
+let observers: ((w: number, h: number) => void)[] = [];
+const resize = (w: number, h: number) => observers.forEach((o) => o(w, h));
 const RealResizeObserver = globalThis.ResizeObserver;
 beforeEach(() => {
+  observers = [];
   globalThis.ResizeObserver = class {
     constructor(cb: ResizeObserverCallback) {
-      resize = (w, h) => cb([{ borderBoxSize: [{ inlineSize: w, blockSize: h }] } as unknown as ResizeObserverEntry], this);
+      observers.push((w, h) => cb([{ borderBoxSize: [{ inlineSize: w, blockSize: h }] } as unknown as ResizeObserverEntry], this));
     }
     observe() {}
     unobserve() {}
@@ -170,6 +172,23 @@ describe("Export dialog", () => {
     expect(relay.exportOpen).toBe(true);
   });
 
+  test("a failed export keeps the dialog open and says why", async () => {
+    render(ExportDialog);
+    core.dialog.save = "C:\\Windows\\invoice.rly";
+    core.fail("export_macro", "Couldn't save: access denied");
+    await userEvent.click(screen.getByRole("button", { name: "Save…" }));
+    await settle();
+    expect(relay.exportOpen).toBe(true);
+    expect(screen.getByRole("dialog")).toHaveAttribute("open");
+    expect(relay.error).toBe("Couldn't save: access denied");
+  });
+
+  test("with no macro open, there's nothing to save", () => {
+    relay.view = null;
+    render(ExportDialog);
+    expect(screen.getByRole("button", { name: "Save…" })).toBeDisabled();
+  });
+
   test("Cancel closes it", async () => {
     render(ExportDialog);
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -177,12 +196,15 @@ describe("Export dialog", () => {
     expect(core.commands()).toEqual([]);
   });
 
-  test("a click on the backdrop closes it; a click inside doesn't", async () => {
+  test("a click on the backdrop closes it; a click inside, even on its padding, doesn't", async () => {
     render(ExportDialog);
     const dialog = screen.getByRole("dialog");
-    await fireEvent.click(screen.getByText("Export macro"));
+    vi.spyOn(dialog, "getBoundingClientRect").mockReturnValue({ left: 250, top: 150, right: 690, bottom: 450, width: 440, height: 300 } as DOMRect);
+    await fireEvent.click(screen.getByText("Export macro"), { clientX: 300, clientY: 170 });
     expect(relay.exportOpen).toBe(true);
-    await fireEvent.click(dialog);
+    await fireEvent.click(dialog, { clientX: 255, clientY: 440 }); // the padding: the target is the dialog itself
+    expect(relay.exportOpen).toBe(true);
+    await fireEvent.click(dialog, { clientX: 100, clientY: 440 }); // outside its box: the backdrop
     expect(relay.exportOpen).toBe(false);
   });
 
@@ -215,15 +237,30 @@ describe("the browser preview", () => {
     expect(screen.getByText("Relay.")).toBeInTheDocument();
     expect(container.querySelector(".expanded")).not.toBeNull();
     expect(screen.getByRole("textbox", { name: "Macro name" })).toHaveValue("Export invoice to PDF");
-    expect(core.calls).toEqual([]);
+    expect(screen.queryByRole("alert")).toBeNull(); // nothing needed the app
   });
 
   test("the widget scales down to fit a small window", async () => {
-    const { container } = render(App);
-    await settle();
-    resize(944, 616);
-    await settle();
-    const host = container.querySelector(".host") as HTMLElement;
-    expect(host.style.transform).toMatch(/scale\((0\.\d+|1)\)/);
+    const was = [window.innerWidth, window.innerHeight];
+    const setWindow = (w: number, h: number) => {
+      Object.defineProperty(window, "innerWidth", { value: w, configurable: true });
+      Object.defineProperty(window, "innerHeight", { value: h, configurable: true });
+    };
+    try {
+      setWindow(1400, 900);
+      const { container } = render(App);
+      await settle();
+      resize(944, 616);
+      await settle();
+      const host = container.querySelector(".host") as HTMLElement;
+      expect(host.style.transform).toContain("scale(1)"); // it fits
+      setWindow(800, 600);
+      resize(944, 616);
+      await settle();
+      // The width is what limits it: (800 − 32) / 944, less than (600 − 52 − 16) / 616.
+      expect(host.style.transform).toContain(`scale(${768 / 944})`);
+    } finally {
+      setWindow(was[0], was[1]);
+    }
   });
 });

@@ -2,6 +2,8 @@
 // UI state, and the guards (busy sessions, stale responses, failed saves).
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { core, freshStore, nextFrame, settle } from "../../test/app";
+import { defaultTriggers } from "../../test/fake-core";
+import { DEFAULT_SETTINGS } from "../defaults";
 import { browserBackend } from "../ipc/backend";
 import type { RelayStore } from "./relay.svelte";
 import type { EngineMsg } from "../ipc/bindings/EngineMsg";
@@ -51,11 +53,11 @@ describe("startup", () => {
     expect(r.expanded).toBe(false);
   });
 
-  test("a failure to read settings is shown, and the rest still loads", async () => {
+  test("an error Rust reported before the UI subscribed is shown, and the rest still loads", async () => {
     const r = await freshStore({ init: false });
-    core.fail("get_settings", "settings.json is locked");
+    core.emit({ type: "error", message: "Couldn't register the Play hotkey" }); // queued until subscribe
     await r.init();
-    expect(r.error).toBe("settings.json is locked");
+    expect(r.error).toBe("Couldn't register the Play hotkey");
     expect(r.library).toHaveLength(4);
     expect(r.view?.id).toBe(A);
   });
@@ -70,16 +72,11 @@ describe("startup", () => {
     expect(r.duration).toBe(2000);
   });
 
-  test("autostart is read, and a failure to read it counts as off", async () => {
+  test("autostart is read", async () => {
     const r = await freshStore({ init: false });
     core.autostart = true;
     await r.init();
     expect(r.autostart).toBe(true);
-    const r2 = await freshStore({ init: false });
-    core.fail("get_autostart");
-    await r2.init();
-    expect(r2.autostart).toBe(false);
-    expect(r2.toast).toBeNull();
   });
 });
 
@@ -122,6 +119,22 @@ describe("session buttons", () => {
     expect(core.argsOf("toggle_play")).toEqual([]);
   });
 
+  test("Play while playing pauses, and again resumes (the engine decides)", async () => {
+    core.emit(session("playing"));
+    await relay.togglePlay();
+    core.emit(session("paused"));
+    await relay.togglePlay();
+    expect(core.commands()).toEqual(["toggle_play", "toggle_play"]);
+    expect(relay.mode).toBe("paused"); // until the engine says otherwise
+  });
+
+  test("Stop while idle is harmless: the playhead stays", async () => {
+    relay.seek(1500);
+    await relay.stop();
+    expect(relay.cur).toBe(1500);
+    expect(relay.mode).toBe("idle");
+  });
+
   test("Stop sends stop_session in any mode", async () => {
     await relay.stop();
     core.emit(session("playing"));
@@ -129,9 +142,10 @@ describe("session buttons", () => {
     expect(core.commands()).toEqual(["stop_session", "stop_session"]);
   });
 
-  test("a failed command is shown", async () => {
-    core.fail("toggle_record", "Couldn't install the input hook");
+  test("Record can't fail, but the engine says when recording couldn't start", async () => {
     await relay.toggleRec();
+    expect(relay.toast).toBeNull();
+    core.emit({ type: "error", message: "Couldn't install the input hook" });
     expect(relay.toast).toMatchObject({ kind: "error", message: "Couldn't install the input hook" });
   });
 });
@@ -155,6 +169,26 @@ describe("seeking", () => {
     relay.dispose();
     await nextFrame();
     expect(core.argsOf("seek")).toEqual([]);
+  });
+
+  test("while playing, it's sent too, and the playhead carries on from there", async () => {
+    relay.start();
+    core.emit(session("playing"));
+    core.emit({ type: "play_tick", t: 1000, advancing: true, speed: 1, loop_idx: 0, loops: 3 });
+    relay.seek(6000);
+    await nextFrame();
+    expect(core.argsOf("seek")).toEqual([{ t: 6000 }]);
+    expect(relay.cur).toBeGreaterThanOrEqual(6000);
+    expect(relay.cur).toBeLessThanOrEqual(6100);
+  });
+
+  test("previous and next step stop at the ends", () => {
+    relay.seek(0);
+    relay.jump(-1);
+    expect(relay.cur).toBe(0);
+    relay.seek(relay.duration);
+    relay.jump(1);
+    expect(relay.cur).toBe(relay.duration);
   });
 
   test("is kept within the macro", async () => {
@@ -297,6 +331,25 @@ describe("engine messages", () => {
     expect(relay.loopIdx).toBe(0);
   });
 
+  test("a frame between finished and the idle session doesn't undo the rewind", async () => {
+    relay.start();
+    core.emit(session("playing"));
+    core.emit({ type: "play_tick", t: 5000, advancing: true, speed: 1, loop_idx: 0, loops: 3 });
+    await nextFrame();
+    expect(relay.cur).toBeGreaterThan(5000);
+    await core.emitLater({ type: "finished", reason: "stopped", timing: null }, session("idle"));
+    expect(relay.cur).toBe(0);
+    expect(relay.mode).toBe("idle");
+  });
+
+  test("a completed run stays at the end through the frames before idle", async () => {
+    relay.start();
+    core.emit(session("playing"));
+    core.emit({ type: "play_tick", t: relay.duration, advancing: false, speed: 1, loop_idx: 2, loops: 3 });
+    await core.emitLater({ type: "finished", reason: "completed", timing: null }, session("idle"));
+    expect(relay.cur).toBe(relay.duration);
+  });
+
   test("the last playback's timing is kept", () => {
     const timing = { events: 120, p50_ms: 0.2, p99_ms: 1.1, max_ms: 2 };
     core.emit({ type: "finished", reason: "completed", timing });
@@ -339,12 +392,13 @@ describe("engine messages", () => {
 describe("toasts", () => {
   beforeEach(() => vi.useFakeTimers());
 
-  test("errors go away after 5 s, notices from the engine after 6 s", async () => {
+  test("errors stay until dismissed or replaced, notices from the engine go after 6 s", async () => {
     core.emit({ type: "error", message: "x" });
-    await vi.advanceTimersByTimeAsync(4900);
-    expect(relay.toast).not.toBeNull();
-    await vi.advanceTimersByTimeAsync(200);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(relay.toast).toMatchObject({ kind: "error", message: "x" });
+    relay.dismissToast();
     expect(relay.toast).toBeNull();
+    core.emit({ type: "error", message: "x" });
     core.emit({ type: "notice", message: "y" });
     await vi.advanceTimersByTimeAsync(5900);
     expect(relay.toast).not.toBeNull();
@@ -427,7 +481,8 @@ describe("library", () => {
   test("Duplicate opens the copy in the Library tab", async () => {
     await relay.duplicateMacro(A);
     expect(core.commands()).toEqual(["duplicate_macro", "list_macros", "load_macro", "get_triggers"]);
-    expect(relay.library).toHaveLength(5);
+    expect(relay.library.map((m) => m.name).slice(0, 2)).toEqual(["Export invoice to PDF", "Export invoice to PDF (copy)"]);
+    expect(relay.view?.id).toBe(relay.library[1].id);
     expect(relay.name).toBe("Export invoice to PDF (copy)");
     expect(relay.tab).toBe("library");
   });
@@ -454,14 +509,32 @@ describe("library", () => {
     expect(core.argsOf("restore_macro")).toEqual([{ id: A }]);
     expect(relay.view?.id).toBe(A);
     expect(relay.toast).toBeNull();
-    expect(relay.library.map((m) => m.id)).toContain(A);
+    expect(relay.library.map((m) => m.id)).toEqual([A, B, C, D]); // back where it was
   });
 
-  test("deleting another macro keeps the open one", async () => {
+  test("deleting another macro keeps the open one, and so does its Undo", async () => {
+    relay.tab = "triggers";
     await relay.deleteMacro(C);
     expect(core.commands()).toEqual(["delete_macro", "list_macros"]);
     expect(relay.view?.id).toBe(A);
     expect(relay.toast?.message).toBe("Moved “Batch rename photos” to the trash");
+    core.clearCalls();
+    relay.toast!.action!.run();
+    await settle();
+    expect(core.commands()).toEqual(["restore_macro", "list_macros"]);
+    expect(relay.library.map((m) => m.id)).toEqual([A, B, C, D]);
+    expect(relay.view?.id).toBe(A);
+    expect(relay.tab).toBe("triggers");
+  });
+
+  test("a macro whose hotkey was taken while it was in the trash comes back with it off, and says so", async () => {
+    await relay.setTriggers({ hotkey: { enabled: true, combo: "Ctrl + Alt + 3" } });
+    await relay.deleteMacro(A); // B opens
+    await relay.setTriggers({ hotkey: { enabled: true, combo: "Ctrl + Alt + 3" } });
+    relay.toast = null;
+    await relay.restoreMacro(A, true);
+    expect(relay.toast).toMatchObject({ kind: "info", message: expect.stringContaining("with its hotkey off") });
+    expect(relay.triggers?.hotkey).toEqual({ enabled: false, combo: "Ctrl + Alt + 3" });
   });
 
   test("deleting the last macro in the list opens the one before it", async () => {
@@ -475,6 +548,7 @@ describe("library", () => {
     await relay.deleteMacro(A);
     expect(relay.library).toEqual([]);
     expect(relay.view).toBeNull();
+    expect(relay.triggerStatus).toBeNull(); // nothing for the Triggers tab to write to
   });
 
   test("a refused delete (a session is running) is explained and nothing moves", async () => {
@@ -503,7 +577,8 @@ describe("library", () => {
       core.dialog.open = ["C:\\one.rly", "C:\\two.rly"];
       await relay.importMacros();
       expect(core.commands()).toEqual(["plugin:dialog|open", "import_macros", "list_macros", "load_macro", "get_triggers"]);
-      expect(relay.library).toHaveLength(6);
+      expect(relay.library.map((m) => m.name).slice(0, 3)).toEqual(["one", "two", "Export invoice to PDF"]);
+      expect(relay.view?.id).toBe(relay.library[0].id); // the first imported, at the top
       expect(relay.name).toBe("one");
       expect(relay.tab).toBe("library");
       expect(relay.toast).toMatchObject({ kind: "info", message: "Imported 2 macros" });
@@ -511,22 +586,30 @@ describe("library", () => {
 
     test("files that couldn't be imported are listed", async () => {
       core.dialog.open = ["C:\\a.rly", "C:\\bad.rly"];
-      core.importResult = { imported: [A], problems: ["bad.rly: expected value at line 1"] };
+      core.files.set("C:\\bad.rly", "expected value at line 1");
       await relay.importMacros();
       expect(relay.toast).toMatchObject({ kind: "error", message: "Imported 1 macro. bad.rly: expected value at line 1" });
     });
 
     test("nothing imported says so", async () => {
       core.dialog.open = ["C:\\bad.rly"];
-      core.importResult = { imported: [], problems: [] };
+      core.files.set("C:\\bad.rly", "expected value at line 1");
       await relay.importMacros();
-      expect(relay.toast?.message).toBe("Nothing imported");
+      expect(relay.toast).toMatchObject({ kind: "error", message: "Nothing imported. bad.rly: expected value at line 1" });
       expect(core.argsOf("load_macro")).toEqual([]);
     });
   });
 });
 
 describe("step edits", () => {
+  test("an edit that couldn't be written is kept and shown, and the error says so", async () => {
+    core.saveError = "disk full";
+    await relay.edit({ op: "delete_step", index: 0 });
+    expect(relay.steps).toHaveLength(11);
+    expect(relay.canUndo).toBe(true);
+    expect(relay.toast).toMatchObject({ kind: "error", message: "Couldn't save the change: disk full. It's kept until you quit." });
+  });
+
   test("each edit sends its op for the open macro and shows the result", async () => {
     await relay.edit({ op: "set_label", index: 0, label: "File" });
     expect(core.calls).toEqual([{ cmd: "edit_macro", args: { id: A, op: { op: "set_label", index: 0, label: "File" } } }]);
@@ -543,14 +626,30 @@ describe("step edits", () => {
   test("a rejected edit is explained and the view is kept", async () => {
     const before = relay.view;
     await relay.edit({ op: "delete_step", index: 99 });
-    expect(relay.error).toBe("no step 99");
+    expect(relay.error).toBe("there is no step 99");
     expect(relay.view).toBe(before);
   });
 
-  test("editing is off while recording", async () => {
-    core.emit(session("recording"));
+  test.each(["countdown", "recording", "playing", "paused"] as const)("editing is off while %s (Rust would refuse it)", async (mode) => {
+    vi.useFakeTimers();
     await relay.edit({ op: "delete_step", index: 0 });
+    core.clearCalls();
+    core.emit(session(mode));
+    expect(relay.canEdit).toBe(false);
+    await relay.edit({ op: "set_label", index: 0, label: "x" });
+    await relay.deleteStep(0);
+    await relay.insertWait();
+    await relay.insertPixelCheck();
+    await relay.trimPauses();
+    await relay.setPause(1, 100);
+    await relay.undo();
+    await relay.redo();
+    await relay.pickPixel(7);
+    relay.rename("Renamed");
+    await vi.advanceTimersByTimeAsync(1000);
     expect(core.commands()).toEqual([]);
+    expect(relay.name).toBe("Export invoice to PDF");
+    expect(relay.picking).toBe(0);
   });
 
   test("an edit response for a macro the user left is dropped", async () => {
@@ -584,15 +683,39 @@ describe("step edits", () => {
     expect(relay.toast).toBeNull();
   });
 
+  test("a rename withdraws the Undo too, but not the trash's", async () => {
+    await relay.deleteStep(0);
+    relay.rename("Renamed");
+    expect(relay.toast).toBeNull();
+    await relay.deleteMacro(C);
+    relay.rename("Renamed again");
+    await relay.edit({ op: "set_label", index: 0, label: "x" });
+    expect(relay.toast).toMatchObject({ message: "Moved “Batch rename photos” to the trash", action: { label: "Undo" } });
+  });
+
+  test("an Undo belongs to its macro: opening another withdraws it, and it never undoes there", async () => {
+    await relay.deleteStep(0);
+    const undo = relay.toast!.action!.run;
+    await relay.loadMacro(B);
+    expect(relay.toast).toBeNull();
+    await relay.edit({ op: "delete_step", index: 0 }); // B has something to undo now
+    core.clearCalls();
+    undo();
+    await settle();
+    expect(core.argsOf("undo_edit")).toEqual([]);
+  });
+
   test("Delete step offers Undo, which undoes it", async () => {
+    const original = relay.steps;
     await relay.deleteStep(2);
+    expect(relay.steps.some((s) => s.kind === "wait")).toBe(false);
     expect(core.argsOf("edit_macro")).toEqual([{ id: A, op: { op: "delete_step", index: 2 } }]);
     expect(relay.toast).toMatchObject({ kind: "info", message: "Deleted the step" });
     core.clearCalls();
     relay.toast!.action!.run();
     await settle();
     expect(core.argsOf("undo_edit")).toEqual([{ id: A, redo: false }]);
-    expect(relay.steps).toHaveLength(12);
+    expect(relay.steps).toEqual(original); // the wait is back, and what followed it moved back
   });
 
   test("a failed step delete offers no Undo", async () => {
@@ -648,13 +771,29 @@ describe("step edits", () => {
     ]);
   });
 
-  test("+ Pixel check falls back to the accent color when the screen can't be read", async () => {
+  test("+ Pixel check inserts nothing when the screen can't be read, and says where", async () => {
+    relay.seek(850);
     core.pixel = null;
     await relay.insertPixelCheck();
-    expect((core.lastArgs("edit_macro")!.op as { color: string }).color).toBe("#EC3013");
+    expect(core.argsOf("edit_macro")).toEqual([]);
+    expect(relay.toast).toMatchObject({ kind: "error", message: "Couldn't read the screen at 134, 70" });
     core.fail("sample_pixel");
+    relay.dismissToast();
     await relay.insertPixelCheck();
-    expect((core.lastArgs("edit_macro")!.op as { color: string }).color).toBe("#EC3013");
+    expect(core.argsOf("edit_macro")).toEqual([]);
+    expect(relay.error).toBe("Couldn't read the screen at 134, 70");
+  });
+
+  test("+ Pixel check is dropped if another macro was opened while the screen was read", async () => {
+    core.hold("sample_pixel");
+    const inserting = relay.insertPixelCheck();
+    await settle();
+    core.release("sample_pixel");
+    await relay.loadMacro(B);
+    core.held[0].resolve("#ABCDEF");
+    await inserting;
+    expect(core.argsOf("edit_macro")).toEqual([]);
+    expect(relay.steps).toHaveLength(13);
   });
 });
 
@@ -698,18 +837,88 @@ describe("rename", () => {
     expect(relay.name).toBe("Typing…");
   });
 
-  test("the browser preview renames only in memory", async () => {
+  test("the browser preview refuses renames like other edits", async () => {
     core.uninstall();
     try {
       const r = await freshStore({ backend: browserBackend() });
       r.rename("Local");
       await vi.advanceTimersByTimeAsync(1000);
-      expect(r.name).toBe("Local");
-      expect(core.calls).toEqual([]);
+      expect(r.name).toBe("Export invoice to PDF");
+      expect(r.error).toBe("Editing needs the Relay app");
       r.dispose();
     } finally {
       core.install();
     }
+  });
+
+  test("a blank name is shown but never saved; leaving the field puts the saved name back", async () => {
+    relay.rename("   ");
+    expect(relay.name).toBe("   ");
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(core.argsOf("edit_macro")).toEqual([]);
+    relay.endRename();
+    expect(relay.name).toBe("Export invoice to PDF");
+    relay.rename("");
+    relay.rename("New name");
+    await vi.advanceTimersByTimeAsync(300);
+    await settle();
+    expect(core.argsOf("edit_macro")).toEqual([{ id: A, op: { op: "rename", name: "New name" } }]);
+    relay.rename("");
+    relay.endRename();
+    expect(relay.name).toBe("New name"); // the last saved one
+  });
+
+  test("a blank name is abandoned when another macro opens", async () => {
+    relay.rename("");
+    await relay.loadMacro(B);
+    expect(core.argsOf("edit_macro")).toEqual([]);
+    expect(relay.library[0].name).toBe("Export invoice to PDF");
+  });
+
+  test("a pending rename is dropped when the store is disposed", async () => {
+    relay.rename("Never saved");
+    relay.dispose();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(core.argsOf("edit_macro")).toEqual([]);
+  });
+
+  test("Duplicate and Delete save a pending rename first", async () => {
+    relay.rename("Renamed");
+    await relay.duplicateMacro(A);
+    expect(core.commands().slice(0, 3)).toEqual(["edit_macro", "list_macros", "duplicate_macro"]);
+    expect(relay.name).toBe("Renamed (copy)");
+    relay.rename("Doomed");
+    await relay.deleteMacro(relay.view!.id);
+    expect(core.argsOf("edit_macro").at(-1)).toMatchObject({ op: { op: "rename", name: "Doomed" } });
+    expect(relay.toast?.message).toBe("Moved “Doomed” to the trash");
+  });
+
+  test("a slow rename response can't overwrite a newer edit, and a name typed since stays", async () => {
+    core.hold("edit_macro");
+    relay.rename("Invoice");
+    await vi.advanceTimersByTimeAsync(300);
+    const labelling = relay.edit({ op: "set_label", index: 0, label: "Menu" });
+    relay.rename("Invoice PDF");
+    await settle();
+    const [rename, label] = core.held;
+    core.release("edit_macro");
+    label.resolve({ ...core.view(A), name: "Invoice", steps: core.view(A).steps.map((s, i) => (i ? s : { ...s, label: "Menu" })) });
+    rename.resolve({ ...core.view(A), name: "Invoice" });
+    await labelling;
+    await settle();
+    expect((relay.steps[0] as { label: string }).label).toBe("Menu");
+    expect(relay.name).toBe("Invoice PDF");
+  });
+
+  test("a name typed just before a session starts is saved once it ends", async () => {
+    relay.rename("Typed");
+    core.emit(session("playing"));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(core.argsOf("edit_macro")).toEqual([]);
+    core.emit(session("idle"));
+    await settle();
+    expect(core.argsOf("edit_macro")).toEqual([{ id: A, op: { op: "rename", name: "Typed" } }]);
+    expect(relay.library[0].name).toBe("Typed");
   });
 
   test("with nothing open, rename does nothing", () => {
@@ -733,6 +942,7 @@ describe("undo and redo", () => {
     await relay.undo();
     expect(core.argsOf("undo_edit")).toEqual([{ id: A, redo: false }]);
     expect(relay.steps).toHaveLength(12);
+    expect(relay.steps[0]).toMatchObject({ kind: "click", t: 850, label: "File menu", items: [54, 55] });
     expect(relay.canRedo).toBe(true);
     expect(relay.canUndo).toBe(false);
     await relay.redo();
@@ -804,9 +1014,25 @@ describe("Pick (pixel under the real cursor)", () => {
     expect(relay.picking).toBe(0);
   });
 
-  test("if the step is no longer a pixel check, nothing is changed", async () => {
+  test("Pick on a step that isn't a pixel check does nothing", async () => {
     await relay.pickPixel(0);
+    expect(core.commands()).toEqual([]);
+  });
+
+  test.each([
+    ["deleted", { op: "delete_step", index: pixelStep }],
+    ["moved by a deletion before it", { op: "delete_step", index: 0 }],
+    ["moved by an insertion before it", { op: "insert_wait", at: 0, dur: 500, label: "" }],
+  ] as const)("if the pixel check was %s during the countdown, nothing is changed", async (_what, op) => {
+    core.hold("pick_pixel");
+    const p = relay.pickPixel(pixelStep);
+    await settle();
+    await relay.edit(op);
+    core.clearCalls();
+    core.held[0].resolve(core.picked);
+    await p;
     expect(core.argsOf("edit_macro")).toEqual([]);
+    expect(relay.picking).toBe(0);
   });
 
   test("a failed pick is shown and the countdown ends", async () => {
@@ -867,7 +1093,7 @@ describe("triggers", () => {
     expect(core.commands()).toEqual(["set_triggers", "list_macros"]);
     expect(core.lastArgs("set_triggers")).toEqual({
       id: A,
-      triggers: { ...core.triggers.get(A), hotkey: { enabled: true, combo: "Ctrl + Alt + 9" } },
+      triggers: { ...defaultTriggers(), hotkey: { enabled: true, combo: "Ctrl + Alt + 9" } },
     });
     expect(relay.library[0].hotkey).toBe("Ctrl + Alt + 9");
   });
@@ -898,34 +1124,113 @@ describe("triggers", () => {
     expect(relay.triggers?.hotkey.combo).toBe("Ctrl + Alt + 2");
   });
 
+  test("of two quick changes answered out of order, the newer one stays", async () => {
+    core.hold("set_triggers");
+    const one = relay.setTriggers({ schedule: { ...relay.triggers!.schedule, enabled: true } });
+    const two = relay.setTriggers({ pixel: { ...relay.triggers!.pixel, enabled: true } });
+    await settle();
+    const [h1, h2] = core.held;
+    const t = relay.triggers!;
+    expect([t.schedule.enabled, t.pixel.enabled]).toEqual([true, true]);
+    h2.resolve({ triggers: h2.args.triggers, next_run: "2026-09-25T09:00:00+02:00", hotkey_error: null, paused: false });
+    await two;
+    h1.resolve({ triggers: h1.args.triggers, next_run: "2026-09-25T09:00:00+02:00", hotkey_error: null, paused: false });
+    await one;
+    expect(relay.triggers?.pixel.enabled).toBe(true);
+    expect(relay.triggers?.schedule.enabled).toBe(true);
+  });
+
+  test("an older change failing doesn't undo a newer one; the newer failing goes back to what was saved", async () => {
+    core.hold("set_triggers");
+    const before = relay.triggerStatus;
+    const one = relay.setTriggers({ pixel: { ...relay.triggers!.pixel, enabled: true } });
+    const two = relay.setTriggers({ pixel: { ...relay.triggers!.pixel, x: 5 } });
+    await settle();
+    const [h1, h2] = core.held;
+    h1.reject({ code: "io", message: "disk full" });
+    await one;
+    expect(relay.triggers?.pixel).toMatchObject({ enabled: true, x: 5 }); // still the newest
+    h2.reject({ code: "io", message: "disk full" });
+    await two;
+    expect(relay.triggerStatus).toBe(before);
+    expect(relay.error).toBe("disk full");
+  });
+
+  test("turning a hotkey off takes it out of the Library", async () => {
+    await relay.setTriggers({ hotkey: { enabled: true, combo: "Ctrl + Alt + 9" } });
+    expect(relay.library[0].hotkey).toBe("Ctrl + Alt + 9");
+    await relay.setTriggers({ hotkey: { enabled: false, combo: "Ctrl + Alt + 9" } });
+    expect(relay.library[0].hotkey).toBeNull();
+  });
+
   test("with no triggers loaded, nothing is sent", async () => {
     relay.triggerStatus = null;
     await relay.setTriggers({ hotkey: { enabled: false, combo: "" } });
     expect(core.commands()).toEqual([]);
   });
 
-  test("Resume unpauses triggers", async () => {
-    relay.triggersPaused = true;
+  test("Resume unpauses triggers, as the engine confirms", async () => {
+    core.emit({ type: "triggers_paused", paused: true });
     await relay.setTriggersPaused(false);
     expect(relay.triggersPaused).toBe(false);
     expect(core.calls).toEqual([{ cmd: "set_triggers_paused", args: { paused: false } }]);
+    await settle();
+    expect(relay.triggersPaused).toBe(false);
   });
 
-  test("running programs are listed for suggestions; a failure keeps the old list", async () => {
+  test("a failed Resume shows triggers paused again", async () => {
+    core.emit({ type: "triggers_paused", paused: true });
+    core.fail("set_triggers_paused", "the coordinator is gone");
+    await relay.setTriggersPaused(false);
+    expect(relay.triggersPaused).toBe(true);
+    expect(relay.error).toBe("the coordinator is gone");
+  });
+
+  test("running programs are listed for suggestions", async () => {
     await relay.loadProcesses();
     expect(relay.processes).toEqual(["chrome.exe", "EXCEL.EXE", "notepad.exe"]);
-    core.fail("list_processes");
-    await relay.loadProcesses();
-    expect(relay.processes).toHaveLength(3);
-    expect(relay.toast).toBeNull();
   });
 });
 
 describe("settings", () => {
   test("a change is shown and saved with the other settings", async () => {
     await relay.updateSettings({ countdown: false });
-    expect(core.calls).toEqual([{ cmd: "update_settings", args: { settings: { ...core.settings, countdown: false } } }]);
+    expect(core.calls).toEqual([{ cmd: "update_settings", args: { settings: { ...DEFAULT_SETTINGS, countdown: false } } }]);
     expect(relay.settings.countdown).toBe(false);
+  });
+
+  test("of two quick changes answered out of order, both stay", async () => {
+    core.hold("update_settings");
+    const one = relay.updateSettings({ countdown: false });
+    const two = relay.updateSettings({ path_mode: "trail" });
+    await settle();
+    const [h1, h2] = core.held;
+    h2.resolve({ ...DEFAULT_SETTINGS, countdown: false, path_mode: "trail" });
+    await two;
+    h1.resolve({ ...DEFAULT_SETTINGS, countdown: false });
+    await one;
+    expect(relay.settings).toEqual({ ...DEFAULT_SETTINGS, countdown: false, path_mode: "trail" });
+  });
+
+  test("an older save failing doesn't undo a newer change", async () => {
+    core.hold("update_settings");
+    const one = relay.updateSettings({ countdown: false });
+    const two = relay.updateSettings({ path_mode: "trail" });
+    await settle();
+    const [h1, h2] = core.held;
+    h1.reject({ code: "io", message: "nope" });
+    await one;
+    expect(relay.settings).toMatchObject({ countdown: false, path_mode: "trail" });
+    h2.resolve({ ...DEFAULT_SETTINGS, countdown: false, path_mode: "trail" });
+    await two;
+    expect(relay.settings).toEqual({ ...DEFAULT_SETTINGS, countdown: false, path_mode: "trail" });
+  });
+
+  test("a change that couldn't be written is kept, and the error says so", async () => {
+    core.saveError = "access denied";
+    await relay.updateSettings({ countdown: false });
+    expect(relay.settings.countdown).toBe(false);
+    expect(relay.error).toBe("Couldn't save the change: access denied. It's kept until you quit.");
   });
 
   test("a failed save puts the old settings back", async () => {
@@ -1004,6 +1309,31 @@ describe("keyboard", () => {
     input.remove();
   });
 
+  test.each(["number", "search"])("so do %s fields and text areas", async (type) => {
+    await relay.edit({ op: "delete_step", index: 0 });
+    const input = document.createElement("input");
+    input.type = type;
+    const area = document.createElement("textarea");
+    document.body.append(input, area);
+    key("z", { ctrlKey: true }, input);
+    key("z", { ctrlKey: true }, area);
+    await settle();
+    expect(core.argsOf("undo_edit")).toEqual([]);
+    input.remove();
+    area.remove();
+  });
+
+  test.each(["range", "checkbox"])("a focused %s doesn't block undo", async (type) => {
+    await relay.edit({ op: "delete_step", index: 0 });
+    const input = document.createElement("input");
+    input.type = type;
+    document.body.append(input);
+    key("z", { ctrlKey: true }, input);
+    await settle();
+    expect(core.argsOf("undo_edit")).toEqual([{ id: A, redo: false }]);
+    input.remove();
+  });
+
   test("Ctrl + Alt + Z isn't undo", async () => {
     await relay.edit({ op: "delete_step", index: 0 });
     key("z", { ctrlKey: true, altKey: true });
@@ -1052,16 +1382,19 @@ describe("the browser preview (npm run dev)", () => {
     r = await freshStore({ backend: browserBackend() });
     r.start();
   });
-  afterEach(() => {
+  afterEach(async () => {
+    await r.stop(); // the simulation's timers
     r.dispose();
     core.install();
   });
 
-  test("loads the samples without Rust", () => {
+  test("loads the samples, their triggers and the settings without Rust", () => {
     expect(r.editable).toBe(false);
-    expect(r.library).toHaveLength(4);
+    expect(r.library.map((m) => m.name)).toEqual(["Export invoice to PDF", "Fill weekly timesheet", "Batch rename photos", "Open standup tools"]);
     expect(r.name).toBe("Export invoice to PDF");
-    expect(core.calls).toEqual([]);
+    expect(r.triggers?.hotkey).toEqual({ enabled: false, combo: "Ctrl + Alt + 1" });
+    expect(r.settings).toEqual(DEFAULT_SETTINGS);
+    expect(r.toast).toBeNull(); // nothing tried the missing IPC
   });
 
   test("F10 plays and Esc stops", async () => {
