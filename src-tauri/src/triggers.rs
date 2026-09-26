@@ -147,10 +147,13 @@ impl LaunchWatch {
     }
 }
 
+/// What a pixel trigger watches: where, and for which color.
+type PixelTarget = (i32, i32, Rgb, u8);
+
 /// Fires when a watched pixel turns its color.
 #[derive(Default)]
 pub struct PixelWatch {
-    edges: HashMap<Uuid, (PixelEdge, (i32, i32))>,
+    edges: HashMap<Uuid, (PixelEdge, PixelTarget)>,
 }
 
 impl PixelWatch {
@@ -165,10 +168,12 @@ impl PixelWatch {
         let mut fired = Vec::new();
         for (id, t) in wanted {
             let p = &t.pixel;
-            let entry = self.edges.entry(*id).or_insert_with(|| (PixelEdge::new(), (p.x, p.y)));
-            if entry.1 != (p.x, p.y) {
-                // Moved to another pixel: start over rather than fire on a stale edge.
-                *entry = (PixelEdge::new(), (p.x, p.y));
+            let target = (p.x, p.y, p.color, p.tolerance);
+            let entry = self.edges.entry(*id).or_insert_with(|| (PixelEdge::new(), target));
+            if entry.1 != target {
+                // Another pixel or color: start over rather than fire on a stale
+                // edge (picking the color the pixel has now isn't a change).
+                *entry = (PixelEdge::new(), target);
             }
             // An unreadable screen (locked, a UAC prompt) is no sample at all:
             // counting it as "doesn't match" would re-arm the edge.
@@ -465,6 +470,34 @@ mod tests {
         let there = vec![(id(1), watching(9, 9, RED))];
         assert!(w.tick(&there, |_, _| Some(RED)).is_empty());
         assert!(w.tick(&there, |_, _| Some(RED)).is_empty());
+    }
+
+    #[test]
+    fn changing_the_color_or_tolerance_starts_over() {
+        const BLUE: Rgb = Rgb(0x10, 0x20, 0xF0);
+        let mut w = PixelWatch::default();
+        // Watching for red on a blue pixel: armed, waiting for red.
+        w.tick(&[(id(1), watching(0, 0, RED))], |_, _| Some(BLUE));
+        // The user types the pixel's current color as the target: no change happened.
+        let blue = vec![(id(1), watching(0, 0, BLUE))];
+        for _ in 0..3 {
+            assert!(w.tick(&blue, |_, _| Some(BLUE)).is_empty());
+        }
+
+        // Nearly red, just outside a tolerance of 0; raising the tolerance isn't a change either.
+        let nearly = Rgb(0xEC, 0x30, 0x18);
+        let mut strict = watching(0, 0, RED);
+        strict.pixel.tolerance = 0;
+        let mut w = PixelWatch::default();
+        w.tick(&[(id(1), strict)], |_, _| Some(nearly));
+        let loose = vec![(id(1), watching(0, 0, RED))];
+        for _ in 0..3 {
+            assert!(w.tick(&loose, |_, _| Some(nearly)).is_empty());
+        }
+        // An actual change still fires.
+        w.tick(&loose, |_, _| Some(WHITE));
+        w.tick(&loose, |_, _| Some(RED));
+        assert_eq!(w.tick(&loose, |_, _| Some(RED)), [id(1)]);
     }
 
     #[test]
