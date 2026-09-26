@@ -46,7 +46,7 @@ describe("library", () => {
 
   test("Duplicate makes a copy right after it, in its own file", async () => {
     await page.tab("Library");
-    await page.click("Duplicate Fill weekly timesheet");
+    await page.rowAction("Duplicate", "Fill weekly timesheet");
     await until(async () => (await page.store("view.name")) === "Fill weekly timesheet (copy)", { what: "the copy to open" });
     const list = await names();
     assert.equal(list.length, 5);
@@ -61,7 +61,7 @@ describe("library", () => {
   test("Delete moves it to the trash folder; Undo brings it back where it was", async () => {
     await page.tab("Library");
     const victim = (await page.run(() => window.__relay.library[2])).id;
-    await page.click("Delete Fill weekly timesheet (copy)");
+    await page.rowAction("Delete", "Fill weekly timesheet (copy)");
     await until(async () => (await page.store("toast.message"))?.startsWith("Moved"), { what: "the delete" });
     assert.equal((await names()).length, 4);
     assert.ok(!app.exists("macros", `${victim}.rly`));
@@ -80,7 +80,7 @@ describe("library", () => {
     await page.run(() => window.__relay.loadMacro(window.__relay.library[2].id));
     await page.tab("Library"); // opening it switched to Steps
 
-    await page.click("Delete Fill weekly timesheet (copy)");
+    await page.rowAction("Delete", "Fill weekly timesheet (copy)");
     await until(async () => (await page.store("view.name")) === "Batch rename photos", { what: "the neighbour" });
   });
 

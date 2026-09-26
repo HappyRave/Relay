@@ -120,20 +120,21 @@ class Page {
 
   /**
    * Clicks the one visible button (or tab, switch, radio…) with exactly this
-   * accessible name, like `getByRole`. Fails if there's none, more than one,
-   * or it's disabled.
+   * accessible name, like `getByRole`. Fails if there's none, more than one
+   * (unless `nth` picks one, in page order), or it's disabled.
    */
-  click(name, { role, within } = {}) {
+  click(name, { role, within, nth } = {}) {
     return this.run(
-      (name, role, within) => {
+      (name, role, within, nth) => {
         const root = within ? document.querySelector(within) : document;
         if (!root) throw new Error(`no ${within}`);
         const label = (el) => (el.getAttribute("aria-label") ?? el.textContent ?? "").replace(/\s+/g, " ").trim();
         const selector = role ? `[role="${role}"]` : 'button, [role="button"], [role="tab"], [role="switch"], [role="radio"]';
         const matches = [...root.querySelectorAll(selector)].filter((c) => label(c) === name && c.getClientRects().length > 0);
         if (matches.length === 0) throw new Error(`no control named “${name}”`);
-        if (matches.length > 1) throw new Error(`${matches.length} controls are named “${name}”`);
-        const [el] = matches;
+        if (matches.length > 1 && nth == null) throw new Error(`${matches.length} controls are named “${name}”`);
+        const el = matches[nth ?? 0];
+        if (!el) throw new Error(`no control #${nth} named “${name}”`);
         if (el.disabled || el.getAttribute("aria-disabled") === "true") throw new Error(`“${name}” is disabled`);
         el.click();
         return true;
@@ -141,6 +142,29 @@ class Page {
       name,
       role ?? null,
       within ?? null,
+      nth ?? null,
+    );
+  }
+
+  /**
+   * Clicks a Library row's Duplicate or Delete. They show on hover or keyboard
+   * focus, so the row is focused first, as with Tab.
+   */
+  rowAction(action, macroName) {
+    return this.run(
+      (action, macroName) => {
+        const row = [...document.querySelectorAll('.list .item[role="button"]')].find(
+          (r) => r.querySelector(".name")?.textContent.trim() === macroName,
+        );
+        if (!row) throw new Error(`no Library row “${macroName}”`);
+        row.focus();
+        const button = row.querySelector(`button[aria-label="${action} ${macroName}"]`);
+        if (!button || button.getClientRects().length === 0) throw new Error(`no visible ${action} on “${macroName}”`);
+        button.click();
+        return true;
+      },
+      action,
+      macroName,
     );
   }
 
@@ -248,6 +272,7 @@ class Page {
     await this.run(() => {
       window.__relay.expanded = true;
       window.__relay.exportOpen = false;
+      window.__relay.selected = -1; // no step editor open
       window.__relay.dismissToast();
       return true;
     });

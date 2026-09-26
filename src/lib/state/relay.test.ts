@@ -108,6 +108,19 @@ describe("session buttons", () => {
     expect(core.argsOf("toggle_play")).toEqual([{ from: 0 }, { from: 0 }]);
   });
 
+  test("Play from the end shows the playhead at the start at once", async () => {
+    relay.cur = relay.duration;
+    const playing = relay.togglePlay();
+    expect(relay.cur).toBe(0);
+    await playing;
+  });
+
+  test("Play mid-macro keeps the playhead where it is", async () => {
+    relay.cur = 1234;
+    await relay.togglePlay();
+    expect(relay.cur).toBe(1234);
+  });
+
   test("Play does nothing while recording or with no macro", async () => {
     core.emit(session("countdown"));
     await relay.togglePlay();

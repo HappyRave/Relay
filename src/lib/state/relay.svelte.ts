@@ -389,7 +389,10 @@ export class RelayStore {
 
   togglePlay = () => {
     if (this.recording || !this.view) return;
-    return this.run(this.backend.togglePlay(this.cur >= this.duration - 1 ? 0 : this.cur));
+    const from = this.cur >= this.duration - 1 ? 0 : this.cur;
+    // Starting over from the end: show the playhead at the start now, not at the first tick.
+    if (this.mode === "idle") this.cur = from;
+    return this.run(this.backend.togglePlay(from));
   };
 
   stop = () => this.run(this.backend.stop());
