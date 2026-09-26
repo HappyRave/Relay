@@ -171,7 +171,7 @@ pub fn layout(work: Rect, sf: f64, zoom: f64, css: (f64, f64), anchor: Option<(i
     let margin = (MARGIN * sf) as i32;
     let fit = |v: i32, lo: i32, hi: i32, center: i32| if hi < lo { center } else { v.clamp(lo, hi) };
     let x = fit(ax - w / 2, work.x + margin, work.x + work.w - w - margin, work.x + (work.w - w) / 2);
-    let y = fit(ay - h, work.y, work.y + work.h - h, work.y);
+    let y = fit(ay - h, work.y + margin, work.y + work.h - h - margin, work.y + (work.h - h) / 2);
     Rect { x, y, w, h }
 }
 
@@ -386,9 +386,12 @@ mod tests {
         // Near the right edge.
         assert_eq!(layout(WORK, 1.0, 1.0, EXPANDED, Some((1915, 900))).x, 1920 - 944 - 16);
         // Near the top: expanding downward instead of off the screen.
-        assert_eq!(layout(WORK, 1.0, 1.0, EXPANDED, Some((960, 100))).y, 0);
+        assert_eq!(layout(WORK, 1.0, 1.0, EXPANDED, Some((960, 100))).y, 16);
         // Below the bottom (a taller taskbar now): pulled up.
-        assert_eq!(layout(WORK, 1.0, 1.0, EXPANDED, Some((960, 2000))).y, 1032 - 612);
+        assert_eq!(layout(WORK, 1.0, 1.0, EXPANDED, Some((960, 2000))).y, 1032 - 612 - 16);
+        // The margins scale too.
+        let big = Rect { x: 0, y: 0, w: 2880, h: 1548 };
+        assert_eq!(layout(big, 1.5, 1.0, COMPACT, Some((1440, 5))).y, 24);
         // A second monitor to the left, at negative coordinates.
         let left = Rect { x: -1280, y: 0, w: 1280, h: 984 };
         let r = layout(left, 1.0, 1.0, COMPACT, Some((-5, 500)));
@@ -396,10 +399,15 @@ mod tests {
     }
 
     #[test]
-    fn a_widget_too_wide_for_its_margins_is_centered() {
+    fn a_widget_too_big_for_its_margins_is_centered() {
         let narrow = Rect { x: 100, y: 0, w: 960, h: 700 };
         let r = layout(narrow, 1.0, 1.0, EXPANDED, Some((150, 700)));
         assert_eq!(r.x, 100 + (960 - 944) / 2);
+        // A short work area (the zoom leaves the expanded widget 16 px shorter than it).
+        let short = Rect { x: 0, y: 40, w: 1920, h: 628 };
+        for anchor in [(960, 668), (960, 100)] {
+            assert_eq!(layout(short, 1.0, 1.0, EXPANDED, Some(anchor)).y, 40 + 8);
+        }
     }
 
     #[test]
@@ -433,8 +441,7 @@ mod tests {
         assert_eq!(choose_monitor(&monitors, Some((2500, 719)), 1), 2);
         let work = Rect { h: 1032, ..primary };
         assert_eq!(choose_monitor(&monitors, Some((960, 1070)), 1), 1);
-        let r = layout(work, 1.0, 1.0, COMPACT, Some((960, 1070)));
-        assert!(r.y + r.h <= 1032, "{r:?}");
+        assert_eq!(layout(work, 1.0, 1.0, COMPACT, Some((960, 1070))).y, 1032 - 16 - 68);
         // Negative coordinates.
         assert_eq!(choose_monitor(&monitors, Some((-5, 500)), 1), 0);
         assert_eq!(choose_monitor(&monitors, Some((-1280, 1024)), 1), 0);
