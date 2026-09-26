@@ -66,6 +66,15 @@ fn library(app: &AppHandle) -> State<'_, Mutex<Library>> {
     app.state::<Mutex<Library>>()
 }
 
+/// Refuses what can't be done while a session (or its countdown) runs.
+fn refuse_busy(idle: bool) -> Result<()> {
+    if idle { Ok(()) } else { Err(IpcError { code: "busy", message: "Stop the recording or playback first".into() }) }
+}
+
+fn when_idle(app: &AppHandle) -> Result<()> {
+    refuse_busy(app.state::<SessionMode>().is_idle())
+}
+
 /// Reports a failed save; the change itself stays (see the module docs).
 fn report_unsaved(app: &AppHandle, r: std::io::Result<()>) {
     if let Err(e) = r {
@@ -129,13 +138,15 @@ pub fn load_macro(
 
 #[tauri::command(async)]
 pub fn edit_macro(app: AppHandle, id: Uuid, op: EditOp) -> Result<MacroView> {
+    // Editing a macro while it plays or records would change it under the engine.
+    when_idle(&app)?;
     let history = app.state::<EditHistory>();
     let lib = library(&app);
     let mut lib = lib.lock();
     let entry = lib.get_mut(id).ok_or(IpcError::not_found(id))?;
     let before = Snapshot::before(&entry.macro_, &op);
     relay_core::edit::apply(&mut entry.macro_, op.clone())?;
-    history.record(id, before, &op);
+    history.record(id, before, &op, &entry.macro_);
     let view = view_of(&entry.macro_, &history);
     report_unsaved(&app, lib.save(id));
     Ok(view)
@@ -144,6 +155,7 @@ pub fn edit_macro(app: AppHandle, id: Uuid, op: EditOp) -> Result<MacroView> {
 /// Reverts the macro's last edit (`redo: false`) or re-applies the last undone one.
 #[tauri::command(async)]
 pub fn undo_edit(app: AppHandle, id: Uuid, redo: bool) -> Result<MacroView> {
+    when_idle(&app)?;
     let history = app.state::<EditHistory>();
     let lib = library(&app);
     let mut lib = lib.lock();
@@ -172,23 +184,28 @@ pub fn set_playback_options(app: AppHandle, id: Uuid, options: PlaybackOptions) 
 
 #[tauri::command(async)]
 pub fn duplicate_macro(app: AppHandle, id: Uuid) -> Result<Uuid> {
-    Ok(library(&app).lock().duplicate(id)?)
+    let copy = library(&app).lock().duplicate(id)?;
+    report_unsaved(&app, copy.saved);
+    Ok(copy.value)
 }
 
 /// Moves a macro to the trash; it can be restored with [`restore_macro`].
 #[tauri::command(async)]
 pub fn delete_macro(app: AppHandle, id: Uuid) -> Result<()> {
-    if !app.state::<SessionMode>().is_idle() {
-        return Err(IpcError { code: "busy", message: "Stop the recording or playback first".into() });
-    }
-    library(&app).lock().trash(id)?;
+    when_idle(&app)?;
+    let trashed = library(&app).lock().trash(id)?;
+    report_unsaved(&app, trashed.saved);
     hotkeys::refresh(&app); // its hotkey goes with it
     Ok(())
 }
 
 #[tauri::command(async)]
 pub fn restore_macro(app: AppHandle, id: Uuid) -> Result<()> {
-    library(&app).lock().restore(id)?;
+    let restored = library(&app).lock().restore(id)?;
+    report_unsaved(&app, restored.saved);
+    if let Some(message) = restored.value {
+        app.state::<Arc<Emitter>>().send(EngineMsg::Notice { message });
+    }
     let _ = app.state::<crate::triggers::TriggerState>().triggers_changed();
     hotkeys::refresh(&app); // and its hotkey comes back
     Ok(())
@@ -225,20 +242,17 @@ pub struct ImportResult {
 }
 
 /// Imports `.rly` files (and Relay `.json` exports). Each file is independent:
-/// a broken one is reported and the rest still import.
+/// a broken one is reported and the rest still import. If saving one fails,
+/// the ones before it are kept and the rest reported.
 #[tauri::command(async)]
 pub fn import_macros(app: AppHandle, paths: Vec<String>) -> ImportResult {
     // Read and parse without holding the library.
     let (macros, mut problems) = read_imports(&paths);
-    let imported = match library(&app).lock().import(macros) {
-        Ok(ids) => ids,
-        Err(e) => {
-            problems.push(e.to_string());
-            Vec::new()
-        }
-    };
+    let imported = library(&app).lock().import(macros);
+    report_unsaved(&app, imported.saved);
+    problems.extend(imported.value.failed);
     hotkeys::refresh(&app);
-    ImportResult { imported, problems }
+    ImportResult { imported: imported.value.ids, problems }
 }
 
 /// Reads and parses each file; a file that can't be read or parsed becomes a
@@ -327,7 +341,7 @@ pub fn get_triggers(app: AppHandle, id: Uuid) -> Result<TriggerStatus> {
 /// reported in `hotkey_error`, which is current when this returns.
 #[tauri::command(async)]
 pub fn set_triggers(app: AppHandle, id: Uuid, triggers: relay_core::triggers::MacroTriggers) -> Result<TriggerStatus> {
-    {
+    let changed = {
         let lib = library(&app);
         let mut lib = lib.lock();
         if triggers.hotkey.enabled
@@ -335,8 +349,10 @@ pub fn set_triggers(app: AppHandle, id: Uuid, triggers: relay_core::triggers::Ma
         {
             return Err(IpcError { code: "hotkey", message: why });
         }
-        lib.set_triggers(id, triggers)?;
-    }
+        lib.set_triggers(id, triggers)?
+    };
+    // The new triggers are live either way.
+    report_unsaved(&app, changed.saved);
     // A program started once this returns counts as a launch.
     let _ = app.state::<crate::triggers::TriggerState>().triggers_changed().recv_timeout(Duration::from_secs(1));
     hotkeys::refresh_and_wait(&app);
@@ -453,16 +469,37 @@ mod tests {
     }
 
     #[test]
+    fn busy_sessions_refuse_with_a_code() {
+        assert!(refuse_busy(true).is_ok());
+        let e = serde_json::to_value(refuse_busy(false).unwrap_err()).unwrap();
+        assert_eq!(e, serde_json::json!({"code": "busy", "message": "Stop the recording or playback first"}));
+    }
+
+    #[test]
     fn exports_are_readable_again() {
-        let (_dir, lib) = library();
+        let (_dir, mut lib) = library();
         let id = lib.list()[0].id;
+        // Playback options other than the defaults, so they can't come back by chance.
+        lib.get_mut(id).unwrap().macro_.playback = PlaybackOptions {
+            speed: 2.5,
+            repeat: relay_core::model::Repeat::Forever,
+            humanize: false,
+            jitter_ms: 7,
+            stop_on_key: false,
+            coord_mode: relay_core::model::CoordMode::Window,
+        };
         let original = &lib.get(id).unwrap().macro_;
         for f in [ExportFormat::Rly, ExportFormat::Json] {
             let body = export_body(&lib, id, f).unwrap();
             let back = format::from_rly(&body).unwrap();
             assert_eq!(back.name, original.name, "{f:?}");
             assert_eq!(back.events, original.events, "{f:?}");
+            assert_eq!(back.playback, original.playback, "{f:?}");
         }
+        let repeat = PlaybackOptions { repeat: relay_core::model::Repeat::Count(3), ..original.playback.clone() };
+        lib.get_mut(id).unwrap().macro_.playback = repeat.clone();
+        let back = format::from_rly(&export_body(&lib, id, ExportFormat::Json).unwrap()).unwrap();
+        assert_eq!(back.playback, repeat);
         assert_eq!(
             export_body(&lib, Uuid::from_u128(u128::MAX), ExportFormat::Rly).map(|_| ()).unwrap_err().code,
             "not_found"
@@ -508,7 +545,7 @@ mod tests {
         let op = EditOp::Rename { name: "Renamed".into() };
         let before = Snapshot::before(m, &op);
         relay_core::edit::apply(m, op.clone()).unwrap();
-        history.record(id, before, &op);
+        history.record(id, before, &op, m);
         let v = view_of(m, &history);
         assert_eq!((v.can_undo, v.can_redo, v.name.as_str()), (true, false, "Renamed"));
         history.undo(id, m);

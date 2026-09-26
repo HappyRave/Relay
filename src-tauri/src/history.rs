@@ -28,6 +28,11 @@ impl Snapshot {
         Snapshot { name: m.name.clone(), events }
     }
 
+    /// Whether `m` still has what this snapshot holds (the edit changed nothing).
+    fn matches(&self, m: &Macro) -> bool {
+        self.name == m.name && self.events.as_ref().is_none_or(|e| *e == m.events)
+    }
+
     /// Puts this snapshot into `m` and returns what it replaced.
     fn swap_into(self, m: &mut Macro) -> Snapshot {
         let name = std::mem::replace(&mut m.name, self.name);
@@ -48,8 +53,12 @@ struct History {
 pub struct EditHistory(Mutex<HashMap<Uuid, History>>);
 
 impl EditHistory {
-    /// Records `before` (see [`Snapshot::before`]) once `op` has been applied.
-    pub fn record(&self, id: Uuid, before: Snapshot, op: &EditOp) {
+    /// Records `before` (see [`Snapshot::before`]) once `op` has been applied
+    /// to `m`. An edit that changed nothing (a label set to what it was) isn't one.
+    pub fn record(&self, id: Uuid, before: Snapshot, op: &EditOp, m: &Macro) {
+        if before.matches(m) {
+            return;
+        }
         let mut all = self.0.lock();
         let h = all.entry(id).or_default();
         let now = Instant::now();
@@ -112,7 +121,7 @@ mod tests {
         let op = EditOp::DeleteStep { index: 0 };
         let before = Snapshot::before(&m, &op);
         apply(&mut m, op.clone()).unwrap();
-        h.record(id, before, &op);
+        h.record(id, before, &op, &m);
         assert_eq!(h.status(id), (true, false));
 
         assert!(h.undo(id, &mut m));
@@ -134,7 +143,7 @@ mod tests {
             let op = EditOp::Rename { name: name.into() };
             let before = Snapshot::before(&m, &op);
             apply(&mut m, op.clone()).unwrap();
-            h.record(id, before, &op);
+            h.record(id, before, &op, &m);
         }
         assert!(h.undo(id, &mut m));
         assert_eq!(m.name, "m", "the three renames undo together");
@@ -144,7 +153,35 @@ mod tests {
         let op = EditOp::SetLabel { index: 0, label: "x".into() };
         let before = Snapshot::before(&m, &op);
         apply(&mut m, op.clone()).unwrap();
-        h.record(id, before, &op);
+        h.record(id, before, &op, &m);
         assert_eq!(h.status(id), (true, false), "a new edit drops the redo stack");
+    }
+
+    #[test]
+    fn an_edit_that_changes_nothing_isnt_undoable() {
+        let h = EditHistory::default();
+        let mut m = Macro::new("m", RecordingMeta::single_1080p(), vec![wait(0), wait(500)]);
+        let id = m.id;
+        let edit = |m: &mut Macro, op: EditOp| {
+            let before = Snapshot::before(m, &op);
+            apply(m, op.clone()).unwrap();
+            h.record(id, before, &op, m);
+        };
+        edit(&mut m, EditOp::SetLabel { index: 1, label: "x".into() });
+        assert!(h.undo(id, &mut m));
+        assert_eq!(h.status(id), (false, true));
+
+        // None of these change anything, so the redo is still there and nothing is undoable.
+        let pause = relay_core::steps::group_steps(&m.events, (&m.recording).into())[1].pause;
+        for op in [
+            EditOp::Rename { name: "m".into() },
+            EditOp::SetLabel { index: 1, label: String::new() },
+            EditOp::SetPause { index: 1, dur: pause },
+        ] {
+            edit(&mut m, op.clone());
+            assert_eq!(h.status(id), (false, true), "{op:?}");
+        }
+        edit(&mut m, EditOp::SetPause { index: 1, dur: pause + 100 });
+        assert_eq!(h.status(id), (true, false));
     }
 }
