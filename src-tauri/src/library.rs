@@ -120,6 +120,8 @@ pub struct Library {
     /// read (another program had it open, say), so writing it would lose
     /// the order, stats, triggers and trash it holds.
     index_unreadable: Option<String>,
+    /// Trashed macros whose file couldn't be written, restorable until Relay quits.
+    unsaved_trash: HashMap<Uuid, Macro>,
 }
 
 /// A change that was made. If saving it failed, it's kept anyway (in memory,
@@ -199,6 +201,7 @@ impl Library {
             trash: HashMap::new(),
             triggers: Arc::new([]),
             index_unreadable,
+            unsaved_trash: HashMap::new(),
         };
         if first_run {
             lib.seed_samples();
@@ -298,29 +301,52 @@ impl Library {
         Ok(Change { value: new_id, saved: self.save_index() })
     }
 
-    /// Moves a macro to the trash (its file to `macros\.trash`).
+    /// Moves a macro to the trash (its file to `macros\.trash`). A macro
+    /// whose file couldn't be saved is written there from memory, or if that
+    /// fails too, kept in memory to restore until Relay quits.
     pub fn trash(&mut self, id: Uuid) -> Result<Change, LibraryError> {
         let position = self.position(id)?;
-        let trash_dir = self.dir.join("macros").join(".trash");
-        fs::create_dir_all(&trash_dir)?;
-        fs::rename(self.macro_path(id), trash_dir.join(format!("{id}.rly")))?;
+        let (from, to) = (self.macro_path(id), self.trash_path(id));
+        let moved = to.parent().map_or(Ok(()), fs::create_dir_all).and_then(|()| fs::rename(&from, &to));
+        let file = match moved {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound && !from.exists() => {
+                write_atomic(&to, &format::to_rly(&self.entries[position].macro_))
+            }
+            Err(e) => return Err(e.into()),
+        };
         let e = self.entries.remove(position);
+        if file.is_err() {
+            self.unsaved_trash.insert(id, e.macro_.clone());
+        }
         self.trash.insert(id, TrashEntry { position, meta: IndexEntry::of(&e) });
         self.refresh_triggers();
-        Ok(Change::saved(self.save_index()))
+        let index = self.save_index();
+        Ok(Change::saved(file.and(index)))
     }
 
     /// Brings a trashed macro back where it was, with its stats.
     pub fn restore(&mut self, id: Uuid) -> Result<Change, LibraryError> {
         let t = self.trash.get(&id).cloned().ok_or(LibraryError::NotFound(id))?;
-        let from = self.dir.join("macros").join(".trash").join(format!("{id}.rly"));
-        let m = format::from_rly(&fs::read_to_string(&from)?)?;
-        fs::rename(&from, self.macro_path(id))?;
+        let (m, file) = match self.unsaved_trash.remove(&id) {
+            // Its file couldn't be written; try again.
+            Some(m) => {
+                let file = self.write_macro(&m);
+                (m, file)
+            }
+            None => {
+                let from = self.trash_path(id);
+                let m = format::from_rly(&fs::read_to_string(&from)?)?;
+                fs::rename(&from, self.macro_path(id))?;
+                (m, Ok(()))
+            }
+        };
         self.trash.remove(&id);
         let pos = t.position.min(self.entries.len());
         self.entries.insert(pos, Entry::with_stats(m, t.meta.runs, t.meta.last_run, t.meta.triggers()));
         self.refresh_triggers();
-        Ok(Change::saved(self.save_index()))
+        let index = self.save_index();
+        Ok(Change::saved(file.and(index)))
     }
 
     /// Adds imported macros at the top, in order, saving the index once. A
@@ -348,6 +374,10 @@ impl Library {
 
     fn macro_path(&self, id: Uuid) -> PathBuf {
         self.dir.join("macros").join(format!("{id}.rly"))
+    }
+
+    fn trash_path(&self, id: Uuid) -> PathBuf {
+        self.dir.join("macros").join(".trash").join(format!("{id}.rly"))
     }
 
     /// `name`, or `name 2`, `name 3`… if a macro already has it.
@@ -535,6 +565,44 @@ mod tests {
         assert!(lib.get(copy.value).is_none());
         assert!(lib.restore(copy.value).unwrap().saved.is_err());
         assert_eq!(lib.list()[1].id, copy.value);
+    }
+
+    /// A new recording whose file couldn't be written (it's kept until you quit).
+    fn insert_unsaved(dir: &Path, lib: &mut Library) -> Uuid {
+        let rec = Macro::new(lib.next_recording_name(), RecordingMeta::single_1080p(), vec![]);
+        let (id, path) = (rec.id, dir.join("macros").join(format!("{}.rly", rec.id)));
+        fs::create_dir(&path).unwrap();
+        assert!(lib.insert_front(rec).is_err());
+        fs::remove_dir(&path).unwrap();
+        id
+    }
+
+    #[test]
+    fn a_macro_whose_file_was_never_saved_can_be_trashed_and_restored() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut lib, _) = Library::open(dir.path());
+        let id = insert_unsaved(dir.path(), &mut lib);
+        lib.trash(id).unwrap().saved.unwrap();
+        assert!(lib.get(id).is_none());
+        let trashed = dir.path().join("macros/.trash").join(format!("{id}.rly"));
+        assert_eq!(format::from_rly(&fs::read_to_string(&trashed).unwrap()).unwrap().name, "Recording 1");
+        lib.restore(id).unwrap().saved.unwrap();
+        assert_eq!(lib.list()[0].id, id);
+        assert!(dir.path().join("macros").join(format!("{id}.rly")).exists(), "saved at last");
+    }
+
+    #[test]
+    fn a_macro_that_cant_be_written_to_the_trash_is_restored_from_memory() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut lib, _) = Library::open(dir.path());
+        let id = insert_unsaved(dir.path(), &mut lib);
+        fs::create_dir_all(dir.path().join("macros/.trash").join(format!("{id}.rly"))).unwrap();
+        let trashed = lib.trash(id).unwrap();
+        assert!(trashed.saved.is_err(), "reported");
+        assert!(lib.get(id).is_none());
+        lib.restore(id).unwrap().saved.unwrap();
+        assert_eq!(lib.get(id).unwrap().macro_.name, "Recording 1");
+        assert!(dir.path().join("macros").join(format!("{id}.rly")).exists());
     }
 
     /// Changes are kept but library.json isn't written: `index` is what it held.
