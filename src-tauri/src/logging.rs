@@ -3,7 +3,7 @@
 //! (sessions, triggers, errors), never what was typed.
 
 use std::path::Path;
-use std::sync::Mutex;
+use parking_lot::Mutex;
 
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::{Builder, Rotation};

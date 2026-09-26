@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use relay_core::model::{MouseBtn, Rect};
+use relay_core::model::MouseBtn;
 
 /// One low-level input event, as captured by the hook.
 #[derive(Debug, Clone, PartialEq)]
@@ -22,25 +22,29 @@ pub enum RawKind {
     StopKey,
 }
 
-/// What the hook filters. Swapped atomically while the hook runs.
-#[derive(Debug, Clone, Default)]
+/// What a hook session does, fixed for its lifetime.
+#[derive(Debug, Clone)]
 pub struct HookConfig {
-    /// Relay's own window: clicks and wheel events inside it are not recorded.
-    pub own_rect: Option<Rect>,
-    /// Relay's window handle: keys typed while it is focused are not recorded.
-    pub own_window: isize,
-    /// Swallow Esc and report [`RawKind::Escape`] instead.
-    pub swallow_escape: bool,
-    /// Ignore input injected by other programs (and always Relay's own).
+    pub mode: HookMode,
+    /// Ignore input injected by other programs (Relay's own is always ignored).
     pub ignore_injected: bool,
-    /// Virtual keys passed through but not recorded (the control hotkeys).
-    pub drop_vks: Vec<u16>,
-    /// Report input for recording. Off during playback, where the hook only
-    /// watches for Esc and, with `stop_on_key`, any other key.
-    pub record: bool,
-    /// During playback: stop on any physical key press (modifiers excepted,
-    /// so hotkeys like Ctrl + Alt + End still reach their handler).
-    pub stop_on_key: bool,
+}
+
+#[derive(Debug, Clone)]
+pub enum HookMode {
+    /// Report input for a recording.
+    Record {
+        /// Relay's window: clicks and scrolls on it, and keys typed while it
+        /// is in front, are UI, not macro input (0 when there is none).
+        own_window: isize,
+        /// Virtual keys passed through but not recorded (the control hotkeys).
+        skip_vks: Vec<u16>,
+        /// Swallow Esc and report [`RawKind::Escape`] instead of recording it.
+        esc_stops: bool,
+    },
+    /// Playback: report Esc (swallowed) and, with `stop_on_key`, any other key
+    /// but modifiers and `pass_vks` (swallowed too). Nothing is recorded.
+    Watch { stop_on_key: bool, pass_vks: Vec<u16> },
 }
 
 /// Virtual keys currently held, for character translation.

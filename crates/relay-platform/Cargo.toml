@@ -11,11 +11,11 @@ license.workspace = true
 relay-core.workspace = true
 thiserror.workspace = true
 crossbeam-channel = "0.5.17"
-arc-swap = "1.9"
 sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 
 [target.'cfg(windows)'.dependencies]
-# Same major as Tauri's copy, so the app links a single `windows` crate.
+# The latest `windows`: nothing here passes Win32 types to or from Tauri,
+# which pins its own version (see src-tauri/Cargo.toml).
 windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_Graphics_Dwm",

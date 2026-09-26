@@ -1,7 +1,7 @@
 //! A precise, wakeable sleep for the playback thread: a high-resolution
 //! waitable timer gets within a millisecond, then a short spin hits the
 //! deadline. Windows 11 throttles timers of background processes, so the
-//! process opts out of that while playing.
+//! process opts out of that while a timer exists (that is, while playing).
 
 use std::ffi::c_void;
 use std::sync::Arc;
@@ -39,20 +39,39 @@ pub struct WinTimer {
     wake: Arc<Handle>,
 }
 
-pub fn new() -> Box<dyn Timer> {
+/// Opts the process out of (or back into the system's default for) execution
+/// speed and timer resolution throttling.
+fn set_throttling(allowed: bool) {
+    let state = PROCESS_POWER_THROTTLING_STATE {
+        Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+        // With both bits off in ControlMask, Windows decides again.
+        ControlMask: if allowed {
+            0
+        } else {
+            PROCESS_POWER_THROTTLING_EXECUTION_SPEED | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION
+        },
+        StateMask: 0,
+    };
     unsafe {
-        let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
-        let state = PROCESS_POWER_THROTTLING_STATE {
-            Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
-            ControlMask: PROCESS_POWER_THROTTLING_EXECUTION_SPEED | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION,
-            StateMask: 0, // 0 = opted out of both throttlings
-        };
         let _ = SetProcessInformation(
             GetCurrentProcess(),
             ProcessPowerThrottling,
             &state as *const _ as *const c_void,
             size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
         );
+    }
+}
+
+impl Drop for WinTimer {
+    fn drop(&mut self) {
+        set_throttling(true);
+    }
+}
+
+pub fn new() -> Box<dyn Timer> {
+    unsafe {
+        let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+        set_throttling(false);
         let timer = CreateWaitableTimerExW(None, PCWSTR::null(), CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS.0)
             .or_else(|_| CreateWaitableTimerExW(None, PCWSTR::null(), 0, TIMER_ALL_ACCESS.0))
             .expect("CreateWaitableTimerExW");
@@ -62,10 +81,6 @@ pub fn new() -> Box<dyn Timer> {
 }
 
 impl Timer for WinTimer {
-    fn now_ms(&self) -> f64 {
-        now_ms()
-    }
-
     fn wait_until(&mut self, deadline: f64) -> bool {
         loop {
             let left = deadline - now_ms();
@@ -83,6 +98,10 @@ impl Timer for WinTimer {
                     let r = WaitForMultipleObjects(&[self.timer.0, self.wake.0], false, INFINITE);
                     if r.0 == WAIT_OBJECT_0.0 + 1 {
                         return true;
+                    }
+                    if r != WAIT_OBJECT_0 {
+                        // The wait failed: sleep instead of spinning on it.
+                        std::thread::sleep(std::time::Duration::from_micros(((left - SPIN_MS) * 1000.0) as u64));
                     }
                 } else {
                     if WaitForSingleObject(self.wake.0, 0) == WAIT_OBJECT_0 {

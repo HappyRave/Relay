@@ -1,8 +1,7 @@
 //! Edit operations on a macro's events, plus the normalization that keeps
 //! every press balanced.
 
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -17,18 +16,53 @@ use crate::steps::{Step, StepKind, group_steps};
 #[serde(tag = "op", rename_all = "snake_case")]
 #[ts(export)]
 pub enum EditOp {
-    Rename { name: String },
-    DeleteStep { index: u32 },
-    InsertWait { at: Ms, dur: Ms, label: String },
-    InsertPixelWait { at: Ms, dur: Ms, x: i32, y: i32, color: Rgb, tolerance: u8, timeout_ms: Ms, label: String },
-    SetWaitDuration { index: u32, dur: Ms },
-    UpdatePixelWait { index: u32, x: i32, y: i32, color: Rgb, tolerance: u8, timeout_ms: Ms },
-    SetLabel { index: u32, label: String },
+    Rename {
+        name: String,
+    },
+    DeleteStep {
+        index: u32,
+    },
+    InsertWait {
+        at: Ms,
+        dur: Ms,
+        label: String,
+    },
+    InsertPixelWait {
+        at: Ms,
+        dur: Ms,
+        x: i32,
+        y: i32,
+        color: Rgb,
+        tolerance: u8,
+        timeout_ms: Ms,
+        label: String,
+    },
+    SetWaitDuration {
+        index: u32,
+        dur: Ms,
+    },
+    UpdatePixelWait {
+        index: u32,
+        x: i32,
+        y: i32,
+        color: Rgb,
+        tolerance: u8,
+        timeout_ms: Ms,
+    },
+    SetLabel {
+        index: u32,
+        label: String,
+    },
     /// Sets the idle time before a step (see [`Step::pause`]). Cursor moves in
     /// the pause are retimed to fit, and everything after moves with the step.
-    SetPause { index: u32, dur: Ms },
+    SetPause {
+        index: u32,
+        dur: Ms,
+    },
     /// Shortens every pause longer than `max` to `max`.
-    CapPauses { max: Ms },
+    CapPauses {
+        max: Ms,
+    },
 }
 
 #[derive(Debug, Error, PartialEq)]
@@ -40,7 +74,8 @@ pub enum EditError {
 }
 
 pub fn apply(m: &mut Macro, op: EditOp) -> Result<(), EditError> {
-    let steps = group_steps(&m.events, (&m.recording).into());
+    // Every edit but a rename addresses or respects steps.
+    let steps = if matches!(op, EditOp::Rename { .. }) { Vec::new() } else { group_steps(&m.events, (&m.recording).into()) };
     let get = |index: u32| steps.get(index as usize).ok_or(EditError::NoSuchStep(index));
     match op {
         EditOp::Rename { name } => m.name = name,
@@ -62,10 +97,12 @@ pub fn apply(m: &mut Macro, op: EditOp) -> Result<(), EditError> {
         }
 
         EditOp::InsertWait { at, dur, label } => {
+            let dur = dur.min(MAX_DUR);
             insert_timed(&mut m.events, &steps, at, dur, |t| Event::Wait { t, dur, label });
         }
 
         EditOp::InsertPixelWait { at, dur, x, y, color, tolerance, timeout_ms, label } => {
+            let dur = dur.min(MAX_DUR);
             insert_timed(&mut m.events, &steps, at, dur, |t| Event::PixelWait {
                 t,
                 dur,
@@ -84,10 +121,14 @@ pub fn apply(m: &mut Macro, op: EditOp) -> Result<(), EditError> {
             let (StepKind::Wait { dur: old, .. } | StepKind::PixelWait { dur: old, .. }) = step.kind else {
                 return Err(EditError::WrongKind(index));
             };
-            let start = m.events[item].t();
-            shift_from(&mut m.events, step.end, new as i64 - old as i64);
-            // A zero-length wait sits at `step.end`; keep it where it was.
-            *m.events[item].t_mut() = start;
+            let new = new.min(MAX_DUR);
+            // Everything after the wait in the list moves: nothing happens
+            // during a wait, so those are exactly the events after it in time.
+            let delta = new as i64 - old as i64;
+            for e in &mut m.events[item + 1..] {
+                let t = e.t_mut();
+                *t = (*t as i64 + delta).clamp(0, Ms::MAX as i64) as Ms;
+            }
             if let Event::Wait { dur, .. } | Event::PixelWait { dur, .. } = &mut m.events[item] {
                 *dur = new;
             }
@@ -107,7 +148,9 @@ pub fn apply(m: &mut Macro, op: EditOp) -> Result<(), EditError> {
             let step = get(index)?;
             let first = step.items[0] as usize;
             match &mut m.events[first] {
-                Event::Button { label, down: true, .. } | Event::Wait { label, .. } | Event::PixelWait { label, .. } => {
+                Event::Button { label, down: true, .. }
+                | Event::Wait { label, .. }
+                | Event::PixelWait { label, .. } => {
                     *label = new;
                 }
                 _ => return Err(EditError::WrongKind(index)),
@@ -116,36 +159,44 @@ pub fn apply(m: &mut Macro, op: EditOp) -> Result<(), EditError> {
 
         EditOp::SetPause { index, dur } => {
             let step = get(index)?;
-            retime_pause(&mut m.events, step.t - step.pause, step.t, dur);
+            retime_pauses(&mut m.events, &[(step.t - step.pause, step.t, dur.min(MAX_DUR))]);
         }
 
         EditOp::CapPauses { max } => {
-            // Last to first: retiming a pause only moves what comes after it,
-            // so the earlier pauses stay where they were computed.
-            for s in steps.iter().rev().filter(|s| s.pause > max) {
-                retime_pause(&mut m.events, s.t - s.pause, s.t, max);
-            }
+            let long: Vec<_> = steps.iter().filter(|s| s.pause > max).map(|s| (s.t - s.pause, s.t, max)).collect();
+            retime_pauses(&mut m.events, &long);
         }
     }
     m.modified_at = Utc::now();
     Ok(())
 }
 
-/// Turns the pause `from..to` into one of `dur` ms: events inside it (cursor
-/// moves, a shared modifier's release) are scaled to fit, events at or after
-/// `to` shift by the difference. Keeps the events in order.
-fn retime_pause(events: &mut [Event], from: Ms, to: Ms, dur: Ms) {
-    let old = to - from;
-    if old == dur {
-        return;
-    }
+/// The longest wait or pause an edit may set (a day), so times stay far
+/// from overflowing.
+pub const MAX_DUR: Ms = 24 * 60 * 60 * 1000;
+
+/// Gives each pause `from..to` (sorted, not overlapping) a new length `dur`,
+/// in one pass: events inside a pause (cursor moves, a shared modifier's
+/// release) are scaled to fit, events after it shift by the difference.
+/// Monotone, so the events stay in order.
+fn retime_pauses(events: &mut [Event], pauses: &[(Ms, Ms, Ms)]) {
+    let mut shift: i64 = 0; // what the pauses already passed added or removed
+    let mut k = 0;
     for e in events.iter_mut() {
         let t = e.t_mut();
-        if *t >= to {
-            *t = *t - old + dur;
-        } else if *t > from {
-            *t = from + ((*t - from) as u64 * dur as u64 / old as u64) as Ms;
+        let old = *t;
+        while k < pauses.len() && old >= pauses[k].1 {
+            let (from, to, dur) = pauses[k];
+            shift += dur as i64 - (to - from) as i64;
+            k += 1;
         }
+        let new = match pauses.get(k) {
+            Some(&(from, to, dur)) if old > from => {
+                from as i64 + shift + ((old - from) as u64 * dur as u64 / (to - from) as u64) as i64
+            }
+            _ => old as i64 + shift,
+        };
+        *t = new.clamp(0, Ms::MAX as i64) as Ms;
     }
 }
 
@@ -155,7 +206,7 @@ fn retime_pause(events: &mut [Event], from: Ms, to: Ms, dur: Ms) {
 /// insertion there lands after that step.
 fn snap_insertion(steps: &[Step], mut at: Ms) -> Ms {
     while let Some(s) = steps.iter().find(|s| s.t <= at && at <= s.end) {
-        at = s.end + 1;
+        at = s.end.saturating_add(1);
     }
     at
 }
@@ -172,70 +223,76 @@ fn shift_from(events: &mut [Event], from: Ms, delta: i64) {
     for e in events.iter_mut() {
         let t = e.t_mut();
         if *t >= from {
-            *t = (*t as i64 + delta).max(0) as Ms;
+            *t = (*t as i64 + delta).clamp(0, Ms::MAX as i64) as Ms;
         }
     }
 }
 
-#[derive(Hash, PartialEq, Eq, Clone)]
+/// What a key or button event presses: the physical key, or the button.
+#[derive(PartialEq, Clone)]
 enum Press {
-    Key(String),
+    Key(KeyStroke),
     Button(MouseBtn),
+}
+
+impl Press {
+    fn of(e: &Event) -> Option<(Press, bool)> {
+        match e {
+            Event::Key { key, down, .. } => Some((Press::Key(key.clone()), *down)),
+            Event::Button { btn, down, .. } => Some((Press::Button(*btn), *down)),
+            _ => None,
+        }
+    }
+
+    fn same(&self, other: &Press) -> bool {
+        match (self, other) {
+            (Press::Key(a), Press::Key(b)) => a.code == b.code,
+            (Press::Button(a), Press::Button(b)) => a == b,
+            _ => false,
+        }
+    }
 }
 
 /// Sorts events by time, drops releases whose press is missing (it happened
 /// before recording started) and releases anything still held at the end.
 pub fn normalize(events: &mut Vec<Event>) {
     events.sort_by_key(Event::t);
-    let mut held: HashMap<Press, Event> = HashMap::new();
-    let mut order: Vec<Press> = Vec::new();
+    // Presses still held, oldest first (only a handful at any time).
+    let mut held: Vec<Press> = Vec::new();
     let mut cursor = (0, 0);
     events.retain(|e| {
         if let Some(p) = e.pos() {
             cursor = p;
         }
-        let (press, down) = match e {
-            Event::Key { key, down, .. } => (Press::Key(key.code.clone()), *down),
-            Event::Button { btn, down, .. } => (Press::Button(*btn), *down),
-            _ => return true,
+        let Some((press, down)) = Press::of(e) else {
+            return true;
         };
-        if down {
-            match held.entry(press) {
-                // Keys auto-repeat; a second button down without an up is dropped.
-                Entry::Occupied(o) => matches!(o.key(), Press::Key(_)),
-                Entry::Vacant(v) => {
-                    order.push(v.key().clone());
-                    v.insert(e.clone());
-                    true
-                }
+        let at = held.iter().position(|h| h.same(&press));
+        match (down, at) {
+            // Keys auto-repeat; a second button down without an up is dropped.
+            (true, Some(_)) => matches!(press, Press::Key(_)),
+            (true, None) => {
+                held.push(press);
+                true
             }
-        } else {
-            order.retain(|p| p != &press);
-            held.remove(&press).is_some()
+            (false, Some(i)) => {
+                held.remove(i);
+                true
+            }
+            (false, None) => false,
         }
     });
-    let end = events.last().map_or(0, Event::t);
-    for press in order.into_iter().rev() {
-        match held.remove(&press) {
-            Some(Event::Key { key, .. }) => events.push(release_key(end, key)),
-            Some(Event::Button { btn, .. }) => events.push(Event::Button {
-                t: end,
-                x: cursor.0,
-                y: cursor.1,
-                btn,
-                down: false,
-                label: String::new(),
-            }),
-            _ => {}
-        }
+    let t = events.last().map_or(0, Event::t);
+    for press in held.into_iter().rev() {
+        events.push(match press {
+            Press::Key(key) => Event::Key { t, down: false, key, ch: None },
+            Press::Button(btn) => Event::Button { t, x: cursor.0, y: cursor.1, btn, down: false, label: String::new() },
+        });
     }
 }
 
-fn release_key(t: Ms, key: KeyStroke) -> Event {
-    Event::Key { t, down: false, key, ch: None }
-}
-
-/// Checks the invariants edits must preserve; used by tests.
+/// Checks the invariants edits must preserve (for tests).
+#[cfg(test)]
 pub fn check_invariants(events: &[Event]) -> Result<(), String> {
     if !events.windows(2).all(|w| w[0].t() <= w[1].t()) {
         return Err("events are not sorted".into());
@@ -299,7 +356,12 @@ mod tests {
 
     #[test]
     fn deleting_a_shortcut_removes_its_modifiers() {
-        let mut m = mac(vec![key(0, "ControlLeft", true), key(10, "KeyS", true), key(20, "KeyS", false), key(30, "ControlLeft", false)]);
+        let mut m = mac(vec![
+            key(0, "ControlLeft", true),
+            key(10, "KeyS", true),
+            key(20, "KeyS", false),
+            key(30, "ControlLeft", false),
+        ]);
         apply(&mut m, EditOp::DeleteStep { index: 0 }).unwrap();
         assert!(m.events.is_empty());
     }
@@ -351,6 +413,42 @@ mod tests {
         let pauses: Vec<_> = group_steps(&m.events, (&m.recording).into()).iter().map(|s| s.pause).collect();
         assert_eq!(pauses, [0, 1000, 540, 1000]);
         check_invariants(&m.events).unwrap();
+    }
+
+    #[test]
+    fn inserting_inside_a_shortcut_goes_after_its_modifier() {
+        let mut m = mac(vec![
+            key(0, "ControlLeft", true),
+            key(50, "KeyA", true),
+            key(90, "KeyA", false),
+            key(300, "ControlLeft", false),
+        ]);
+        apply(&mut m, EditOp::InsertWait { at: 50, dur: 1000, label: String::new() }).unwrap();
+        assert!(matches!(m.events[4], Event::Wait { t: 301, .. }), "{:?}", m.events);
+        assert_eq!(m.events[3].t(), 300, "Ctrl isn't held through the wait");
+        check_invariants(&m.events).unwrap();
+    }
+
+    #[test]
+    fn a_zero_length_wait_keeps_same_time_events_in_order() {
+        let mut m = mac([click(0).to_vec(), vec![Event::Move { t: 500, x: 1, y: 1 }], click(1000).to_vec()].concat());
+        apply(&mut m, EditOp::InsertWait { at: 500, dur: 0, label: String::new() }).unwrap();
+        let wait = group_steps(&m.events, (&m.recording).into())
+            .iter()
+            .position(|s| matches!(s.kind, StepKind::Wait { .. }))
+            .unwrap();
+        apply(&mut m, EditOp::SetWaitDuration { index: wait as u32, dur: 300 }).unwrap();
+        check_invariants(&m.events).unwrap();
+        assert_eq!(m.events.last().unwrap().t(), 1380);
+    }
+
+    #[test]
+    fn huge_times_and_durations_saturate_instead_of_panicking() {
+        let mut m = mac(vec![Event::Wait { t: Ms::MAX - 10, dur: 1000, label: String::new() }]);
+        let _ = crate::view::MacroView::of(&m);
+        apply(&mut m, EditOp::SetPause { index: 0, dur: Ms::MAX }).unwrap();
+        apply(&mut m, EditOp::SetWaitDuration { index: 0, dur: Ms::MAX }).unwrap();
+        assert!(matches!(m.events[0], Event::Wait { dur: MAX_DUR, .. }));
     }
 
     #[test]

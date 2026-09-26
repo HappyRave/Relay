@@ -1,6 +1,24 @@
 //! PC scan codes (set 1, as reported by Windows) → W3C `code` names. Scan
 //! codes identify the physical key, so the code is the same on every layout.
 
+pub const VK_END: u16 = 0x23;
+/// A key event carrying a UTF-16 unit instead of a key (SendInput Unicode).
+pub const VK_PACKET: u16 = 0xE7;
+pub const VK_PAUSE: u16 = 0x13;
+
+/// Shift, Ctrl, Alt (generic, left and right) and the Windows keys.
+pub fn is_modifier_vk(vk: u16) -> bool {
+    matches!(vk, 0x10..=0x12 | 0xA0..=0xA5 | 0x5B | 0x5C)
+}
+
+pub fn is_ctrl_vk(vk: u16) -> bool {
+    matches!(vk, 0x11 | 0xA2 | 0xA3)
+}
+
+pub fn is_alt_vk(vk: u16) -> bool {
+    matches!(vk, 0x12 | 0xA4 | 0xA5)
+}
+
 /// The W3C code for a scan code, falling back to the virtual key.
 pub fn code(scan: u16, ext: bool, vk: u16) -> String {
     scan_code(scan, ext).map(str::to_string).unwrap_or_else(|| vk_code(vk))
@@ -16,6 +34,7 @@ fn scan_code(scan: u16, ext: bool) -> Option<&'static str> {
         return Some(match scan {
             0x1C => "NumpadEnter",
             0x1D => "ControlRight",
+            0x45 => "NumLock",
             0x35 => "NumpadDivide",
             0x37 => "PrintScreen",
             0x38 => "AltRight",
@@ -63,7 +82,8 @@ fn scan_code(scan: u16, ext: bool) -> Option<&'static str> {
         0x39 => "Space",
         0x3A => "CapsLock",
         0x3B..=0x44 => FKEYS[(scan - 0x3B) as usize],
-        0x45 => "NumLock",
+        // Windows reports Pause as 0x45 and NumLock as extended 0x45.
+        0x45 => "Pause",
         0x46 => "ScrollLock",
         0x47 => "Numpad7",
         0x48 => "Numpad8",
@@ -98,6 +118,9 @@ fn vk_code(vk: u16) -> String {
         0x30..=0x39 => format!("Digit{}", vk as u8 as char),
         0x70..=0x87 => format!("F{}", vk - 0x6F),
         0x08 => "Backspace".into(),
+        0x13 => "Pause".into(),
+        0x90 => "NumLock".into(),
+        0x91 => "ScrollLock".into(),
         0x09 => "Tab".into(),
         0x0D => "Enter".into(),
         0x1B => "Escape".into(),
@@ -140,6 +163,8 @@ mod tests {
         assert_eq!(code(0x4B, false, 0x64), "Numpad4");
         assert_eq!(code(0x43, false, 0x78), "F9");
         assert_eq!(code(0x5B, true, 0x5B), "MetaLeft");
+        assert_eq!(code(0x45, true, 0x90), "NumLock");
+        assert_eq!(code(0x45, false, 0x13), "Pause");
     }
 
     #[test]
@@ -147,6 +172,7 @@ mod tests {
         assert_eq!(scan_for_code("KeyA"), Some((0x1E, false)));
         assert_eq!(scan_for_code("ArrowLeft"), Some((0x4B, true)));
         assert_eq!(scan_for_code("ControlRight"), Some((0x1D, true)));
+        assert_eq!(scan_for_code("NumLock"), Some((0x45, true)));
         assert_eq!(scan_for_code("Unidentified"), None);
     }
 

@@ -3,7 +3,7 @@
 //! and no focus stealing during sessions.
 
 use std::path::PathBuf;
-use std::sync::Mutex;
+use parking_lot::Mutex;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -53,11 +53,11 @@ impl WindowState {
     }
 
     pub fn prefs(&self) -> WindowPrefs {
-        self.prefs.lock().unwrap().clone()
+        self.prefs.lock().clone()
     }
 
     fn save(&self) {
-        let body = serde_json::to_string_pretty(&*self.prefs.lock().unwrap()).expect("prefs serialize");
+        let body = serde_json::to_string_pretty(&*self.prefs.lock()).expect("prefs serialize");
         let _ = write_atomic(&self.path, &body);
     }
 }
@@ -110,20 +110,20 @@ pub fn place(window: &WebviewWindow, state: &WindowState, css: (f64, f64)) -> Op
 
     set_client_rect(window, x, y, w, h);
     let used = (x + w / 2, y + h);
-    state.prefs.lock().unwrap().anchor = Some(used);
-    *state.size.lock().unwrap() = css;
+    state.prefs.lock().anchor = Some(used);
+    *state.size.lock() = css;
     Some(used)
 }
 
 /// Called by the UI when the widget's size changes (switching compact/expanded).
 pub fn fit(window: &WebviewWindow, state: &WindowState, css: (f64, f64), expanded: bool) {
     let changed = {
-        let mut p = state.prefs.lock().unwrap();
+        let mut p = state.prefs.lock();
         let changed = p.expanded != expanded;
         p.expanded = expanded;
         changed
     };
-    if *state.size.lock().unwrap() != css || changed {
+    if *state.size.lock() != css || changed {
         place(window, state, css);
         state.save();
     }
@@ -131,18 +131,28 @@ pub fn fit(window: &WebviewWindow, state: &WindowState, css: (f64, f64), expande
 
 /// Re-places the window at its current size (monitor or scaling changes).
 pub fn replace(window: &WebviewWindow, state: &WindowState) {
-    let css = *state.size.lock().unwrap();
+    let css = *state.size.lock();
     place(window, state, css);
+}
+
+/// Closing the widget (its × or Alt+F4): hides it to the tray when *Close to
+/// tray* is on. Returns whether it hid it; if not, the caller quits.
+pub fn close_or_hide(window: &WebviewWindow) -> bool {
+    let to_tray = window.app_handle().state::<Mutex<crate::settings::SettingsStore>>().lock().current.close_to_tray;
+    if to_tray {
+        let _ = window.hide();
+    }
+    to_tray
 }
 
 /// Tracks the widget's bottom-center while the user drags it; saved shortly after it stops.
 pub fn on_moved(window: &WebviewWindow, state: &WindowState) {
     let (Ok(pos), Ok(size)) = (window.inner_position(), window.inner_size()) else { return };
     let anchor = (pos.x + size.width as i32 / 2, pos.y + size.height as i32);
-    let mut p = state.prefs.lock().unwrap();
+    let mut p = state.prefs.lock();
     if p.anchor != Some(anchor) {
         p.anchor = Some(anchor);
-        *state.dirty.lock().unwrap() = Some(Instant::now());
+        *state.dirty.lock() = Some(Instant::now());
     }
 }
 
@@ -151,9 +161,9 @@ pub fn spawn_autosave(app: AppHandle) {
     std::thread::spawn(move || loop {
         std::thread::sleep(Duration::from_millis(250));
         let state = app.state::<WindowState>();
-        let due = state.dirty.lock().unwrap().is_some_and(|t| t.elapsed() >= Duration::from_millis(500));
+        let due = state.dirty.lock().is_some_and(|t| t.elapsed() >= Duration::from_millis(500));
         if due {
-            *state.dirty.lock().unwrap() = None;
+            *state.dirty.lock() = None;
             state.save();
         }
     });

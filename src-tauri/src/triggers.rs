@@ -5,7 +5,9 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 use std::time::Duration;
 
 use chrono::{DateTime, Local, TimeDelta};
@@ -47,15 +49,15 @@ pub fn next_scheduled(t: &MacroTriggers, now: DateTime<Local>) -> Option<DateTim
     t.schedule.enabled.then(|| next_run(&now, &t.schedule.schedule)).flatten()
 }
 
-fn snapshot(app: &AppHandle) -> Vec<(Uuid, MacroTriggers)> {
-    app.state::<Mutex<Library>>().lock().unwrap().all_triggers()
+/// Every macro's triggers (shared, not copied: the library rebuilds it on change).
+fn snapshot(app: &AppHandle) -> Arc<[(Uuid, MacroTriggers)]> {
+    app.state::<Mutex<Library>>().lock().all_triggers()
 }
 
+/// Asks the coordinator to run the macro; it decides whether it can.
 fn fire(app: &AppHandle, id: Uuid, source: RunSource) {
-    if !app.state::<TriggerState>().paused() {
-        tracing::info!(%id, ?source, "trigger fired");
-        app.state::<CoordinatorHandle>().send(Cmd::RunMacro { id, source });
-    }
+    tracing::info!(%id, ?source, "trigger due");
+    app.state::<CoordinatorHandle>().send(Cmd::RunMacro { id, source });
 }
 
 pub fn spawn(app: AppHandle, platform: Arc<Platform>) {
@@ -76,11 +78,11 @@ fn schedule_loop(app: AppHandle) {
     loop {
         std::thread::sleep(SCHEDULE_TICK);
         let now = Local::now();
-        for (id, t) in snapshot(&app) {
-            let Some(due) = next_scheduled(&t, last) else { continue };
+        for (id, t) in snapshot(&app).iter() {
+            let Some(due) = next_scheduled(t, last) else { continue };
             if due <= now {
                 if now - due <= MISSED_AFTER {
-                    fire(&app, id, RunSource::Schedule);
+                    fire(&app, *id, RunSource::Schedule);
                 } else {
                     tracing::info!(%id, %due, "skipped a missed scheduled run");
                 }
@@ -95,9 +97,9 @@ fn app_launch_loop(app: AppHandle) {
     let mut edges: HashMap<(Uuid, String), ProcessLaunchEdge> = HashMap::new();
     loop {
         let wanted: Vec<(Uuid, String, u32)> = snapshot(&app)
-            .into_iter()
+            .iter()
             .filter(|(_, t)| t.app_launch.enabled && !t.app_launch.exe.trim().is_empty())
-            .map(|(id, t)| (id, t.app_launch.exe.trim().to_lowercase(), t.app_launch.delay_ms))
+            .map(|(id, t)| (*id, t.app_launch.exe.trim().to_lowercase(), t.app_launch.delay_ms))
             .collect();
         if !wanted.is_empty() {
             let running = watcher.running();
@@ -124,18 +126,21 @@ fn pixel_loop(app: AppHandle, platform: Arc<Platform>) {
     let mut edges: HashMap<Uuid, (PixelEdge, (i32, i32))> = HashMap::new();
     loop {
         std::thread::sleep(PIXEL_POLL);
-        let wanted: Vec<_> = snapshot(&app).into_iter().filter(|(_, t)| t.pixel.enabled).collect();
+        let all = snapshot(&app);
+        let wanted: Vec<_> = all.iter().filter(|(_, t)| t.pixel.enabled).collect();
         edges.retain(|id, _| wanted.iter().any(|(w, _)| w == id));
         for (id, t) in wanted {
             let p = &t.pixel;
-            let entry = edges.entry(id).or_insert_with(|| (PixelEdge::new(), (p.x, p.y)));
+            let entry = edges.entry(*id).or_insert_with(|| (PixelEdge::new(), (p.x, p.y)));
             if entry.1 != (p.x, p.y) {
                 // Moved to another pixel: start over rather than fire on a stale edge.
                 *entry = (PixelEdge::new(), (p.x, p.y));
             }
-            let matches = platform.screen.pixel(p.x, p.y).is_some_and(|c| c.within(p.color, p.tolerance));
-            if entry.0.update(matches) {
-                fire(&app, id, RunSource::Pixel);
+            // An unreadable screen (locked, a UAC prompt) is no sample at all:
+            // counting it as "doesn't match" would re-arm the edge.
+            let Some(color) = platform.screen.pixel(p.x, p.y) else { continue };
+            if entry.0.update(color.within(p.color, p.tolerance)) {
+                fire(&app, *id, RunSource::Pixel);
             }
         }
     }

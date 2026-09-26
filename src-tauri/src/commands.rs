@@ -1,26 +1,31 @@
 //! Tauri commands the UI calls. Each returns `Result<_, IpcError>` so the UI
 //! gets a machine-readable code alongside the message.
+//!
+//! Commands that write files run off the main thread (`async`), so a slow
+//! disk never stalls the window, the tray or the hotkeys. When saving a
+//! change fails, the change is kept in memory and the user is told; the
+//! command still succeeds, so the UI shows what Relay actually holds.
 
-use std::sync::{Arc, Mutex};
+use std::path::Path;
+use std::sync::Arc;
 
+use parking_lot::Mutex;
 use relay_core::model::{PlaybackOptions, Rgb};
+use relay_core::session::{FinishReason, Input};
+use relay_core::{EditOp, Macro, MacroListItem, MacroView, format};
 use relay_platform::Platform;
-use relay_core::session::Input;
-use relay_core::{EditOp, MacroListItem, MacroView, format};
 use serde::{Deserialize, Serialize};
-use tauri::{Manager, State};
 use tauri::ipc::Channel;
+use tauri::{AppHandle, Manager, State};
 use ts_rs::TS;
 use uuid::Uuid;
 
-use crate::coordinator::{Cmd, CoordinatorHandle};
+use crate::coordinator::{Cmd, CoordinatorHandle, SessionMode};
+use crate::history::{EditHistory, Snapshot};
+use crate::hotkeys;
 use crate::ipc::{EngineMsg, Emitter};
-use crate::coordinator::SessionMode;
-use crate::history::EditHistory;
 use crate::library::{Library, LibraryError};
 use crate::settings::{Settings, SettingsStore};
-
-type LibraryState<'a> = State<'a, Mutex<Library>>;
 
 #[derive(Debug, Serialize)]
 pub struct IpcError {
@@ -56,6 +61,17 @@ impl From<relay_core::EditError> for IpcError {
 
 type Result<T> = std::result::Result<T, IpcError>;
 
+fn library(app: &AppHandle) -> State<'_, Mutex<Library>> {
+    app.state::<Mutex<Library>>()
+}
+
+/// Reports a failed save; the change itself stays (see the module docs).
+fn report_unsaved(app: &AppHandle, r: std::io::Result<()>) {
+    if let Err(e) = r {
+        app.state::<Arc<Emitter>>().error(format!("Couldn't save the change: {e}. It's kept until you quit."));
+    }
+}
+
 // — session —
 
 #[tauri::command]
@@ -75,7 +91,7 @@ pub fn toggle_play(c: State<'_, CoordinatorHandle>, from: f64) {
 
 #[tauri::command]
 pub fn stop_session(c: State<'_, CoordinatorHandle>) {
-    c.send(Cmd::Input(Input::Stop));
+    c.send(Cmd::Input(Input::Stop(FinishReason::Stopped)));
 }
 
 #[tauri::command]
@@ -86,12 +102,12 @@ pub fn seek(c: State<'_, CoordinatorHandle>, t: f64) {
 // — library —
 
 #[tauri::command]
-pub fn list_macros(lib: LibraryState<'_>) -> Vec<MacroListItem> {
-    lib.lock().unwrap().list()
+pub fn list_macros(lib: State<'_, Mutex<Library>>) -> Vec<MacroListItem> {
+    lib.lock().list()
 }
 
 /// The UI's view of a macro, with whether it has edits to undo or redo.
-fn view_of(m: &relay_core::Macro, history: &EditHistory) -> MacroView {
+fn view_of(m: &Macro, history: &EditHistory) -> MacroView {
     let mut view = MacroView::of(m);
     (view.can_undo, view.can_redo) = history.status(m.id);
     view
@@ -99,78 +115,81 @@ fn view_of(m: &relay_core::Macro, history: &EditHistory) -> MacroView {
 
 #[tauri::command]
 pub fn load_macro(
-    lib: LibraryState<'_>,
+    lib: State<'_, Mutex<Library>>,
     history: State<'_, EditHistory>,
     c: State<'_, CoordinatorHandle>,
     id: Uuid,
 ) -> Result<MacroView> {
-    let lib = lib.lock().unwrap();
+    let lib = lib.lock();
     let entry = lib.get(id).ok_or(IpcError::not_found(id))?;
     c.send(Cmd::Select(id));
     Ok(view_of(&entry.macro_, &history))
 }
 
-#[tauri::command]
-pub fn edit_macro(lib: LibraryState<'_>, history: State<'_, EditHistory>, id: Uuid, op: EditOp) -> Result<MacroView> {
-    let mut lib = lib.lock().unwrap();
+#[tauri::command(async)]
+pub fn edit_macro(app: AppHandle, id: Uuid, op: EditOp) -> Result<MacroView> {
+    let history = app.state::<EditHistory>();
+    let lib = library(&app);
+    let mut lib = lib.lock();
     let entry = lib.get_mut(id).ok_or(IpcError::not_found(id))?;
-    let before = entry.macro_.clone();
+    let before = Snapshot::before(&entry.macro_, &op);
     relay_core::edit::apply(&mut entry.macro_, op.clone())?;
-    history.record(id, &before, &op);
+    history.record(id, before, &op);
     let view = view_of(&entry.macro_, &history);
-    lib.save(id).map_err(IpcError::io)?;
+    report_unsaved(&app, lib.save(id));
     Ok(view)
 }
 
 /// Reverts the macro's last edit (`redo: false`) or re-applies the last undone one.
-#[tauri::command]
-pub fn undo_edit(lib: LibraryState<'_>, history: State<'_, EditHistory>, id: Uuid, redo: bool) -> Result<MacroView> {
-    let mut lib = lib.lock().unwrap();
+#[tauri::command(async)]
+pub fn undo_edit(app: AppHandle, id: Uuid, redo: bool) -> Result<MacroView> {
+    let history = app.state::<EditHistory>();
+    let lib = library(&app);
+    let mut lib = lib.lock();
     let entry = lib.get_mut(id).ok_or(IpcError::not_found(id))?;
     let changed = if redo { history.redo(id, &mut entry.macro_) } else { history.undo(id, &mut entry.macro_) };
     let view = view_of(&entry.macro_, &history);
     if changed {
-        lib.save(id).map_err(IpcError::io)?;
+        report_unsaved(&app, lib.save(id));
     }
     Ok(view)
 }
 
-#[tauri::command]
-pub fn set_playback_options(
-    lib: LibraryState<'_>,
-    history: State<'_, EditHistory>,
-    c: State<'_, CoordinatorHandle>,
-    id: Uuid,
-    options: PlaybackOptions,
-) -> Result<MacroView> {
-    let mut lib = lib.lock().unwrap();
+#[tauri::command(async)]
+pub fn set_playback_options(app: AppHandle, id: Uuid, options: PlaybackOptions) -> Result<MacroView> {
+    let lib = library(&app);
+    let mut lib = lib.lock();
     let entry = lib.get_mut(id).ok_or(IpcError::not_found(id))?;
     if entry.macro_.playback.speed != options.speed {
-        c.send(Cmd::Speed(options.speed as f64));
+        app.state::<CoordinatorHandle>().send(Cmd::Speed { id, speed: options.speed as f64 });
     }
     entry.macro_.playback = options;
-    let view = view_of(&entry.macro_, &history);
-    lib.save(id).map_err(IpcError::io)?;
+    let view = view_of(&entry.macro_, &app.state::<EditHistory>());
+    report_unsaved(&app, lib.save(id));
     Ok(view)
 }
 
-#[tauri::command]
-pub fn duplicate_macro(lib: LibraryState<'_>, id: Uuid) -> Result<Uuid> {
-    Ok(lib.lock().unwrap().duplicate(id)?)
+#[tauri::command(async)]
+pub fn duplicate_macro(app: AppHandle, id: Uuid) -> Result<Uuid> {
+    Ok(library(&app).lock().duplicate(id)?)
 }
 
 /// Moves a macro to the trash; it can be restored with [`restore_macro`].
-#[tauri::command]
-pub fn delete_macro(lib: LibraryState<'_>, mode: State<'_, SessionMode>, id: Uuid) -> Result<()> {
-    if !mode.is_idle() {
+#[tauri::command(async)]
+pub fn delete_macro(app: AppHandle, id: Uuid) -> Result<()> {
+    if !app.state::<SessionMode>().is_idle() {
         return Err(IpcError { code: "busy", message: "Stop the recording or playback first".into() });
     }
-    Ok(lib.lock().unwrap().trash(id)?)
+    library(&app).lock().trash(id)?;
+    hotkeys::refresh(&app); // its hotkey goes with it
+    Ok(())
 }
 
-#[tauri::command]
-pub fn restore_macro(lib: LibraryState<'_>, id: Uuid) -> Result<()> {
-    Ok(lib.lock().unwrap().restore(id)?)
+#[tauri::command(async)]
+pub fn restore_macro(app: AppHandle, id: Uuid) -> Result<()> {
+    library(&app).lock().restore(id)?;
+    hotkeys::refresh(&app); // and its hotkey comes back
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -190,15 +209,15 @@ fn export_body(lib: &Library, id: Uuid, format: ExportFormat) -> Result<String> 
 
 /// The file contents for an export (the browser preview downloads these).
 #[tauri::command]
-pub fn export_text(lib: LibraryState<'_>, id: Uuid, format: ExportFormat) -> Result<String> {
-    export_body(&lib.lock().unwrap(), id, format)
+pub fn export_text(lib: State<'_, Mutex<Library>>, id: Uuid, format: ExportFormat) -> Result<String> {
+    export_body(&lib.lock(), id, format)
 }
 
 /// Writes an export to `path` (chosen by the user in the save dialog).
-#[tauri::command]
-pub fn export_macro(lib: LibraryState<'_>, id: Uuid, format: ExportFormat, path: String) -> Result<()> {
-    let body = export_body(&lib.lock().unwrap(), id, format)?;
-    crate::storage::write_atomic(std::path::Path::new(&path), &body).map_err(IpcError::io)
+#[tauri::command(async)]
+pub fn export_macro(app: AppHandle, id: Uuid, format: ExportFormat, path: String) -> Result<()> {
+    let body = export_body(&library(&app).lock(), id, format)?;
+    crate::storage::write_atomic(Path::new(&path), &body).map_err(IpcError::io)
 }
 
 #[derive(Debug, Serialize, TS)]
@@ -211,21 +230,30 @@ pub struct ImportResult {
 
 /// Imports `.rly` files (and Relay `.json` exports). Each file is independent:
 /// a broken one is reported and the rest still import.
-#[tauri::command]
-pub fn import_macros(lib: LibraryState<'_>, paths: Vec<String>) -> ImportResult {
-    let mut lib = lib.lock().unwrap();
-    let mut out = ImportResult { imported: Vec::new(), problems: Vec::new() };
-    for path in paths {
-        let name = std::path::Path::new(&path).file_name().map_or(path.clone(), |n| n.to_string_lossy().into_owned());
-        let parsed = std::fs::read_to_string(&path)
-            .map_err(|e| e.to_string())
-            .and_then(|s| format::from_rly(&s).map_err(|e| e.to_string()));
-        match parsed.map(|m| lib.import(m).map_err(|e| e.to_string())) {
-            Ok(Ok(id)) => out.imported.push(id),
-            Ok(Err(e)) | Err(e) => out.problems.push(format!("{name}: {e}")),
+#[tauri::command(async)]
+pub fn import_macros(app: AppHandle, paths: Vec<String>) -> ImportResult {
+    let mut problems = Vec::new();
+    // Read and parse without holding the library.
+    let macros: Vec<Macro> = paths
+        .iter()
+        .filter_map(|path| {
+            let name = Path::new(path).file_name().map_or(path.clone(), |n| n.to_string_lossy().into_owned());
+            std::fs::read_to_string(path)
+                .map_err(|e| e.to_string())
+                .and_then(|s| format::from_rly(&s).map_err(|e| e.to_string()))
+                .map_err(|e| problems.push(format!("{name}: {e}")))
+                .ok()
+        })
+        .collect();
+    let imported = match library(&app).lock().import(macros) {
+        Ok(ids) => ids,
+        Err(e) => {
+            problems.push(e.to_string());
+            Vec::new()
         }
-    }
-    out
+    };
+    hotkeys::refresh(&app);
+    ImportResult { imported, problems }
 }
 
 // — screen —
@@ -275,48 +303,38 @@ pub struct TriggerStatus {
     pub paused: bool,
 }
 
-fn trigger_status(app: &tauri::AppHandle, id: Uuid) -> Result<TriggerStatus> {
-    let lib = app.state::<Mutex<Library>>();
-    let lib = lib.lock().unwrap();
-    let triggers = lib.get(id).ok_or(IpcError::not_found(id))?.triggers.clone();
+fn trigger_status(app: &AppHandle, id: Uuid) -> Result<TriggerStatus> {
+    // Copy the triggers out first: the hotkey state isn't read under the library lock.
+    let triggers = library(app).lock().get(id).ok_or(IpcError::not_found(id))?.triggers.clone();
     Ok(TriggerStatus {
         next_run: crate::triggers::next_scheduled(&triggers, chrono::Local::now()).map(|t| t.to_rfc3339()),
-        hotkey_error: triggers.hotkey.enabled.then(|| app.state::<crate::hotkeys::MacroHotkeys>().error(id)).flatten(),
+        hotkey_error: triggers.hotkey.enabled.then(|| app.state::<hotkeys::Hotkeys>().error(id)).flatten(),
         paused: app.state::<crate::triggers::TriggerState>().paused(),
         triggers,
     })
 }
 
-#[tauri::command]
-pub fn get_triggers(app: tauri::AppHandle, id: Uuid) -> Result<TriggerStatus> {
+#[tauri::command(async)]
+pub fn get_triggers(app: AppHandle, id: Uuid) -> Result<TriggerStatus> {
     trigger_status(&app, id)
 }
 
 /// Saves a macro's triggers. A hotkey that can't work (clashes with Relay's
 /// own or another macro's) is refused; one another app owns is saved and
-/// reported in `hotkey_error`.
-#[tauri::command]
-pub fn set_triggers(
-    app: tauri::AppHandle,
-    mode: State<'_, SessionMode>,
-    id: Uuid,
-    triggers: relay_core::triggers::MacroTriggers,
-) -> Result<TriggerStatus> {
+/// reported in `hotkey_error`, which is current when this returns.
+#[tauri::command(async)]
+pub fn set_triggers(app: AppHandle, id: Uuid, triggers: relay_core::triggers::MacroTriggers) -> Result<TriggerStatus> {
     {
-        let lib = app.state::<Mutex<Library>>();
-        let mut lib = lib.lock().unwrap();
+        let lib = library(&app);
+        let mut lib = lib.lock();
         if triggers.hotkey.enabled
-            && let Some(why) = crate::hotkeys::conflict(&lib, id, &triggers.hotkey.combo)
+            && let Some(why) = hotkeys::conflict(&lib, id, &triggers.hotkey.combo)
         {
             return Err(IpcError { code: "hotkey", message: why });
         }
         lib.set_triggers(id, triggers)?;
     }
-    // Macro hotkeys are only registered while idle; a session re-registers them when it ends.
-    if mode.is_idle() {
-        let emit = app.state::<Arc<Emitter>>();
-        crate::hotkeys::apply(&app, relay_core::session::HotkeySet::Idle, &emit);
-    }
+    hotkeys::refresh_and_wait(&app);
     trigger_status(&app, id)
 }
 
@@ -326,7 +344,7 @@ pub fn set_triggers_paused(c: State<'_, CoordinatorHandle>, paused: bool) {
 }
 
 /// Running apps, for the "When app launches" picker.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_processes() -> Vec<String> {
     let mut names: Vec<String> = relay_platform::processes::ProcessWatcher::new().running().into_iter().collect();
     names.sort();
@@ -334,13 +352,13 @@ pub fn list_processes() -> Vec<String> {
 }
 
 #[tauri::command]
-pub fn get_autostart(app: tauri::AppHandle) -> bool {
+pub fn get_autostart(app: AppHandle) -> bool {
     use tauri_plugin_autostart::ManagerExt;
     app.autolaunch().is_enabled().unwrap_or(false)
 }
 
 #[tauri::command]
-pub fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<bool> {
+pub fn set_autostart(app: AppHandle, enabled: bool) -> Result<bool> {
     use tauri_plugin_autostart::ManagerExt;
     let al = app.autolaunch();
     let r = if enabled { al.enable() } else { al.disable() };
@@ -352,7 +370,13 @@ pub fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<bool> {
 
 /// The UI measured the widget at this size (CSS px); fit the window around it.
 #[tauri::command]
-pub fn fit_window(window: tauri::WebviewWindow, state: State<'_, crate::window_ctl::WindowState>, width: f64, height: f64, expanded: bool) {
+pub fn fit_window(
+    window: tauri::WebviewWindow,
+    state: State<'_, crate::window_ctl::WindowState>,
+    width: f64,
+    height: f64,
+    expanded: bool,
+) {
     crate::window_ctl::fit(&window, &state, (width, height), expanded);
 }
 
@@ -367,18 +391,16 @@ pub fn window_prefs(state: State<'_, crate::window_ctl::WindowState>) -> WindowP
     WindowPrefsView { expanded: state.prefs().expanded }
 }
 
+/// The close button: like closing the window (see `window_ctl::close_or_hide`).
 #[tauri::command]
-pub fn hide_to_tray(window: tauri::WebviewWindow, s: State<'_, Mutex<SettingsStore>>) {
-    // Without the tray option the close button quits, like a normal window.
-    if s.lock().unwrap().current.close_to_tray {
-        let _ = window.hide();
-    } else {
+pub fn hide_to_tray(window: tauri::WebviewWindow) {
+    if !crate::window_ctl::close_or_hide(&window) {
         window.app_handle().exit(0);
     }
 }
 
 #[tauri::command]
-pub fn quit(app: tauri::AppHandle) {
+pub fn quit(app: AppHandle) {
     app.exit(0);
 }
 
@@ -386,18 +408,18 @@ pub fn quit(app: tauri::AppHandle) {
 
 #[tauri::command]
 pub fn get_settings(s: State<'_, Mutex<SettingsStore>>) -> Settings {
-    s.lock().unwrap().current.clone()
+    s.lock().current.clone()
 }
 
-#[tauri::command]
-pub fn update_settings(
-    window: tauri::WebviewWindow,
-    s: State<'_, Mutex<SettingsStore>>,
-    mode: State<'_, SessionMode>,
-    settings: Settings,
-) -> Result<Settings> {
-    let mut s = s.lock().unwrap();
-    s.set(settings).map_err(IpcError::io)?;
-    crate::window_ctl::apply_on_top(&window, s.current.keep_on_top, !mode.is_idle());
-    Ok(s.current.clone())
+#[tauri::command(async)]
+pub fn update_settings(app: AppHandle, window: tauri::WebviewWindow, settings: Settings) -> Result<Settings> {
+    let current = {
+        let s = app.state::<Mutex<SettingsStore>>();
+        let mut s = s.lock();
+        report_unsaved(&app, s.set(settings));
+        s.current.clone()
+    };
+    // Not under the settings lock: this calls into the main thread.
+    crate::window_ctl::apply_on_top(&window, current.keep_on_top, !app.state::<SessionMode>().is_idle());
+    Ok(current)
 }

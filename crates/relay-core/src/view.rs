@@ -75,17 +75,3 @@ pub struct MacroListItem {
     pub last_run: Option<DateTime<Utc>>,
     pub hotkey: Option<String>,
 }
-
-impl MacroListItem {
-    pub fn of(m: &Macro, runs: u32, last_run: Option<DateTime<Utc>>, hotkey: Option<String>) -> Self {
-        MacroListItem {
-            id: m.id,
-            name: m.name.clone(),
-            duration: timeline::duration(&m.events),
-            step_count: group_steps(&m.events, (&m.recording).into()).len() as u32,
-            runs,
-            last_run,
-            hotkey,
-        }
-    }
-}

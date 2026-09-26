@@ -75,9 +75,11 @@ impl RecThread {
         RecThread { stop, thread }
     }
 
-    pub fn finish(self) -> Recording {
+    /// Stops recording and returns what was recorded; `None` if the
+    /// recorder thread panicked.
+    pub fn finish(self) -> Option<Recording> {
         let _ = self.stop.send(());
-        self.thread.join().expect("recorder thread panicked")
+        self.thread.join().ok()
     }
 }
 

@@ -1,7 +1,7 @@
 //! The session stream from Rust to the UI. The UI subscribes once with a
 //! Tauri `Channel`; everything session-related arrives on it in order.
 
-use std::sync::Mutex;
+use parking_lot::Mutex;
 
 use relay_core::model::Rect;
 use relay_core::session::{FinishReason, Mode};
@@ -45,11 +45,11 @@ pub struct Emitter(Mutex<Option<Channel<EngineMsg>>>);
 impl Emitter {
     /// Replaces the subscriber (a reloaded UI subscribes again).
     pub fn subscribe(&self, channel: Channel<EngineMsg>) {
-        *self.0.lock().unwrap() = Some(channel);
+        *self.0.lock() = Some(channel);
     }
 
     pub fn send(&self, msg: EngineMsg) {
-        if let Some(c) = self.0.lock().unwrap().as_ref() {
+        if let Some(c) = self.0.lock().as_ref() {
             let _ = c.send(msg);
         }
     }

@@ -5,7 +5,11 @@ use std::sync::atomic::{AtomicIsize, Ordering};
 use relay_core::model::WindowInfo;
 use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND, LPARAM, POINT, RECT};
 use windows::Win32::Graphics::Dwm::{DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute};
-use windows::Win32::Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation};
+use windows::Win32::Security::{
+    GetSidSubAuthority, GetSidSubAuthorityCount, GetTokenInformation, TOKEN_MANDATORY_LABEL, TOKEN_QUERY,
+    TokenIntegrityLevel,
+};
+use windows::Win32::System::SystemServices::SECURITY_MANDATORY_HIGH_RID;
 use windows::Win32::System::Threading::{
     GetCurrentProcess, GetCurrentProcessId, OpenProcess, OpenProcessToken, PROCESS_NAME_WIN32,
     PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
@@ -13,7 +17,7 @@ use windows::Win32::System::Threading::{
 use windows::Win32::UI::Accessibility::{HWINEVENTHOOK, SetWinEventHook};
 use windows::Win32::UI::WindowsAndMessaging::{
     DispatchMessageW, EVENT_SYSTEM_FOREGROUND, EnumWindows, GA_ROOT, GW_HWNDNEXT, GWL_EXSTYLE, GetAncestor,
-    GetClassNameW, GetForegroundWindow, GetMessageW, GetWindow, GetWindowLongPtrW, GetWindowTextW,
+    GetClassNameW, GetForegroundWindow, GetMessageW, GetWindow, GetWindowLongPtrW, GetWindowRect, GetWindowTextW,
     GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, MSG, SetForegroundWindow, TranslateMessage,
     WINEVENT_OUTOFCONTEXT, WS_EX_TOOLWINDOW, WindowFromPoint,
 };
@@ -46,7 +50,7 @@ impl WinWindows {
             std::thread::Builder::new()
                 .name("relay-foreground".into())
                 .spawn(|| unsafe {
-                    let _hook = SetWinEventHook(
+                    let hook = SetWinEventHook(
                         EVENT_SYSTEM_FOREGROUND,
                         EVENT_SYSTEM_FOREGROUND,
                         None,
@@ -55,6 +59,10 @@ impl WinWindows {
                         0,
                         WINEVENT_OUTOFCONTEXT,
                     );
+                    if hook.is_invalid() {
+                        // restore_previous falls back to the z-order.
+                        return;
+                    }
                     let mut msg = MSG::default();
                     while GetMessageW(&mut msg, None, 0, 0).as_bool() {
                         let _ = TranslateMessage(&msg);
@@ -88,14 +96,23 @@ fn frame_of(hwnd: HWND) -> Option<RECT> {
 }
 
 fn info_of(hwnd: HWND) -> Option<WindowInfo> {
+    let frame = frame_of(hwnd).or_else(|| {
+        let mut r = RECT::default();
+        unsafe { GetWindowRect(hwnd, &mut r) }.ok().map(|_| r)
+    })?;
     let mut title = [0u16; 512];
     let t = unsafe { GetWindowTextW(hwnd, &mut title) } as usize;
     Some(WindowInfo {
         exe: exe_name(pid_of(hwnd)).unwrap_or_default(),
         class: class_of(hwnd),
         title: String::from_utf16_lossy(&title[..t]),
-        rect: rect(frame_of(hwnd)?),
+        rect: rect(frame),
     })
+}
+
+/// Brings `hwnd` to the front; `None` if Windows refused.
+fn activate(hwnd: HWND) -> Option<WindowRef> {
+    unsafe { SetForegroundWindow(hwnd) }.as_bool().then(|| WindowRef { hwnd: hwnd.0 as isize, pid: pid_of(hwnd) })
 }
 
 /// A window the user could have been working in: visible, not minimized,
@@ -134,19 +151,20 @@ impl WindowQuery for WinWindows {
     fn restore_previous(&self, own: isize) -> Option<WindowRef> {
         let me = unsafe { GetCurrentProcessId() };
         let last = HWND(LAST_EXTERNAL.load(Ordering::Relaxed) as _);
-        if !last.is_invalid() && unsafe { IsWindow(Some(last)) }.as_bool() && is_app_window(last) {
-            unsafe {
-                let _ = SetForegroundWindow(last);
-            }
-            return Some(WindowRef { hwnd: last.0 as isize, pid: pid_of(last) });
+        if !last.is_invalid()
+            && unsafe { IsWindow(Some(last)) }.as_bool()
+            && is_app_window(last)
+            && let Some(w) = activate(last)
+        {
+            return Some(w);
         }
         let mut h = unsafe { GetWindow(HWND(own as _), GW_HWNDNEXT) }.ok()?;
         loop {
-            if is_app_window(h) && pid_of(h) != me {
-                unsafe {
-                    let _ = SetForegroundWindow(h);
-                }
-                return Some(WindowRef { hwnd: h.0 as isize, pid: pid_of(h) });
+            if is_app_window(h)
+                && pid_of(h) != me
+                && let Some(w) = activate(h)
+            {
+                return Some(w);
             }
             h = unsafe { GetWindow(h, GW_HWNDNEXT) }.ok()?;
         }
@@ -176,21 +194,20 @@ impl WindowQuery for WinWindows {
         info_of(s.found?)
     }
 
-    fn is_elevated(&self, pid: u32) -> bool {
-        match unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) } {
-            Ok(h) => {
-                let e = token_elevated(h);
-                unsafe {
-                    let _ = CloseHandle(h);
-                }
-                e
-            }
-            Err(_) => false,
+    fn input_blocked(&self, pid: u32) -> bool {
+        // UIPI blocks input to a process at a higher integrity level.
+        let Some(mine) = integrity_of(unsafe { GetCurrentProcess() }) else { return false };
+        let Ok(h) = (unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }) else { return false };
+        let theirs = integrity_of(h);
+        unsafe {
+            let _ = CloseHandle(h);
         }
-    }
-
-    fn self_elevated(&self) -> bool {
-        token_elevated(unsafe { GetCurrentProcess() })
+        match theirs {
+            Some(level) => level > mine,
+            // A process can't read the token of one above it, so a token we
+            // can't read means "higher", unless we're already high ourselves.
+            None => mine < SECURITY_MANDATORY_HIGH_RID as u32,
+        }
     }
 
     fn input_desktop_available(&self) -> bool {
@@ -210,25 +227,24 @@ impl WindowQuery for WinWindows {
     }
 }
 
-fn token_elevated(process: HANDLE) -> bool {
+/// A process's integrity level RID (low, medium, high, system).
+fn integrity_of(process: HANDLE) -> Option<u32> {
     unsafe {
         let mut token = HANDLE::default();
-        // A non-elevated process can't open an elevated process's token.
-        if OpenProcessToken(process, TOKEN_QUERY, &mut token).is_err() {
-            return true;
-        }
-        let mut elevation = TOKEN_ELEVATION::default();
+        OpenProcessToken(process, TOKEN_QUERY, &mut token).ok()?;
         let mut len = 0u32;
-        let ok = GetTokenInformation(
-            token,
-            TokenElevation,
-            Some(&mut elevation as *mut _ as *mut c_void),
-            size_of::<TOKEN_ELEVATION>() as u32,
-            &mut len,
-        )
-        .is_ok();
+        let _ = GetTokenInformation(token, TokenIntegrityLevel, None, 0, &mut len);
+        let mut buf = vec![0u8; len as usize];
+        let ok =
+            GetTokenInformation(token, TokenIntegrityLevel, Some(buf.as_mut_ptr() as *mut c_void), len, &mut len).is_ok();
         let _ = CloseHandle(token);
-        ok && elevation.TokenIsElevated != 0
+        if !ok || buf.len() < size_of::<TOKEN_MANDATORY_LABEL>() {
+            return None;
+        }
+        let label = &*(buf.as_ptr() as *const TOKEN_MANDATORY_LABEL);
+        let sid = label.Label.Sid;
+        let count = *GetSidSubAuthorityCount(sid);
+        Some(*GetSidSubAuthority(sid, count.checked_sub(1)? as u32))
     }
 }
 

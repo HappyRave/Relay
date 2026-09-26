@@ -1,8 +1,8 @@
-//! The tray icon: Relay keeps running (hotkeys, and triggers from M7) while
+//! The tray icon: Relay keeps running (hotkeys and triggers) while
 //! the widget is hidden. Left-click toggles the widget; the menu has the
 //! session controls, the macros folder and Quit.
 
-use relay_core::session::{Input, Mode};
+use relay_core::session::{Input, Mode, FinishReason};
 use tauri::menu::{CheckMenuItem, CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager};
@@ -34,7 +34,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id().as_ref() {
             "toggle" => toggle(app),
             "record" => app.state::<CoordinatorHandle>().send(Cmd::Input(Input::ToggleRecord)),
-            "stop" => app.state::<CoordinatorHandle>().send(Cmd::Input(Input::Stop)),
+            "stop" => app.state::<CoordinatorHandle>().send(Cmd::Input(Input::Stop(FinishReason::Stopped))),
             "folder" => open_folder(app),
             "triggers" => {
                 // The check mark already flipped; make the state follow it.

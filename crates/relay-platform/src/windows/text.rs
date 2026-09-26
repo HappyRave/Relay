@@ -6,7 +6,10 @@ use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThre
 
 use crate::{CharTranslator, HeldKeys};
 
-/// Translates with the foreground window's keyboard layout.
+/// Translates with the foreground window's keyboard layout. It runs on the
+/// recorder thread a moment after the key press, so a key typed just before
+/// switching windows can be read with the next window's layout; Caps Lock is
+/// read the same way.
 pub struct ToUnicodeTranslator;
 
 /// Don't change the keyboard state (Windows 10 1607+), so dead keys typed in

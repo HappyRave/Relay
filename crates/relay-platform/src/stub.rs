@@ -25,10 +25,10 @@ impl InputHook for Stub {
 
 impl Screen for Stub {
     fn monitors(&self) -> Vec<MonitorInfo> {
-        Vec::new()
+        relay_core::model::RecordingMeta::single_1080p().monitors
     }
     fn virtual_desktop(&self) -> Rect {
-        Rect { x: 0, y: 0, w: 1920, h: 1080 }
+        relay_core::model::RecordingMeta::single_1080p().virtual_desktop
     }
     fn cursor_pos(&self) -> (i32, i32) {
         (0, 0)
@@ -54,10 +54,7 @@ impl WindowQuery for Stub {
     fn find_window(&self, _: &str, _: &str) -> Option<WindowInfo> {
         None
     }
-    fn is_elevated(&self, _: u32) -> bool {
-        false
-    }
-    fn self_elevated(&self) -> bool {
+    fn input_blocked(&self, _: u32) -> bool {
         false
     }
     fn input_desktop_available(&self) -> bool {
@@ -80,13 +77,10 @@ impl Injector for Stub {
     }
 }
 
-/// A plain sleeping timer.
+/// A timer that waits on a condition variable (wakeable, not precise).
 struct SleepTimer(Arc<(std::sync::Mutex<bool>, std::sync::Condvar)>);
 
 impl Timer for SleepTimer {
-    fn now_ms(&self) -> f64 {
-        now_ms()
-    }
     fn wait_until(&mut self, deadline: f64) -> bool {
         let (lock, cv) = &*self.0;
         let mut woken = lock.lock().unwrap();
