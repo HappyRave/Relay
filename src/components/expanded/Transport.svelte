@@ -46,20 +46,28 @@
   </div>
   <div class="group push">
     <span class="label">Speed</span>
-    <Segmented label="Speed" size="md" options={SPEEDS} value={pb.speed} onchange={(v) => relay.setPlayback({ speed: v })} />
+    <Segmented
+      label="Speed"
+      size="md"
+      options={SPEEDS}
+      value={pb.speed}
+      disabled={relay.recording}
+      onchange={(v) => relay.setPlayback({ speed: v })}
+    />
   </div>
   <div class="group">
     <span class="label">Repeat</span>
     <div class="repeat">
-      <button aria-label="Fewer repeats" onclick={() => relay.setPlayback({ repeat: { count: Math.max(1, count - 1) } })}>−</button>
+      <button aria-label="Fewer repeats" disabled={relay.recording} onclick={() => relay.setPlayback({ repeat: { count: Math.max(1, count - 1) } })}>−</button>
       <span class="count">{infinite ? "∞" : count}</span>
-      <button aria-label="More repeats" onclick={() => relay.setPlayback({ repeat: { count: Math.min(99, count + 1) } })}>+</button>
+      <button aria-label="More repeats" disabled={relay.recording} onclick={() => relay.setPlayback({ repeat: { count: Math.min(99, count + 1) } })}>+</button>
       <button
         class="inf"
         class:on={infinite}
         title="Loop forever"
         aria-label="Loop forever"
         aria-pressed={infinite}
+        disabled={relay.recording}
         onclick={toggleForever}><Icon name="loop" size={15} /></button
       >
     </div>
@@ -125,7 +133,11 @@
     cursor: pointer;
     color: var(--color-text);
   }
-  .repeat button:hover {
+  .repeat button:disabled {
+    color: var(--color-neutral-500);
+    cursor: not-allowed;
+  }
+  .repeat button:hover:not(:disabled) {
     background: var(--color-neutral-200);
   }
   .count {

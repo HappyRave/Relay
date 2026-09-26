@@ -158,6 +158,14 @@ describe("Transport", () => {
     expect(screen.getByRole("radio", { name: label })).toHaveAttribute("aria-checked", "true");
   });
 
+  test("speed and repeat are off while recording", async () => {
+    render(Transport);
+    core.emit({ type: "session", mode: "recording", macro_id: null });
+    await settle();
+    for (const r of screen.getAllByRole("radio")) expect(r).toBeDisabled();
+    for (const name of ["Fewer repeats", "More repeats", "Loop forever"]) expect(screen.getByRole("button", { name })).toBeDisabled();
+  });
+
   const repeat = () => (core.lastArgs("set_playback_options")!.options as { repeat: unknown }).repeat;
 
   test("+ and − change the repeat count, from 1 to 99", async () => {

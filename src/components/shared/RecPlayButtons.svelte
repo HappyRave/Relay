@@ -10,6 +10,7 @@
   class="rec {variant}"
   title={relay.recording ? "Stop recording (F9)" : "Record (F9)"}
   aria-label={relay.recording ? "Stop recording" : "Record"}
+  disabled={relay.playing}
   onclick={relay.toggleRec}
 >
   {#if relay.recording}<Icon name="square" size={20} />{:else}<Icon name="record" size={22} />{/if}
@@ -18,6 +19,7 @@
   class="play {variant}"
   title="Play / pause (F10)"
   aria-label={relay.mode === "playing" ? "Pause" : "Play"}
+  disabled={relay.recording}
   onclick={relay.togglePlay}
 >
   {#if relay.mode === "playing"}<Icon name="pause" size={20} />{:else}<Icon name="play" size={20} />{/if}
@@ -43,16 +45,20 @@
   .rec {
     background: var(--color-accent);
   }
-  .rec:hover {
+  .rec:hover:not(:disabled) {
     background: var(--color-accent-600);
   }
-  .rec:active {
+  .rec:active:not(:disabled) {
     background: var(--color-accent-700);
   }
   .play {
     background: var(--color-text);
   }
-  .play:hover {
+  .play:hover:not(:disabled) {
     background: var(--color-neutral-800);
+  }
+  button:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
   }
 </style>

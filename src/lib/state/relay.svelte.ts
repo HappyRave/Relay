@@ -146,8 +146,10 @@ export class RelayStore {
   /** The step under the playhead, or -1. */
   curStepIdx = $derived(currentStepIndex(this.steps, Math.min(this.cur, this.duration)));
   triggers: MacroTriggers | null = $derived(this.triggerStatus?.triggers ?? null);
-  canUndo = $derived(this.editable && this.mode === "idle" && !!this.view?.can_undo);
-  canRedo = $derived(this.editable && this.mode === "idle" && !!this.view?.can_redo);
+  /** Whether the open macro can be edited now: in the app, with a macro open, while idle (Rust refuses edits during a session). */
+  canEdit = $derived(this.editable && this.mode === "idle" && !!this.view);
+  canUndo = $derived(this.canEdit && !!this.view?.can_undo);
+  canRedo = $derived(this.canEdit && !!this.view?.can_redo);
   /** Pauses "Trim pauses" would shorten. */
   longPauses = $derived(this.steps.filter((s) => s.pause > TRIM_PAUSE_MS).length);
   error = $derived(this.toast?.kind === "error" ? this.toast.message : null);
@@ -462,7 +464,7 @@ export class RelayStore {
   // — edits —
 
   edit = (op: EditOp) => {
-    if (!this.view || this.recording) return;
+    if (!this.view || this.mode !== "idle") return;
     if (!this.editable) return this.fail({ code: "unavailable", message: "Editing needs the Relay app" });
     // An Undo offered for an earlier change would now undo this one instead.
     if (this.toast?.action) this.dismissToast();
@@ -487,7 +489,7 @@ export class RelayStore {
 
   /** Renames the open macro as the user types; saved after a short pause. */
   rename = (name: string) => {
-    if (!this.view) return;
+    if (!this.view || this.mode !== "idle") return;
     const id = this.view.id;
     this.view = { ...this.view, name };
     if (!this.editable) return;
@@ -541,6 +543,7 @@ export class RelayStore {
 
   /** Inserts a check at the playhead for the pixel under the macro's cursor, in its current color. */
   insertPixelCheck = async () => {
+    if (!this.view || this.mode !== "idle") return;
     const at = Math.round(this.cur);
     const p = this.cursorAt(this.cur);
     const x = Math.round(p.x);
@@ -555,7 +558,7 @@ export class RelayStore {
    */
   private async pick(use: (p: PickedPixel) => Promise<unknown> | void) {
     const id = this.view?.id;
-    if (!id || this.picking) return;
+    if (!id || this.picking || this.mode !== "idle") return;
     this.picking = PICK_SECONDS;
     const countdown = setInterval(() => (this.picking = Math.max(1, this.picking - 1)), 1000);
     try {

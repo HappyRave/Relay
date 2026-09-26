@@ -545,10 +545,26 @@ describe("step edits", () => {
     expect(relay.view).toBe(before);
   });
 
-  test("editing is off while recording", async () => {
-    core.emit(session("recording"));
+  test.each(["countdown", "recording", "playing", "paused"] as const)("editing is off while %s (Rust would refuse it)", async (mode) => {
+    vi.useFakeTimers();
     await relay.edit({ op: "delete_step", index: 0 });
+    core.clearCalls();
+    core.emit(session(mode));
+    expect(relay.canEdit).toBe(false);
+    await relay.edit({ op: "set_label", index: 0, label: "x" });
+    await relay.deleteStep(0);
+    await relay.insertWait();
+    await relay.insertPixelCheck();
+    await relay.trimPauses();
+    await relay.setPause(1, 100);
+    await relay.undo();
+    await relay.redo();
+    await relay.pickPixel(7);
+    relay.rename("Renamed");
+    await vi.advanceTimersByTimeAsync(1000);
     expect(core.commands()).toEqual([]);
+    expect(relay.name).toBe("Export invoice to PDF");
+    expect(relay.picking).toBe(0);
   });
 
   test("an edit response for a macro the user left is dropped", async () => {

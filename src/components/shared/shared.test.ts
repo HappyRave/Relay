@@ -47,6 +47,18 @@ describe("Record and Play", () => {
     expect(screen.getByRole("button", { name: "Play" })).toBeInTheDocument();
   });
 
+  test("Record is off while playing, Play while recording", async () => {
+    render(RecPlayButtons, { variant: "square" });
+    core.emit({ type: "session", mode: "paused", macro_id: core.ids[0] });
+    await settle();
+    expect(screen.getByRole("button", { name: "Record" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Play" })).toBeEnabled();
+    core.emit({ type: "session", mode: "countdown", macro_id: null });
+    await settle();
+    expect(screen.getByRole("button", { name: "Stop recording" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Play" })).toBeDisabled();
+  });
+
   test("the hotkeys are in the tooltips", () => {
     render(RecPlayButtons, { variant: "square" });
     expect(screen.getByRole("button", { name: "Record" })).toHaveAttribute("title", "Record (F9)");

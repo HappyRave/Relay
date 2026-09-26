@@ -86,12 +86,13 @@ describe("Library tab", () => {
     expect(rows()[0]).toHaveTextContent("Typing…");
   });
 
-  test("Duplicate and Delete are hidden during a session", async () => {
+  test("Duplicate and Delete are hidden, and Import… is off, during a session", async () => {
     render(LibraryTab);
     core.emit({ type: "session", mode: "playing", macro_id: A });
     await settle();
     expect(screen.queryByRole("button", { name: /^Duplicate/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Delete/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /Import/ })).toBeDisabled();
   });
 
   test("Import… asks for files and imports them", async () => {
@@ -236,6 +237,20 @@ describe("Steps tab", () => {
     expect(stepRows()).toHaveLength(1);
     expect(within(stepRows()[0]).getByRole("button", { name: "Delete step" })).toBeDisabled();
     expect(screen.queryByText(/s pause$/)).toBeNull();
+  });
+
+  test.each(["playing", "paused", "countdown"] as const)("editing is off while %s", async (mode) => {
+    render(StepsTab);
+    core.emit({ type: "session", mode, macro_id: A });
+    await settle();
+    for (const name of ["+ Wait", "+ Pixel check", "Trim pauses"]) expect(screen.getByRole("button", { name })).toBeDisabled();
+    expect(within(stepRows()[0]).getByRole("button", { name: "Delete step" })).toBeDisabled();
+  });
+
+  test("with no macro open, there's nothing to add to or trim", async () => {
+    relay.view = null;
+    render(StepsTab);
+    for (const name of ["+ Wait", "+ Pixel check", "Trim pauses"]) expect(screen.getByRole("button", { name })).toBeDisabled();
   });
 
   test("the editor closes when its step goes away", async () => {

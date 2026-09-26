@@ -74,16 +74,16 @@
 
 <div class="bar">
   <span class="count">{plural(steps.length, "step")}</span>
-  <button class="btn btn-ghost" disabled={relay.recording || !relay.editable} onclick={relay.insertWait}>+ Wait</button>
+  <button class="btn btn-ghost" disabled={!relay.canEdit} onclick={relay.insertWait}>+ Wait</button>
   <button
     class="btn btn-ghost"
-    disabled={relay.recording || !relay.editable}
+    disabled={!relay.canEdit}
     title="Wait until the pixel under the cursor matches"
     onclick={relay.insertPixelCheck}>+ Pixel check</button
   >
   <button
     class="btn btn-ghost"
-    disabled={relay.recording || !relay.editable || relay.longPauses === 0}
+    disabled={!relay.canEdit || relay.longPauses === 0}
     title="Shorten every pause longer than 1 s to 1 s"
     onclick={relay.trimPauses}>Trim pauses</button
   >
@@ -123,7 +123,7 @@
           class="del"
           title="Delete step"
           aria-label="Delete step"
-          disabled={relay.recording || !relay.editable}
+          disabled={!relay.canEdit}
           onclick={(e) => {
             e.stopPropagation();
             relay.deleteStep(i);

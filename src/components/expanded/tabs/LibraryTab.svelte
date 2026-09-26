@@ -53,7 +53,7 @@
   <div class="footer">
     <span class="note">New recordings are saved here automatically.</span>
     {#if relay.editable}
-      <button class="btn btn-ghost import" onclick={relay.importMacros}>Import…<Icon name="import" size={13} /></button>
+      <button class="btn btn-ghost import" disabled={relay.mode !== "idle"} onclick={relay.importMacros}>Import…<Icon name="import" size={13} /></button>
     {/if}
   </div>
 </div>
