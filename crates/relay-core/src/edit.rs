@@ -147,12 +147,13 @@ pub fn apply(m: &mut Macro, op: EditOp) -> Result<(), EditError> {
 
         EditOp::SetLabel { index, label: new } => {
             let step = get(index)?;
-            let first = step.items[0] as usize;
-            match &mut m.events[first] {
-                Event::Button { label, down: true, .. }
-                | Event::Wait { label, .. }
-                | Event::PixelWait { label, .. } => {
-                    *label = new;
+            // The first press, not the first item: a Shift-click starts with Shift.
+            let target = step.items.iter().map(|&i| i as usize).find(|&i| {
+                matches!(m.events[i], Event::Button { down: true, .. } | Event::Wait { .. } | Event::PixelWait { .. })
+            });
+            match target.map(|i| &mut m.events[i]) {
+                Some(Event::Button { label, .. } | Event::Wait { label, .. } | Event::PixelWait { label, .. }) => {
+                    *label = new
                 }
                 _ => return Err(EditError::WrongKind(index)),
             }
@@ -482,5 +483,25 @@ mod tests {
         let mut m = mac(click(0).to_vec());
         apply(&mut m, EditOp::SetLabel { index: 0, label: "Save".into() }).unwrap();
         assert!(matches!(&m.events[0], Event::Button { label, .. } if label == "Save"));
+    }
+
+    #[test]
+    fn a_click_owning_its_modifier_is_labeled_on_the_press() {
+        let b = |t, x, down| Event::Button { t, x, y: 5, btn: MouseBtn::Left, down, label: String::new() };
+        let shift_click =
+            vec![key(0, "ShiftLeft", true), b(50, 5, true), b(90, 5, false), key(200, "ShiftLeft", false)];
+        let ctrl_drag =
+            vec![key(0, "ControlLeft", true), b(50, 5, true), b(400, 300, false), key(500, "ControlLeft", false)];
+        for events in [shift_click, ctrl_drag] {
+            let mut m = mac(events);
+            apply(&mut m, EditOp::SetLabel { index: 0, label: "Pick".into() }).unwrap();
+            assert!(
+                matches!(&m.events[1], Event::Button { label, down: true, .. } if label == "Pick"),
+                "{:?}",
+                m.events
+            );
+            let kind = &group_steps(&m.events, (&m.recording).into())[0].kind;
+            assert!(matches!(kind, StepKind::Click { label, .. } | StepKind::Drag { label, .. } if label == "Pick"));
+        }
     }
 }
