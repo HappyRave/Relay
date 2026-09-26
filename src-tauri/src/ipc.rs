@@ -87,3 +87,59 @@ impl Emitter {
         self.send(EngineMsg::Error { message });
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use tauri::ipc::InvokeResponseBody;
+
+    fn channel() -> (Channel<EngineMsg>, Arc<Mutex<Vec<serde_json::Value>>>) {
+        let got = Arc::new(Mutex::new(Vec::new()));
+        let sink = got.clone();
+        let c = Channel::new(move |body| {
+            let InvokeResponseBody::Json(s) = body else { panic!("expected JSON") };
+            sink.lock().push(serde_json::from_str(&s).unwrap());
+            Ok(())
+        });
+        (c, got)
+    }
+
+    #[test]
+    fn nothing_is_sent_before_the_ui_subscribes() {
+        let e = Emitter::default();
+        e.send(EngineMsg::LibraryChanged);
+        e.error("lost");
+    }
+
+    #[test]
+    fn messages_are_tagged_by_type() {
+        let e = Emitter::default();
+        let (c, got) = channel();
+        e.subscribe(c);
+        e.send(EngineMsg::Countdown { left_ms: 2000 });
+        e.send(EngineMsg::TriggersPaused { paused: true });
+        e.error("Couldn't register the Play hotkey");
+        assert_eq!(
+            *got.lock(),
+            [
+                serde_json::json!({"type": "countdown", "left_ms": 2000}),
+                serde_json::json!({"type": "triggers_paused", "paused": true}),
+                serde_json::json!({"type": "error", "message": "Couldn't register the Play hotkey"}),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_reloaded_ui_replaces_the_old_subscriber() {
+        let e = Emitter::default();
+        let (old, old_got) = channel();
+        let (new, new_got) = channel();
+        e.subscribe(old);
+        e.send(EngineMsg::ToggleCompact);
+        e.subscribe(new);
+        e.send(EngineMsg::LibraryChanged);
+        assert_eq!(*old_got.lock(), [serde_json::json!({"type": "toggle_compact"})]);
+        assert_eq!(*new_got.lock(), [serde_json::json!({"type": "library_changed"})]);
+    }
+}
