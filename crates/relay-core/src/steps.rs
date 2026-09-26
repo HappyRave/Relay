@@ -609,6 +609,101 @@ mod tests {
         assert_eq!(group(&typed(500)).len(), 2);
     }
 
+    fn press(t: Ms, x: i32, b: MouseBtn, down: bool) -> Event {
+        Event::Button { t, x, y: 10, btn: b, down, label: String::new() }
+    }
+
+    #[test]
+    fn triple_and_right_double_clicks() {
+        let clicks = |b, n: u32| {
+            (0..n).flat_map(|i| [press(i * 150, 10, b, true), press(i * 150 + 50, 10, b, false)]).collect::<Vec<_>>()
+        };
+        let s = group(&clicks(MouseBtn::Left, 3));
+        assert_eq!(s.len(), 1);
+        assert!(matches!(s[0].kind, StepKind::Click { count: 3, btn: MouseBtn::Left, .. }));
+        assert_eq!((s[0].items.len(), s[0].end), (6, 350));
+        let s = group(&clicks(MouseBtn::Right, 2));
+        assert_eq!(s.len(), 1);
+        assert!(matches!(s[0].kind, StepKind::Click { count: 2, btn: MouseBtn::Right, .. }));
+        // Different buttons don't merge.
+        let mixed = [
+            press(0, 10, MouseBtn::Left, true),
+            press(50, 10, MouseBtn::Left, false),
+            press(150, 10, MouseBtn::Middle, true),
+            press(200, 10, MouseBtn::Middle, false),
+        ];
+        assert_eq!(group(&mixed).len(), 2);
+    }
+
+    #[test]
+    fn modifier_drags_and_scrolls_own_their_modifier() {
+        for m in ["ShiftLeft", "ControlLeft"] {
+            let ev = [
+                key(0, m, true, None),
+                btn(50, 10, 10, true),
+                Event::Move { t: 100, x: 100, y: 10 },
+                btn(200, 100, 10, false),
+                key(300, m, false, None),
+            ];
+            let s = group(&ev);
+            assert_eq!(s.len(), 1, "{m}: {s:?}");
+            assert!(matches!(s[0].kind, StepKind::Drag { x: 10, to_x: 100, .. }));
+            assert_eq!((s[0].t, s[0].end, s[0].items.clone()), (0, 300, vec![0, 1, 3, 4]));
+        }
+        let w = |t| Event::Wheel { t, x: 0, y: 0, delta: 120, horizontal: false };
+        let zoom = [key(0, "ControlLeft", true, None), w(50), w(100), key(200, "ControlLeft", false, None)];
+        let s = group(&zoom);
+        assert_eq!(s.len(), 1);
+        assert!(matches!(s[0].kind, StepKind::Scroll { delta: 240, .. }));
+        assert_eq!(s[0].items, vec![0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn horizontal_and_vertical_scrolls_stay_apart() {
+        let w = |t, horizontal| Event::Wheel { t, x: 0, y: 0, delta: 120, horizontal };
+        let s = group(&[w(0, false), w(50, true), w(100, true), w(150, false)]);
+        let kinds: Vec<_> = s
+            .iter()
+            .map(|s| match s.kind {
+                StepKind::Scroll { delta, horizontal, .. } => (delta, horizontal),
+                _ => panic!(),
+            })
+            .collect();
+        assert_eq!(kinds, [(120, false), (240, true), (120, false)]);
+    }
+
+    #[test]
+    fn a_key_held_across_a_click_is_its_own_step() {
+        let ev = [
+            key(0, "KeyA", true, Some("a")),
+            btn(100, 5, 5, true),
+            btn(150, 5, 5, false),
+            key(600, "KeyA", false, None),
+        ];
+        let s = group(&ev);
+        assert_eq!(s.len(), 2, "{s:?}");
+        assert!(matches!(&s[0].kind, StepKind::Type { text, .. } if text == "a"));
+        assert_eq!((s[0].t, s[0].end, s[0].items.clone()), (0, 600, vec![0, 3]));
+        assert!(matches!(s[1].kind, StepKind::Click { count: 1, .. }));
+        assert_eq!((s[1].items.clone(), s[1].pause), (vec![1, 2], 0), "no pause: the key is still down");
+    }
+
+    #[test]
+    fn composed_characters_and_emoji_are_text() {
+        let ev = [tap(0, "BracketLeft", Some("ê")), tap(100, "Unidentified", Some("😀")), tap(200, "KeyE", Some("^e"))]
+            .concat();
+        let s = group(&ev);
+        assert_eq!(s.len(), 1);
+        let StepKind::Type { text, chars } = &s[0].kind else { panic!() };
+        assert_eq!(text, "ê😀^e");
+        assert_eq!(chars.iter().map(|c| c.ch.as_str()).collect::<Vec<_>>(), ["ê", "😀", "^e"]);
+        // A dead key types nothing by itself: it's a key, between two TYPE steps.
+        let ev = [tap(0, "KeyA", Some("a")), tap(100, "BracketLeft", None), tap(200, "KeyE", Some("e"))].concat();
+        let s = group(&ev);
+        assert_eq!(s.len(), 3);
+        assert_eq!(s[1].kind, StepKind::Keys { combo: vec!["[".into()] });
+    }
+
     #[test]
     fn waits_span_their_duration() {
         let s = group(&[Event::Wait { t: 100, dur: 700, label: "Dialog".into() }]);
