@@ -27,6 +27,7 @@ export async function until(check, { timeout = 10_000, every = 100, what = "cond
       last = await check();
       if (last) return last;
     } catch (e) {
+      if (e?.fatal) throw e;
       last = e;
     }
     if (Date.now() > end) throw new Error(`timed out waiting for ${what} (last: ${last instanceof Error ? last.message : JSON.stringify(last)})`);
@@ -207,15 +208,22 @@ export class App {
     this.proc = spawn(EXE, [], { env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     this.proc.stdout.on("data", (d) => (this.log += d));
     this.proc.stderr.on("data", (d) => (this.log += d));
-    this.exited = new Promise((r) => this.proc.once("exit", r));
+    this.exitCode = null;
+    this.exited = new Promise((r) => this.proc.once("exit", (code) => r((this.exitCode = code ?? -1))));
 
-    const target = await until(
-      async () => {
-        const targets = await (await fetch(`http://127.0.0.1:${this.port}/json`)).json();
-        return targets.find((t) => t.type === "page" && !t.url.startsWith("devtools"));
-      },
-      { timeout: 30_000, every: 250, what: "the webview's debugging port" },
-    );
+    let target;
+    try {
+      target = await until(
+        async () => {
+          if (this.exitCode != null) throw Object.assign(new Error(`Relay exited with code ${this.exitCode}`), { fatal: true });
+          const targets = await (await fetch(`http://127.0.0.1:${this.port}/json`)).json();
+          return targets.find((t) => t.type === "page" && !t.url.startsWith("devtools"));
+        },
+        { timeout: 45_000, every: 250, what: "the webview's debugging port" },
+      );
+    } catch (e) {
+      throw new Error(`${e.message}\n${this.diagnostics()}`);
+    }
     const ws = new WebSocket(target.webSocketDebuggerUrl);
     await new Promise((r, j) => {
       ws.addEventListener("open", r, { once: true });
@@ -227,6 +235,19 @@ export class App {
       what: "the UI to load",
     });
     return this.page;
+  }
+
+  /** What Relay printed and logged, for a failure message. */
+  diagnostics() {
+    const tail = (text, n = 30) => text.trim().split(/\r?\n/).slice(-n).join("\n");
+    let logs = "";
+    try {
+      for (const f of readdirSync(this.path("logs"))) logs += readFileSync(this.path("logs", f), "utf8");
+    } catch {
+      logs = "(no log folder)";
+    }
+    const state = this.exitCode == null ? "still running" : `exited with code ${this.exitCode}`;
+    return `Relay ${state}.\n--- output ---\n${tail(this.log) || "(none)"}\n--- log ---\n${tail(logs) || "(empty)"}`;
   }
 
   async quit() {
