@@ -29,13 +29,13 @@ Hover a row to see its **Duplicate** and **Delete** buttons. They're hidden whil
 
 ## Duplicate
 
-**Duplicate** makes a copy named *"… (copy)"*, just below the original, and opens it. Use it before big edits, or to make a variation of a macro.
+**Duplicate** makes a copy named *"… (copy)"* (then *"… (copy) 2"*, and so on), just below the original, and opens it. Use it before big edits, or to make a variation of a macro.
 
 The copy starts with **no triggers**, so the two macros don't compete for the same hotkey or schedule, and its run count starts at zero.
 
 ## Delete and undo
 
-**Delete** moves the macro to the trash. A message at the bottom of the panel says *Moved "…" to the trash* with an **Undo** button, for about 8 seconds. Undo brings the macro back where it was, with its run count and triggers.
+**Delete** moves the macro to the trash. A message at the bottom of the panel says *Moved "…" to the trash* with an **Undo** button, for about 8 seconds. Undo brings the macro back where it was, with its run count and triggers. If another macro took its hotkey in the meantime, it comes back with that hotkey off, and a message says so.
 
 If you deleted the macro that was open, Relay opens the next one in the list.
 
@@ -76,7 +76,7 @@ Imported macros go to the top of the Library, and the first one opens. Relay the
 | *this macro was saved by a newer Relay (format version 2)* | Update Relay to open it |
 | *invalid macro file: …* | The file is damaged or was edited by hand incorrectly |
 
-If a macro with the same name exists, the imported one gets a number (*Daily report 2*). Importing a macro that's already in your Library adds a copy rather than replacing it. Imported macros have no triggers.
+If a macro with the same name exists, the imported one gets a number (*Daily report 2*), or the next one if its name already ends in a number (*Daily report 2* becomes *Daily report 3*). Importing a macro that's already in your Library adds a copy rather than replacing it. Imported macros have no triggers.
 
 > [!IMPORTANT]
 > A macro replays **screen positions and physical keys**. On a PC with a different monitor layout, display scaling or keyboard layout, clicks can land in the wrong place and keys can type different characters. Try [Window coordinates](04-playback.md#screen-or-window-coordinates), or record the macro again on that PC.

@@ -52,14 +52,14 @@ Session commands only send a `Cmd` to the coordinator and return right away. The
 | --- | --- | --- |
 | `list_macros` | | `MacroListItem[]` |
 | `load_macro` | `id` | `MacroView`, and tells the coordinator it's selected |
-| `edit_macro` | `id, op: EditOp` | The new `MacroView`. Records the edit for undo. |
-| `undo_edit` | `id, redo: bool` | The `MacroView` after undoing (or redoing) the last edit |
+| `edit_macro` | `id, op: EditOp` | The new `MacroView`. Records the edit for undo (an edit that changes nothing isn't recorded). Refused with `busy` while a session runs. |
+| `undo_edit` | `id, redo: bool` | The `MacroView` after undoing (or redoing) the last edit. Refused with `busy` while a session runs. |
 | `set_playback_options` | `id, options: PlaybackOptions` | The new `MacroView`. A speed change also goes to a running engine. |
 | `duplicate_macro` | `id` | The copy's id |
 | `delete_macro` | `id` | Refused with `busy` while a session runs |
-| `restore_macro` | `id` | |
+| `restore_macro` | `id` | Sends a `notice` if its hotkey now belongs to another macro (it comes back with the hotkey off) |
 | `export_macro` | `id, format, path` | Writes the file |
-| `import_macros` | `paths: string[]` | `ImportResult { imported: id[], problems: string[] }` |
+| `import_macros` | `paths: string[]` | `ImportResult { imported: id[], problems: string[] }`. If writing one fails, the ones before it are kept and the rest are listed in `problems`. |
 
 Save and open dialogs are shown by the UI with `@tauri-apps/plugin-dialog`, and the chosen paths are passed to `export_macro` and `import_macros`.
 
@@ -129,7 +129,7 @@ Commands return `Result<T, IpcError>`, and `IpcError` serializes as `{ code, mes
 | `not_found` | Unknown macro id |
 | `io` | A file couldn't be written |
 | `edit_rejected` | `EditError`: no such step, wrong kind of step |
-| `busy` | Deleting while a session runs |
+| `busy` | Deleting, editing or undoing while a session runs |
 | `hotkey` | `set_triggers` with a clashing hotkey |
 | `unavailable` | The screen couldn't be read |
 | `autostart` | The Run key couldn't be changed |
