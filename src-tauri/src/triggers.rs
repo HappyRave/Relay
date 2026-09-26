@@ -85,6 +85,8 @@ pub fn next_scheduled<Tz: TimeZone>(t: &MacroTriggers, now: DateTime<Tz>) -> Opt
 /// Runs a schedule when its next run, as seen from the previous tick, has
 /// come. Comparing wall-clock times each tick survives sleep and clock changes.
 pub struct ScheduleWatch<Tz: TimeZone> {
+    /// The latest time seen: a clock set back (a resync after wake) doesn't
+    /// move it back, so a run already made isn't due again.
     last: DateTime<Tz>,
 }
 
@@ -107,7 +109,9 @@ impl<Tz: TimeZone> ScheduleWatch<Tz> {
                 }
             }
         }
-        self.last = now;
+        if now > self.last {
+            self.last = now;
+        }
         due
     }
 }
@@ -327,6 +331,19 @@ mod tests {
         // Up to two minutes late is still run.
         let mut w = ScheduleWatch::new(at(25, 8, 59, 0));
         assert_eq!(w.tick(at(25, 9, 2, 0), &triggers), [id(1)]);
+    }
+
+    #[test]
+    fn a_clock_set_back_doesnt_run_a_schedule_twice() {
+        let triggers = vec![(id(1), scheduled("09:00", WEEKDAYS))];
+        let mut w = ScheduleWatch::new(at(24, 8, 59, 58));
+        assert_eq!(w.tick(at(24, 9, 0, 2), &triggers), [id(1)]);
+        // The clock is resynced 17 s back, then passes 09:00 again.
+        assert!(w.tick(at(24, 8, 59, 45), &triggers).is_empty());
+        assert!(w.tick(at(24, 9, 0, 1), &triggers).is_empty(), "already run");
+        assert!(w.tick(at(24, 9, 0, 7), &triggers).is_empty());
+        // The next day runs as usual.
+        assert_eq!(w.tick(at(25, 9, 0, 3), &triggers), [id(1)]);
     }
 
     #[test]
