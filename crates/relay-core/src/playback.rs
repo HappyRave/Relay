@@ -15,9 +15,18 @@ pub struct PlayClock {
     paused: bool,
 }
 
+/// The speeds a clock accepts; anything else is clamped into the range (and
+/// NaN is 1×), so macro time always advances and stays finite.
+pub const MIN_SPEED: f64 = 0.01;
+pub const MAX_SPEED: f64 = 100.0;
+
+fn valid_speed(speed: f64) -> f64 {
+    if speed.is_nan() { 1.0 } else { speed.clamp(MIN_SPEED, MAX_SPEED) }
+}
+
 impl PlayClock {
     pub fn new(from: Ms, now: f64, speed: f64) -> Self {
-        PlayClock { anchor_t: from as f64, anchor_wall: now, speed: speed.max(0.01), paused: false }
+        PlayClock { anchor_t: from as f64, anchor_wall: now, speed: valid_speed(speed), paused: false }
     }
 
     /// Macro time (ms) at wall time `now`.
@@ -58,7 +67,7 @@ impl PlayClock {
 
     pub fn set_speed(&mut self, speed: f64, now: f64) {
         self.reanchor(now);
-        self.speed = speed.max(0.01);
+        self.speed = valid_speed(speed);
     }
 
     /// Wall time at which macro time reaches `t`, or `None` while paused.
@@ -244,6 +253,52 @@ mod tests {
         c.pause(700.0);
         c.seek(100.0, 800.0);
         assert_eq!(c.at(5000.0), 100.0, "a seek while paused stays paused");
+    }
+
+    #[test]
+    fn a_speed_change_while_paused_applies_on_resume() {
+        let mut c = PlayClock::new(0, 0.0, 1.0);
+        c.pause(100.0);
+        c.set_speed(2.0, 500.0);
+        assert!(c.paused());
+        assert_eq!((c.at(900.0), c.deadline(200.0)), (100.0, None), "still frozen");
+        c.resume(1000.0);
+        assert_eq!(c.at(1050.0), 200.0);
+        assert_eq!(c.deadline(300.0), Some(1100.0));
+    }
+
+    #[test]
+    fn seeks_before_the_start_clamp_to_zero() {
+        let mut c = PlayClock::new(500, 0.0, 1.0);
+        c.seek(-250.0, 100.0);
+        assert_eq!(c.at(100.0), 0.0);
+        assert_eq!(c.at(150.0), 50.0);
+    }
+
+    #[test]
+    fn unusable_speeds_are_clamped() {
+        for (speed, want) in [
+            (0.0, MIN_SPEED),
+            (-3.0, MIN_SPEED),
+            (f64::NEG_INFINITY, MIN_SPEED),
+            (f64::INFINITY, MAX_SPEED),
+            (1e9, MAX_SPEED),
+            (f64::NAN, 1.0),
+            (0.5, 0.5),
+        ] {
+            let mut c = PlayClock::new(0, 0.0, speed);
+            assert_eq!(c.speed(), want, "{speed}");
+            c.set_speed(speed, 10.0);
+            assert_eq!(c.speed(), want, "{speed}");
+            assert!(c.at(1000.0).is_finite() && c.deadline(5000.0).is_some_and(f64::is_finite), "{speed}");
+        }
+    }
+
+    #[test]
+    fn a_time_already_passed_has_a_deadline_in_the_past() {
+        let c = PlayClock::new(1000, 5000.0, 2.0);
+        assert_eq!(c.deadline(800.0), Some(4900.0));
+        assert_eq!(c.deadline(1000.0), Some(5000.0));
     }
 
     #[test]
