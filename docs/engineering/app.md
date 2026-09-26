@@ -127,7 +127,13 @@ A few effects in detail:
 
 **EmitMode(mode)** updates the tray tooltip, *Keep on top* and `WS_EX_NOACTIVATE` on the window (set during sessions, so clicking the widget doesn't steal the focus), and emits `Session`.
 
-Runs are counted (`runs += 1`, `last_run = now`) only when the engine reports `Completed`.
+Runs are counted (`runs += 1`, `last_run = now`) only when the engine reports `Completed` (`counts_as_run`).
+
+**The F10 playhead.** F10 is handled in Rust, so the coordinator keeps its own `idle_playhead`, set the way the UI moves its playhead (`playhead_after(reason, duration, timed_out_at)`): back to 0 after a stop, the kill switch, a key press or an error; the end after a complete run (so F10 starts over); the check's time after a pixel timeout (`EngineDone.timed_out_at`). Seeks during playback move it too.
+
+**Triggers** go through `admit(paused, macro_exists, mode, desktop_available)`: ignored while paused or for a deleted macro, skipped with a notice while busy, skipped silently when the screen is locked.
+
+**Every mode change** goes through `set_mode`, which also updates the shared `SessionMode` the commands read, including when a command panicked, so `delete_macro` and edits never stay refused as "busy".
 
 ## The playback engine
 
@@ -176,6 +182,8 @@ Windows removes a low-level hook it considers too slow **without any notificatio
 // HookWatchdog::check(now, cursor): true when the hook looks dead
 moved && now - last_event > 1000 ms && now - last_alarm > 5000 ms
 ```
+
+Mouse events the hook filters out (injected input, with *Ignore simulated input* on) would look like silence, so the hook beats a `MousePulse` (an atomic timestamp in `HookConfig`) on every mouse event it sees, filtered or not, and the watchdog counts that as a sign of life.
 
 On an alarm, the coordinator stops the old hook and starts a new one with the **same config and the same sender**, so the recorder keeps going with a small gap, and the user gets a notice.
 

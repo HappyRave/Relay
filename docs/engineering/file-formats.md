@@ -124,7 +124,7 @@ Relay enforces these when loading (by normalizing), so a hand-edited file doesn'
 
 - Events are sorted by `t`.
 - Every `down` has a matching release later. Releases without a press are dropped, and presses without a release are released at the end.
-- Nothing happens inside a `wait` or `pixel_wait` (between `t` and `t + dur`).
+- Nothing happens inside a `wait` or `pixel_wait` (between `t` and `t + dur`). An event inside one, or at its start but listed after it, is moved to its end.
 
 ## The JSON export
 
@@ -149,7 +149,7 @@ A step looks like:
 1. not JSON, or no `"format": "relay-macro"` → *not a Relay macro*,
 2. `version` newer than this Relay supports → *this macro was saved by a newer Relay (format version N)*,
 3. older → run the migration chain on the raw JSON, one version at a time,
-4. deserialize, then normalize.
+4. deserialize, then normalize. A Relay document that fails here (a bad value, a missing field, a missing `version`), or text that mentions `"relay-macro"` but isn't valid JSON (a truncated file), is *invalid macro file: …* with the reason.
 
 | Version | Written by | Shape |
 | --- | --- | --- |

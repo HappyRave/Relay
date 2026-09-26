@@ -92,7 +92,7 @@ Save and open dialogs are shown by the UI with `@tauri-apps/plugin-dialog`, and 
 
 ## The session stream
 
-[`ipc.rs`](../../src-tauri/src/ipc.rs): `EngineMsg` is a tagged enum (`{"type": "play_tick", …}`), sent through the `Emitter`, which holds the current `Channel`. A Tauri `Channel` preserves order and is much faster than events for high-frequency messages.
+[`ipc.rs`](../../src-tauri/src/ipc.rs): `EngineMsg` is a tagged enum (`{"type": "play_tick", …}`), sent through the `Emitter`, which holds the current `Channel`. A Tauri `Channel` preserves order and is much faster than events for high-frequency messages. `error` and `notice` messages sent before the UI has subscribed (problems found at startup, a hotkey another app owns) are kept, the latest 20, and delivered in order when it does; session and tick messages aren't kept.
 
 | Message | Sent by | When | Payload |
 | --- | --- | --- | --- |

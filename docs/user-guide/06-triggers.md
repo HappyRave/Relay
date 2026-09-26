@@ -34,6 +34,7 @@ While the field is waiting for keys, <kbd>Backspace</kbd> clears the hotkey and 
 **Rules for a hotkey:**
 
 - It needs <kbd>Ctrl</kbd>, <kbd>Alt</kbd>, <kbd>Shift</kbd> or <kbd>Win</kbd>, so the key still types normally. Function keys <kbd>F1</kbd>–<kbd>F24</kbd> work on their own.
+- <kbd>Shift</kbd> alone isn't enough for a letter, digit, punctuation, <kbd>Space</kbd> or <kbd>Enter</kbd>: that's ordinary typing (capital letters). It's fine with function keys, arrows, <kbd>Home</kbd>, <kbd>Tab</kbd> and the like.
 - It can't be one of [Relay's own hotkeys](keyboard-shortcuts.md) (<kbd>F9</kbd>, <kbd>F10</kbd>, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd>, <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd>).
 - It can't already run another macro.
 
@@ -42,6 +43,8 @@ If something's wrong, the line under **Hotkey** says why, instead of *Run from a
 | Message | Meaning |
 | --- | --- |
 | *Add Ctrl, Alt, Shift or Win, so the key still types normally* | A plain key isn't allowed |
+| *Add Ctrl, Alt or Win: Shift + A is ordinary typing* | Shift alone with a key that types |
+| *Add a key after Shift: a hotkey can't end with a modifier* | Only modifiers were pressed |
 | *Ctrl + Alt + 7 already runs "Fill weekly timesheet"* | Another macro has it. Pick another, or change that macro's. |
 | *F9 is one of Relay's own hotkeys* | Reserved by Relay |
 | *Ctrl + Alt + 1 is taken by another app* | Another program registered it first. Pick another, or close that program. |
