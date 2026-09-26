@@ -182,7 +182,8 @@ mod tests {
     use super::*;
     use crate::edit::check_invariants;
     use crate::keys::KeyStroke;
-    use crate::model::{Event, MouseBtn, Rgb};
+    use crate::model::{CoordMode, Event, MouseBtn, Rect, Repeat, Rgb, WindowInfo};
+    use crate::steps::StepKind;
     use chrono::TimeZone;
 
     fn fixed_macro() -> Macro {
@@ -235,6 +236,110 @@ mod tests {
         assert_eq!(from_rly(&to_rly(&m)).unwrap(), m);
         // The developer export (with derived steps) imports too.
         assert_eq!(from_rly(&to_export_json(&m)).unwrap(), m);
+    }
+
+    #[test]
+    fn every_event_and_option_round_trips() {
+        let mut m = fixed_macro();
+        m.recording.virtual_desktop = Rect { x: -1920, y: -200, w: 3840, h: 1280 };
+        m.recording.anchor_window = Some(WindowInfo {
+            exe: "EXCEL.EXE".into(),
+            class: "XLMAIN".into(),
+            title: "Book1 – Excel".into(),
+            rect: Rect { x: -1900, y: -180, w: 1200, h: 800 },
+        });
+        m.playback = PlaybackOptions {
+            speed: 2.5,
+            repeat: Repeat::Forever,
+            humanize: false,
+            jitter_ms: 0,
+            stop_on_key: false,
+            coord_mode: CoordMode::Window,
+        };
+        let right = KeyStroke { code: "ControlRight".into(), vk: 0xA3, scan: 0x1D, ext: true };
+        m.events = vec![
+            Event::Move { t: 0, x: -1500, y: -100 },
+            Event::Button { t: 10, x: -1500, y: -100, btn: MouseBtn::X2, down: true, label: "Back".into() },
+            Event::Button { t: 20, x: -1500, y: -100, btn: MouseBtn::X2, down: false, label: String::new() },
+            Event::Wheel { t: 30, x: -1500, y: -100, delta: -240, horizontal: true },
+            Event::Wheel { t: 40, x: -1500, y: -100, delta: 120, horizontal: false },
+            Event::Key { t: 50, down: true, key: right.clone(), ch: None },
+            Event::Key { t: 60, down: true, key: KeyStroke::code("Unidentified"), ch: Some("😀é".into()) },
+            Event::Key { t: 70, down: false, key: KeyStroke::code("Unidentified"), ch: None },
+            Event::Key { t: 80, down: false, key: right, ch: None },
+            Event::Wait { t: 100, dur: 700, label: "Dialog".into() },
+            Event::PixelWait {
+                t: 800,
+                dur: 0,
+                x: -5,
+                y: -6,
+                color: Rgb(0, 0xFF, 0x7F),
+                tolerance: 255,
+                timeout_ms: 0,
+                label: "Ready".into(),
+            },
+        ];
+        check_invariants(&m.events).unwrap();
+        let text = to_rly(&m);
+        assert!(text.contains(r#""ext":true"#) && text.contains(r#""horizontal":true"#), "{text}");
+        assert!(text.contains(r#""repeat":"forever""#) && text.contains(r#""coord_mode":"window""#), "{text}");
+        assert_eq!(from_rly(&text).unwrap(), m);
+        assert_eq!(from_rly(&to_export_json(&m)).unwrap(), m);
+        m.playback.repeat = Repeat::Count(3);
+        assert_eq!(from_rly(&to_rly(&m)).unwrap(), m);
+    }
+
+    #[test]
+    fn loading_sorts_and_balances_the_events() {
+        let key = |t, down| Event::Key { t, down, key: KeyStroke::code("KeyA"), ch: None };
+        let btn = |t, down| Event::Button { t, x: 1, y: 1, btn: MouseBtn::Left, down, label: String::new() };
+        let mut m = fixed_macro();
+        // Out of order, a release without its press, and a press never released.
+        m.events =
+            vec![Event::Move { t: 300, x: 1, y: 1 }, key(100, false), btn(200, true), Event::Move { t: 0, x: 0, y: 0 }];
+        let loaded = from_rly(&to_rly(&m)).unwrap();
+        assert_eq!(
+            loaded.events,
+            [Event::Move { t: 0, x: 0, y: 0 }, btn(200, true), Event::Move { t: 300, x: 1, y: 1 }, btn(300, false)]
+        );
+        check_invariants(&loaded.events).unwrap();
+    }
+
+    #[test]
+    fn broken_fields_are_invalid() {
+        let good = to_rly(&fixed_macro());
+        let cases = [
+            (good.replace("#EC3013", "#EC30"), "invalid color"),
+            (good.replace("#EC3013", "red"), "invalid color"),
+            (good.replace(r#""dur":900"#, r#""dur":-900"#), "invalid value"),
+            (good.replace(r#""btn":"Left","#, ""), "missing field `btn`"),
+            (good.replace(r#""recording""#, r#""recorded""#), "missing field `recording`"),
+        ];
+        for (s, want) in cases {
+            let e = from_rly(&s).unwrap_err().to_string();
+            assert!(e.starts_with("invalid macro file: ") && e.contains(want), "{e}");
+        }
+    }
+
+    #[test]
+    fn broken_v0_files_are_invalid() {
+        let v0 = |events: &str| format!(r#"{{"format":"relay-macro","version":0,"events":[{events}]}}"#);
+        let cases = [
+            (v0(r#"{"t":0,"type":"teleport"}"#), r#"unknown v0 event type "teleport""#),
+            (v0(r#"{"type":"move","x":1,"y":1}"#), "v0 event without t"),
+            (v0(r#"{"t":0,"type":"click","x":1}"#), "v0 event without y"),
+            (v0(r#"{"t":0,"type":"char"}"#), "v0 event without key"),
+            (v0(r#"{"t":0,"type":"key","key":""}"#), "v0 event without key"),
+            (v0(r#"{"t":0,"type":"cond","dur":5,"x":1,"y":1,"color":"grey"}"#), "invalid color"),
+            (r#"{"format":"relay-macro","version":0}"#.into(), "v0 event without list"),
+        ];
+        for (s, want) in cases {
+            let e = from_rly(&s).unwrap_err().to_string();
+            assert!(e.starts_with("invalid macro file: ") && e.contains(want), "{e} for {s}");
+        }
+        // A negative duration is refused, not wrapped.
+        let e = from_rly(&v0(r#"{"t":0,"type":"wait","dur":-5}"#)).unwrap_err();
+        assert!(matches!(e, FormatError::Invalid(_)), "{e:?}");
     }
 
     #[test]
@@ -311,5 +416,27 @@ mod tests {
             .map(|s| serde_json::to_value(s).unwrap()["kind"].as_str().unwrap().to_string())
             .collect();
         assert_eq!(kinds, ["click", "keys", "type", "wait", "pixel_wait"]);
+
+        // The details the snapshot shows, spelled out.
+        let steps = group_steps(&m.events, (&m.recording).into());
+        let StepKind::Click { x: 100, y: 200, btn: MouseBtn::Left, count: 2, label } = &steps[0].kind else {
+            panic!("{:?}", steps[0].kind)
+        };
+        assert_eq!(label, "Field");
+        let presses: Vec<_> =
+            m.events.iter().filter(|e| matches!(e, Event::Button { down: true, .. })).map(Event::t).collect();
+        assert_eq!(presses, [10, 130], "two presses 120 ms apart");
+        assert_eq!(steps[1].kind, StepKind::Keys { combo: vec!["Ctrl".into(), "A".into()] });
+        assert!(matches!(&steps[2].kind, StepKind::Type { text, .. } if text == "Hi"));
+        assert!(matches!(&steps[3].kind, StepKind::Wait { dur: 700, label } if label == "Dialog opens"));
+        let StepKind::PixelWait { dur: 900, x: 5, y: 6, color, tolerance: 8, timeout_ms: 5000, label } = &steps[4].kind
+        else {
+            panic!("{:?}", steps[4].kind)
+        };
+        assert_eq!((color.to_hex().as_str(), label.as_str()), ("#9B9797", "Grey"));
+        // The H is typed with Shift.
+        assert!(m.events.iter().any(|e| matches!(e, Event::Key { key, down: true, .. } if key.code == "ShiftLeft")));
+        assert_eq!(m.recording, RecordingMeta::single_1080p());
+        assert_eq!(m.playback, PlaybackOptions::default());
     }
 }
