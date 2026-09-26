@@ -41,6 +41,7 @@ jobs:
       - name: Let WebView2 open a debugging port for relay.exe
         run: reg add "HKCU\Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments" /v relay.exe /t REG_SZ /d "--remote-debugging-port=9333" /f
       - name: End-to-end tests (the release build, driven over DevTools)
+        id: e2e
         run: >-
           node --test --test-concurrency=1
           --test-reporter=spec --test-reporter-destination=stdout
@@ -50,7 +51,7 @@ jobs:
           RELAY_EXE: target/release/relay.exe
           RELAY_E2E_PORT: 9333
       - name: Diagnose a failed end-to-end run
-        if: failure()
+        if: failure() && steps.e2e.outcome == 'failure'
         run: node e2e/ci-diagnose.mjs
         env:
           RELAY_EXE: target/release/relay.exe

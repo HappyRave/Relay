@@ -174,6 +174,8 @@ export class RelayStore {
 
   dispose() {
     cancelAnimationFrame(this.raf);
+    cancelAnimationFrame(this.seekFrame);
+    this.seekFrame = 0;
     if (this.listening) window.removeEventListener("keydown", this.onKey, true);
     this.listening = false;
     clearTimeout(this.toastTimer);
@@ -344,15 +346,15 @@ export class RelayStore {
     const clamped = Math.max(0, Math.min(this.duration, t));
     this.cur = clamped;
     this.tick = { ...this.tick, t: clamped, at: performance.now() };
-    if (!this.seekQueued) {
-      this.seekQueued = true;
-      requestAnimationFrame(() => {
-        this.seekQueued = false;
+    if (!this.seekFrame) {
+      this.seekFrame = requestAnimationFrame(() => {
+        this.seekFrame = 0;
         this.run(this.backend.seek(this.cur));
       });
     }
   };
-  private seekQueued = false;
+  /** The frame that will send the latest seek, or 0. */
+  private seekFrame = 0;
 
   jump = (dir: -1 | 1) => this.seek(jumpTarget(this.steps, this.cur, dir, this.duration));
 

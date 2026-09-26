@@ -150,6 +150,13 @@ describe("seeking", () => {
     expect(core.argsOf("seek")).toEqual([{ t: 3000 }, { t: 4000 }]);
   });
 
+  test("a seek still waiting for its frame isn't sent once the store is gone", async () => {
+    relay.seek(1000);
+    relay.dispose();
+    await nextFrame();
+    expect(core.argsOf("seek")).toEqual([]);
+  });
+
   test("is kept within the macro", async () => {
     relay.seek(-50);
     expect(relay.cur).toBe(0);
