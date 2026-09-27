@@ -17,9 +17,18 @@ describe("editing", () => {
 
   const disk = () => app.macro(id);
   const steps = () => page.store("view.steps");
-  /** Waits until the macro's file changes from `before`. */
-  const saved = (before, what = "the save") =>
-    until(() => JSON.stringify(disk()) !== JSON.stringify(before) && disk(), { what });
+  /**
+   * Waits until the macro's file changes from `before`, and the UI shows that
+   * same version (Rust writes the file just before the UI gets its answer).
+   */
+  const saved = async (before, what = "the save") => {
+    const after = await until(() => JSON.stringify(disk()) !== JSON.stringify(before) && disk(), { what });
+    await synced(what);
+    return after;
+  };
+  /** Waits until the UI shows the version of the macro that's on disk. */
+  const synced = (what = "the UI") =>
+    until(async () => (await page.store("view.modified_at")) === disk().modified_at, { what: `${what} in the UI` });
   /** Opens a step's editor by clicking its row (in the Steps tab). */
   const openStep = async (i) => {
     await page.tab("Steps");
@@ -54,26 +63,36 @@ describe("editing", () => {
 
     await page.click("Undo", { within: ".header" });
     await until(() => JSON.stringify(disk().events) === JSON.stringify(original.events), { what: "the undo on disk" });
+    await synced("the undo");
     assert.equal((await steps()).length, n);
     assert.equal(await page.store("canRedo"), true);
 
     await page.click("Redo", { within: ".header" });
     await until(() => JSON.stringify(disk().events) === JSON.stringify(afterDelete.events), { what: "the redo on disk" });
+    await synced("the redo");
     await page.click("Undo", { within: ".header" });
     await until(() => disk().events.length === original.events.length, { what: "the undo again" });
+    await synced("the undo");
   });
 
   test("Ctrl + Z and Ctrl + Y work too", async () => {
     const original = disk();
     await page.click("Delete step", { nth: 0 });
     await saved(original);
-    const key = (k) => page.run((k) => window.dispatchEvent(new KeyboardEvent("keydown", { key: k, ctrlKey: true, bubbles: true })), k);
-    await key("z");
+    // Each shortcut only works once the UI knows there's something to undo or redo.
+    const key = async (k, ready) => {
+      await until(() => page.store(ready), { what: `${ready} before Ctrl + ${k.toUpperCase()}` });
+      await page.run((k) => window.dispatchEvent(new KeyboardEvent("keydown", { key: k, ctrlKey: true, bubbles: true })), k);
+    };
+    await key("z", "canUndo");
     await until(() => disk().events.length === original.events.length, { what: "Ctrl + Z" });
-    await key("y");
+    await synced("Ctrl + Z");
+    await key("y", "canRedo");
     await until(() => disk().events.length < original.events.length, { what: "Ctrl + Y" });
-    await key("z");
+    await synced("Ctrl + Y");
+    await key("z", "canUndo");
     await until(() => disk().events.length === original.events.length, { what: "Ctrl + Z again" });
+    await synced("Ctrl + Z");
   });
 
   test("+ Wait inserts half a second at the playhead", async () => {
