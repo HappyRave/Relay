@@ -40,7 +40,11 @@ describe("Preview", () => {
     core.emit({ type: "play_tick", t: 100, advancing: true, speed: 1, loop_idx: 1, loops: 3 });
     await settle();
     expect(container.querySelector(".loop")).toHaveTextContent("Loop 2 / 3 · 1×");
+    // Saved options don't change the run in progress; the engine's ticks say what it plays.
     await relay.setPlayback({ repeat: "forever", speed: 2 });
+    await settle();
+    expect(container.querySelector(".loop")).toHaveTextContent("Loop 2 / 3 · 1×");
+    core.emit({ type: "play_tick", t: 200, advancing: true, speed: 2, loop_idx: 1, loops: null });
     await settle();
     expect(container.querySelector(".loop")).toHaveTextContent("Loop 2 / ∞ · 2×");
     core.emit({ type: "session", mode: "idle", macro_id: A });
@@ -270,6 +274,7 @@ describe("Compact player", () => {
     core.emit({ type: "session", mode: "recording", macro_id: null });
     await settle();
     expect(container.querySelector(".time")).toHaveTextContent("/ recording");
+    expect(container.querySelector(".name")).toHaveTextContent("New recording");
     expect(container.querySelector(".badge")).toHaveClass("rec");
   });
 

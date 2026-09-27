@@ -124,7 +124,7 @@ Relay enforces these when loading (by normalizing), so a hand-edited file doesn'
 
 - Events are sorted by `t`.
 - Every `down` has a matching release later. Releases without a press are dropped, and presses without a release are released at the end.
-- Nothing happens inside a `wait` or `pixel_wait` (between `t` and `t + dur`).
+- Nothing happens inside a `wait` or `pixel_wait` (between `t` and `t + dur`). An event inside one, or at its start but listed after it, is moved to its end.
 
 ## The JSON export
 
@@ -149,7 +149,7 @@ A step looks like:
 1. not JSON, or no `"format": "relay-macro"` → *not a Relay macro*,
 2. `version` newer than this Relay supports → *this macro was saved by a newer Relay (format version N)*,
 3. older → run the migration chain on the raw JSON, one version at a time,
-4. deserialize, then normalize.
+4. deserialize, then normalize. A Relay document that fails here (a bad value, a missing field, a missing `version`), or text that mentions `"relay-macro"` but isn't valid JSON (a truncated file), is *invalid macro file: …* with the reason.
 
 | Version | Written by | Shape |
 | --- | --- | --- |
@@ -184,7 +184,7 @@ To change the format:
     }
   },
   "trash": {
-    "5b77…": { "position": 2, "runs": 0, "last_run": null, "triggers": { … } }
+    "5b77…": { "position": 2, "next": "9c1e…", "name": "Weekly report", "runs": 0, "last_run": null, "triggers": { … } }
   }
 }
 ```
@@ -197,7 +197,7 @@ To change the format:
 | `triggers.schedule.schedule.days` | Monday first |
 | `triggers.schedule.schedule.time` | Local `"HH:MM"` |
 | `triggers.app_launch.exe` | File name, matched case-insensitively |
-| `trash` | Deleted macros: where they were and their stats, so *Undo* restores them exactly |
+| `trash` | Deleted macros and their stats, so *Undo* restores them exactly. `next` is the macro that came right after (`null` at the end); restoring follows it (through other trashed macros) to the first one still in the Library, so the macro returns to the right place even after others were added or restored. Older files have only `position`, used as is. `name` keeps recording names from repeating one that's in the trash. |
 
 Before triggers existed (up to M6), entries had a plain `hotkey` label. It's read as a disabled hotkey trigger.
 
@@ -217,7 +217,7 @@ Before triggers existed (up to M6), entries had a plain `hotkey` label. It's rea
 }
 ```
 
-`path_mode` is `"full"` or `"trail"`, and `keep_on_top` is `"always"`, `"sessions"` (while recording or playing) or `"never"`. Missing fields take their defaults (shown above), and unknown fields are ignored. *Start with Windows* isn't stored here: it's an entry in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (managed by `tauri-plugin-autostart`) that starts Relay with `--autostart`.
+`path_mode` is `"full"` or `"trail"`, and `keep_on_top` is `"always"`, `"sessions"` (while recording or playing) or `"never"`. Missing fields take their defaults (shown above), and unknown fields are ignored. A field with an invalid value (`"keep_on_top": "sometimes"`, or a value from a newer Relay) takes its default and the others are kept; the original file is set aside as `settings.json.bad`, the recovered settings are saved, and the user is told. *Start with Windows* isn't stored here: it's an entry in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (managed by `tauri-plugin-autostart`) that starts Relay with `--autostart`.
 
 ## window.json
 

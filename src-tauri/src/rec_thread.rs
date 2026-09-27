@@ -9,6 +9,7 @@ use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, bounded};
 use relay_core::model::Rect;
 use relay_core::steps::{GroupOptions, group_steps};
 use relay_platform::recorder::{Recorder, Recording};
+use relay_platform::types::MousePulse;
 use relay_platform::{RawInput, RawKind, Screen};
 
 use crate::coordinator::Cmd;
@@ -18,8 +19,11 @@ const POLL: Duration = Duration::from_millis(25);
 const PROGRESS_EVERY_MS: f64 = 100.0;
 
 /// Notices that Windows removed the hook: it does that silently to hooks it
-/// considers too slow. The tell is a cursor that moves while no mouse events
-/// arrive. Reports at most once per `cooldown`.
+/// considers too slow. The tell is a cursor that moves while the hook sees no
+/// mouse events. Events it filters out count too: with "Ignore simulated
+/// input", a program moving the cursor (SendInput, SetCursorPos) sends only
+/// injected events, which the hook drops but still sees. Reports at most once
+/// per `cooldown`.
 pub struct HookWatchdog {
     last_cursor: Option<(i32, i32)>,
     last_event: f64,
@@ -39,9 +43,17 @@ impl HookWatchdog {
         }
     }
 
-    /// A mouse event arrived from the hook.
-    pub fn saw_event(&mut self, now: f64) {
-        self.last_event = now;
+    /// The hook saw a mouse event at `time` (reported or filtered out). An
+    /// older time than one already seen changes nothing.
+    pub fn saw_event(&mut self, time: f64) {
+        self.last_event = self.last_event.max(time);
+    }
+
+    /// [`check`](Self::check), counting the mouse events the hook saw but
+    /// filtered out (`pulse`).
+    pub fn check_with(&mut self, pulse: &MousePulse, now: f64, cursor: (i32, i32)) -> bool {
+        self.saw_event(pulse.last());
+        self.check(now, cursor)
     }
 
     /// Feeds the current cursor position; true when the hook looks dead.
@@ -69,6 +81,8 @@ pub struct RecContext {
     pub now_ms: fn() -> f64,
     pub emit: Arc<Emitter>,
     pub coordinator: Sender<Cmd>,
+    /// When the hook last saw a mouse event, filtered out or not.
+    pub mouse_pulse: Arc<MousePulse>,
 }
 
 impl RecThread {
@@ -117,7 +131,7 @@ fn run(mut rec: Recorder, raw: Receiver<RawInput>, stop: Receiver<()>, ctx: RecC
         let now = (ctx.now_ms)();
         if now - last_progress >= PROGRESS_EVERY_MS {
             last_progress = now;
-            if watchdog.check(now, ctx.screen.cursor_pos()) {
+            if watchdog.check_with(&ctx.mouse_pulse, now, ctx.screen.cursor_pos()) {
                 let _ = ctx.coordinator.send(Cmd::HookLost);
             }
             let events = rec.events();
@@ -154,6 +168,32 @@ mod tests {
         // Not again right away, even though it's still silent.
         assert!(!w.check(3000.0, (8, 8)));
         assert!(w.check(6800.0, (9, 9)), "after the cooldown");
+    }
+
+    #[test]
+    fn events_the_hook_filters_out_keep_it_alive() {
+        // "Ignore simulated input": another program moves the cursor; the hook
+        // drops every event, so none arrive, but it beats the pulse.
+        let pulse = MousePulse::default();
+        let mut w = HookWatchdog::new(0.0);
+        for i in 0..100 {
+            let now = i as f64 * 100.0;
+            pulse.beat(now - 5.0);
+            assert!(!w.check_with(&pulse, now, (i, i)), "at {now} ms");
+        }
+        // The hook is removed: the pulse stops while the cursor keeps moving.
+        assert!(!w.check_with(&pulse, 10_500.0, (200, 200)));
+        assert!(w.check_with(&pulse, 11_100.0, (201, 201)));
+    }
+
+    #[test]
+    fn an_older_event_doesnt_move_the_watchdog_back() {
+        let mut w = HookWatchdog::new(0.0);
+        w.check(0.0, (0, 0));
+        w.saw_event(2000.0);
+        w.saw_event(100.0); // a pulse that lags a reported event
+        assert!(!w.check(2900.0, (1, 1)), "900 ms since the latest");
+        assert!(w.check(3100.0, (2, 2)));
     }
 
     #[test]

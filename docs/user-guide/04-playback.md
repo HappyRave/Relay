@@ -26,9 +26,9 @@ Playback replays a macro's clicks, keys and mouse path with the timing you recor
 | Replay part of a macro | Move the playhead (click a step or the timeline), then play |
 | Jump while playing | Click the timeline or a step. Playback continues from there. |
 
-Playback starts **wherever the playhead is**. If it's at the end, playback starts from the beginning.
+Playback starts **wherever the playhead is**. If it's at the end, playback starts from the beginning. <kbd>F10</kbd> uses the same playhead the widget shows: after **Stop** it's back at the start, after a complete run at the end (so F10 plays again from the beginning), and after a [pixel check timed out](05-pixel-checks.md) on that check.
 
-While playing, the preview shows a **Playing** (or **Paused**) badge with the loop and the speed, for example *Loop 1 / 3 · 1×*.
+While playing, the preview shows a **Playing** (or **Paused**) badge with the loop and the speed of what's actually playing, for example *Loop 1 / 3 · 1×*. Record is off while a macro plays, and Play is off while recording.
 
 When playback ends:
 
@@ -45,7 +45,7 @@ These are in the transport bar, and **each macro remembers its own**.
 | Control | Options |
 | --- | --- |
 | **Speed** | **0.5×**, **1×**, **2×**, **4×**. You can change it while the macro is playing. |
-| **Repeat** | **−** and **+** set how many times the macro runs in a row (1 to 99). **∞** loops until you stop it. |
+| **Repeat** | **−** and **+** set how many times the macro runs in a row (1 to 99). **∞** loops until you stop it; while it's on, **+** is off and **−** goes back to the count you had. |
 
 > [!CAUTION]
 > Faster isn't always better. At 2× or 4× the apps you're automating get half or a quarter of the time they had when you recorded. If they can't keep up, clicks land before a window is ready. Use [pixel checks](05-pixel-checks.md) to make fast playback reliable.
@@ -55,7 +55,8 @@ These are in the transport bar, and **each macro remembers its own**.
 **Settings → Playback → Humanize** shifts each step by a small random amount, so a long-running loop doesn't click with robot-perfect regularity.
 
 - The slider sets the range, from **±0** to **±200 ms** (default **±40 ms**).
-- A step moves as a whole: a click's press and release move together, and steps never swap order.
+- A step moves as a whole: a click's press and release move together (the time between them stays exactly as recorded), and steps never swap order.
+- Playing from a step always plays that whole step, even if Humanize moves it slightly earlier.
 - Each loop gets a new random pattern.
 - It's **on by default**. Turn it off to replay your recording exactly.
 

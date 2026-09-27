@@ -4,11 +4,17 @@
   import { relay } from "../../../lib/state/relay.svelte";
   import { onMount } from "svelte";
   import { nextRunLabel } from "../../../lib/format";
+  import { commitNumber, toMs } from "../../../lib/fields";
 
   const DAYS = ["M", "T", "W", "T", "F", "S", "S"];
   const HEX = /^#[0-9a-fA-F]{6}$/;
   const status = $derived(relay.triggerStatus);
   const t = $derived(status?.triggers);
+  const scheduleLabel = $derived.by(() => {
+    if (!t?.schedule.enabled) return "Off";
+    if (!t.schedule.schedule.days.some(Boolean)) return "Pick a day";
+    return nextRunLabel(status?.next_run ?? null);
+  });
 
   // Suggestions for "When app launches".
   onMount(relay.loadProcesses);
@@ -20,11 +26,13 @@
     relay.setTriggers({ schedule: { ...t.schedule, schedule: { ...t.schedule.schedule, days } } });
   }
 
-  /** Applies a number field's value; an empty or non-number one is put back instead. */
-  function withNumber(e: Event, current: number, apply: (v: number) => void) {
-    const input = e.currentTarget as HTMLInputElement;
-    if (Number.isFinite(input.valueAsNumber)) apply(input.valueAsNumber);
-    else input.value = String(current);
+  /**
+   * Commits a number field; it then shows what's saved (rounded to whole
+   * pixels or ms, clamped), or the current value again if it was refused.
+   */
+  function withNumber(e: Event, current: number, accept: (v: number) => number | null, apply: (v: number) => void, show?: (v: number) => string) {
+    const v = commitNumber(e.currentTarget as HTMLInputElement, current, accept, show);
+    if (v != null) apply(v);
   }
 </script>
 
@@ -34,7 +42,14 @@
     <button class="btn btn-ghost" onclick={() => relay.setTriggersPaused(false)}>Resume</button>
   </div>
 {/if}
-{#if t}
+{#if !relay.view}
+  <div class="empty">Open a macro to set its triggers</div>
+{:else if relay.triggersFailed}
+  <div class="empty" role="alert">
+    Couldn't load the triggers
+    <button class="btn btn-secondary" onclick={relay.loadTriggers}>Retry</button>
+  </div>
+{:else if t}
   <div class="list">
     <div class="row">
       <div class="grow">
@@ -48,7 +63,8 @@
       <Toggle
         label="Hotkey trigger"
         on={t.hotkey.enabled}
-        onchange={(v) => relay.setTriggers({ hotkey: { ...t.hotkey, enabled: v && t.hotkey.combo !== "" } })}
+        disabled={t.hotkey.combo === ""}
+        onchange={(v) => relay.setTriggers({ hotkey: { ...t.hotkey, enabled: v } })}
       />
     </div>
 
@@ -56,7 +72,7 @@
       <div class="line">
         <div class="grow">
           <div class="title">Schedule</div>
-          <div class="sub accent">{nextRunLabel(status?.next_run ?? null)}</div>
+          <div class="sub" class:accent={t.schedule.enabled}>{scheduleLabel}</div>
         </div>
         <Toggle
           label="Schedule trigger"
@@ -77,9 +93,12 @@
           class="input time"
           aria-label="Time"
           value={t.schedule.schedule.time}
-          onchange={(e) =>
-            e.currentTarget.value &&
-            relay.setTriggers({ schedule: { ...t.schedule, schedule: { ...t.schedule.schedule, time: e.currentTarget.value } } })}
+          onchange={(e) => {
+            const time = e.currentTarget.value;
+            // A cleared time isn't a time: show the saved one again.
+            if (!time) e.currentTarget.value = t.schedule.schedule.time;
+            else if (time !== t.schedule.schedule.time) relay.setTriggers({ schedule: { ...t.schedule, schedule: { ...t.schedule.schedule, time } } });
+          }}
         />
       </div>
     </div>
@@ -93,7 +112,8 @@
         <Toggle
           label="App launch trigger"
           on={t.app_launch.enabled}
-          onchange={(v) => relay.setTriggers({ app_launch: { ...t.app_launch, enabled: v && t.app_launch.exe.trim() !== "" } })}
+          disabled={t.app_launch.exe.trim() === ""}
+          onchange={(v) => relay.setTriggers({ app_launch: { ...t.app_launch, enabled: v } })}
         />
       </div>
       <div class="line">
@@ -120,8 +140,12 @@
           title="Delay in seconds"
           value={t.app_launch.delay_ms / 1000}
           onchange={(e) =>
-            withNumber(e, t.app_launch.delay_ms / 1000, (s) =>
-              relay.setTriggers({ app_launch: { ...t.app_launch, delay_ms: Math.max(0, Math.round(s * 1000)) } }),
+            withNumber(
+              e,
+              t.app_launch.delay_ms,
+              (s) => Math.max(0, toMs(s)),
+              (delay_ms) => relay.setTriggers({ app_launch: { ...t.app_launch, delay_ms } }),
+              (ms) => String(ms / 1000),
             )}
         />
       </div>
@@ -143,14 +167,14 @@
           type="number"
           aria-label="X"
           value={t.pixel.x}
-          onchange={(e) => withNumber(e, t.pixel.x, (x) => relay.setTriggers({ pixel: { ...t.pixel, x } }))}
+          onchange={(e) => withNumber(e, t.pixel.x, Math.round, (x) => relay.setTriggers({ pixel: { ...t.pixel, x } }))}
         />
         <input
           class="input small"
           type="number"
           aria-label="Y"
           value={t.pixel.y}
-          onchange={(e) => withNumber(e, t.pixel.y, (y) => relay.setTriggers({ pixel: { ...t.pixel, y } }))}
+          onchange={(e) => withNumber(e, t.pixel.y, Math.round, (y) => relay.setTriggers({ pixel: { ...t.pixel, y } }))}
         />
         <input
           class="input small"
@@ -159,13 +183,13 @@
           spellcheck="false"
           value={t.pixel.color}
           onchange={(e) => {
-            const color = e.currentTarget.value.trim();
-            if (HEX.test(color)) relay.setTriggers({ pixel: { ...t.pixel, color: color.toUpperCase() } });
-            else e.currentTarget.value = t.pixel.color;
+            const color = e.currentTarget.value.trim().toUpperCase();
+            e.currentTarget.value = HEX.test(color) ? color : t.pixel.color;
+            if (HEX.test(color) && color !== t.pixel.color) relay.setTriggers({ pixel: { ...t.pixel, color } });
           }}
         />
         <button class="btn btn-secondary pick" disabled={relay.picking > 0 || !relay.editable} onclick={relay.pickTriggerPixel}>
-          {relay.picking > 0 ? `Point… ${relay.picking}` : "Pick"}
+          {relay.picking > 0 ? `Point at it… ${relay.picking}` : "Pick"}
         </button>
       </div>
     </div>
@@ -173,6 +197,19 @@
 {/if}
 
 <style>
+  .empty {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 12px;
+    font-size: 12px;
+    color: var(--color-neutral-700);
+  }
+  .empty .btn {
+    font-size: 12px;
+    padding: 2px 8px;
+  }
   .paused {
     display: flex;
     align-items: center;

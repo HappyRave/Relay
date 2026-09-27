@@ -1,5 +1,7 @@
 //! Global settings, persisted to settings.json. Unknown or missing fields
-//! fall back to defaults, so older files keep loading.
+//! fall back to defaults, so older files keep loading. A value Relay doesn't
+//! understand (a damaged file, or one from a newer Relay) resets only that
+//! setting; the file is then set aside as `settings.json.bad` and reported.
 
 use std::path::{Path, PathBuf};
 
@@ -78,38 +80,160 @@ impl Default for Settings {
 pub struct SettingsStore {
     path: PathBuf,
     pub current: Settings,
+    /// settings.json exists but couldn't be read (locked by another program,
+    /// say): it's never overwritten this run, so the user's settings survive.
+    unreadable: bool,
 }
 
 impl SettingsStore {
-    pub fn open(dir: &Path) -> Self {
+    /// Loads the settings in `dir`, with anything wrong with the file.
+    pub fn open(dir: &Path) -> (Self, Vec<String>) {
         let path = dir.join("settings.json");
-        let current =
-            std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
-        SettingsStore { path, current }
+        let mut problems = Vec::new();
+        let mut unreadable = false;
+        let current = match std::fs::read_to_string(&path) {
+            Ok(text) => {
+                let (current, why) = parse(&text);
+                if let Some(why) = why {
+                    // Keep the original for inspection, and save what could be read from it.
+                    let bad = path.with_extension("json.bad");
+                    let _ = std::fs::rename(&path, &bad);
+                    let _ = write_atomic(&path, &to_json(&current));
+                    problems.push(format!("{} {why} (the file was moved to {})", path.display(), bad.display()));
+                }
+                current
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Settings::default(),
+            Err(e) => {
+                unreadable = true;
+                problems.push(format!(
+                    "{} couldn't be read ({e}). Relay uses the default settings until it restarts,                      and leaves the file as it is.",
+                    path.display()
+                ));
+                Settings::default()
+            }
+        };
+        (SettingsStore { path, current, unreadable }, problems)
     }
 
+    /// Changes the settings and saves them; if saving fails, the change is still kept for this run.
     pub fn set(&mut self, settings: Settings) -> std::io::Result<()> {
         self.current = settings;
-        write_atomic(&self.path, &serde_json::to_string_pretty(&self.current).expect("settings serialize"))
+        if self.unreadable {
+            return Err(std::io::Error::other("settings.json couldn't be read at startup, so it isn't overwritten"));
+        }
+        write_atomic(&self.path, &to_json(&self.current))
     }
+}
+
+fn to_json(s: &Settings) -> String {
+    serde_json::to_string_pretty(s).expect("settings serialize")
+}
+
+/// Reads settings.json field by field: a value that doesn't fit its setting
+/// takes the default and the others are kept. Returns what was wrong, if anything.
+fn parse(text: &str) -> (Settings, Option<String>) {
+    use serde_json::{Map, Value};
+    let reset = |why: String| (Settings::default(), Some(format!("{why}; every setting is back to its default")));
+    let file: Map<String, Value> = match serde_json::from_str(text) {
+        Ok(Value::Object(file)) => file,
+        Ok(_) => return reset("isn't a settings file".into()),
+        Err(e) => return reset(format!("couldn't be read ({e})")),
+    };
+    let Ok(Value::Object(mut merged)) = serde_json::to_value(Settings::default()) else {
+        unreachable!("settings serialize to an object")
+    };
+    let mut bad = Vec::new();
+    for (key, value) in file {
+        // Unknown fields are ignored, as serde does.
+        let Some(default) = merged.insert(key.clone(), value) else {
+            merged.remove(&key);
+            continue;
+        };
+        if serde_json::from_value::<Settings>(Value::Object(merged.clone())).is_err() {
+            merged.insert(key.clone(), default);
+            bad.push(format!("“{key}”"));
+        }
+    }
+    let settings = serde_json::from_value(Value::Object(merged)).expect("defaults are valid");
+    let why = (!bad.is_empty()).then(|| {
+        let (what, verb) = if bad.len() == 1 { ("setting", "is") } else { ("settings", "are") };
+        format!("had values Relay doesn't understand; the {what} {} {verb} back to the default", bad.join(", "))
+    });
+    (settings, why)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn open(dir: &Path) -> (Settings, Vec<String>) {
+        let (s, problems) = SettingsStore::open(dir);
+        (s.current, problems)
+    }
+
     #[test]
     fn persists_and_tolerates_partial_files() {
         let dir = tempfile::tempdir().unwrap();
-        let mut s = SettingsStore::open(dir.path());
+        let (mut s, problems) = SettingsStore::open(dir.path());
         assert_eq!(s.current, Settings::default());
+        assert!(problems.is_empty());
         s.set(Settings { countdown: false, ..Settings::default() }).unwrap();
-        assert!(!SettingsStore::open(dir.path()).current.countdown);
+        assert!(!open(dir.path()).0.countdown);
 
-        std::fs::write(dir.path().join("settings.json"), r#"{"capture_keys":false}"#).unwrap();
-        let s = SettingsStore::open(dir.path()).current;
+        std::fs::write(dir.path().join("settings.json"), r#"{"capture_keys":false,"from_a_newer_relay":1}"#).unwrap();
+        let (s, problems) = open(dir.path());
         assert!(!s.capture_keys && s.capture_moves);
         assert_eq!(s.keep_on_top, KeepOnTop::Always, "older files keep the old behavior");
+        assert!(problems.is_empty(), "unknown fields are fine: {problems:?}");
+        assert!(!dir.path().join("settings.json.bad").exists());
+    }
+
+    #[test]
+    fn a_settings_file_that_cant_be_read_is_never_overwritten() {
+        let dir = tempfile::tempdir().unwrap();
+        // A folder where the file should be: it exists, but reading it fails.
+        let path = dir.path().join("settings.json");
+        std::fs::create_dir(&path).unwrap();
+        let (mut s, problems) = SettingsStore::open(dir.path());
+        assert_eq!(s.current, Settings::default());
+        assert_eq!(problems.len(), 1);
+        assert!(problems[0].contains("couldn't be read"), "{}", problems[0]);
+        let changed = Settings { countdown: false, ..Settings::default() };
+        assert!(s.set(changed.clone()).is_err(), "saving is refused");
+        assert_eq!(s.current, changed, "but the change is kept for this run");
+        assert!(path.is_dir(), "left as it was");
+        assert!(!dir.path().join("settings.json.bad").exists());
+    }
+
+    #[test]
+    fn a_bad_value_resets_only_its_setting_and_the_file_is_set_aside() {
+        let dir = tempfile::tempdir().unwrap();
+        let text = r#"{"countdown":false,"keep_on_top":"sometimes","path_mode":"trail","capture_keys":"no"}"#;
+        std::fs::write(dir.path().join("settings.json"), text).unwrap();
+        let (s, problems) = open(dir.path());
+        let kept = Settings { countdown: false, path_mode: PathMode::Trail, ..Settings::default() };
+        assert_eq!(s, kept, "the valid ones are kept");
+        assert_eq!(problems.len(), 1);
+        let p = &problems[0];
+        assert!(p.contains("“keep_on_top”") && p.contains("“capture_keys”") && p.contains("are back to"), "{p}");
+        assert!(!p.contains("countdown"), "{p}");
+        assert_eq!(std::fs::read_to_string(dir.path().join("settings.json.bad")).unwrap(), text);
+        // What could be read is saved, so the next start has it, without a problem.
+        assert_eq!(open(dir.path()), (kept, vec![]));
+    }
+
+    #[test]
+    fn an_unreadable_file_resets_everything_and_is_set_aside() {
+        let dir = tempfile::tempdir().unwrap();
+        for text in ["{ not json", "[1, 2]"] {
+            std::fs::write(dir.path().join("settings.json"), text).unwrap();
+            let (s, problems) = open(dir.path());
+            assert_eq!(s, Settings::default());
+            assert_eq!(problems.len(), 1);
+            assert!(problems[0].contains("every setting is back to its default"), "{}", problems[0]);
+            assert_eq!(std::fs::read_to_string(dir.path().join("settings.json.bad")).unwrap(), text);
+        }
     }
 
     #[test]

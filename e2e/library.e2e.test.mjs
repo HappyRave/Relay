@@ -1,7 +1,7 @@
 // The library against the real app: the first run, renaming, duplicating,
 // deleting and restoring, importing and exporting, and what's on disk
 // after a restart.
-import { after, before, describe, test } from "node:test";
+import { after, afterEach, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
@@ -14,6 +14,7 @@ describe("library", () => {
     page = await app.start();
   });
   after(() => app.dispose());
+  afterEach(() => app.page?.reset());
 
   const names = () =>
     page.run(async () => {
@@ -29,12 +30,10 @@ describe("library", () => {
     assert.equal(index.order.length, 4);
     for (const e of Object.values(index.entries)) assert.equal(e.triggers?.hotkey?.enabled ?? false, false);
     // Not in the Library's hotkey column; the Triggers tab has the combo, switched off.
-    await page.click("Library", { role: "tab" });
-    await page.idle();
+    await page.tab("Library");
     assert.doesNotMatch(await page.text(".list"), /Ctrl \+ Alt/);
-    await page.click("Triggers", { role: "tab" });
-    await page.idle();
-    assert.match(await page.text(".list"), /Ctrl \+ Alt \+ 1/);
+    await page.tab("Triggers");
+    await until(async () => /Ctrl \+ Alt \+ 1/.test((await page.text(".list")) ?? ""), { what: "the hotkey in the Triggers tab" });
     assert.equal(await page.run(() => document.querySelector('[aria-label="Hotkey trigger"]').getAttribute("aria-checked")), "false");
   });
 
@@ -46,8 +45,8 @@ describe("library", () => {
   });
 
   test("Duplicate makes a copy right after it, in its own file", async () => {
-    await page.click("Library", { role: "tab" });
-    await page.click("Duplicate Fill weekly timesheet");
+    await page.tab("Library");
+    await page.rowAction("Duplicate", "Fill weekly timesheet");
     await until(async () => (await page.store("view.name")) === "Fill weekly timesheet (copy)", { what: "the copy to open" });
     const list = await names();
     assert.equal(list.length, 5);
@@ -60,9 +59,9 @@ describe("library", () => {
   });
 
   test("Delete moves it to the trash folder; Undo brings it back where it was", async () => {
-    await page.click("Library", { role: "tab" });
+    await page.tab("Library");
     const victim = (await page.run(() => window.__relay.library[2])).id;
-    await page.click("Delete Fill weekly timesheet (copy)");
+    await page.rowAction("Delete", "Fill weekly timesheet (copy)");
     await until(async () => (await page.store("toast.message"))?.startsWith("Moved"), { what: "the delete" });
     assert.equal((await names()).length, 4);
     assert.ok(!app.exists("macros", `${victim}.rly`));
@@ -79,9 +78,9 @@ describe("library", () => {
 
   test("deleting the open macro opens its neighbour", async () => {
     await page.run(() => window.__relay.loadMacro(window.__relay.library[2].id));
-    await page.click("Library", { role: "tab" }); // opening it switched to Steps
-    await page.idle();
-    await page.click("Delete Fill weekly timesheet (copy)");
+    await page.tab("Library"); // opening it switched to Steps
+
+    await page.rowAction("Delete", "Fill weekly timesheet (copy)");
     await until(async () => (await page.store("view.name")) === "Batch rename photos", { what: "the neighbour" });
   });
 
@@ -173,20 +172,22 @@ describe("library", () => {
   });
 
   test("a damaged macro file is skipped, not deleted, and the rest load", async () => {
+    const before = await names();
     await app.quit();
     const bad = app.path("macros", "11111111-2222-3333-4444-555555555555.rly");
     writeFileSync(bad, "garbage");
     page = await app.start();
-    const list = await names();
-    assert.ok(list.length >= 5);
+    assert.deepEqual(await names(), before, "every other macro, in order, and not the damaged one");
     assert.ok(existsSync(bad), "left for the user to inspect");
   });
 
   test("a damaged library.json is set aside and the macros still load", async () => {
+    const before = await names();
     await app.quit();
     writeFileSync(app.path("library.json"), "{ broken");
     page = await app.start();
     assert.ok(app.exists("library.json.bad"));
-    assert.ok((await names()).length >= 5);
+    // Without the index the order is lost (newest first), but every macro is there.
+    assert.deepEqual([...(await names())].sort(), [...before].sort());
   });
 });

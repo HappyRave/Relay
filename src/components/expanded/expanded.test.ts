@@ -33,15 +33,48 @@ describe("Header", () => {
     expect(core.argsOf("edit_macro")).toEqual([{ id: A, op: { op: "rename", name: "Invoice → PDF" } }]);
   });
 
-  test("the name is locked while recording, or with nothing open", async () => {
+  test("while recording, the name is the new recording's, and locked; also with nothing open", async () => {
     render(Header);
     core.emit({ type: "session", mode: "recording", macro_id: null });
     await settle();
     expect(screen.getByRole("textbox", { name: "Macro name" })).toBeDisabled();
+    expect(screen.getByRole("textbox", { name: "Macro name" })).toHaveValue("New recording");
     core.emit({ type: "session", mode: "idle", macro_id: null });
     relay.view = null;
     await settle();
     expect(screen.getByRole("textbox", { name: "Macro name" })).toBeDisabled();
+  });
+
+  test("the name is locked during playback too (Rust would refuse a rename)", async () => {
+    render(Header);
+    core.emit({ type: "session", mode: "paused", macro_id: A });
+    await settle();
+    expect(screen.getByRole("textbox", { name: "Macro name" })).toBeDisabled();
+    expect(screen.getByRole("textbox", { name: "Macro name" })).toHaveValue("Export invoice to PDF");
+  });
+
+  test("clearing the name isn't saved, and leaving the field puts it back", async () => {
+    vi.useFakeTimers();
+    render(Header);
+    const name = screen.getByRole("textbox", { name: "Macro name" });
+    await fireEvent.input(name, { target: { value: " " } });
+    expect(name).toHaveValue(" ");
+    await vi.advanceTimersByTimeAsync(1000);
+    await fireEvent.blur(name);
+    expect(name).toHaveValue("Export invoice to PDF");
+    expect(core.argsOf("edit_macro")).toEqual([]);
+  });
+
+  test("Ctrl + Z in the name field is the field's own undo", async () => {
+    relay.start();
+    await relay.edit({ op: "delete_step", index: 0 });
+    render(Header);
+    const name = screen.getByRole("textbox", { name: "Macro name" });
+    name.focus();
+    await fireEvent.keyDown(name, { key: "z", ctrlKey: true });
+    await settle();
+    expect(core.argsOf("undo_edit")).toEqual([]);
+    relay.dispose();
   });
 
   test("Undo and Redo are enabled only when there's something to undo or redo", async () => {
@@ -65,6 +98,12 @@ describe("Header", () => {
       { id: A, redo: false },
       { id: A, redo: true },
     ]);
+  });
+
+  test("with no macro open, there's nothing to export", async () => {
+    relay.view = null;
+    render(Header);
+    expect(screen.getByRole("button", { name: /Export/ })).toBeDisabled();
   });
 
   test("Export opens the export dialog", async () => {
@@ -97,6 +136,7 @@ describe("Header", () => {
       expect(screen.queryByRole("button", { name: "Redo" })).toBeNull();
       expect(screen.queryByRole("button", { name: "Hide to tray" })).toBeNull();
       expect(screen.getByRole("button", { name: /Export/ })).toBeInTheDocument();
+      expect(screen.getByRole("textbox", { name: "Macro name" })).toHaveAttribute("readonly");
     } finally {
       core.install();
     }
@@ -158,6 +198,14 @@ describe("Transport", () => {
     expect(screen.getByRole("radio", { name: label })).toHaveAttribute("aria-checked", "true");
   });
 
+  test("speed and repeat are off while recording", async () => {
+    render(Transport);
+    core.emit({ type: "session", mode: "recording", macro_id: null });
+    await settle();
+    for (const r of screen.getAllByRole("radio")) expect(r).toBeDisabled();
+    for (const name of ["Fewer repeats", "More repeats", "Loop forever"]) expect(screen.getByRole("button", { name })).toBeDisabled();
+  });
+
   const repeat = () => (core.lastArgs("set_playback_options")!.options as { repeat: unknown }).repeat;
 
   test("+ and − change the repeat count, from 1 to 99", async () => {
@@ -167,14 +215,14 @@ describe("Transport", () => {
     await settle();
     expect(repeat()).toEqual({ count: 4 });
     expect(screen.getByText("4")).toBeInTheDocument();
-    for (let i = 0; i < 4; i++) await userEvent.click(screen.getByRole("button", { name: "Fewer repeats" }));
+    for (let i = 0; i < 3; i++) await userEvent.click(screen.getByRole("button", { name: "Fewer repeats" }));
     await settle();
     expect(repeat()).toEqual({ count: 1 });
+    expect(screen.getByRole("button", { name: "Fewer repeats" })).toBeDisabled();
     await relay.setPlayback({ repeat: { count: 99 } });
     await settle();
-    await userEvent.click(screen.getByRole("button", { name: "More repeats" }));
-    await settle();
-    expect(repeat()).toEqual({ count: 99 });
+    expect(screen.getByRole("button", { name: "More repeats" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Fewer repeats" })).toBeEnabled();
   });
 
   test("Loop forever, and back to the count it had", async () => {
@@ -191,13 +239,41 @@ describe("Transport", () => {
     expect(repeat()).toEqual({ count: 3 });
   });
 
-  test("+ while looping forever counts up from the remembered count", async () => {
+  test("while looping forever, + is off and − goes back to the remembered count", async () => {
     render(Transport);
     await userEvent.click(screen.getByRole("button", { name: "Loop forever" }));
     await settle();
-    await userEvent.click(screen.getByRole("button", { name: "More repeats" }));
+    expect(screen.getByRole("button", { name: "More repeats" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "Fewer repeats" }));
     await settle();
-    expect(repeat()).toEqual({ count: 4 });
+    expect(repeat()).toEqual({ count: 3 });
+    expect(screen.getByText("3")).toBeInTheDocument();
+  });
+
+  test("at 1, − still leaves forever", async () => {
+    await relay.setPlayback({ repeat: { count: 1 } });
+    render(Transport);
+    await userEvent.click(screen.getByRole("button", { name: "Loop forever" }));
+    await settle();
+    expect(screen.getByRole("button", { name: "Fewer repeats" })).toBeEnabled();
+    await userEvent.click(screen.getByRole("button", { name: "Fewer repeats" }));
+    await settle();
+    expect(repeat()).toEqual({ count: 1 });
+  });
+
+  test("the remembered count is kept per macro, across the Transport being rebuilt", async () => {
+    const { unmount } = render(Transport);
+    await userEvent.click(screen.getByRole("button", { name: "Loop forever" })); // A had 3
+    await settle();
+    unmount();
+    await relay.loadMacro("00000000-0000-0000-0000-000000000002");
+    await relay.setPlayback({ repeat: { count: 7 } });
+    await relay.toggleForever();
+    await relay.loadMacro(A);
+    render(Transport);
+    await userEvent.click(screen.getByRole("button", { name: "Loop forever" }));
+    await settle();
+    expect(repeat()).toEqual({ count: 3 });
   });
 });
 

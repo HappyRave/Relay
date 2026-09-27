@@ -32,7 +32,7 @@ On the timeline, the check is an `IF` block in the *Logic* lane. The block's len
 2. **Get the screen ready.** Make the thing you want to wait for visible, for example open the dialog in the app.
 3. Press **+ Pixel check**.
 
-Relay inserts an 800 ms `IF` block after that step. It points at **where the macro's cursor is at that moment**, and takes **the color that pixel has on your screen right now**. It uses a tolerance of **8** and a timeout of **5 s**.
+Relay inserts an 800 ms `IF` block after that step. It points at **where the macro's cursor is at that moment**, and takes **the color that pixel has on your screen right now**. It uses a tolerance of **8** and a timeout of **5 s**. If Relay can't read the screen there (the screen is locked, say), it inserts nothing and tells you: *Couldn't read the screen at x, y*.
 
 That's often not the pixel you want. Open the step to point it somewhere better.
 

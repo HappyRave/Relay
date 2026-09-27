@@ -23,8 +23,8 @@ Relay only holds on to a key while it needs it. For example, <kbd>F10</kbd> belo
 
 | Where | Key | Does |
 | --- | --- | --- |
-| Anywhere but a text field | <kbd>Ctrl</kbd>+<kbd>Z</kbd> | Undo the last edit |
-| Anywhere but a text field | <kbd>Ctrl</kbd>+<kbd>Y</kbd> or <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> | Redo |
+| Anywhere but a text or number field | <kbd>Ctrl</kbd>+<kbd>Z</kbd> | Undo the last edit |
+| Anywhere but a text or number field | <kbd>Ctrl</kbd>+<kbd>Y</kbd> or <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> | Redo |
 | Steps list | <kbd>Enter</kbd> on a focused row | Jumps there and opens its editor |
 | Step editor | <kbd>Enter</kbd> or leaving a field | Saves the change |
 | Hotkey field | Any combination | Sets the hotkey |

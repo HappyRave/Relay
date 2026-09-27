@@ -1,6 +1,6 @@
 // Sessions against the real engine and coordinator. The macros played here
 // only wait (and check a pixel), so nothing is sent to the desktop.
-import { after, before, describe, test } from "node:test";
+import { after, afterEach, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { App, sleep, until, waitingMacro, writeRly } from "./harness.mjs";
 
@@ -25,6 +25,7 @@ describe("playback and recording", () => {
     await page.run(() => window.__relay.refreshLibrary());
   });
   after(() => app.dispose());
+  afterEach(() => app.page?.reset());
 
   const open = async (id) => {
     await page.run((id) => window.__relay.loadMacro(id), id);
@@ -34,13 +35,9 @@ describe("playback and recording", () => {
 
   test("Play runs the macro to the end and counts the run", async () => {
     await open(ids.short);
-    const started = Date.now();
-    await page.click("Play");
-    await page.waitMode("playing");
-    await page.waitMode("idle");
-    const took = Date.now() - started;
-    assert.ok(took >= 700 && took < 3000, `took ${took} ms`);
-    assert.equal(await page.store("lastFinish"), "completed");
+    const run = await page.playTimed();
+    assert.ok(run.ms > 700 && run.ms < 1500, `an 0.8 s macro took ${run.ms} ms`);
+    assert.equal(run.finish, "completed");
     assert.equal(await page.store("cur"), await page.store("duration"), "stays at the end");
     await until(() => runs(ids.short) === 1, { what: "the run count on disk" });
     assert.ok(app.json("library.json").entries[ids.short].last_run);
@@ -48,10 +45,10 @@ describe("playback and recording", () => {
   });
 
   test("Play at the end starts over", async () => {
-    await page.click("Play");
-    await page.waitMode("playing");
-    assert.ok((await page.store("cur")) < 400);
-    await page.waitMode("idle");
+    assert.equal(await page.store("cur"), await page.store("duration"));
+    const run = await page.playTimed();
+    assert.ok(run.from < 100, `started at ${run.from}`);
+    assert.ok(run.ms > 650 && run.ms < 2000, `took ${run.ms} ms`);
   });
 
   test("repeats: every loop runs", async () => {
@@ -72,12 +69,9 @@ describe("playback and recording", () => {
 
   test("the macro's speed applies (a 2 s macro at 4× takes about half a second)", async () => {
     await open(ids.fast);
-    const started = Date.now();
-    await page.click("Play");
-    await page.waitMode("playing");
-    await page.waitMode("idle");
-    const took = Date.now() - started;
-    assert.ok(took < 1500, `took ${took} ms`);
+    const run = await page.playTimed();
+    assert.ok(run.ms > 350 && run.ms < 1200, `took ${run.ms} ms`);
+    assert.equal(run.finish, "completed");
   });
 
   test("Pause holds the playhead; Play resumes from it", async () => {
@@ -111,12 +105,10 @@ describe("playback and recording", () => {
 
   test("Play starts from the playhead", async () => {
     await page.run(() => window.__relay.seek(3200));
-    await page.idle();
-    const started = Date.now();
-    await page.click("Play");
-    await page.waitMode("playing");
-    await page.waitMode("idle");
-    assert.ok(Date.now() - started < 2000, "only the last 0.8 s played");
+    await until(async () => (await page.store("cur")) === 3200, { what: "the playhead" });
+    const run = await page.playTimed();
+    assert.ok(Math.abs(run.from - 3200) < 100, `started at ${run.from}`);
+    assert.ok(run.ms > 600 && run.ms < 1600, `only the last 0.8 s played (${run.ms} ms)`);
   });
 
   test("seeking while playing jumps the engine there", async () => {
@@ -156,8 +148,8 @@ describe("playback and recording", () => {
     await page.click("Play");
     await page.waitMode("playing");
     await assert.rejects(page.invoke("delete_macro", { id: ids.long }), (e) => e.code === "busy");
+    // Opening another macro is refused at once (the promise settles without switching).
     await page.run((id) => window.__relay.loadMacro(id), ids.short);
-    await page.idle();
     assert.equal(await page.store("view.id"), ids.long);
     await page.click("Stop");
     await page.waitMode("idle");
@@ -167,9 +159,13 @@ describe("playback and recording", () => {
     await page.run(() => window.__relay.updateSettings({ countdown: true }));
     await page.click("Record");
     await page.waitMode("countdown");
-    const left = await page.store("countLeft");
+    // Both read in one go: the number shown matches the time left.
+    const { left, shown } = await page.run(() => ({
+      left: window.__relay.countLeft,
+      shown: document.querySelector(".countdown")?.innerText.trim(),
+    }));
     assert.ok(left > 0 && left <= 3000, `${left} ms left`);
-    assert.equal(await page.text(".countdown"), String(Math.ceil(left / 1000)));
+    assert.equal(shown, String(Math.ceil(left / 1000)));
     await page.waitMode("recording", 5000);
     assert.equal(await page.store("recording"), true);
     await until(async () => (await page.store("cur")) > 200, { what: "the recording clock" });

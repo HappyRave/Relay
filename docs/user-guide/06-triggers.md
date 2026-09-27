@@ -13,6 +13,8 @@ Triggers run a macro without you pressing play: on a hotkey, on a schedule, when
 
 <p align="center"><img src="../images/triggers.png" alt="The Triggers tab with a hotkey and a weekday schedule" width="720"></p>
 
+The tab shows the open macro's triggers. With no macro open it says so, and if they couldn't be loaded it shows *Couldn't load the triggers* with a **Retry** button.
+
 ## The four triggers
 
 | Trigger | Runs the macro… | Example |
@@ -27,13 +29,14 @@ Each has a switch on the right. You can use several on the same macro. Triggers 
 ## Hotkey
 
 1. Click the key field (it shows **Set…** when empty). It changes to *Press keys…*.
-2. Press the combination, for example <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd>. The switch turns on by itself.
+2. Press the combination, for example <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd>. The switch turns on by itself. (Until a hotkey is set, the switch is off and can't be turned on; the same goes for **When app launches** until you type a program.)
 
 While the field is waiting for keys, <kbd>Backspace</kbd> clears the hotkey and <kbd>Esc</kbd> cancels.
 
 **Rules for a hotkey:**
 
 - It needs <kbd>Ctrl</kbd>, <kbd>Alt</kbd>, <kbd>Shift</kbd> or <kbd>Win</kbd>, so the key still types normally. Function keys <kbd>F1</kbd>–<kbd>F24</kbd> work on their own.
+- <kbd>Shift</kbd> alone isn't enough for a letter, digit, punctuation, <kbd>Space</kbd> or <kbd>Enter</kbd>: that's ordinary typing (capital letters). It's fine with function keys, arrows, <kbd>Home</kbd>, <kbd>Tab</kbd> and the like.
 - It can't be one of [Relay's own hotkeys](keyboard-shortcuts.md) (<kbd>F9</kbd>, <kbd>F10</kbd>, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd>, <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd>).
 - It can't already run another macro.
 
@@ -42,6 +45,8 @@ If something's wrong, the line under **Hotkey** says why, instead of *Run from a
 | Message | Meaning |
 | --- | --- |
 | *Add Ctrl, Alt, Shift or Win, so the key still types normally* | A plain key isn't allowed |
+| *Add Ctrl, Alt or Win: Shift + A is ordinary typing* | Shift alone with a key that types |
+| *Add a key after Shift: a hotkey can't end with a modifier* | Only modifiers were pressed |
 | *Ctrl + Alt + 7 already runs "Fill weekly timesheet"* | Another macro has it. Pick another, or change that macro's. |
 | *F9 is one of Relay's own hotkeys* | Reserved by Relay |
 | *Ctrl + Alt + 1 is taken by another app* | Another program registered it first. Pick another, or close that program. |
@@ -59,12 +64,13 @@ The Library shows each macro's hotkey next to its name.
 2. Set the **time**.
 3. Turn the switch on.
 
-The line under **Schedule** shows when it will run next, for example *Next run: Tomorrow 09:00*. A new schedule starts as **weekdays at 09:00**.
+The line under **Schedule** shows when it will run next, for example *Next run: Tomorrow 09:00*, or *Off* while the switch is off, or *Pick a day* when no day is selected. A new schedule starts as **weekdays at 09:00**.
 
 Things to know:
 
 - Times are in your PC's local time, and they follow daylight saving changes.
-- If the PC was asleep or off at the scheduled time, the run is **skipped**, not made up later. A run that's more than 2 minutes late is skipped.
+- If the PC was asleep or off at the scheduled time, the run is **skipped**, not made up later. Relay still runs it if it notices up to 2 minutes late (the PC woke just after), but not later than that.
+- If the clock jumps back (it's corrected after waking up, say), a run that already happened doesn't happen again.
 - A schedule checks the clock every few seconds, so a run can start up to 5 seconds after the minute.
 
 ## When app launches
@@ -73,7 +79,9 @@ Things to know:
 2. Set the **delay** in seconds (2 s by default). It gives the program's window time to appear before the macro starts clicking.
 3. Turn the switch on.
 
-The macro runs each time the program **starts**. A program that's already running when you turn the trigger on (or when Relay starts) doesn't count until it's closed and opened again. Relay looks for new programs every 2 seconds.
+The macro runs each time the program **starts**, counting from the moment you turn the trigger on: a program you open right after does count. A program that's already running then (or when Relay starts) doesn't count until it's closed and opened again. Relay looks for new programs every 2 seconds, so a program closed and reopened within 2 seconds may not be noticed. Opening a second window of a program that's already running doesn't count either, since the program didn't start.
+
+If you turn the trigger off during the delay, the macro doesn't run.
 
 > [!TIP]
 > Not sure of the file name? Start the program, then open the field's suggestions, or look in Task Manager → **Details**.
@@ -85,7 +93,7 @@ The macro runs each time the program **starts**. A program that's already runnin
 
 The line under the title reads, for example, *1248, 680 becomes #EC3013*.
 
-The trigger fires when the pixel **becomes** that color: it has to be a different color first, then match twice in a row (about half a second). A pixel that stays that color runs the macro **once**, not over and over. It fires again only after the pixel changes to something else and back.
+The trigger fires when the pixel **becomes** that color: it has to be a different color first, then match twice in a row (about half a second). A pixel that stays that color runs the macro **once**, not over and over. It fires again only after the pixel shows another color twice in a row too (so the mouse passing over it doesn't count), then comes back. Changing the trigger's position, color or tolerance starts over: the pixel has to change again.
 
 Relay checks the pixel 4 times a second, with a tolerance of 8 per color channel. See [Choosing a good pixel](05-pixel-checks.md#choosing-a-good-pixel).
 

@@ -8,10 +8,21 @@ use std::path::Path;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::{Builder, Rotation};
 
-/// Keeps the log writer alive (dropping it flushes and stops logging).
-pub struct LogGuard(#[allow(dead_code)] Mutex<Option<WorkerGuard>>);
+/// Keeps the log writer alive; [`LogGuard::flush`] writes out what's pending.
+pub struct LogGuard(Mutex<Option<WorkerGuard>>);
+
+impl LogGuard {
+    /// Writes out everything logged so far and stops logging. Called when
+    /// Relay quits: the process exits without running destructors, so
+    /// otherwise the last lines (the shutdown, a saved recording) are lost.
+    pub fn flush(&self) {
+        drop(self.0.lock().take());
+    }
+}
 
 pub fn init(data_dir: &Path) -> LogGuard {
+    // The appender prunes old logs as it starts, and complains if the folder isn't there yet.
+    let _ = std::fs::create_dir_all(data_dir.join("logs"));
     let appender = Builder::new()
         .rotation(Rotation::DAILY)
         .filename_prefix("relay")

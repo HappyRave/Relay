@@ -2,7 +2,7 @@
   import RecPlayButtons from "../shared/RecPlayButtons.svelte";
   import Segmented from "../ui/Segmented.svelte";
   import Icon from "../ui/Icon.svelte";
-  import { relay } from "../../lib/state/relay.svelte";
+  import { MAX_REPEATS, relay } from "../../lib/state/relay.svelte";
   import { fmtTime } from "../../lib/format";
 
   const SPEEDS: [number, string][] = [
@@ -13,17 +13,7 @@
   ];
   const pb = $derived(relay.playback);
   const infinite = $derived(pb.repeat === "forever");
-  /** The count to return to when leaving "forever" (remembered when entering it). */
-  let lastCount = $state(1);
-  const count = $derived(pb.repeat === "forever" ? lastCount : pb.repeat.count);
-
-  function toggleForever() {
-    if (pb.repeat === "forever") relay.setPlayback({ repeat: { count: lastCount } });
-    else {
-      lastCount = pb.repeat.count;
-      relay.setPlayback({ repeat: "forever" });
-    }
-  }
+  const count = $derived(relay.repeatCount);
   const cur = $derived(Math.min(relay.cur, relay.duration));
 </script>
 
@@ -46,21 +36,32 @@
   </div>
   <div class="group push">
     <span class="label">Speed</span>
-    <Segmented label="Speed" size="md" options={SPEEDS} value={pb.speed} onchange={(v) => relay.setPlayback({ speed: v })} />
+    <Segmented
+      label="Speed"
+      size="md"
+      options={SPEEDS}
+      value={pb.speed}
+      disabled={relay.recording}
+      onchange={(v) => relay.setPlayback({ speed: v })}
+    />
   </div>
   <div class="group">
     <span class="label">Repeat</span>
     <div class="repeat">
-      <button aria-label="Fewer repeats" onclick={() => relay.setPlayback({ repeat: { count: Math.max(1, count - 1) } })}>−</button>
+      <!-- While looping forever, − goes back to the count it had. -->
+      <button aria-label="Fewer repeats" disabled={relay.recording || (!infinite && count <= 1)} onclick={relay.fewerRepeats}>−</button>
       <span class="count">{infinite ? "∞" : count}</span>
-      <button aria-label="More repeats" onclick={() => relay.setPlayback({ repeat: { count: Math.min(99, count + 1) } })}>+</button>
+      <button aria-label="More repeats" disabled={relay.recording || infinite || count >= MAX_REPEATS} onclick={relay.moreRepeats}
+        >+</button
+      >
       <button
         class="inf"
         class:on={infinite}
         title="Loop forever"
         aria-label="Loop forever"
         aria-pressed={infinite}
-        onclick={toggleForever}><Icon name="loop" size={15} /></button
+        disabled={relay.recording}
+        onclick={relay.toggleForever}><Icon name="loop" size={15} /></button
       >
     </div>
   </div>
@@ -125,7 +126,11 @@
     cursor: pointer;
     color: var(--color-text);
   }
-  .repeat button:hover {
+  .repeat button:disabled {
+    color: var(--color-neutral-500);
+    cursor: not-allowed;
+  }
+  .repeat button:hover:not(:disabled) {
     background: var(--color-neutral-200);
   }
   .count {

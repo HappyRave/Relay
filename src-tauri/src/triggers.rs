@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use chrono::{DateTime, Local, TimeDelta, TimeZone};
+use crossbeam_channel::{Receiver, Sender, bounded, unbounded};
 use parking_lot::Mutex;
 use relay_core::model::Rgb;
 use relay_core::schedule::next_run;
@@ -35,10 +36,18 @@ const MISSED_AFTER: TimeDelta = TimeDelta::minutes(2);
 /// Every macro's triggers, as the library shares them.
 pub type AllTriggers = Arc<[(Uuid, MacroTriggers)]>;
 
-/// Whether triggers may fire. Paused by the kill switch, resumed from the tray or the Triggers tab.
-#[derive(Default)]
+/// Whether triggers may fire (paused by the kill switch, resumed from the
+/// tray or the Triggers tab), and a nudge for the app watcher when they change.
 pub struct TriggerState {
     paused: AtomicBool,
+    /// Each change sends a sender the watcher answers once it has looked.
+    changed: (Sender<Sender<()>>, Receiver<Sender<()>>),
+}
+
+impl Default for TriggerState {
+    fn default() -> Self {
+        TriggerState { paused: AtomicBool::new(false), changed: unbounded() }
+    }
 }
 
 impl TriggerState {
@@ -48,6 +57,23 @@ impl TriggerState {
 
     pub fn set_paused(&self, paused: bool) {
         self.paused.store(paused, Ordering::SeqCst);
+    }
+
+    /// Triggers were saved: the app watcher looks at the running programs now,
+    /// so a program started right after its trigger was switched on counts as
+    /// a launch (the baseline is taken at once, not up to a poll later). The
+    /// receiver hears when it has looked.
+    pub fn triggers_changed(&self) -> Receiver<()> {
+        let (done, looked) = bounded(1);
+        let _ = self.changed.0.send(done);
+        looked
+    }
+
+    /// Waits up to `timeout`, or less if triggers change; returns whom to tell after the next look.
+    fn wait_for_change(&self, timeout: Duration) -> Vec<Sender<()>> {
+        let mut waiting: Vec<_> = self.changed.1.recv_timeout(timeout).into_iter().collect();
+        waiting.extend(self.changed.1.try_iter());
+        waiting
     }
 }
 
@@ -59,6 +85,8 @@ pub fn next_scheduled<Tz: TimeZone>(t: &MacroTriggers, now: DateTime<Tz>) -> Opt
 /// Runs a schedule when its next run, as seen from the previous tick, has
 /// come. Comparing wall-clock times each tick survives sleep and clock changes.
 pub struct ScheduleWatch<Tz: TimeZone> {
+    /// The latest time seen: a clock set back (a resync after wake) doesn't
+    /// move it back, so a run already made isn't due again.
     last: DateTime<Tz>,
 }
 
@@ -81,7 +109,9 @@ impl<Tz: TimeZone> ScheduleWatch<Tz> {
                 }
             }
         }
-        self.last = now;
+        if now > self.last {
+            self.last = now;
+        }
         due
     }
 }
@@ -102,6 +132,13 @@ impl LaunchWatch {
             .collect()
     }
 
+    /// Whether macro `id` still wants to run for `exe` starting, checked when
+    /// the delay after the launch ends: the macro may have been deleted, its
+    /// trigger turned off or pointed at another program, or triggers paused.
+    pub fn still_wanted(triggers: &[(Uuid, MacroTriggers)], id: Uuid, exe: &str, paused: bool) -> bool {
+        !paused && Self::wanted(triggers).iter().any(|(w, e, _)| *w == id && e == exe)
+    }
+
     /// The macros whose program started since the last tick, with their
     /// delay. `running` holds lower-case executable names.
     pub fn tick(&mut self, wanted: &[(Uuid, String, u32)], running: &HashSet<String>) -> Vec<(Uuid, u32)> {
@@ -117,10 +154,13 @@ impl LaunchWatch {
     }
 }
 
+/// What a pixel trigger watches: where, and for which color.
+type PixelTarget = (i32, i32, Rgb, u8);
+
 /// Fires when a watched pixel turns its color.
 #[derive(Default)]
 pub struct PixelWatch {
-    edges: HashMap<Uuid, (PixelEdge, (i32, i32))>,
+    edges: HashMap<Uuid, (PixelEdge, PixelTarget)>,
 }
 
 impl PixelWatch {
@@ -135,10 +175,12 @@ impl PixelWatch {
         let mut fired = Vec::new();
         for (id, t) in wanted {
             let p = &t.pixel;
-            let entry = self.edges.entry(*id).or_insert_with(|| (PixelEdge::new(), (p.x, p.y)));
-            if entry.1 != (p.x, p.y) {
-                // Moved to another pixel: start over rather than fire on a stale edge.
-                *entry = (PixelEdge::new(), (p.x, p.y));
+            let target = (p.x, p.y, p.color, p.tolerance);
+            let entry = self.edges.entry(*id).or_insert_with(|| (PixelEdge::new(), target));
+            if entry.1 != target {
+                // Another pixel or color: start over rather than fire on a stale
+                // edge (picking the color the pixel has now isn't a change).
+                *entry = (PixelEdge::new(), target);
             }
             // An unreadable screen (locked, a UAC prompt) is no sample at all:
             // counting it as "doesn't match" would re-arm the edge.
@@ -188,19 +230,29 @@ fn schedule_loop(app: AppHandle) {
 fn app_launch_loop(app: AppHandle) {
     let mut processes = ProcessWatcher::new();
     let mut watch = LaunchWatch::default();
+    let mut waiting: Vec<Sender<()>> = Vec::new();
     loop {
         let wanted = LaunchWatch::wanted(&snapshot(&app));
         // Listing processes isn't free: only when something is watched.
         let running = if wanted.is_empty() { HashSet::new() } else { processes.running() };
         for (id, delay) in watch.tick(&wanted, &running) {
             let app = app.clone();
+            let exe = wanted.iter().find(|(w, ..)| *w == id).map(|(_, e, _)| e.clone()).unwrap_or_default();
             // Give the app's window time to appear.
             std::thread::spawn(move || {
                 std::thread::sleep(Duration::from_millis(delay as u64));
-                fire(&app, id, RunSource::AppLaunch);
+                let paused = app.state::<TriggerState>().paused();
+                if LaunchWatch::still_wanted(&snapshot(&app), id, &exe, paused) {
+                    fire(&app, id, RunSource::AppLaunch);
+                } else {
+                    tracing::info!(%id, "app-launch run dropped: the trigger changed during its delay");
+                }
             });
         }
-        std::thread::sleep(APP_POLL);
+        for w in waiting.drain(..) {
+            let _ = w.send(());
+        }
+        waiting = app.state::<TriggerState>().wait_for_change(APP_POLL);
     }
 }
 
@@ -236,6 +288,26 @@ mod tests {
         MacroTriggers { schedule: ScheduleTrigger { enabled: true, schedule }, ..Default::default() }
     }
     const WEEKDAYS: [bool; 7] = [true, true, true, true, true, false, false];
+
+    #[test]
+    fn a_trigger_change_ends_the_app_watchers_wait_and_hears_when_it_looked() {
+        let s = TriggerState::default();
+        let first = s.triggers_changed();
+        let second = s.triggers_changed(); // two changes before it looks: one look answers both
+        let started = std::time::Instant::now();
+        let waiting = s.wait_for_change(Duration::from_secs(5));
+        assert!(started.elapsed() < Duration::from_secs(1), "woken early");
+        assert_eq!(waiting.len(), 2);
+        assert!(first.try_recv().is_err(), "not answered before the look");
+        for w in waiting {
+            w.send(()).unwrap();
+        }
+        assert!(first.try_recv().is_ok() && second.try_recv().is_ok());
+
+        let started = std::time::Instant::now();
+        assert!(s.wait_for_change(Duration::from_millis(100)).is_empty());
+        assert!(started.elapsed() >= Duration::from_millis(100), "without a change it waits the whole poll");
+    }
 
     #[test]
     fn trigger_state_pauses_and_resumes() {
@@ -277,6 +349,19 @@ mod tests {
         // Up to two minutes late is still run.
         let mut w = ScheduleWatch::new(at(25, 8, 59, 0));
         assert_eq!(w.tick(at(25, 9, 2, 0), &triggers), [id(1)]);
+    }
+
+    #[test]
+    fn a_clock_set_back_doesnt_run_a_schedule_twice() {
+        let triggers = vec![(id(1), scheduled("09:00", WEEKDAYS))];
+        let mut w = ScheduleWatch::new(at(24, 8, 59, 58));
+        assert_eq!(w.tick(at(24, 9, 0, 2), &triggers), [id(1)]);
+        // The clock is resynced 17 s back, then passes 09:00 again.
+        assert!(w.tick(at(24, 8, 59, 45), &triggers).is_empty());
+        assert!(w.tick(at(24, 9, 0, 1), &triggers).is_empty(), "already run");
+        assert!(w.tick(at(24, 9, 0, 7), &triggers).is_empty());
+        // The next day runs as usual.
+        assert_eq!(w.tick(at(25, 9, 0, 3), &triggers), [id(1)]);
     }
 
     #[test]
@@ -342,6 +427,19 @@ mod tests {
         assert!(w.tick(&on, &running(&["excel.exe"])).is_empty());
     }
 
+    #[test]
+    fn a_delayed_launch_run_checks_its_trigger_again() {
+        let on = vec![(id(1), launching("Excel.exe", 2000)), (id(2), launching("word.exe", 0))];
+        assert!(LaunchWatch::still_wanted(&on, id(1), "excel.exe", false));
+        assert!(!LaunchWatch::still_wanted(&on, id(1), "excel.exe", true), "triggers paused meanwhile");
+        let mut off = launching("excel.exe", 2000);
+        off.app_launch.enabled = false;
+        assert!(!LaunchWatch::still_wanted(&[(id(1), off)], id(1), "excel.exe", false), "turned off");
+        let other = vec![(id(1), launching("notepad.exe", 2000))];
+        assert!(!LaunchWatch::still_wanted(&other, id(1), "excel.exe", false), "now watches another program");
+        assert!(!LaunchWatch::still_wanted(&on[1..], id(1), "excel.exe", false), "the macro was deleted");
+    }
+
     fn watching(x: i32, y: i32, color: Rgb) -> MacroTriggers {
         MacroTriggers { pixel: PixelTrigger { enabled: true, x, y, color, tolerance: 8 }, ..Default::default() }
     }
@@ -358,10 +456,18 @@ mod tests {
                 Some(c)
             })
         };
+        // Armed by two samples of another color…
+        assert!(tick(WHITE).is_empty());
         assert!(tick(WHITE).is_empty());
         assert!(tick(RED).is_empty(), "one sample could be a flicker");
         assert_eq!(tick(Rgb(0xE8, 0x34, 0x10)), [id(1)], "within the tolerance");
         assert!(tick(RED).is_empty(), "staying red fires once");
+        // …a single other sample (the cursor passing over it) doesn't re-arm…
+        assert!(tick(WHITE).is_empty());
+        assert!(tick(RED).is_empty());
+        assert!(tick(RED).is_empty(), "not re-armed by one sample");
+        // …two do.
+        assert!(tick(WHITE).is_empty());
         assert!(tick(WHITE).is_empty());
         assert!(tick(RED).is_empty());
         assert_eq!(tick(RED), [id(1)], "and again after a change");
@@ -398,6 +504,36 @@ mod tests {
         let there = vec![(id(1), watching(9, 9, RED))];
         assert!(w.tick(&there, |_, _| Some(RED)).is_empty());
         assert!(w.tick(&there, |_, _| Some(RED)).is_empty());
+    }
+
+    #[test]
+    fn changing_the_color_or_tolerance_starts_over() {
+        const BLUE: Rgb = Rgb(0x10, 0x20, 0xF0);
+        let mut w = PixelWatch::default();
+        // Watching for red on a blue pixel: armed, waiting for red.
+        w.tick(&[(id(1), watching(0, 0, RED))], |_, _| Some(BLUE));
+        w.tick(&[(id(1), watching(0, 0, RED))], |_, _| Some(BLUE));
+        // The user types the pixel's current color as the target: no change happened.
+        let blue = vec![(id(1), watching(0, 0, BLUE))];
+        for _ in 0..3 {
+            assert!(w.tick(&blue, |_, _| Some(BLUE)).is_empty());
+        }
+
+        // Nearly red, just outside a tolerance of 0; raising the tolerance isn't a change either.
+        let nearly = Rgb(0xEC, 0x30, 0x18);
+        let mut strict = watching(0, 0, RED);
+        strict.pixel.tolerance = 0;
+        let mut w = PixelWatch::default();
+        w.tick(&[(id(1), strict)], |_, _| Some(nearly));
+        let loose = vec![(id(1), watching(0, 0, RED))];
+        for _ in 0..3 {
+            assert!(w.tick(&loose, |_, _| Some(nearly)).is_empty());
+        }
+        // An actual change still fires.
+        w.tick(&loose, |_, _| Some(WHITE));
+        w.tick(&loose, |_, _| Some(WHITE));
+        w.tick(&loose, |_, _| Some(RED));
+        assert_eq!(w.tick(&loose, |_, _| Some(RED)), [id(1)]);
     }
 
     #[test]

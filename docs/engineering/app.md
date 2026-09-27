@@ -127,7 +127,13 @@ A few effects in detail:
 
 **EmitMode(mode)** updates the tray tooltip, *Keep on top* and `WS_EX_NOACTIVATE` on the window (set during sessions, so clicking the widget doesn't steal the focus), and emits `Session`.
 
-Runs are counted (`runs += 1`, `last_run = now`) only when the engine reports `Completed`.
+Runs are counted (`runs += 1`, `last_run = now`) only when the engine reports `Completed` (`counts_as_run`).
+
+**The F10 playhead.** F10 is handled in Rust, so the coordinator keeps its own `idle_playhead`, set the way the UI moves its playhead (`playhead_after(reason, duration, timed_out_at)`): back to 0 after a stop, the kill switch, a key press or an error; the end after a complete run (so F10 starts over); the check's time after a pixel timeout (`EngineDone.timed_out_at`). Seeks during playback move it too.
+
+**Triggers** go through `admit(paused, macro_exists, mode, desktop_available)`: ignored while paused or for a deleted macro, skipped with a notice while busy, skipped silently when the screen is locked.
+
+**Every mode change** goes through `set_mode`, which also updates the shared `SessionMode` the commands read, including when a command panicked, so `delete_macro` and edits never stay refused as "busy".
 
 ## The playback engine
 
@@ -176,6 +182,8 @@ Windows removes a low-level hook it considers too slow **without any notificatio
 // HookWatchdog::check(now, cursor): true when the hook looks dead
 moved && now - last_event > 1000 ms && now - last_alarm > 5000 ms
 ```
+
+Mouse events the hook filters out (injected input, with *Ignore simulated input* on) would look like silence, so the hook beats a `MousePulse` (an atomic timestamp in `HookConfig`) on every mouse event it sees, filtered or not, and the watchdog counts that as a sign of life.
 
 On an alarm, the coordinator stops the old hook and starts a new one with the **same config and the same sender**, so the recorder keeps going with a small gap, and the user gets a notice.
 
@@ -229,22 +237,22 @@ The kill switch's `PauseTriggers` effect sets `TriggerState`, unchecks the tray'
 | `insert_front`, `save` | Write `macros/<id>.rly`, then `library.json`. The entry's cached step count and length are refreshed. |
 | `save_stats` | `library.json` only (a run was counted) |
 | `duplicate` | New id, unique name "… (copy)", no triggers, inserted after the original |
-| `trash` | Move the file to `macros/.trash/`, remember its position and stats in `library.json` |
-| `restore` | Move it back, at its old position, with its stats and triggers |
-| `import` | Many at once: new id if the id is already in the library or the trash, unique name, inserted at the top in order, one index write |
+| `trash` | Move the file to `macros/.trash/` (or write it there from memory if its file was never saved), remember the macro that came after it, its name and stats in `library.json` |
+| `restore` | Move it back before the macro that came after it (following the chain through other trashed macros), with its stats and triggers. If its enabled hotkey now belongs to another macro, it comes back with the hotkey off and the user is told. |
+| `import` | Many at once: new id if the id is already in the library or the trash, unique name (a trailing number counts on: "Report 2" → "Report 3"), inserted at the top in order, one index write. If writing one fails, the ones before it are kept. |
 | `set_triggers` | `library.json` |
 
-`Library::open` loads every `.rly` in `macros/` (skipping and logging broken files), orders them by `library.json` (files it doesn't list go last, newest first), and attaches stats and triggers. A `library.json` that can't be read is renamed `library.json.bad` and reported, rather than silently overwritten on the next save. With no index and no files, it **seeds the four samples**, with their design hotkeys present but disabled.
+`Library::open` loads every `.rly` in `macros/` (skipping broken files), orders them by `library.json` (files it doesn't list go last, newest first), and attaches stats and triggers. A `library.json` that isn't valid JSON is renamed `library.json.bad`. One that exists but can't be *read* (locked by another program, say) is left alone: nothing is seeded, and the index isn't written for the rest of the run, so it's never overwritten with an empty one; saves report that instead. Every problem found at startup is shown to the user, not just logged. With no index and no files, it **seeds the four samples**, with their design hotkeys present but disabled.
 
 [`storage.rs`](../../src-tauri/src/storage.rs): the data directory is `%APPDATA%\Relay`, or `RELAY_DATA_DIR` if set. `write_atomic` writes a uniquely named temporary file in the same folder and renames it over the target, so a crash never leaves a half-written file and two writers never share a temporary one.
 
-**When a save fails**, the change is kept in memory and the user gets an error saying it wasn't saved; the command still returns the new state, so the UI shows what Relay actually holds.
+**When a save fails**, the change is kept in memory and the user gets an error saying it wasn't saved; the command still returns the new state, so the UI shows what Relay actually holds. That holds for edits, triggers, duplicating, deleting and restoring.
 
 ## Undo history
 
 [`history.rs`](../../src-tauri/src/history.rs): `EditHistory` keeps, per macro id, an undo and a redo stack of snapshots (the `name` and `events`, the only things edits change), up to 100 deep, in memory only.
 
-- `edit_macro` clones the macro, applies the `EditOp`, and on success calls `record(id, &before, &op)`, which pushes the snapshot and clears the redo stack. Renames less than 2 s apart are one entry, since the UI saves the name as it's typed.
+- `edit_macro` (refused while a session runs) clones the macro, applies the `EditOp`, and on success records the snapshot and clears the redo stack, unless the edit changed nothing. Renames less than 2 s apart are one entry, since the UI saves the name as it's typed.
 - `undo_edit(id, redo)` swaps the current state with the top of one stack, pushes it on the other, and saves the `.rly`.
 - `view_of(macro, history)` fills `MacroView.can_undo` and `can_redo`, so every view the UI gets knows whether its buttons are enabled.
 
@@ -252,13 +260,13 @@ Playback options and triggers aren't edits and bypass the history.
 
 ## Settings
 
-[`settings.rs`](../../src-tauri/src/settings.rs): `Settings` is `#[serde(default)]`, so missing or unknown fields fall back to defaults and older files keep loading. `update_settings` replaces the whole struct and saves atomically. Recording settings are read when a recording starts, so changes apply to the next one.
+[`settings.rs`](../../src-tauri/src/settings.rs): `settings.json` is read field by field, so missing, unknown or invalid fields fall back to defaults without losing the others, and older files keep loading. A file with an invalid value is set aside as `settings.json.bad` and the user is told. `update_settings` replaces the whole struct and saves atomically. Recording settings are read when a recording starts, so changes apply to the next one.
 
 ## The window
 
 [`window_ctl.rs`](../../src-tauri/src/window_ctl.rs) positions the widget from Rust, since only Rust knows the monitors' physical geometry.
 
-- **The anchor** is the widget's **bottom-center** in physical pixels, saved in `window.json`. Placing a widget of a given CSS size means: find the monitor containing the anchor (or the primary monitor if it's gone), compute the zoom, size the window, center it horizontally on the anchor with its bottom on the anchor, and clamp it inside the work area with a 16 px margin. The default anchor is centered, 24 px above the bottom of the primary work area.
+- **The anchor** is the widget's **bottom-center** in physical pixels, saved in `window.json`. Placing a widget of a given CSS size means: find the monitor whose bounds contain the anchor (or the nearest one, if its monitor is gone), compute the zoom, size the window, center it horizontally on the anchor with its bottom on the anchor, and clamp it inside that monitor's work area with a 16 px margin on every side. Clamping never changes the saved anchor: only the user dragging the widget does, so switching sizes near an edge doesn't drift. The default anchor is centered, 24 px above the bottom of the primary work area.
 - **Zoom**: the expanded widget is 944 × 612 CSS px. On a work area too small for that (at the monitor's scale), `webview.set_zoom` scales it down to fit, clamped to 40–100%.
 - **Compact ↔ expanded**: the UI calls `fit_window(width, height, expanded)` with its measured size. The bottom-center stays put, so the widget grows upward.
 - **Moves** are tracked in `WindowEvent::Moved` and saved half a second after dragging stops. `ScaleFactorChanged` re-places the window.

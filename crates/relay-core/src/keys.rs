@@ -64,9 +64,12 @@ pub fn modifier(code: &str) -> Option<Modifier> {
     }
 }
 
-/// Right Alt is AltGr on many layouts: characters typed with it are text, not shortcuts.
-pub fn is_alt_gr(code: &str) -> bool {
-    code == "AltRight"
+/// Whether the held modifiers are AltGr: characters typed with it are text,
+/// not shortcuts. On a layout with AltGr, Windows sends a (fake) left Ctrl
+/// with every right Alt; on others (US), right Alt is just Alt.
+pub fn is_alt_gr<'a>(held: impl IntoIterator<Item = &'a str> + Clone) -> bool {
+    let has = |code: &str| held.clone().into_iter().any(|c| c == code);
+    has("AltRight") && has("ControlLeft")
 }
 
 /// The label shown in the UI, e.g. "KeyA" → "A", "ArrowLeft" → "Left".
@@ -148,6 +151,18 @@ pub fn code_for_label(label: &str) -> String {
     }
 }
 
+/// Splits a combo like "Ctrl + A" into its labels. The key can be `+` itself
+/// ("Ctrl + +"). `None` when a part is missing ("Ctrl +", "").
+pub fn split_combo(combo: &str) -> Option<Vec<&str>> {
+    let mut parts: Vec<&str> = combo.split('+').map(str::trim).collect();
+    // "Ctrl + +" splits into "Ctrl", "", "": the last two are the + key.
+    if parts.len() >= 2 && parts[parts.len() - 2..] == ["", ""] {
+        parts.truncate(parts.len() - 2);
+        parts.push("+");
+    }
+    (!parts.iter().any(|p| p.is_empty())).then_some(parts)
+}
+
 /// The US-layout key that types `c`, and whether Shift is needed.
 pub fn key_for_char(c: char) -> Option<(String, bool)> {
     if c.is_ascii_lowercase() {
@@ -165,11 +180,34 @@ pub fn key_for_char(c: char) -> Option<(String, bool)> {
         '_' => ("Minus", true),
         '=' => ("Equal", false),
         '+' => ("Equal", true),
-        '.' => ("Period", false),
-        ',' => ("Comma", false),
-        '/' => ("Slash", false),
+        '[' => ("BracketLeft", false),
+        '{' => ("BracketLeft", true),
+        ']' => ("BracketRight", false),
+        '}' => ("BracketRight", true),
+        '\\' => ("Backslash", false),
+        '|' => ("Backslash", true),
         ';' => ("Semicolon", false),
+        ':' => ("Semicolon", true),
         '\'' => ("Quote", false),
+        '"' => ("Quote", true),
+        '`' => ("Backquote", false),
+        '~' => ("Backquote", true),
+        ',' => ("Comma", false),
+        '<' => ("Comma", true),
+        '.' => ("Period", false),
+        '>' => ("Period", true),
+        '/' => ("Slash", false),
+        '?' => ("Slash", true),
+        '!' => ("Digit1", true),
+        '@' => ("Digit2", true),
+        '#' => ("Digit3", true),
+        '$' => ("Digit4", true),
+        '%' => ("Digit5", true),
+        '^' => ("Digit6", true),
+        '&' => ("Digit7", true),
+        '*' => ("Digit8", true),
+        '(' => ("Digit9", true),
+        ')' => ("Digit0", true),
         _ => return None,
     };
     Some((code.into(), shift))
@@ -199,11 +237,54 @@ mod tests {
 
     #[test]
     fn labels_round_trip_to_codes() {
-        for l in [
-            "Ctrl", "Alt", "Shift", "Win", "A", "7", "Enter", "Tab", "F2", "Esc", "Left", "-", "PgUp", "Del", "Ins",
-            "Num 3", "Home", "Space",
-        ] {
-            assert_eq!(label(&code_for_label(l)), l, "{l}");
+        let cases = [
+            ("Ctrl", "ControlLeft"),
+            ("Alt", "AltLeft"),
+            ("Shift", "ShiftLeft"),
+            ("Win", "MetaLeft"),
+            ("A", "KeyA"),
+            ("7", "Digit7"),
+            ("Enter", "Enter"),
+            ("Tab", "Tab"),
+            ("F2", "F2"),
+            ("Esc", "Escape"),
+            ("Left", "ArrowLeft"),
+            ("PgUp", "PageUp"),
+            ("Del", "Delete"),
+            ("Ins", "Insert"),
+            ("Num 3", "Numpad3"),
+            ("Home", "Home"),
+            ("Space", "Space"),
+            ("-", "Minus"),
+            ("=", "Equal"),
+            ("[", "BracketLeft"),
+            ("]", "BracketRight"),
+            ("\\", "Backslash"),
+            ("`", "Backquote"),
+            (";", "Semicolon"),
+            ("'", "Quote"),
+            (",", "Comma"),
+            (".", "Period"),
+            ("/", "Slash"),
+        ];
+        for (l, code) in cases {
+            assert_eq!(code_for_label(l), code, "{l}");
+            assert_eq!(label(code), l, "{code}");
+        }
+        // Shifted symbols name the key they're on (a "+" hotkey is the = key).
+        assert_eq!(code_for_label("+"), "Equal");
+        assert_eq!(code_for_label("?"), "Slash");
+    }
+
+    #[test]
+    fn combos_split_into_labels() {
+        assert_eq!(split_combo("Ctrl + Shift + S"), Some(vec!["Ctrl", "Shift", "S"]));
+        assert_eq!(split_combo("F9"), Some(vec!["F9"]));
+        assert_eq!(split_combo("Ctrl + +"), Some(vec!["Ctrl", "+"]));
+        assert_eq!(split_combo("Ctrl+Alt++"), Some(vec!["Ctrl", "Alt", "+"]));
+        assert_eq!(split_combo("+"), Some(vec!["+"]));
+        for bad in ["", "Ctrl +", "+ A", "Ctrl + + A", "Ctrl + + +"] {
+            assert_eq!(split_combo(bad), None, "{bad:?}");
         }
     }
 
@@ -216,10 +297,27 @@ mod tests {
     }
 
     #[test]
+    fn alt_gr_is_right_alt_with_left_ctrl() {
+        assert!(is_alt_gr(["ControlLeft", "AltRight"]));
+        assert!(!is_alt_gr(["AltRight"]), "right Alt on a US layout");
+        assert!(!is_alt_gr(["ControlRight", "AltRight"]));
+        assert!(!is_alt_gr(["ControlLeft", "AltLeft"]));
+    }
+
+    #[test]
     fn chars_to_keys() {
         assert_eq!(key_for_char('a'), Some(("KeyA".into(), false)));
         assert_eq!(key_for_char('A'), Some(("KeyA".into(), true)));
         assert_eq!(key_for_char('_'), Some(("Minus".into(), true)));
+        assert_eq!(key_for_char('['), Some(("BracketLeft".into(), false)));
+        assert_eq!(key_for_char('~'), Some(("Backquote".into(), true)));
+        assert_eq!(key_for_char('@'), Some(("Digit2".into(), true)));
+        assert_eq!(key_for_char(')'), Some(("Digit0".into(), true)));
+        assert_eq!(key_for_char('"'), Some(("Quote".into(), true)));
         assert_eq!(key_for_char('é'), None);
+        // Every printable US character has a key.
+        for c in (' '..='~').filter(|c| !c.is_ascii_alphanumeric()) {
+            assert!(key_for_char(c).is_some(), "{c:?}");
+        }
     }
 }

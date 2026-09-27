@@ -82,10 +82,10 @@ pub struct KeyStroke { pub code: String, pub vk: u16, pub scan: u16, pub ext: bo
 
 | Kind | Rule |
 | --- | --- |
-| `Click { count }` | A button down starts a click. Its up joins it. If the pointer moved more than **`CLICK_SLOP_PX` = 4** (Chebyshev distance), it becomes a **Drag**. A click that directly follows a click of the same button, within the system double-click time and distance (recorded in `RecordingMeta`), merges into it and increments `count`. |
+| `Click { count }` | A button down starts a click. Its up joins it. If the pointer moved more than **`CLICK_SLOP_PX` = 4** (Chebyshev distance) while the button was held, even if it came back before the release, it becomes a **Drag**. A click that directly follows a click of the same button, within the system double-click time and inside the system double-click rectangle (recorded in `RecordingMeta`; it's centred on the first click, so the allowed distance is half its width), merges into it and increments `count`. |
 | `Drag { to_x, to_y }` | See above |
 | `Scroll { delta }` | Wheel events in the same direction and axis less than **`SCROLL_GAP_MS` = 300** apart merge, summing `delta` |
-| `Type { text, chars }` | A key down that produced a printable character, **without** Ctrl, Alt or Win held (AltGr counts as typing, not as Ctrl + Alt), joins the previous `Type` step if its last character was less than **`TYPE_GAP_MS` = 500** earlier |
+| `Type { text, chars }` | A key down that produced a printable character, **without** Ctrl, Alt or Win held (AltGr, which is Right Alt together with Left Ctrl, counts as typing, not as Ctrl + Alt; Right Alt alone is Alt), joins the previous `Type` step if its last character was less than **`TYPE_GAP_MS` = 500** earlier |
 | `Keys { combo }` | Any other key down: the held modifiers (always in the order Ctrl, Alt, Shift, Win), then the key's label, e.g. `["Ctrl", "Shift", "S"]` |
 | `Wait`, `PixelWait` | One step per event |
 
@@ -122,15 +122,18 @@ Times are `u32` milliseconds, and the arithmetic saturates rather than overflowi
 **`normalize`** is the safety net that runs after deletions, after loading any file and at the end of every recording:
 
 1. sort events by time (stable),
-2. drop a release whose press is missing (it happened before recording started),
-3. drop a second button-down without an up (keys may repeat, buttons may not),
-4. release anything still held at the end, newest first, at the time of the last event.
+2. move anything listed after a wait or pixel check but before its end to its end (a hand-edited file can have an event inside a wait),
+3. drop a release whose press is missing (it happened before recording started),
+4. drop a second button-down without an up (keys may repeat, buttons may not),
+5. release anything still held at the end, newest first, at the time of the last event, where the cursor last was (pixel checks don't move the cursor).
+
+`apply` also normalizes after any edit on a macro with an event at the largest time (`u32::MAX`), since saturated times can otherwise end up inside a wait.
 
 **`check_invariants`** states what must always hold, and the property tests generate random recordings and random sequences of edits to check it:
 
 - events are sorted by time,
 - `normalize` is a no-op (presses are balanced),
-- no event happens inside a wait or pixel check.
+- no event listed after a wait or pixel check comes before its end.
 
 ## The file format
 
@@ -164,7 +167,7 @@ macro_t(now) = anchor_t                                    (while paused)
 deadline(t)  = anchor_wall + (t − anchor_t) / speed
 ```
 
-Every change (`set_speed`, `pause`, `resume`, `seek`) **re-anchors**: it stores the current macro time and wall time as the new anchor. Errors can't accumulate, so an hour-long loop is as precise as the first second.
+Speed is clamped to 0.01–100× (NaN counts as 1×), and a seek before 0 goes to 0. Every change (`set_speed`, `pause`, `resume`, `seek`) **re-anchors**: it stores the current macro time and wall time as the new anchor. Errors can't accumulate, so an hour-long loop is as precise as the first second.
 
 Loops are the engine's job (see [The app → The playback engine](app.md#the-playback-engine)): at the end of a loop it seeks the clock back by the loop's length, carrying the overshoot into the next loop so loops don't drift.
 
@@ -174,7 +177,7 @@ Loops are the engine's job (see [The app → The playback engine](app.md#the-pla
 
 1. For each step, draw one offset uniformly in **±jitter** from a seeded RNG ([`fastrand`](https://crates.io/crates/fastrand)). All of a step's events get the same offset, so a click's press and release (or a combo's modifiers and key) move together.
 2. Events outside steps (the cursor path) take the offset of the step before them, so the path stays attached to its clicks.
-3. Times are clamped to be **non-decreasing and non-negative**. A release can never come before its press, and steps can never swap.
+3. Offsets are clamped **per step**: a step never starts before 0 or before the previous step's (moved) end, and steps that overlap or touch share one offset. Every gap inside a step (a click's press to release, a combo's keys) stays exactly as recorded, and steps can never swap. The cursor path stays between its neighbours.
 
 The engine calls it again with a different seed at each loop, so every loop has its own pattern.
 
@@ -227,7 +230,7 @@ The polling triggers feed one sample per poll into an edge detector and fire on 
 | Detector | Fires when | Why |
 | --- | --- | --- |
 | `ProcessLaunchEdge` | The process is present now and was absent at the previous sample. The first sample is only a baseline. | An app already running when Relay starts (or when the trigger is turned on) must not fire. |
-| `PixelEdge` | The pixel matches on **two consecutive** samples after at least one non-matching sample. It re-arms only after a non-match. | A single-frame flicker doesn't fire, and a pixel that stays red fires once. |
+| `PixelEdge` | The pixel matches on **two consecutive** samples after **two consecutive** non-matching samples. It re-arms only after two non-matches in a row. | A single-frame flicker doesn't fire, a pixel that stays red fires once, and the mouse passing over it for one sample doesn't re-arm it. |
 
 ## Views for the UI
 

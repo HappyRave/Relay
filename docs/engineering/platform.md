@@ -55,7 +55,12 @@ Windows calls low-level hook procedures on the message loop of the thread that i
 - The configuration is fixed for the session's lifetime:
 
 ```rust
-pub struct HookConfig { pub mode: HookMode, pub ignore_injected: bool }
+pub struct HookConfig {
+    pub mode: HookMode,
+    pub ignore_injected: bool,
+    /// Beats on every mouse event seen while recording, even filtered ones (for the app's watchdog).
+    pub mouse_pulse: Option<Arc<MousePulse>>,
+}
 
 pub enum HookMode {
     /// A recording: report input, leaving out Relay's own window and `skip_vks` (F9).

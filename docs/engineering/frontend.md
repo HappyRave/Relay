@@ -30,7 +30,9 @@ src/
 │   └── dev/DevDesktop.svelte   the demo desktop for the browser preview
 ├── lib/
 │   ├── state/relay.svelte.ts   the RelayStore
+│   ├── state/selection.ts      which step the open editor follows across edits
 │   ├── state/display.ts        badge labels
+│   ├── fields.ts               number fields: parse, round, clamp, show the committed value
 │   ├── defaults.ts             default settings and playback options (shared with the browser preview)
 │   ├── ipc/backend.ts          Tauri and browser backends
 │   ├── ipc/bindings/           generated from Rust (don't edit)
@@ -60,7 +62,8 @@ src/
 - While recording, `steps`, `moves` and `desktop` switch to the live recording, fed by `rec_progress`. Cursor samples are appended in place and a version counter tells the derived values, rather than copying a growing array ten times a second. `duration` grows a second at a time, so the timeline is rebuilt once a second, not every frame.
 - `curStepIdx`, the step under the playhead, is one binary search per frame, shared by every component that highlights "the current step".
 - **Actions** are arrow-function fields (`toggleRec`, `togglePlay`, `stop`, `seek`, `jump`, `edit`, `rename`, `insertWait`, `insertPixelCheck`, `pickPixel`, `setPause`, `trimPauses`, `undo`, `redo`, `setPlayback`, `previewPlayback`, `setTriggers`, `pickTriggerPixel`, `loadProcesses`, `duplicateMacro`, `deleteMacro`, `restoreMacro`, `importMacros`, `doExport`…), so they can be passed as event handlers without binding.
-- **Errors**: every action goes through one helper, `run(promise)`, which shows a failure as an error toast (5 s) and resolves to `undefined`. `notify()` shows information, for 8 s when it has an action such as **Undo**.
+- **Errors**: every action goes through one helper, `run(promise)`, which shows a failure as an error toast and resolves to `undefined`. Error toasts stay until dismissed or replaced. `notify()` shows information for 5 s, or 8 s when it has an action such as **Undo**.
+- **Editing only while idle**: `canEdit` (a macro is open and nothing records, counts down or plays) gates every edit, undo, redo, rename and Pick, and the buttons that start them. Rust refuses edits during a session too (`busy`).
 - **Seeking** moves the playhead at once, but tells the engine at most once per animation frame, however fast the pointer drags.
 
 Lifecycle: `App.svelte` calls `relay.start()` (the animation-frame loop and the key listener) and `relay.init()` (read the saved window mode, subscribe to the stream, load settings, the library, the first macro and autostart). The widget only renders once `ready` is set, so it never flashes at the wrong size.
@@ -73,19 +76,22 @@ The store is exposed as `window.__relay` for DevTools and the end-to-end tests.
 
 - **`session`** to `playing` with another `macro_id`: a trigger started a different macro, so it's opened (with `showMacro`, which works mid-playback).
 - **`saved`** arrives just before the session goes back to idle, when the store still refuses to load a macro. It's kept in `pendingLoad` and opened on the `idle` message.
-- **`finished`**: rewind to 0 unless `completed` or `pixel_timeout`.
+- **`finished`**: stop extrapolating, then rewind to 0 unless `completed` or `pixel_timeout`. (Rust moves its own F10 playhead the same way.)
+- **`playInfo`**: the loop count and speed from the latest `play_tick`, which the preview shows: what's playing, not the saved options.
 - **`play_tick`** and **`rec_progress`** update `tick` for [extrapolation](ipc.md#why-the-ui-extrapolates). When not advancing (paused, frozen on a pixel check), `cur` is set exactly.
 
 ### Edits
 
 **Every async result is tied to the macro it was for.** `edit(op)` → `apply(id, backend.editMacro(id, op))`. `apply` tags each request with an increasing sequence number and drops the response if a newer request replaced the view since, or if the open macro isn't `id` any more. So a slow response can neither overwrite a newer state nor land on a macro opened in the meantime. The same goes for the rest:
 
-- `rename` updates the view at once and saves after 250 ms, for the macro being renamed (not whichever is open when the timer fires). Opening another macro, or undoing, saves a pending rename first.
+- `rename` updates the view at once and saves after 250 ms through `apply`, for the macro being renamed (not whichever is open when the timer fires). Opening, duplicating or deleting a macro, or undoing, saves a pending rename first. A blank name isn't saved (leaving the field puts the saved name back). A rename pending when a session starts is saved when it ends; one pending when the store is disposed is dropped.
 - Opening a macro clears the previous one's `triggerStatus`, so the Triggers tab can't write one macro's triggers into another; trigger results are only applied if their macro is still open.
-- The pixel pickers wait 3 s, then check that the same macro is open and read the step again before editing it.
-- An **Undo** offered in a toast is withdrawn when another edit starts, so it never undoes something else.
+- The pixel pickers wait 3 s, then check that the same macro is open and that the check is still the same one (its row and first event) before editing it. **+ Pixel check** inserts nothing when the screen can't be read.
+- An **Undo** offered in a toast (deleting a step, trimming pauses) belongs to its macro (`undoes`): it's withdrawn when another edit or rename starts, or another macro opens, so it never undoes something else. The trash toast's Undo isn't withdrawn by edits: restoring doesn't touch the edit history.
+- Settings, trigger and trigger-pause saves carry sequence numbers too: an older response or failure never overwrites a newer change, and a failure goes back to the last state Rust confirmed.
+- The step editor's selection lives in the store (`selected`, `selectStep`). After an edit, undo or redo, `followStep` keeps it on the edited row, or finds the same step (same kind and content) nearest to where it was, or closes it.
 
-**Undo and redo** go through `backend.undoEdit`, after first saving a name still being typed so it's part of the history. <kbd>Ctrl</kbd>+<kbd>Z</kbd>, <kbd>Ctrl</kbd>+<kbd>Y</kbd> and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> are handled by the store's window key listener, except when the event comes from an `input`, a `textarea` or an element marked `data-captures-keys` (the hotkey field), where those keys mean something else. Deleting a step and trimming pauses show a toast whose action is `undo`.
+**Undo and redo** go through `backend.undoEdit`, after first saving a name still being typed so it's part of the history. <kbd>Ctrl</kbd>+<kbd>Z</kbd>, <kbd>Ctrl</kbd>+<kbd>Y</kbd> and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> are handled by the store's window key listener, except when the event comes from a text-like field (text, search and number inputs, a `textarea`) or an element marked `data-captures-keys` (the hotkey field), where those keys mean something else. A focused slider or switch doesn't block them. Deleting a step and trimming pauses show a toast whose action is `undo`.
 
 ## The backend abstraction
 
@@ -142,7 +148,7 @@ A few that do more:
 | Component | Notes |
 | --- | --- |
 | `Widget` | A `ResizeObserver` measures the widget's border box and calls `fit_window`, so the native window always matches the content exactly. |
-| `StepsTab` | Keeps the current row in view while playing. Opens `StepEditor` under the selected row; the selection is the step's identity (macro, kind, first event), not its row number, so it closes rather than jumping to another step after an undo or a deletion. Rows handle Enter and Space only for themselves, not their delete button. Shows window-relative positions in *Window* mode. |
+| `StepsTab` | Keeps the current row in view while playing. Opens `StepEditor` under the store's selected row, which follows its step across edits (see [Edits](#edits)). Rows handle Enter and Space only for themselves, not their delete button. Shows window-relative positions in *Window* mode. |
 | `StepEditor` | *Pause before* for every step, plus the fields of its kind. Commits on `change` (blur or Enter), validates hex colors and numbers before sending an `EditOp`. |
 | `HotkeyCapture` | Captures in the capture phase and stops propagation, so a combo being set never triggers anything else. Marked `data-captures-keys` so the undo shortcut leaves it alone. Backspace clears, Esc cancels, blur cancels. |
 | `Timeline`, `CompactBar` | Use the `seekable` action: pointer down and drag anywhere seeks, with pointer capture. |

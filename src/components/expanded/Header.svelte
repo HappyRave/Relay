@@ -11,12 +11,15 @@
 <div class="header">
   <Grip />
   <div class="brand"><span class="mark"></span>Relay</div>
+  <!-- While recording, the name is the new recording's (it's named once saved). -->
   <input
     class="name"
     aria-label="Macro name"
-    value={relay.name}
-    disabled={relay.recording || !relay.view}
+    value={relay.recording ? "New recording" : relay.name}
+    disabled={relay.mode !== "idle" || !relay.view}
+    readonly={!relay.editable}
     oninput={(e) => relay.rename(e.currentTarget.value)}
+    onblur={relay.endRename}
   />
   <div class="meta">{plural(relay.steps.length, "step")} · {plural(relay.moves.length, "path sample")}</div>
   {#if relay.editable}
@@ -27,7 +30,7 @@
       <Icon name="redo" size={17} />
     </button>
   {/if}
-  <button class="export" onclick={() => (relay.exportOpen = true)}>Export<Icon name="export" size={15} /></button>
+  <button class="export" disabled={!relay.view} onclick={() => (relay.exportOpen = true)}>Export<Icon name="export" size={15} /></button>
   <button class="icon" title="Compact player (Ctrl + Shift + M)" aria-label="Compact player" onclick={() => (relay.expanded = false)}>
     <Icon name="collapse" size={18} />
   </button>

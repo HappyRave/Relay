@@ -2,6 +2,8 @@
 
 Find your problem below. If it isn't here, [open an issue](https://github.com/HappyRave/Relay/issues) and attach that day's [log](08-settings.md#logs).
 
+Error messages stay at the bottom of the panel until you close them (×), so you don't miss one; other messages go away after a few seconds.
+
 - [Playback](#playback)
 - [Recording](#recording)
 - [Hotkeys and triggers](#hotkeys-and-triggers)
@@ -92,14 +94,14 @@ Press **Undo** in the header or <kbd>Ctrl</kbd>+<kbd>Z</kbd>. See [Undo and redo
 <details>
 <summary><b>"Windows dropped Relay's input hook; it was restarted"</b></summary>
 
-Windows sometimes removes an input hook when the PC is very busy. Relay noticed, put a new one in place and kept recording, but a few events from just before may be missing. Check the last steps, and record again if something's off.
+Windows sometimes removes an input hook when the PC is very busy. Relay noticed, put a new one in place and kept recording, but a few events from just before may be missing. Check the last steps, and record again if something's off. (Relay tells this apart from a program moving the mouse by itself, such as a remote-desktop tool, which doesn't cause the message.)
 
 </details>
 
 <details>
 <summary><b>My recording disappeared</b></summary>
 
-A recording with nothing in it (no click, key or scroll, and barely any mouse movement) isn't saved. Otherwise, every recording goes to the top of the [Library](07-library.md).
+A recording with nothing in it (no click, key or scroll: only mouse movement, however much) isn't saved. Otherwise, every recording goes to the top of the [Library](07-library.md).
 
 </details>
 
@@ -108,7 +110,7 @@ A recording with nothing in it (no click, key or scroll, and barely any mouse mo
 <details>
 <summary><b>F9 or F10 does nothing</b></summary>
 
-- Another program may have taken the key first. Relay reports *"Couldn't register the Record hotkey"* when it starts.
+- Another program may have taken the key first. Relay reports *"Couldn't register the Record hotkey"* once its window opens, and only once per run.
 - During a recording, only <kbd>F9</kbd> and the kill switch belong to Relay. During playback, only <kbd>F10</kbd>, <kbd>Esc</kbd> and the kill switch do.
 - On a laptop, you may need <kbd>Fn</kbd> with the function keys.
 

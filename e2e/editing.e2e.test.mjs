@@ -1,8 +1,8 @@
 // Editing a macro through the UI, with the real relay-core applying each
 // edit: the result is checked in the macro's file on disk.
-import { after, before, describe, test } from "node:test";
+import { after, afterEach, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { App, until } from "./harness.mjs";
+import { App, until, waitingMacro, writeRly } from "./harness.mjs";
 
 describe("editing", () => {
   const app = new App();
@@ -13,18 +13,21 @@ describe("editing", () => {
     id = await page.store("view.id");
   });
   after(() => app.dispose());
+  afterEach(() => app.page?.reset());
 
   const disk = () => app.macro(id);
   const steps = () => page.store("view.steps");
   /** Waits until the macro's file changes from `before`. */
   const saved = (before, what = "the save") =>
     until(() => JSON.stringify(disk()) !== JSON.stringify(before) && disk(), { what });
-  /** Opens a step's editor by clicking its row. */
-  const openStep = (i) =>
-    page.run((i) => {
-      document.querySelectorAll(".list .row")[i].click();
+  /** Opens a step's editor by clicking its row (in the Steps tab). */
+  const openStep = async (i) => {
+    await page.tab("Steps");
+    await page.run((i) => {
+      document.querySelectorAll('[role="tabpanel"] .list .row')[i].click();
       return true;
     }, i);
+  };
   /** Sets the step editor's field whose label starts with `label`. */
   const editField = (label, value) =>
     page.run(
@@ -43,26 +46,26 @@ describe("editing", () => {
   test("× on a step deletes its events; Undo puts them back exactly; Redo deletes again", async () => {
     const original = disk();
     const n = (await steps()).length;
-    await page.click("Delete step");
+    await page.click("Delete step", { nth: 0 });
     const afterDelete = await saved(original, "the delete");
     assert.equal((await steps()).length, n - 1);
     assert.ok(afterDelete.events.length < original.events.length);
     assert.equal(await page.store("canUndo"), true);
 
-    await page.click("Undo");
+    await page.click("Undo", { within: ".header" });
     await until(() => JSON.stringify(disk().events) === JSON.stringify(original.events), { what: "the undo on disk" });
     assert.equal((await steps()).length, n);
     assert.equal(await page.store("canRedo"), true);
 
-    await page.click("Redo");
+    await page.click("Redo", { within: ".header" });
     await until(() => JSON.stringify(disk().events) === JSON.stringify(afterDelete.events), { what: "the redo on disk" });
-    await page.click("Undo");
+    await page.click("Undo", { within: ".header" });
     await until(() => disk().events.length === original.events.length, { what: "the undo again" });
   });
 
   test("Ctrl + Z and Ctrl + Y work too", async () => {
     const original = disk();
-    await page.click("Delete step");
+    await page.click("Delete step", { nth: 0 });
     await saved(original);
     const key = (k) => page.run((k) => window.dispatchEvent(new KeyboardEvent("keydown", { key: k, ctrlKey: true, bubbles: true })), k);
     await key("z");
@@ -76,7 +79,7 @@ describe("editing", () => {
   test("+ Wait inserts half a second at the playhead", async () => {
     const before = disk();
     await page.run(() => window.__relay.seek(1000));
-    await page.idle();
+    await until(async () => (await page.store("cur")) === 1000, { what: "the playhead" });
     await page.click("+ Wait");
     const after = await saved(before);
     const wait = after.events.find((e) => e.type === "wait" && e.label === "Inserted");
@@ -89,14 +92,19 @@ describe("editing", () => {
   test("+ Pixel check inserts a check for the pixel under the macro's cursor, in its current color", async () => {
     const before = disk();
     await page.run(() => window.__relay.seek(850));
-    await page.idle();
+    await until(async () => (await page.store("cur")) === 850, { what: "the playhead" });
     await page.click("+ Pixel check");
     const after = await saved(before);
-    const added = after.events.filter((e) => e.type === "pixel_wait").slice(before.events.filter((e) => e.type === "pixel_wait").length);
-    const check = after.events.find((e) => e.type === "pixel_wait" && !before.events.some((b) => JSON.stringify(b) === JSON.stringify(e)));
-    assert.ok(check && added.length === 1, "one new pixel check");
-    // Inserts go just after the step under the playhead: the click at 850–910 ms.
-    assert.equal(check.t, 911);
+    const checks = (m) => m.events.filter((e) => e.type === "pixel_wait");
+    assert.equal(checks(after).length, checks(before).length + 1, "one new pixel check");
+    // The new one has no label (the macro's own checks do).
+    const check = checks(after).find((e) => !e.label);
+    // It goes after the step under the playhead (the click at 850–910 ms), before the next one…
+    const nextPress = before.events.find((e) => e.type === "button" && e.down && e.t > 910);
+    assert.ok(check.t > 910 && check.t < nextPress.t + check.dur, `at ${check.t}`);
+    // …and everything after it moves later by its length.
+    const later = (evs, shift) => evs.filter((e) => e.type === "button" && e.t > 910).map((e) => e.t - shift);
+    assert.deepEqual(later(after.events, check.dur), later(before.events, 0));
     assert.deepEqual([check.x, check.y, check.tolerance, check.timeout_ms], [134, 70, 8, 5000]);
     assert.match(check.color, /^#[0-9A-F]{6}$/);
   });
@@ -147,15 +155,24 @@ describe("editing", () => {
     assert.deepEqual([check.x, check.y, check.color, check.tolerance, check.timeout_ms], [1200, 600, "#AABBCC", 20, 2500]);
   });
 
-  test("Trim pauses shortens every pause over a second", async () => {
-    // The keys step now has a 2.5 s pause.
-    assert.ok((await page.store("longPauses")) > 0);
+  test("Trim pauses shortens exactly the pauses over a second, to a second, with an Undo", async () => {
+    const pausesBefore = (await steps()).map((s) => s.pause);
+    const long = pausesBefore.filter((p) => p > 1000).length;
+    assert.ok(long > 0, "the keys step has a 2.5 s pause by now");
+    assert.equal(await page.store("longPauses"), long);
     const before = disk();
     await page.click("Trim pauses");
     await saved(before);
-    const pauses = (await steps()).map((s) => s.pause);
-    assert.ok(pauses.every((p) => p <= 1000), JSON.stringify(pauses));
-    assert.match(await page.store("toast.message"), /^Shortened \d+ pauses? to 1 s$/);
+    const pausesAfter = (await steps()).map((s) => s.pause);
+    assert.deepEqual(pausesAfter, pausesBefore.map((p) => Math.min(p, 1000)));
+    assert.equal(await page.store("toast.message"), `Shortened ${long} pause${long === 1 ? "" : "s"} to 1 s`);
+
+    const trimmed = disk();
+    await page.click("Undo", { within: ".toast" });
+    await saved(trimmed, "the undo");
+    assert.deepEqual((await steps()).map((s) => s.pause), pausesBefore);
+    await page.click("Redo", { within: ".header" });
+    await until(async () => JSON.stringify((await steps()).map((s) => s.pause)) === JSON.stringify(pausesAfter), { what: "the redo" });
   });
 
   test("a rejected edit is explained and changes nothing", async () => {
@@ -192,8 +209,7 @@ describe("editing", () => {
     });
 
     test("the Settings tab: humanize, jitter, coordinates, stop on key press", async () => {
-      await page.click("Settings", { role: "tab" });
-      await page.idle();
+      await page.tab("Settings");
       await page.click("Humanize", { role: "switch" });
       await until(() => pb().humanize === false, { what: "humanize off" });
       await page.fill('input[aria-label="Jitter"]', "85");
@@ -207,17 +223,53 @@ describe("editing", () => {
     });
   });
 
+  test("the step editor stays on its step when an earlier step is deleted", async () => {
+    const all = await steps();
+    const i = all.findIndex((s, n) => n > 1 && s.kind === "click" && s.label);
+    await openStep(i);
+    const label = () =>
+      page.run(() => [...document.querySelectorAll(".editor label")].find((l) => l.textContent.trim().startsWith("Label"))?.querySelector("input").value);
+    await until(async () => (await label()) === all[i].label, { what: "the editor open on it" });
+    const before = disk();
+    await page.run(() => {
+      document.querySelector('[role="tabpanel"] .list .row .del').click(); // step 0's ×
+      return true;
+    });
+    await saved(before, "the delete");
+    await until(async () => (await label()) === all[i].label, { what: "the editor on the same step" });
+    assert.equal((await steps())[i - 1].label, all[i].label, "which moved up one row");
+  });
+
+  test("nothing can be edited while a macro plays", async () => {
+    const [path] = writeRly(app.path("import"), [waitingMacro({ name: "Waits", waits: [3000, 3000] })]);
+    const [waits] = (await page.invoke("import_macros", { paths: [path] })).imported;
+    await page.open(waits);
+    await page.click("Play");
+    await page.waitMode("playing");
+    for (const name of ["+ Wait", "+ Pixel check", "Trim pauses", "Undo", "Redo"]) {
+      assert.equal(await page.disabled(name), true, `${name} is disabled`);
+    }
+    const before = app.macro(waits);
+    await assert.rejects(page.invoke("edit_macro", { id: waits, op: { op: "delete_step", index: 0 } }), (e) => e.code === "busy");
+    await assert.rejects(page.invoke("undo_edit", { id: waits, redo: false }), (e) => e.code === "busy");
+    assert.deepEqual(app.macro(waits), before);
+    await page.click("Stop");
+    await page.waitMode("idle");
+    assert.equal(await page.disabled("+ Wait"), false, "editable again once stopped");
+    await page.open(id);
+  });
+
   test("the undo history is per macro, and doesn't outlive the app", async () => {
     assert.equal(await page.store("canUndo"), true);
-    await page.run(() => window.__relay.loadMacro(window.__relay.library[1].id));
-    await page.idle();
-    assert.equal(await page.store("canUndo"), false);
-    await page.run((id) => window.__relay.loadMacro(id), id);
-    await page.idle();
-    assert.equal(await page.store("canUndo"), true);
+    const other = await page.run((id) => window.__relay.library.find((m) => m.id !== id && m.name !== "Waits").id, id);
+    await page.open(other);
+    assert.equal(await page.store("canUndo"), false, "another macro has its own (empty) history");
+    await page.open(id);
+    assert.equal(await page.store("canUndo"), true, "and this one's is still there");
+    const edited = await steps();
     page = await app.restart();
+    await page.open(id); // the Library's first macro opens at startup
     assert.equal(await page.store("canUndo"), false);
-    // The edits themselves are kept.
-    assert.equal((await steps())[0].label, "The File menu");
+    assert.deepEqual(await steps(), edited, "the edits themselves are kept");
   });
 });

@@ -319,6 +319,34 @@ mod tests {
     }
 
     #[test]
+    fn tolerance_bounds() {
+        let c = Rgb(10, 128, 250);
+        assert!(c.within(c, 0));
+        assert!(!c.within(Rgb(10, 128, 251), 0));
+        assert!(Rgb(0, 0, 0).within(Rgb(255, 255, 255), 255));
+        assert!(!Rgb(0, 0, 0).within(Rgb(255, 255, 255), 254));
+    }
+
+    #[test]
+    fn rects_on_monitors_left_of_the_primary() {
+        let left = Rect { x: -1920, y: -200, w: 1920, h: 1080 };
+        assert!(left.contains(-1920, -200));
+        assert!(left.contains(-1, 879));
+        assert!(!left.contains(0, 0), "the right edge is outside");
+        assert!(!left.contains(-1921, 0));
+        assert!(!left.contains(-100, 880), "the bottom edge is outside");
+        assert!(!Rect::default().contains(0, 0), "an empty rect contains nothing");
+    }
+
+    #[test]
+    fn repeat_counts() {
+        assert_eq!(Repeat::Count(0).loops(), Some(1), "at least once");
+        assert_eq!(Repeat::Count(1).loops(), Some(1));
+        assert_eq!(Repeat::Count(5).loops(), Some(5));
+        assert_eq!(Repeat::Forever.loops(), None);
+    }
+
+    #[test]
     fn repeat_serializes_compactly() {
         assert_eq!(serde_json::to_string(&Repeat::Count(3)).unwrap(), r#"{"count":3}"#);
         assert_eq!(serde_json::to_string(&Repeat::Forever).unwrap(), r#""forever""#);

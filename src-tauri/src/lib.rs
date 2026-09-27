@@ -38,6 +38,12 @@ fn context() -> tauri::Context {
     context
 }
 
+/// Whether Relay was started with Windows (the *Run* key passes `--autostart`),
+/// and so stays in the tray until asked.
+fn starts_hidden(args: impl IntoIterator<Item = impl AsRef<str>>) -> bool {
+    args.into_iter().any(|a| a.as_ref() == "--autostart")
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -100,15 +106,17 @@ pub fn run() {
         .setup(|app| {
             let dir = storage::data_dir(app.handle());
             app.manage(logging::init(&dir));
-            let (library, problems) = library::Library::open(&dir);
-            for p in problems {
-                tracing::warn!("library: {p}");
-            }
-            app.manage(Mutex::new(library));
-            app.manage(Mutex::new(settings::SettingsStore::open(&dir)));
-
             let emit = Arc::new(ipc::Emitter::default());
             app.manage(emit.clone());
+            // Damaged files are skipped or set aside; the user hears about them (and the log has them).
+            let (library, library_problems) = library::Library::open(&dir);
+            app.manage(Mutex::new(library));
+            let (settings, settings_problems) = settings::SettingsStore::open(&dir);
+            app.manage(Mutex::new(settings));
+            for p in library_problems.into_iter().chain(settings_problems) {
+                emit.error(p);
+            }
+
             let platform = Arc::new(relay_platform::platform());
             app.manage(platform.clone());
             app.manage(coordinator::spawn(app.handle().clone(), platform.clone(), emit));
@@ -124,8 +132,7 @@ pub fn run() {
                 // Place it where it was, then show it (the window starts hidden, so it never jumps).
                 let css = if window_state.prefs().expanded { window_ctl::EXPANDED } else { window_ctl::COMPACT };
                 window_ctl::place(&window, &window_state, css);
-                // Started with Windows: stay in the tray until asked.
-                if !std::env::args().any(|a| a == "--autostart") {
+                if !starts_hidden(std::env::args()) {
                     window.show()?;
                 }
             }
@@ -140,6 +147,21 @@ pub fn run() {
             // stop cleanly, so no key stays held and a recording is saved.
             if let RunEvent::Exit = event {
                 app.state::<coordinator::CoordinatorHandle>().shutdown(Duration::from_secs(3));
+                tracing::info!("Relay quit");
+                app.state::<logging::LogGuard>().flush();
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_start_with_windows_stays_in_the_tray() {
+        assert!(starts_hidden(["relay.exe", "--autostart"]));
+        assert!(!starts_hidden(["relay.exe"]));
+        assert!(!starts_hidden(["relay.exe", "--autostart=no", "autostart"]));
+        assert!(!starts_hidden(Vec::<String>::new()));
+    }
 }

@@ -54,12 +54,12 @@ describe("tauriBackend", () => {
     const options: PlaybackOptions = { ...DEFAULT_PLAYBACK, speed: 2, repeat: "forever" };
     const view = await b.setPlaybackOptions(id, options);
     expect(core.calls).toEqual([{ cmd: "set_playback_options", args: { id, options } }]);
-    expect(view.playback).toEqual(options);
+    expect(view.id).toBe(id); // the macro's view comes back
   });
 
   test("updateSettings sends the whole settings object", async () => {
     const settings: Settings = { ...DEFAULT_SETTINGS, countdown: false, keep_on_top: "never" };
-    expect(await b.updateSettings(settings)).toEqual(settings);
+    await b.updateSettings(settings);
     expect(core.calls).toEqual([{ cmd: "update_settings", args: { settings } }]);
   });
 
@@ -72,13 +72,13 @@ describe("tauriBackend", () => {
     };
     const status = await b.setTriggers(id, triggers);
     expect(core.calls).toEqual([{ cmd: "set_triggers", args: { id, triggers } }]);
-    expect(status.triggers).toEqual(triggers);
-    expect(status.next_run).not.toBeNull();
+    // Monday, Wednesday and Friday at 07:30, seen from Thursday: Friday.
+    expect(status.next_run).toBe("2026-09-25T07:30:00+02:00");
   });
 
   test("errors arrive as { code, message }", async () => {
     await expect(b.loadMacro("nope")).rejects.toEqual({ code: "not_found", message: "no macro with id nope" });
-    core.fail("delete_macro", "Stop the recording or playback first", "busy");
+    core.mode = "recording"; // a session is running
     await expect(b.deleteMacro(id)).rejects.toEqual({ code: "busy", message: "Stop the recording or playback first" });
   });
 
@@ -183,9 +183,17 @@ describe("browserBackend (npm run dev)", () => {
       "Batch rename photos",
       "Open standup tools",
     ]);
-    expect(list[0]).toMatchObject({ step_count: 12, runs: 148, hotkey: "Ctrl + Alt + 1" });
-    expect(list[2].hotkey).toBeNull();
+    expect(list[0]).toMatchObject({ step_count: 12, runs: 148, hotkey: null }); // the samples' hotkeys are off
     expect(new Date(list[0].last_run!).getTime()).toBeLessThan(Date.now());
+  });
+
+  test("the hotkey column follows the triggers in memory", async () => {
+    const bb = await ready();
+    const status = await bb.getTriggers(id);
+    await bb.setTriggers(id, { ...status.triggers, hotkey: { ...status.triggers.hotkey, enabled: true } });
+    expect((await bb.listMacros())[0].hotkey).toBe("Ctrl + Alt + 1");
+    await bb.setTriggers(id, { ...status.triggers, hotkey: { enabled: false, combo: "Ctrl + Alt + 1" } });
+    expect((await bb.listMacros())[0].hotkey).toBeNull();
   });
 
   test("loads a macro, and rejects unknown ones", async () => {

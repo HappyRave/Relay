@@ -24,9 +24,9 @@ describe("format", () => {
   it("formats the last run relative to today", () => {
     const now = new Date(2026, 8, 24, 12, 0); // Thursday
     expect(fmtLastRun(null, now)).toBe("Never");
-    expect(fmtLastRun(new Date(2026, 8, 24, 9, 12).toISOString(), now)).toMatch(/^Today, /);
-    expect(fmtLastRun(new Date(2026, 8, 19, 17, 40).toISOString(), now)).toMatch(/, /);
-    expect(fmtLastRun(new Date(2026, 8, 12, 8, 0).toISOString(), now)).not.toMatch(/Today|,/);
+    expect(fmtLastRun(new Date(2026, 8, 24, 9, 12).toISOString(), now)).toBe("Today, 09:12");
+    expect(fmtLastRun(new Date(2026, 8, 18, 17, 40).toISOString(), now)).toBe("Fri, 17:40");
+    expect(fmtLastRun(new Date(2026, 8, 12, 8, 0).toISOString(), now)).toBe("Sep 12");
   });
 
   it("labels the next scheduled run", () => {

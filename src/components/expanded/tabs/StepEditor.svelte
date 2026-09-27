@@ -1,38 +1,57 @@
 <script lang="ts">
   // Inline editor under the selected step: the pause before it, labels, wait
   // durations and the pixel check's position, color, tolerance and timeout.
+  // Number fields commit on change and then show what's saved: rounded to
+  // what Rust stores (whole ms and pixels), clamped, or put back if refused.
   import { relay } from "../../../lib/state/relay.svelte";
+  import { clamp, commitNumber, toMs } from "../../../lib/fields";
   import type { Step } from "../../../lib/types";
 
   let { step, index }: { step: Step; index: number } = $props();
 
   const HEX = /^#[0-9a-fA-F]{6}$/;
+  /** A pixel check waits at least this long before giving up. */
+  const MIN_TIMEOUT_MS = 500;
+
+  type Pixel = { x: number; y: number; color: string; tolerance: number; timeout_ms: number };
+  const field = (e: Event) => e.currentTarget as HTMLInputElement;
+  const seconds = (ms: number) => String(ms / 1000);
+  const positiveMs = (s: number) => (s >= 0 ? toMs(s) : null);
 
   function setLabel(label: string) {
     relay.edit({ op: "set_label", index, label });
   }
 
-  function setWait(seconds: number) {
-    if (Number.isFinite(seconds) && seconds >= 0) relay.edit({ op: "set_wait_duration", index, dur: Math.round(seconds * 1000) });
-  }
-
-  function updatePixel(patch: Partial<{ x: number; y: number; color: string; tolerance: number; timeout_ms: number }>) {
+  function updatePixel(patch: Partial<Pixel>) {
     if (step.kind !== "pixel_wait") return;
-    const next = { x: step.x, y: step.y, color: step.color, tolerance: step.tolerance, timeout_ms: step.timeout_ms, ...patch };
-    if (!HEX.test(next.color) || ![next.x, next.y, next.tolerance, next.timeout_ms].every(Number.isFinite)) return;
-    relay.edit({ op: "update_pixel_wait", index, ...next, color: next.color.toUpperCase() });
+    const { x, y, color, tolerance, timeout_ms } = step;
+    relay.edit({ op: "update_pixel_wait", index, x, y, color, tolerance, timeout_ms, ...patch });
   }
 
-  /** A number field's value; when it's empty or not a number, NaN, and the field shows `current` again. */
-  function num(e: Event, current: number | string): number {
-    const input = e.currentTarget as HTMLInputElement;
-    const v = input.valueAsNumber;
-    if (Number.isNaN(v)) input.value = String(current);
-    return v;
+  /** Commits one of the pixel check's number fields. */
+  function pixelNumber(e: Event, key: Exclude<keyof Pixel, "color">, accept: (v: number) => number | null, show?: (v: number) => string) {
+    if (step.kind !== "pixel_wait") return;
+    const v = commitNumber(field(e), step[key], accept, show);
+    if (v != null) updatePixel({ [key]: v });
   }
 
-  function setPause(seconds: number) {
-    if (Number.isFinite(seconds) && seconds >= 0) relay.setPause(index, seconds * 1000);
+  function setColor(e: Event) {
+    if (step.kind !== "pixel_wait") return;
+    const input = field(e);
+    const color = input.value.trim().toUpperCase();
+    input.value = HEX.test(color) ? color : step.color;
+    if (HEX.test(color) && color !== step.color) updatePixel({ color });
+  }
+
+  function setPause(e: Event) {
+    const ms = commitNumber(field(e), step.pause, positiveMs, (ms) => (ms / 1000).toFixed(1));
+    if (ms != null) relay.setPause(index, ms);
+  }
+
+  function setWait(e: Event) {
+    if (step.kind !== "wait") return;
+    const dur = commitNumber(field(e), step.dur, positiveMs, seconds);
+    if (dur != null) relay.edit({ op: "set_wait_duration", index, dur });
   }
 </script>
 
@@ -40,13 +59,13 @@
   <div class="grid">
     <label class="pause" title="Idle time before this step, while only the mouse moves">
       Pause before s
-      <input class="input" type="number" min="0" step="0.1" value={(step.pause / 1000).toFixed(1)} onchange={(e) => setPause(num(e, (step.pause / 1000).toFixed(1)))} />
+      <input class="input" type="number" min="0" step="0.1" value={(step.pause / 1000).toFixed(1)} onchange={setPause} />
     </label>
   </div>
   {#if step.kind === "pixel_wait"}
     <div class="grid">
-      <label>X<input class="input" type="number" value={step.x} onchange={(e) => updatePixel({ x: num(e, step.x) })} /></label>
-      <label>Y<input class="input" type="number" value={step.y} onchange={(e) => updatePixel({ y: num(e, step.y) })} /></label>
+      <label>X<input class="input" type="number" value={step.x} onchange={(e) => pixelNumber(e, "x", Math.round)} /></label>
+      <label>Y<input class="input" type="number" value={step.y} onchange={(e) => pixelNumber(e, "y", Math.round)} /></label>
       <label class="color">
         Color
         <span class="field">
@@ -56,21 +75,17 @@
             value={step.color}
             maxlength="7"
             spellcheck="false"
-            onchange={(e) => {
-              const color = e.currentTarget.value.trim();
-              if (HEX.test(color)) updatePixel({ color });
-              else if (step.kind === "pixel_wait") e.currentTarget.value = step.color;
-            }}
+            onchange={setColor}
           />
         </span>
       </label>
       <label>
         Tolerance
-        <input class="input" type="number" min="0" max="255" value={step.tolerance} onchange={(e) => updatePixel({ tolerance: Math.min(255, Math.max(0, num(e, step.tolerance))) })} />
+        <input class="input" type="number" min="0" max="255" value={step.tolerance} onchange={(e) => pixelNumber(e, "tolerance", (v) => clamp(Math.round(v), 0, 255))} />
       </label>
       <label>
         Timeout s
-        <input class="input" type="number" min="0.5" step="0.5" value={step.timeout_ms / 1000} onchange={(e) => updatePixel({ timeout_ms: Math.round(num(e, step.timeout_ms / 1000) * 1000) })} />
+        <input class="input" type="number" min="0.5" step="0.5" value={step.timeout_ms / 1000} onchange={(e) => pixelNumber(e, "timeout_ms", (s) => Math.max(MIN_TIMEOUT_MS, toMs(s)), seconds)} />
       </label>
       <button class="btn btn-secondary pick" disabled={relay.picking > 0} onclick={() => relay.pickPixel(index)}>
         {relay.picking > 0 ? `Point at it… ${relay.picking}` : "Pick"}
@@ -80,7 +95,7 @@
     <div class="grid">
       <label>
         Duration s
-        <input class="input" type="number" min="0" step="0.1" value={step.dur / 1000} onchange={(e) => setWait(num(e, step.dur / 1000))} />
+        <input class="input" type="number" min="0" step="0.1" value={step.dur / 1000} onchange={setWait} />
       </label>
     </div>
   {/if}

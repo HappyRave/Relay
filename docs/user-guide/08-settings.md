@@ -59,7 +59,7 @@ The list at the bottom is a reminder of Relay's own hotkeys. They can't be chang
 By default Relay's widget floats **on top** of other windows, so the stop button and the steps stay in view while you work in other apps. **Settings → Window → Keep on top** makes it float only while recording or playing, or never.
 
 - **Move it** by dragging the dotted grip on its left edge. Relay remembers where you left it, even after a restart.
-- **Where it sits:** it stays anchored by its bottom-center, so switching between the compact player and the editor grows or shrinks it upward, around the same point. It never goes off screen or under the taskbar. If the monitor it was on is gone, it comes back at the bottom of the main monitor.
+- **Where it sits:** it stays anchored by its bottom-center, so switching between the compact player and the editor grows or shrinks it upward, around the same point. It never goes off screen or under the taskbar, and keeps 16 pixels from the edges. Near an edge, the bigger editor is pushed inside the screen, and the compact player goes back exactly where you left it. If the monitor it was on is gone, it comes back on the nearest monitor, as close as it can to where it was.
 - **Small screens:** if the editor doesn't fit (a small laptop screen or high display scaling), Relay shrinks it to fit, down to 40%.
 - **Focus:** during a recording or playback, clicking the widget doesn't take the keyboard away from the app you're working in.
 - **One Relay at a time:** starting Relay again while it's running just brings the existing widget to the front.

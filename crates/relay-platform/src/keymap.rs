@@ -113,6 +113,7 @@ pub fn scan_for_code(code: &str) -> Option<(u16, bool)> {
 }
 
 /// Codes for keys without a known scan code (media keys, injected input).
+/// Punctuation (the OEM keys) is named after the US layout.
 fn vk_code(vk: u16) -> String {
     match vk {
         0x41..=0x5A => format!("Key{}", vk as u8 as char),
@@ -139,6 +140,31 @@ fn vk_code(vk: u16) -> String {
         0x2E => "Delete".into(),
         0x5D => "ContextMenu".into(),
         0x60..=0x69 => format!("Numpad{}", vk - 0x60),
+        0x6A => "NumpadMultiply".into(),
+        0x6B => "NumpadAdd".into(),
+        0x6C => "NumpadComma".into(),
+        0x6D => "NumpadSubtract".into(),
+        0x6E => "NumpadDecimal".into(),
+        0x6F => "NumpadDivide".into(),
+        // The generic Shift, Ctrl and Alt, as injected input may send them.
+        0x10 => "ShiftLeft".into(),
+        0x11 => "ControlLeft".into(),
+        0x12 => "AltLeft".into(),
+        0x14 => "CapsLock".into(),
+        0xBA => "Semicolon".into(),
+        0xBB => "Equal".into(),
+        0xBC => "Comma".into(),
+        0xBD => "Minus".into(),
+        0xBE => "Period".into(),
+        0xBF => "Slash".into(),
+        0xC0 => "Backquote".into(),
+        0xDB => "BracketLeft".into(),
+        0xDC => "Backslash".into(),
+        0xDD => "BracketRight".into(),
+        0xDE => "Quote".into(),
+        // VK_OEM_8 has no US key; on UK keyboards it's the ` key.
+        0xDF => "Backquote".into(),
+        0xE2 => "IntlBackslash".into(),
         0xA0 => "ShiftLeft".into(),
         0xA1 => "ShiftRight".into(),
         0xA2 => "ControlLeft".into(),
@@ -247,6 +273,29 @@ mod tests {
             (0x5D, "ContextMenu"),
             (0x60, "Numpad0"),
             (0x69, "Numpad9"),
+            (0x6A, "NumpadMultiply"),
+            (0x6B, "NumpadAdd"),
+            (0x6C, "NumpadComma"),
+            (0x6D, "NumpadSubtract"),
+            (0x6E, "NumpadDecimal"),
+            (0x6F, "NumpadDivide"),
+            (0x10, "ShiftLeft"),
+            (0x11, "ControlLeft"),
+            (0x12, "AltLeft"),
+            (0x14, "CapsLock"),
+            (0xBA, "Semicolon"),
+            (0xBB, "Equal"),
+            (0xBC, "Comma"),
+            (0xBD, "Minus"),
+            (0xBE, "Period"),
+            (0xBF, "Slash"),
+            (0xC0, "Backquote"),
+            (0xDB, "BracketLeft"),
+            (0xDC, "Backslash"),
+            (0xDD, "BracketRight"),
+            (0xDE, "Quote"),
+            (0xDF, "Backquote"),
+            (0xE2, "IntlBackslash"),
             (0x70, "F1"),
             (0x87, "F24"),
             (0x90, "NumLock"),
@@ -261,6 +310,13 @@ mod tests {
         ];
         for (vk, want) in cases {
             assert_eq!(vk_code(vk), want, "{vk:#x}");
+            // Every name is one the scan-code table uses too, so replay finds a scan code.
+            let no_scan = matches!(want, "F24" | "NumpadComma" | "Vk07");
+            assert!(scan_for_code(want).is_some() || no_scan, "{want}");
+        }
+        // The generic modifiers count as modifiers in the steps.
+        for vk in [0x10, 0x11, 0x12] {
+            assert!(relay_core::keys::modifier(&vk_code(vk)).is_some(), "{vk:#x}");
         }
     }
 

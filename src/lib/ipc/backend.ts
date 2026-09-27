@@ -140,6 +140,8 @@ export function browserBackend(): Backend {
       app_launch: { enabled: false, exe: "", delay_ms: 2000 },
       pixel: { enabled: false, x: 0, y: 0, color: "#EC3013", tolerance: 8 },
     };
+  // Like the app, the Library shows a hotkey only while it's on (the samples' are off).
+  const hotkeyOf = (t: MacroTriggers) => (t.hotkey.enabled && t.hotkey.combo ? t.hotkey.combo : null);
   const unavailable = (): never => {
     throw { code: "unavailable", message: "This needs the Relay app (npm run tauri dev)" } satisfies IpcError;
   };
@@ -233,7 +235,7 @@ export function browserBackend(): Backend {
         step_count: i.view.steps.length,
         runs: i.runs,
         last_run: i.last_run_ago_ms == null ? null : new Date(loadedAt - i.last_run_ago_ms).toISOString(),
-        hotkey: i.hotkey,
+        hotkey: hotkeyOf(triggersFor(i.view.id)),
       }));
     },
     loadMacro: async (id) => {

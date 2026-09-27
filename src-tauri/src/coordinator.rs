@@ -11,11 +11,12 @@ use std::time::Duration;
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, unbounded};
 use parking_lot::{Mutex, RwLock};
-use relay_core::model::{CoordMode, Event, Macro, RecordingMeta, Rect};
+use relay_core::model::{CoordMode, Event, Macro, Ms, RecordingMeta, Rect};
 use relay_core::session::{self, Effect, FinishReason, HotkeySet, Input, Mode, RunSource, SessionConfig};
 use relay_core::steps::{GroupOptions, group_steps};
 use relay_core::timeline;
 use relay_platform::recorder::{Recorder, RecorderConfig, is_meaningful};
+use relay_platform::types::MousePulse;
 use relay_platform::{HookConfig, HookMode, HookSession, Platform, RawInput, RawKind};
 use tauri::{AppHandle, Manager};
 use uuid::Uuid;
@@ -49,6 +50,8 @@ pub enum Cmd {
         generation: u64,
         reason: FinishReason,
         timing: Option<TimingStats>,
+        /// With `PixelTimeout`: the recorded time of the check's step.
+        timed_out_at: Option<Ms>,
     },
     /// The UI selected a macro.
     Select(Uuid),
@@ -85,6 +88,10 @@ impl SessionMode {
     pub fn is_idle(&self) -> bool {
         *self.0.read() == Mode::Idle
     }
+
+    fn set(&self, mode: Mode) {
+        *self.0.write() = mode;
+    }
 }
 
 #[derive(Clone)]
@@ -117,6 +124,8 @@ struct Recording {
 struct Playback {
     engine: EngineHandle,
     generation: u64,
+    /// The macro's length, where a completed run leaves the playhead.
+    duration: Ms,
     /// Watches for Esc and stop keys; `None` if it couldn't start.
     _hook: Option<Box<dyn HookSession>>,
     /// Whether the window was made click-through for this playback.
@@ -176,7 +185,7 @@ impl Coordinator {
                     if catch_unwind(AssertUnwindSafe(|| self.handle(cmd))).is_err() {
                         self.emit.error("Something went wrong; Relay stopped what it was doing.");
                         self.shutdown();
-                        self.mode = Mode::Idle;
+                        self.set_mode(Mode::Idle);
                         self.effect(Effect::SetHotkeys(HotkeySet::Idle));
                         self.effect(Effect::EmitMode(Mode::Idle));
                     }
@@ -205,13 +214,15 @@ impl Coordinator {
             Cmd::HotkeyPlay => self.input(Input::TogglePlay { from: self.idle_playhead.round() as u32 }),
             Cmd::Escape => self.input(Input::Stop(FinishReason::Stopped)),
             Cmd::StopKey => self.input(Input::Stop(FinishReason::KeyPressed)),
-            Cmd::EngineDone { generation, reason, timing } => {
+            Cmd::EngineDone { generation, reason, timing, timed_out_at } => {
                 // A late message from a playback that was already stopped.
-                if self.playback.as_ref().is_none_or(|p| p.generation != generation) {
+                if !is_current(self.playback.as_ref().map(|p| p.generation), generation) {
                     return;
                 }
+                let duration = self.playback.as_ref().map_or(0, |p| p.duration);
                 self.end_playback();
-                if reason == FinishReason::Completed {
+                self.idle_playhead = playhead_after(reason, duration, timed_out_at);
+                if counts_as_run(reason) {
                     self.count_run();
                 }
                 self.emit.send(EngineMsg::Finished { reason, timing });
@@ -223,10 +234,11 @@ impl Coordinator {
                     self.idle_playhead = 0.0;
                 }
             }
-            Cmd::Seek(t) => match &self.playback {
-                Some(p) => p.engine.send(EngineCmd::Seek(t)),
-                None => self.idle_playhead = t,
-            },
+            Cmd::Seek(t) => {
+                // Kept during playback too, like the UI's playhead.
+                self.idle_playhead = t;
+                self.engine_cmd(EngineCmd::Seek(t));
+            }
             Cmd::Speed { id, speed } => {
                 if self.current == Some(id) {
                     self.engine_cmd(EngineCmd::Speed(speed));
@@ -244,12 +256,17 @@ impl Coordinator {
         let (mode, effects) = session::step(self.mode, input.clone(), &cfg);
         if mode != self.mode {
             tracing::info!(from = ?self.mode, to = ?mode, ?input, "session");
-            self.mode = mode;
-            *self.app.state::<SessionMode>().0.write() = mode;
+            self.set_mode(mode);
         }
         for e in effects {
             self.effect(e);
         }
+    }
+
+    /// Every mode change goes through here, so commands see the same mode.
+    fn set_mode(&mut self, mode: Mode) {
+        self.mode = mode;
+        self.app.state::<SessionMode>().set(mode);
     }
 
     fn settings(&self) -> Settings {
@@ -270,6 +287,7 @@ impl Coordinator {
             Effect::ResumePlayback => self.engine_cmd(EngineCmd::Resume),
             Effect::StopPlayback(reason) => {
                 let timing = self.end_playback();
+                self.idle_playhead = playhead_after(reason, 0, None);
                 self.emit.send(EngineMsg::Finished { reason, timing });
             }
             Effect::SetHotkeys(set) => hotkeys::set_active(&self.app, set),
@@ -304,20 +322,20 @@ impl Coordinator {
 
     /// A trigger fired: run its macro now if Relay is free and the screen is usable.
     fn run_triggered(&mut self, id: Uuid, source: RunSource) {
-        if self.app.state::<TriggerState>().paused() {
-            return;
-        }
-        let Some(name) = self.app.state::<Mutex<Library>>().lock().get(id).map(|e| e.macro_.name.clone()) else {
-            return;
-        };
-        if self.mode != Mode::Idle {
-            self.emit.send(EngineMsg::Notice { message: format!("Skipped “{name}”: Relay was busy") });
-            return;
-        }
-        if !self.platform.windows.input_desktop_available() {
-            // Locked, or a UAC prompt: nothing can be clicked or typed.
-            tracing::info!(%id, ?source, "trigger skipped: the input desktop isn't available (locked?)");
-            return;
+        let paused = self.app.state::<TriggerState>().paused();
+        let name = self.app.state::<Mutex<Library>>().lock().get(id).map(|e| e.macro_.name.clone());
+        let windows = &self.platform.windows;
+        match admit(paused, name.as_deref(), self.mode, || windows.input_desktop_available()) {
+            Admission::Run => {}
+            Admission::Ignore => return,
+            Admission::Busy(message) => {
+                self.emit.send(EngineMsg::Notice { message });
+                return;
+            }
+            Admission::NoDesktop => {
+                tracing::info!(%id, ?source, "trigger skipped: the input desktop isn't available (locked?)");
+                return;
+            }
         }
         tracing::info!(%id, ?source, "running a triggered macro");
         self.current = Some(id);
@@ -382,9 +400,11 @@ impl Coordinator {
     fn start_recording(&mut self) {
         let settings = self.settings();
         let (_, own_window) = self.own_window();
+        let mouse_pulse = Arc::new(MousePulse::default());
         let hook_cfg = HookConfig {
             mode: HookMode::Record { own_window, skip_vks: vec![VK_F9], esc_stops: settings.esc_stops_recording },
             ignore_injected: settings.ignore_injected,
+            mouse_pulse: Some(mouse_pulse.clone()),
         };
         let (raw_tx, raw_rx) = crossbeam_channel::bounded(8192);
         let hook = match self.platform.hook.start(hook_cfg.clone(), raw_tx.clone()) {
@@ -413,6 +433,7 @@ impl Coordinator {
             now_ms: self.platform.now_ms,
             emit: self.emit.clone(),
             coordinator: self.tx.clone(),
+            mouse_pulse,
         };
         let thread = RecThread::spawn(recorder, raw_rx, ctx);
         self.recording = Some(Recording { hook, hook_cfg, raw_tx, thread });
@@ -486,8 +507,9 @@ impl Coordinator {
         let hook = self.watch_for_stop_keys(&m);
 
         self.generation += 1;
+        let duration = timeline::duration(&m.events);
         let plan = PlayPlan {
-            duration: timeline::duration(&m.events),
+            duration,
             repeat: m.playback.repeat,
             speed: m.playback.speed as f64,
             jitter_ms: if m.playback.humanize { m.playback.jitter_ms } else { 0 },
@@ -498,7 +520,7 @@ impl Coordinator {
             events: m.events,
         };
         let engine = engine::spawn(plan, &self.platform, self.emit.clone(), self.tx.clone(), self.generation);
-        self.playback = Some(Playback { engine, generation: self.generation, _hook: hook, click_through });
+        self.playback = Some(Playback { engine, generation: self.generation, duration, _hook: hook, click_through });
     }
 
     /// Started from Relay's own button: give the keyboard back to the app the
@@ -519,7 +541,7 @@ impl Coordinator {
         }
     }
 
-    /// Clicks under the always-on-top widget must reach the app beneath it.
+    /// Clicks and scrolling under the always-on-top widget must reach the app beneath it.
     fn click_through_if_needed(&self, m: &Macro, own_rect: Option<Rect>, offset: (i32, i32)) -> bool {
         own_rect.is_some_and(|r| clicks_inside(m, r, offset))
             && self.app.get_webview_window("main").is_some_and(|w| w.set_ignore_cursor_events(true).is_ok())
@@ -530,6 +552,7 @@ impl Coordinator {
         let cfg = HookConfig {
             mode: HookMode::Watch { stop_on_key: m.playback.stop_on_key, pass_vks: vec![VK_F10] },
             ignore_injected: self.settings().ignore_injected,
+            mouse_pulse: None,
         };
         let (raw_tx, raw_rx) = crossbeam_channel::bounded(64);
         match self.platform.hook.start(cfg, raw_tx) {
@@ -580,9 +603,59 @@ impl Coordinator {
     }
 }
 
-/// Whether the macro clicks inside `r` when played `offset` away from where it was recorded.
+/// Whether the macro clicks or scrolls inside `r` when played `offset` away
+/// from where it was recorded.
 fn clicks_inside(m: &Macro, r: Rect, offset: (i32, i32)) -> bool {
-    m.events.iter().any(|e| matches!(e, Event::Button { x, y, .. } if r.contains(x + offset.0, y + offset.1)))
+    m.events.iter().any(|e| {
+        matches!(e, Event::Button { x, y, .. } | Event::Wheel { x, y, .. } if r.contains(x + offset.0, y + offset.1))
+    })
+}
+
+/// What a trigger's request to run a macro gets.
+#[derive(Debug, PartialEq)]
+enum Admission {
+    Run,
+    /// Triggers are paused, or the macro is gone: nothing to say.
+    Ignore,
+    /// A session is running: tell the user the run was skipped.
+    Busy(String),
+    /// Locked, or a UAC prompt: nothing can be clicked or typed. Skipped quietly.
+    NoDesktop,
+}
+
+/// Whether a trigger may run macro `name` (`None`: not in the library) now.
+/// `desktop_available` is asked last, only when everything else allows the run.
+fn admit(paused: bool, name: Option<&str>, mode: Mode, desktop_available: impl FnOnce() -> bool) -> Admission {
+    let Some(name) = name.filter(|_| !paused) else { return Admission::Ignore };
+    if mode != Mode::Idle {
+        return Admission::Busy(format!("Skipped “{name}”: Relay was busy"));
+    }
+    if !desktop_available() {
+        return Admission::NoDesktop;
+    }
+    Admission::Run
+}
+
+/// Whether an `EngineDone` from playback `generation` is about the playback
+/// running now (`playing`), not a late one from a playback already stopped.
+fn is_current(playing: Option<u64>, generation: u64) -> bool {
+    playing == Some(generation)
+}
+
+/// A run counts (runs, last run) only when the macro played to the end.
+fn counts_as_run(reason: FinishReason) -> bool {
+    reason == FinishReason::Completed
+}
+
+/// Where F10 plays from after a playback of `duration` ms ended, mirroring the
+/// UI's playhead: a stop rewinds to the start, a completed run stays at the end
+/// (so the next play starts over), a timed-out pixel check stays on its step.
+fn playhead_after(reason: FinishReason, duration: Ms, timed_out_at: Option<Ms>) -> f64 {
+    match reason {
+        FinishReason::Completed => duration as f64,
+        FinishReason::PixelTimeout => timed_out_at.unwrap_or(0) as f64,
+        FinishReason::Stopped | FinishReason::KeyPressed | FinishReason::Killed | FinishReason::Error => 0.0,
+    }
 }
 
 #[cfg(test)]
@@ -615,10 +688,69 @@ mod tests {
     }
 
     #[test]
-    fn the_session_mode_starts_idle() {
-        let mode = SessionMode::default();
-        assert!(mode.is_idle());
-        *mode.0.write() = Mode::Recording;
-        assert!(!mode.is_idle());
+    fn scrolling_under_the_widget_counts_too() {
+        let widget = Rect { x: 488, y: 444, w: 944, h: 612 };
+        let scrolling = |x, y| {
+            let events = vec![Event::Wheel { t: 10, x, y, delta: -120, horizontal: false }];
+            Macro::new("m", RecordingMeta::single_1080p(), events)
+        };
+        assert!(clicks_inside(&scrolling(900, 700), widget, (0, 0)));
+        assert!(!clicks_inside(&scrolling(100, 100), widget, (0, 0)));
+        assert!(clicks_inside(&scrolling(100, 100), widget, (500, 400)), "moved with the window");
+    }
+
+    #[test]
+    fn trigger_admission() {
+        let unlocked = || true;
+        assert_eq!(admit(false, Some("Report"), Mode::Idle, unlocked), Admission::Run);
+        assert_eq!(admit(true, Some("Report"), Mode::Idle, unlocked), Admission::Ignore, "triggers paused");
+        assert_eq!(admit(false, None, Mode::Idle, unlocked), Admission::Ignore, "the macro was deleted");
+        for busy in [Mode::Countdown, Mode::Recording, Mode::Playing, Mode::Paused] {
+            assert_eq!(
+                admit(false, Some("Report"), busy, unlocked),
+                Admission::Busy("Skipped “Report”: Relay was busy".into()),
+                "{busy:?}"
+            );
+        }
+        assert_eq!(admit(true, Some("Report"), Mode::Playing, unlocked), Admission::Ignore, "paused says nothing");
+        assert_eq!(admit(false, Some("Report"), Mode::Idle, || false), Admission::NoDesktop, "locked");
+        // The desktop is only asked when the run could go ahead.
+        let asked = std::cell::Cell::new(false);
+        admit(false, Some("Report"), Mode::Playing, || {
+            asked.set(true);
+            true
+        });
+        assert!(!asked.get());
+    }
+
+    #[test]
+    fn only_the_current_playback_ends_it() {
+        assert!(is_current(Some(3), 3));
+        assert!(!is_current(Some(3), 2), "a late message from an older playback");
+        assert!(!is_current(None, 3), "nothing plays any more");
+    }
+
+    #[test]
+    fn only_a_completed_run_counts() {
+        assert!(counts_as_run(FinishReason::Completed));
+        for r in [
+            FinishReason::Stopped,
+            FinishReason::KeyPressed,
+            FinishReason::Killed,
+            FinishReason::PixelTimeout,
+            FinishReason::Error,
+        ] {
+            assert!(!counts_as_run(r), "{r:?}");
+        }
+    }
+
+    #[test]
+    fn the_hotkey_playhead_follows_how_playback_ended() {
+        for r in [FinishReason::Stopped, FinishReason::KeyPressed, FinishReason::Killed, FinishReason::Error] {
+            assert_eq!(playhead_after(r, 5000, Some(1200)), 0.0, "{r:?} rewinds");
+        }
+        assert_eq!(playhead_after(FinishReason::Completed, 5000, None), 5000.0, "stays at the end");
+        assert_eq!(playhead_after(FinishReason::PixelTimeout, 5000, Some(1200)), 1200.0, "stays on the check");
+        assert_eq!(playhead_after(FinishReason::PixelTimeout, 5000, None), 0.0);
     }
 }
