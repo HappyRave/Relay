@@ -19,10 +19,10 @@ use std::time::Duration;
 use parking_lot::Mutex;
 use tauri::{Manager, RunEvent, WindowEvent};
 
-/// The app's config, plus a DevTools port when `RELAY_DEVTOOLS_PORT` is set, for the
-/// end-to-end tests. WebView2's own `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` does the
-/// same, but isn't honored everywhere (CI runners ignore it); arguments the app
-/// passes itself always are.
+/// The app's config, plus a DevTools port (and no background throttling) when
+/// `RELAY_DEVTOOLS_PORT` is set, for the end-to-end tests. WebView2's own
+/// `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` does the same, but isn't honored
+/// everywhere (CI runners ignore it); arguments the app passes itself always are.
 fn context() -> tauri::Context {
     let mut context = tauri::generate_context!();
     if let Some(port) = std::env::var("RELAY_DEVTOOLS_PORT").ok().and_then(|p| p.parse::<u16>().ok()) {
@@ -32,7 +32,12 @@ fn context() -> tauri::Context {
                 .additional_browser_args
                 .take()
                 .unwrap_or_else(|| "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection".into());
-            w.additional_browser_args = Some(format!("{base} --remote-debugging-port={port}"));
+            // Timers and frames run at full speed even when the window isn't in front (a CI
+            // runner's often isn't), so the tests' timings mean the same everywhere.
+            w.additional_browser_args = Some(format!(
+                "{base} --remote-debugging-port={port} --disable-background-timer-throttling \
+                 --disable-renderer-backgrounding --disable-backgrounding-occluded-windows"
+            ));
         }
     }
     context
