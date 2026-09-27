@@ -18,7 +18,7 @@ Relay doesn't show you a thousand raw mouse events. It groups them into **steps*
 | Tag | Step | Made from |
 | --- | --- | --- |
 | `CLICK` | **Click**, **Double click**, **Triple click**, **Right click**… | A button pressed and released without moving more than 4 px. Clicks that follow each other quickly enough, and close enough, by your Windows double-click settings, merge into a double or triple click. |
-| `DRAG` | **Drag** from one point to another | A button pressed, moved more than 4 px, then released. |
+| `DRAG` | **Drag** from one point to another | A button pressed, moved more than 4 px while held (even if it came back), then released. |
 | `SCROLL` | **Scroll up / down / left / right**, *N notches* | Wheel notches in the same direction, less than 300 ms apart. |
 | `KEYS` | A key combination such as **Ctrl + S**, **Alt + Tab**, **Enter**, **F5** | A key pressed with <kbd>Ctrl</kbd>, <kbd>Alt</kbd> or <kbd>Win</kbd>, or a key that doesn't type a character (arrows, <kbd>Enter</kbd>, <kbd>Tab</kbd>, function keys…). |
 | `TYPE` | Typed text, such as **"invoice_2026"** | Characters typed less than 500 ms apart. Shifted characters and <kbd>AltGr</kbd> characters (like `@` or `€` on many European layouts) are part of the text. |
@@ -41,7 +41,7 @@ Each row shows the **time** the step starts, its **type** tag, what it does and 
 - A striped line such as **1.4 s pause** above a row marks a long [pause](#pauses) before that step.
 - The bar above the list shows the step count, with **+ Wait**, **+ Pixel check** and **Trim pauses**.
 
-You can only edit while nothing is recording or playing.
+You can only edit while nothing is recording or playing: the buttons are off during a session. The open step editor stays on its step when you insert or delete other steps, or undo.
 
 ## The step editor
 
@@ -87,7 +87,7 @@ Hover a row and click its **×**. The whole step goes: a click's press and relea
 - Deleting any other step leaves the timing of the rest alone.
 - Relay makes sure nothing stays pressed. If you delete a press, its release goes too.
 
-After you delete a step, the message at the bottom of the panel has an **Undo** button.
+After you delete a step, the message at the bottom of the panel has an **Undo** button. It belongs to that macro: it goes away when you open another one, or make another change.
 
 ## Undo and redo
 
@@ -100,7 +100,7 @@ Every change you make to a macro (deleting, inserting, pauses, waits, pixel chec
 
 - Each macro has its own history of up to 100 changes. It lasts until you quit Relay.
 - Typing a new name counts as one change, not one per letter.
-- In a text field, <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes your typing in that field instead.
+- In a text or number field, <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes your typing in that field instead. A focused slider or switch doesn't get in the way.
 - Playback options (speed, repeat, Humanize…) and triggers are settings, not edits, and aren't part of the history.
 
 ## The preview
@@ -131,7 +131,7 @@ Playback starts from the playhead, so this is also how you replay just the end o
 
 ## Renaming a macro
 
-Click the name in the header and type. It's saved as you type. Names don't have to be unique, but distinct names make the Library and notifications easier to follow.
+Click the name in the header and type. It's saved as you type. A macro needs a name: if you clear the field, the name you had comes back when you leave it. Names don't have to be unique, but distinct names make the Library and notifications easier to follow. While recording, the header says *New recording*.
 
 ---
 

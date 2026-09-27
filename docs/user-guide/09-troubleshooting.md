@@ -2,6 +2,8 @@
 
 Find your problem below. If it isn't here, [open an issue](https://github.com/HappyRave/Relay/issues) and attach that day's [log](08-settings.md#logs).
 
+Error messages stay at the bottom of the panel until you close them (×), so you don't miss one; other messages go away after a few seconds.
+
 - [Playback](#playback)
 - [Recording](#recording)
 - [Hotkeys and triggers](#hotkeys-and-triggers)

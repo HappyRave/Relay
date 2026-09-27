@@ -17,9 +17,9 @@ flowchart BT
 
 | Layer | Tests | Where |
 | --- | --- | --- |
-| Rust unit, property and snapshot tests | about 180 | Next to the code, in `#[cfg(test)]` modules |
-| Frontend: the store, the backend contract and the components | about 390 | `src/**/*.test.ts` |
-| End to end, against the built app | 77 | [`e2e/`](../../e2e) |
+| Rust unit, property and snapshot tests | about 280 | Next to the code, in `#[cfg(test)]` modules |
+| Frontend: the store, the backend contract, the fake core and the components | about 510 | `src/**/*.test.ts` |
+| End to end, against the built app | 84 | [`e2e/`](../../e2e) |
 
 - [Running the tests](#running-the-tests)
 - [relay-core](#relay-core)
@@ -110,7 +110,13 @@ The engine is the best example of the approach: `Engine::advance(now)` takes tim
 
 [Vitest](https://vitest.dev) runs in jsdom with [Testing Library](https://testing-library.com/docs/svelte-testing-library/intro). The pure modules in `src/lib/` have their own tests: formatting, lanes, geometry and hotkey capture. Everything else runs against a **fake Rust core**:
 
-- [`src/test/fake-core.ts`](../../src/test/fake-core.ts) sits behind Tauri's own IPC mock (`@tauri-apps/api/mocks`). The UI runs its real `tauriBackend`, and every `invoke` lands in the fake. The fake holds the sample library in memory, applies edits roughly the way relay-core does, and records every call (`core.calls`, `core.argsOf("edit_macro")`). A test can make a command fail (`core.fail`), answer it differently (`core.on`), or hold its response until the test releases it (`core.hold`, `core.held`). `core.emit(msg)` delivers an engine message the way the coordinator does.
+- [`src/test/fake-core.ts`](../../src/test/fake-core.ts) sits behind Tauri's own IPC mock (`@tauri-apps/api/mocks`). The UI runs its real `tauriBackend`, and every `invoke` lands in the fake, which records every call (`core.calls`, `core.argsOf("edit_macro")`). **It answers the way the Rust side does**, so a test can't pass on behavior the real app doesn't have, and [`fake-core.test.ts`](../../src/test/fake-core.test.ts) pins that:
+  - the library like `library.rs`: the samples seeded with their hotkeys off, only enabled hotkeys in the list, "X (copy)" then "X (copy) 2", restore back in place, imports at the top with unique names (from `core.files`);
+  - edits and undo like `edit.rs` and `history.rs` ([`fake-edit.ts`](../../src/test/fake-edit.ts)): inserts snap after the step under the playhead and push the rest later, deleting a wait closes its gap, pauses retime what follows, event indices renumber, wrong-kind edits are refused with Rust's messages, undo restores the name and steps but not the playback options, quick renames merge;
+  - refusals: `busy` for deletes and edits during a session (`core.mode`), hotkeys like `hotkeys.rs` (Relay's own, another macro's, Shift + a character, modifier-only, malformed), arguments of the wrong type;
+  - `update_settings` fills in defaults; `set_triggers_paused` emits `triggers_paused`; errors sent before the UI subscribes are queued.
+
+  A test can make a command fail (`core.fail`, which refuses commands that can't fail in Rust: for those, `core.saveError` makes the save fail and an `error` message follow, as Rust does), answer it differently (`core.on`), or hold its response until the test releases it (`core.hold`, `core.held`). `core.emit(msg)` delivers an engine message the way the coordinator does, and `core.emitLater(msg)` after a frame, for ordering bugs. `core.view(id)` returns a copy.
 - [`src/test/app.ts`](../../src/test/app.ts) gives each test a fresh store with `freshStore()`, which uses `resetRelay()` (components read the `relay` binding live). `settle()` lets responses and Svelte updates run.
 
 | Tests | What's covered |

@@ -13,6 +13,8 @@ Triggers run a macro without you pressing play: on a hotkey, on a schedule, when
 
 <p align="center"><img src="../images/triggers.png" alt="The Triggers tab with a hotkey and a weekday schedule" width="720"></p>
 
+The tab shows the open macro's triggers. With no macro open it says so, and if they couldn't be loaded it shows *Couldn't load the triggers* with a **Retry** button.
+
 ## The four triggers
 
 | Trigger | Runs the macro… | Example |
@@ -27,7 +29,7 @@ Each has a switch on the right. You can use several on the same macro. Triggers 
 ## Hotkey
 
 1. Click the key field (it shows **Set…** when empty). It changes to *Press keys…*.
-2. Press the combination, for example <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd>. The switch turns on by itself.
+2. Press the combination, for example <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd>. The switch turns on by itself. (Until a hotkey is set, the switch is off and can't be turned on; the same goes for **When app launches** until you type a program.)
 
 While the field is waiting for keys, <kbd>Backspace</kbd> clears the hotkey and <kbd>Esc</kbd> cancels.
 
@@ -62,7 +64,7 @@ The Library shows each macro's hotkey next to its name.
 2. Set the **time**.
 3. Turn the switch on.
 
-The line under **Schedule** shows when it will run next, for example *Next run: Tomorrow 09:00*. A new schedule starts as **weekdays at 09:00**.
+The line under **Schedule** shows when it will run next, for example *Next run: Tomorrow 09:00*, or *Off* while the switch is off, or *Pick a day* when no day is selected. A new schedule starts as **weekdays at 09:00**.
 
 Things to know:
 

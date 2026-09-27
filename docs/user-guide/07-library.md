@@ -14,7 +14,7 @@ Every recording is saved automatically to your **Library**. From there you can o
 
 <p align="center"><img src="../images/library.png" alt="The Library tab, with a row's Duplicate and Delete buttons showing" width="720"></p>
 
-Each row shows:
+An empty Library says *No macros yet — press Record (F9) to make one.* Each row shows:
 
 | | |
 | --- | --- |
@@ -35,7 +35,7 @@ The copy starts with **no triggers**, so the two macros don't compete for the sa
 
 ## Delete and undo
 
-**Delete** moves the macro to the trash. A message at the bottom of the panel says *Moved "…" to the trash* with an **Undo** button, for about 8 seconds. Undo brings the macro back where it was, with its run count and triggers. If another macro took its hotkey in the meantime, it comes back with that hotkey off, and a message says so.
+**Delete** moves the macro to the trash. A message at the bottom of the panel says *Moved "…" to the trash* with an **Undo** button, for about 8 seconds. Undo brings the macro back where it was, with its run count and triggers. You stay on the macro you're editing, unless the deleted one was the open one. If another macro took its hotkey in the meantime, it comes back with that hotkey off, and a message says so.
 
 If you deleted the macro that was open, Relay opens the next one in the list.
 
@@ -65,7 +65,7 @@ An export contains the macro's events, its playback options and a little about t
 
 ## Import
 
-1. Open the **Library** tab and press **Import…** at the bottom.
+1. Open the **Library** tab and press **Import…** at the bottom (it's off while recording or playing).
 2. Pick one or more `.rly` or `.json` files. Relay can read files from any version of Relay up to its own.
 
 Imported macros go to the top of the Library, and the first one opens. Relay then tells you *Imported 3 macros*, or what went wrong with each file that didn't work:
