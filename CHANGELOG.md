@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.2.0: Reliability, Keep on top and a full test suite
 
 - **Reliability:** a review of the whole code base fixed, among others:
   - hotkey registration that could freeze Relay when saving triggers during a session,
