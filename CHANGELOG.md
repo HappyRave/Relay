@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Screenshots:** each new recording saves a picture of your screen as it starts (without Relay's widget), and the preview draws the macro over it. A **Screen | Sketch** switch in the bar above the preview goes back to the outlines. The picture stays on this PC: exports never include it. *Settings → Recording → Screenshot* turns it off.
 - **Preview:** the mode, keys and typed text, and the cursor's coordinates moved from over the drawing into a bar above it, which also names the step under the playhead. Nothing covers the mouse path or the clicks anymore.
 - **Several monitors:** dragging the widget onto a monitor with a different resolution or display scaling no longer leaves it drawn in a corner of an oversized (or clipped) window.
 

@@ -5,6 +5,8 @@
   import { startedCount } from "../../lib/timeline/lanes";
   import { pad4 } from "../../lib/format";
   import type { StepOf } from "../../lib/types";
+  import type { PreviewBackground } from "../../lib/ipc/bindings/PreviewBackground";
+  import Segmented from "../ui/Segmented.svelte";
 
   /** The visible part of the desktop: zoomed to the macro, or everything while recording. */
   const d = $derived.by(() => {
@@ -81,6 +83,11 @@
         ? `Step ${relay.curStepIdx + 1} · ${stepTitle(lastStep)}`
         : "",
   );
+  /** The screenshot is drawn over the desktop it shows, when the macro has one and it's chosen. Not while recording: that's live. */
+  const hasScreen = $derived(!!relay.screenUrl && relay.mode !== "recording");
+  const shot = $derived(
+    hasScreen && relay.settings.preview_background === "screen" ? relay.view?.recording.virtual_desktop : undefined,
+  );
   const blink = $derived(relay.mode === "recording" && Math.floor(cur / 500) % 2 ? 0.35 : 1);
 </script>
 
@@ -101,12 +108,36 @@
       </span>
     {/if}
     <span class="info" class:cond={activeCond} title={info}>{info}</span>
+    {#if relay.mode !== "recording"}
+      <span class="bg" title={hasScreen ? "" : "No screenshot: this macro was recorded without one"}>
+        <Segmented
+          label="Background"
+          options={[["screen", "Screen"], ["sketch", "Sketch"]] as [PreviewBackground, string][]}
+          value={hasScreen ? relay.settings.preview_background : "sketch"}
+          disabled={!hasScreen}
+          onchange={(v) => relay.updateSettings({ preview_background: v })}
+        />
+      </span>
+    {/if}
     <span class="coords"><span class="axis">X</span> {pad4(cm.x)} <span class="axis">Y</span> {pad4(cm.y)}</span>
   </div>
   <div class="stage">
     <svg viewBox="{d.x} {d.y} {d.w} {d.h}" width="600" height="302" preserveAspectRatio="xMidYMid meet">
+      {#if shot}
+        <!-- Dimmed, so the path and the clicks stay readable over it. -->
+        <image
+          class="shot"
+          href={relay.screenUrl}
+          x={shot.x}
+          y={shot.y}
+          width={shot.w}
+          height={shot.h}
+          preserveAspectRatio="none"
+          opacity="0.55"
+        />
+      {/if}
       <g fill="none" stroke="var(--color-neutral-800)" stroke-width={3 * k}>
-        {#each relay.frames as f, i (i)}
+        {#each shot ? [] : relay.frames as f, i (i)}
           <rect x={f.x} y={f.y} width={f.w} height={f.h} />
         {/each}
       </g>
@@ -266,6 +297,9 @@
   .info.cond {
     color: var(--color-accent);
     font-weight: 800;
+  }
+  .bar > .bg {
+    padding: 0 8px;
   }
   .coords {
     border-left: 2px solid var(--color-divider);

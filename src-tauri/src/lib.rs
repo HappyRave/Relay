@@ -7,6 +7,7 @@ mod ipc;
 mod library;
 mod logging;
 mod rec_thread;
+mod screens;
 mod settings;
 mod storage;
 mod tray;
@@ -73,6 +74,7 @@ pub fn run() {
             commands::seek,
             commands::list_macros,
             commands::load_macro,
+            commands::screenshot,
             commands::edit_macro,
             commands::undo_edit,
             commands::set_playback_options,

@@ -84,6 +84,8 @@ export class RelayStore {
   settings = $state.raw<Settings>(DEFAULT_SETTINGS);
   library = $state.raw<MacroListItem[]>([]);
   view = $state.raw<MacroView | null>(null);
+  /** The open macro's screenshot from when it was recorded (an object URL), or null if it has none. */
+  screenUrl = $state<string | null>(null);
   /** The open macro's triggers, with the next scheduled run and hotkey problems. */
   triggerStatus = $state.raw<TriggerStatus | null>(null);
   /** The open macro's triggers couldn't be loaded (the Triggers tab offers to retry). */
@@ -461,7 +463,20 @@ export class RelayStore {
     this.triggerStatus = null; // the old macro's triggers mustn't be edited into this one
     this.cur = 0;
     this.loopIdx = 0;
-    await this.loadTriggers();
+    await Promise.all([this.loadScreen(id), this.loadTriggers()]);
+  }
+
+  /** Fetches the open macro's screenshot. Without one (or if reading it fails), the preview shows the sketch. */
+  private async loadScreen(id: string) {
+    this.setScreen(null);
+    const bytes = await this.backend.screenshot(id).catch(() => null);
+    if (!bytes?.byteLength || this.view?.id !== id) return;
+    this.setScreen(URL.createObjectURL(new Blob([bytes], { type: "image/jpeg" })));
+  }
+
+  private setScreen(url: string | null) {
+    if (this.screenUrl) URL.revokeObjectURL(this.screenUrl);
+    this.screenUrl = url;
   }
 
   /** Loads the open macro's triggers (again, with Retry, after a failure). */
@@ -506,6 +521,7 @@ export class RelayStore {
       if (next) await this.loadMacro(next.id);
       else {
         this.view = null;
+        this.setScreen(null);
         this.triggerStatus = null;
         this.triggersFailed = false;
       }

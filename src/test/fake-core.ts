@@ -100,6 +100,8 @@ export class FakeCore {
    * read. A file not listed holds a copy of the first sample, named after the file.
    */
   files = new Map<string, MacroView | string>();
+  /** The screenshots taken when macros were recorded (JPEG bytes), by macro id; like Rust's `screens\<id>.jpg`. */
+  screens = new Map<string, Uint8Array>();
   /** When set, saving to disk fails with this: changes are kept and an `error` message says so. */
   saveError: string | null = null;
   /** The pixel color `sample_pixel` reads, or null when unreadable. */
@@ -121,6 +123,7 @@ export class FakeCore {
 
   reset() {
     this.calls = [];
+    this.screens = new Map();
     this.entries = SAMPLES.map((s) => ({
       view: structuredClone(s.view),
       runs: s.runs,
@@ -296,6 +299,12 @@ export class FakeCore {
         return this.list();
       case "load_macro":
         return this.withHistory(this.entry(id));
+      case "screenshot": {
+        // Raw bytes, as a Tauri `Response` arrives: empty when there's none (never an error).
+        check("id", id, "string");
+        const bytes = this.screens.get(id) ?? new Uint8Array();
+        return bytes.slice().buffer;
+      }
       case "edit_macro": {
         const e = this.entry(id);
         const op = a.op as EditOp;
@@ -327,6 +336,8 @@ export class FakeCore {
         // A copy starts with no triggers (two macros on one hotkey would collide) and no history.
         this.entries.splice(this.entries.indexOf(e) + 1, 0, { view, runs: 0, last_run: null, history: new History() });
         this.triggers.set(copyId, defaultTriggers());
+        const screen = this.screens.get(id);
+        if (screen) this.screens.set(copyId, screen.slice());
         return copyId;
       }
       case "delete_macro": {
@@ -720,8 +731,10 @@ const SETTINGS: Spec = {
   countdown: optional("bool"),
   esc_stops_recording: optional("bool"),
   ignore_injected: optional("bool"),
+  capture_screen: optional("bool"),
   path_mode: optional(oneOf("full", "trail")),
   show_click_labels: optional("bool"),
+  preview_background: optional(oneOf("screen", "sketch")),
   close_to_tray: optional("bool"),
   keep_on_top: optional(oneOf("always", "sessions", "never")),
 };

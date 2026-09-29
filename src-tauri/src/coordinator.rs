@@ -118,7 +118,13 @@ struct Recording {
     hook_cfg: HookConfig,
     raw_tx: Sender<RawInput>,
     thread: RecThread,
+    /// The screenshot taken as it started (a JPEG) and the desktop it shows,
+    /// taken and encoded off this thread.
+    screen: Option<std::thread::JoinHandle<Option<Screenshot>>>,
 }
+
+/// A JPEG of the desktop, and the desktop's rect when it was taken.
+type Screenshot = (Rect, Vec<u8>);
 
 /// The playback in progress.
 struct Playback {
@@ -436,7 +442,15 @@ impl Coordinator {
             mouse_pulse,
         };
         let thread = RecThread::spawn(recorder, raw_rx, ctx);
-        self.recording = Some(Recording { hook, hook_cfg, raw_tx, thread });
+        let screen = settings.capture_screen.then(|| {
+            let screen = self.platform.screen.clone();
+            std::thread::spawn(move || {
+                let area = screen.virtual_desktop();
+                let jpeg = crate::screens::encode(&screen.capture(area, crate::screens::MAX_WIDTH, own_window)?)?;
+                Some((area, jpeg))
+            })
+        });
+        self.recording = Some(Recording { hook, hook_cfg, raw_tx, thread, screen });
     }
 
     /// Windows removes low-level hooks it thinks are too slow, without telling
@@ -459,6 +473,7 @@ impl Coordinator {
         let Some(rec) = self.recording.take() else { return };
         drop(rec.hook);
         drop(rec.raw_tx);
+        let snapshot = rec.screen.and_then(|t| t.join().ok().flatten());
         let Some(recording) = rec.thread.finish() else {
             self.emit.error("The recording failed and couldn't be saved.");
             return;
@@ -476,6 +491,7 @@ impl Coordinator {
             double_click_px,
             anchor_window: recording.first_press.and_then(|(x, y)| self.platform.windows.root_window_at(x, y)),
         };
+        let meta_desktop = meta.virtual_desktop;
         tracing::info!(events = recording.events.len(), ms = recording.duration_ms, "recording saved");
         let id = {
             let lib = self.app.state::<Mutex<Library>>();
@@ -488,6 +504,14 @@ impl Coordinator {
             }
             id
         };
+        // Only if it shows the desktop the macro was recorded on (a monitor
+        // plugged in or out meanwhile would misplace it).
+        if let Some((_, jpeg)) = snapshot.filter(|(area, _)| *area == meta_desktop)
+            && let Err(e) = crate::screens::save(&crate::storage::data_dir(&self.app), id, &jpeg)
+        {
+            self.emit
+                .error(format!("Couldn't save the screenshot of this recording: {e}. The preview shows the sketch."));
+        }
         self.current = Some(id);
         self.emit.send(EngineMsg::Saved { id });
         self.emit.send(EngineMsg::LibraryChanged);

@@ -1,6 +1,6 @@
 // The Settings and Triggers tabs: every control, and what it saves.
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/svelte";
+import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import SettingsTab from "./SettingsTab.svelte";
 import TriggersTab from "./TriggersTab.svelte";
@@ -59,11 +59,12 @@ describe("Settings tab", () => {
 
   test("Coordinates: Screen or Window", async () => {
     render(SettingsTab);
-    expect(screen.getByRole("radio", { name: "Screen" })).toHaveAttribute("aria-checked", "true");
-    await userEvent.click(screen.getByRole("radio", { name: "Window" }));
+    const coords = within(screen.getByRole("radiogroup", { name: "Coordinates" }));
+    expect(coords.getByRole("radio", { name: "Screen" })).toHaveAttribute("aria-checked", "true");
+    await userEvent.click(coords.getByRole("radio", { name: "Window" }));
     await settle();
     expect(options().coord_mode).toBe("window");
-    await userEvent.click(screen.getByRole("radio", { name: "Screen" }));
+    await userEvent.click(coords.getByRole("radio", { name: "Screen" }));
     await settle();
     expect(options().coord_mode).toBe("screen");
   });
@@ -71,6 +72,7 @@ describe("Settings tab", () => {
   test.each([
     ["Capture mouse path", "capture_moves"],
     ["Capture keystrokes", "capture_keys"],
+    ["Screenshot", "capture_screen"],
     ["3-second countdown", "countdown"],
     ["Esc stops recording", "esc_stops_recording"],
     ["Ignore simulated input", "ignore_injected"],
@@ -96,6 +98,16 @@ describe("Settings tab", () => {
     await userEvent.click(screen.getByRole("radio", { name: "Full path" }));
     await settle();
     expect(settings().path_mode).toBe("full");
+  });
+
+  test("Preview background: Screen or Sketch", async () => {
+    render(SettingsTab);
+    const bg = within(screen.getByRole("radiogroup", { name: "Background" }));
+    expect(bg.getByRole("radio", { name: "Screen" })).toHaveAttribute("aria-checked", "true");
+    await userEvent.click(bg.getByRole("radio", { name: "Sketch" }));
+    await settle();
+    expect(settings().preview_background).toBe("sketch");
+    expect(core.lastArgs("update_settings")).toEqual({ settings: { ...DEFAULT_SETTINGS, preview_background: "sketch" } });
   });
 
   test.each([

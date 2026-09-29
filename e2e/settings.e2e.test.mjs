@@ -34,6 +34,7 @@ describe("settings and window", () => {
   for (const [label, key] of [
     ["Capture mouse path", "capture_moves"],
     ["Capture keystrokes", "capture_keys"],
+    ["Screenshot", "capture_screen"],
     ["3-second countdown", "countdown"],
     ["Esc stops recording", "esc_stops_recording"],
     ["Ignore simulated input", "ignore_injected"],
@@ -53,6 +54,14 @@ describe("settings and window", () => {
     await until(() => settings().path_mode === "trail", { what: "trail" });
     await page.click("Full path", { role: "radio" });
     await until(() => settings().path_mode === "full", { what: "full" });
+  });
+
+  test("Background is saved as preview_background", async () => {
+    const bg = { role: "radio", within: '.list [aria-label="Background"]' };
+    await page.click("Sketch", bg);
+    await until(() => settings().preview_background === "sketch", { what: "sketch" });
+    await page.click("Screen", bg);
+    await until(() => settings().preview_background === "screen", { what: "screen" });
   });
 
   test("Keep on top: Always, Never, and only during sessions", async () => {

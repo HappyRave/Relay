@@ -120,6 +120,54 @@ describe("library", () => {
     assert.match(result.problems[1], /newer/i);
   });
 
+  test("a macro's screenshot shows in the preview, goes with a copy, and stays out of exports", async () => {
+    const macro = await id();
+    // What Relay saves when a recording starts: a JPEG (an 8 × 4 one, drawn by the page).
+    const jpeg = Buffer.from(
+      await page.run(() => {
+        const c = Object.assign(document.createElement("canvas"), { width: 8, height: 4 });
+        c.getContext("2d").fillRect(0, 0, 8, 4);
+        return c.toDataURL("image/jpeg").split(",")[1];
+      }),
+      "base64",
+    );
+    mkdirSync(app.path("screens"), { recursive: true });
+    writeFileSync(app.path("screens", `${macro}.jpg`), jpeg);
+    await page.open(macro); // opening it (again) fetches it
+    await until(() => page.run(() => !!document.querySelector("svg image.shot")), { what: "the screenshot in the preview" });
+    // The page may show it (the CSP allows blob: images) and it's the file's picture.
+    const size = await page.run(async () => {
+      const url = window.__relay.screenUrl;
+      if (document.querySelector("svg image.shot").getAttribute("href") !== url) return "another picture";
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      return [img.naturalWidth, img.naturalHeight];
+    });
+    assert.deepEqual(size, [8, 4]);
+
+    await page.click("Sketch", { role: "radio", within: ".bar" });
+    await until(() => page.run(() => !document.querySelector("svg image.shot")), { what: "the sketch" });
+    await until(() => app.exists("settings.json") && app.json("settings.json").preview_background === "sketch", {
+      what: "the choice saved",
+    });
+    await page.click("Screen", { role: "radio", within: ".bar" });
+    await until(() => page.run(() => !!document.querySelector("svg image.shot")), { what: "the screenshot again" });
+
+    const copy = await page.invoke("duplicate_macro", { id: macro });
+    assert.deepEqual(readFileSync(app.path("screens", `${copy}.jpg`)), jpeg);
+    const rly = app.path("exports", "with-screen.rly");
+    mkdirSync(app.path("exports"), { recursive: true });
+    await page.invoke("export_macro", { id: macro, format: "rly", path: rly });
+    const text = readFileSync(rly, "utf8");
+    assert.ok(!text.includes(".jpg") && !text.includes("/9j/"), "the export has no screenshot, as a file or as base64");
+    const [back] = (await page.invoke("import_macros", { paths: [rly] })).imported;
+    assert.ok(!existsSync(app.path("screens", `${back}.jpg`)), "an imported macro has none");
+    await page.open(back);
+    await until(() => page.run(() => window.__relay.screenUrl === null), { what: "no screenshot" });
+    assert.equal(await page.disabled("Screen", { role: "radio" }), true);
+  });
+
   test("export as .rly and as .json: both import again unchanged", async () => {
     const macro = await id();
     const out = app.path("exports");

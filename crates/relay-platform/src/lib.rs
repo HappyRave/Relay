@@ -19,7 +19,7 @@ use crossbeam_channel::Sender;
 use relay_core::keys::KeyStroke;
 use relay_core::model::{MonitorInfo, MouseBtn, Rect, Rgb, WindowInfo};
 
-pub use types::{HeldKeys, HookConfig, HookMode, RawInput, RawKind};
+pub use types::{HeldKeys, HookConfig, HookMode, RawInput, RawKind, Snapshot};
 
 #[derive(Debug, thiserror::Error)]
 pub enum PlatformError {
@@ -51,6 +51,14 @@ pub trait Screen: Send + Sync {
     fn double_click(&self) -> (u32, u32);
     /// The color of one screen pixel, or `None` if it can't be read.
     fn pixel(&self, x: i32, y: i32) -> Option<Rgb>;
+    /// A picture of `area` (physical virtual-desktop pixels), scaled down to
+    /// at most `max_w` wide (see [`types::snapshot_size`]), leaving out the
+    /// window `exclude` (0: none) where the OS can. `None` if the screen
+    /// can't be read (a locked or secure desktop) or the OS can't do it.
+    fn capture(&self, area: Rect, max_w: u32, exclude: isize) -> Option<Snapshot> {
+        let _ = (area, max_w, exclude);
+        None
+    }
 }
 
 /// A top-level window, by handle and owning process.

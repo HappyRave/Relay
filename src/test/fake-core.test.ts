@@ -166,6 +166,15 @@ describe("the library, like library.rs", () => {
     expect((await b.getTriggers(one)).triggers).toEqual(defaultTriggers());
   });
 
+  test("screenshots come back as raw bytes, empty without one, and a copy gets its original's", async () => {
+    expect(new Uint8Array(await b.screenshot(A))).toEqual(new Uint8Array());
+    core.screens.set(A, new Uint8Array([1, 2, 3]));
+    expect(new Uint8Array(await b.screenshot(A))).toEqual(new Uint8Array([1, 2, 3]));
+    const copy = await b.duplicateMacro(A);
+    expect(new Uint8Array(await b.screenshot(copy))).toEqual(new Uint8Array([1, 2, 3]));
+    await expect(invoke("screenshot", {})).rejects.toMatch(/invalid args `id` for command `screenshot`/);
+  });
+
   test("a restored macro goes back where it was", async () => {
     await b.deleteMacro(A);
     await b.deleteMacro(B);

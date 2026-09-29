@@ -44,6 +44,7 @@ Relay also remembers a little about the recording's context:
 
 - **The window you first clicked in** (the program, its window class and position). Playback uses it for [Window coordinates](04-playback.md#screen-or-window-coordinates).
 - **Your monitor layout and double-click settings**, so steps are grouped the same way you experienced them.
+- **A screenshot of your screen** as the recording starts, so the preview can draw the macro over what you saw. Relay leaves its own widget out of it. It's kept **on this PC only**: exported files never include it. Turn it off with **Settings → Recording → Screenshot**.
 
 ## What doesn't get recorded
 
@@ -78,6 +79,7 @@ These are in **Settings → Recording** and apply to new recordings.
 | --- | --- | --- |
 | **Capture mouse path** | On | Records the cursor's movement between clicks. Off records only where you clicked, and playback jumps straight there. |
 | **Capture keystrokes** | On | Off records the mouse only. |
+| **Screenshot** | On | Saves a picture of your screen as recording starts, for the [preview](03-editing.md#the-preview). Kept on this PC only, never in exports. |
 | **3-second countdown** | On | Off starts recording the moment you press <kbd>F9</kbd>. |
 | **Esc stops recording** | On | Off records <kbd>Esc</kbd> like any key. Stop with <kbd>F9</kbd> instead. |
 | **Ignore simulated input** | On | Leaves out input other programs generate. **Turn it off for remote-desktop and KVM tools** (such as Synergy, Barrier or some RDP setups): they deliver your real typing as simulated input, and it would be missing otherwise. |

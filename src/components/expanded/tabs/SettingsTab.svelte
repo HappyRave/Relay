@@ -7,6 +7,7 @@
   import type { CoordMode } from "../../../lib/types";
   import type { PathMode } from "../../../lib/ipc/bindings/PathMode";
   import type { KeepOnTop } from "../../../lib/ipc/bindings/KeepOnTop";
+  import type { PreviewBackground } from "../../../lib/ipc/bindings/PreviewBackground";
 
   const HOTKEYS = [
     ["Start / stop recording", "F9"],
@@ -63,6 +64,13 @@
     <Toggle label="Capture keystrokes" on={st.capture_keys} onchange={(v) => relay.updateSettings({ capture_keys: v })} />
   </div>
   <div class="row">
+    <div class="grow">
+      <div class="title">Screenshot</div>
+      <div class="sub">A picture of your screen as recording starts, for the preview. Kept on this PC only</div>
+    </div>
+    <Toggle label="Screenshot" on={st.capture_screen} onchange={(v) => relay.updateSettings({ capture_screen: v })} />
+  </div>
+  <div class="row">
     <div class="grow title">3-second countdown</div>
     <Toggle label="3-second countdown" on={st.countdown} onchange={(v) => relay.updateSettings({ countdown: v })} />
   </div>
@@ -90,6 +98,18 @@
   </div>
 
   <div class="section">Preview</div>
+  <div class="row">
+    <div class="grow">
+      <div class="title">Background</div>
+      <div class="sub">The screenshot, when the macro has one</div>
+    </div>
+    <Segmented
+      label="Background"
+      options={[["screen", "Screen"], ["sketch", "Sketch"]] as [PreviewBackground, string][]}
+      value={st.preview_background}
+      onchange={(v) => relay.updateSettings({ preview_background: v })}
+    />
+  </div>
   <div class="row">
     <div class="grow title">Mouse path</div>
     <Segmented

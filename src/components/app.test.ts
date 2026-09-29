@@ -46,6 +46,7 @@ describe("App", () => {
       "get_settings",
       "list_macros",
       "load_macro",
+      "screenshot",
       "get_triggers",
       "get_autostart",
     ]);

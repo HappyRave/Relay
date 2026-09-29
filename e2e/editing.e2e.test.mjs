@@ -233,11 +233,11 @@ describe("editing", () => {
       await until(() => pb().humanize === false, { what: "humanize off" });
       await page.fill('input[aria-label="Jitter"]', "85");
       await until(() => pb().jitter_ms === 85, { what: "jitter" });
-      await page.click("Window", { role: "radio" });
+      await page.click("Window", { role: "radio", within: '[aria-label="Coordinates"]' });
       await until(() => pb().coord_mode === "window", { what: "window coordinates" });
       await page.click("Stop on key press", { role: "switch" });
       await until(() => pb().stop_on_key === false, { what: "stop on key off" });
-      await page.click("Screen", { role: "radio" });
+      await page.click("Screen", { role: "radio", within: '[aria-label="Coordinates"]' });
       await until(() => pb().coord_mode === "screen", { what: "screen coordinates" });
     });
   });

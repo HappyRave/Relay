@@ -26,10 +26,15 @@ pub fn data_dir(app: &AppHandle) -> PathBuf {
 /// rename, so a crash never leaves a half-written file and two writers of
 /// the same file never share a temporary one.
 pub fn write_atomic(path: &Path, contents: &str) -> io::Result<()> {
+    write_atomic_bytes(path, contents.as_bytes())
+}
+
+/// [`write_atomic`] for binary files.
+pub fn write_atomic_bytes(path: &Path, contents: &[u8]) -> io::Result<()> {
     let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
     fs::create_dir_all(dir)?;
     let mut tmp = tempfile::NamedTempFile::new_in(dir)?;
-    tmp.write_all(contents.as_bytes())?;
+    tmp.write_all(contents)?;
     tmp.as_file().sync_all()?;
     tmp.persist(path).map_err(|e| e.error)?;
     Ok(())

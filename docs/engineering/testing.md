@@ -82,6 +82,7 @@ When proptest finds a failure, it shrinks it to a minimal case and saves it in `
 
 - **Recorder**: synthetic `RawInput` sequences with a fake US translator. Covers a click, typing and Ctrl+S grouped into the right steps, physical key codes, *Capture keystrokes* off, the kill switch (and its modifiers) left out, live moves reported once, and `is_meaningful`.
 - **Key map**: scan code ↔ W3C code round trips.
+- **Snapshots**: `snapshot_size` scales down evenly and never up; a `Snapshot` never prints its pixels. (The Windows capture itself is checked by hand: see the checklist.)
 - **Processes**: sees the test's own process (by prefix, since Linux truncates names to 15 characters).
 
 ## The app
@@ -93,7 +94,8 @@ When proptest finds a failure, it shrinks it to a minimal case and saves it in `
 | `engine` | With a fake clock, a recording injector and a fake screen: injection on schedule and lateness stats, speed, pause/seek/speed changes, loops releasing between loops, releasing a button when dropped mid-drag, pixel checks waiting, timing out with their step number, and pausing during a check, and the window offset |
 | `history` | Undo and redo, a new edit clearing redo, typed renames as one step |
 | `hotkeys` | Parsing UI combos (spacing, order, F1–F24 alone), which hotkeys each session state registers, recognizing Relay's own, conflicts with other macros' hotkeys (written either way; disabled ones don't count) |
-| `library` | Seeding on first run, persistence, duplicate/trash/restore/import, triggers and the pre-trigger hotkey migration, broken files reported without failing |
+| `screens` | Screenshots saved as JPEG and read back, too big to encode, a copy for a duplicate |
+| `library` | Seeding on first run, persistence, duplicate (with its screenshot)/trash/restore/import, triggers and the pre-trigger hotkey migration, broken files reported without failing |
 | `settings` | Persistence and partial files |
 | `rec_thread` | The watchdog: fires on silent movement, respects the cooldown, never fires on a still cursor |
 | `triggers` | `ScheduleWatch` (on time, a few seconds late, skipped after sleep, days, shared times), `LaunchWatch` (lower-case names, the baseline, once per start, triggers switched off) and `PixelWatch` (two samples, tolerance, unreadable screens, a moved pixel) |
@@ -144,7 +146,7 @@ The tests never send input to the desktop. Macros that get played contain only w
 
 | Suite | What's covered |
 | --- | --- |
-| `library` | The first run's samples; renaming; duplicate; delete to the trash folder, and Undo; import (`.rly`, `.json`, broken, too new, missing); export in both formats and back; `not_found` for every per-macro command; a restart; damaged macro files and a damaged `library.json` |
+| `library` | The first run's samples; renaming; duplicate; delete to the trash folder, and Undo; import (`.rly`, `.json`, broken, too new, missing); export in both formats and back; a screenshot shown in the preview (the CSP allows it), switched to the sketch, copied with a duplicate and left out of exports; `not_found` for every per-macro command; a restart; damaged macro files and a damaged `library.json` |
 | `editing` | Deleting a step; undo and redo (buttons, and Ctrl + Z / Ctrl + Y); + Wait and + Pixel check; the step editor's label, pause, wait duration and every pixel field; Trim pauses; a rejected edit; every playback option; undo history kept per macro, and not across restarts |
 | `settings` | Every setting in `settings.json`; Keep on top on the native window, including "only during sessions"; compact mode resizing the window and reopening compact; the anchor kept; close to tray hiding, and quitting when it's off |
 | `playback` | Playing to the end, with the run counted; loops; speed; pause and resume; stop; playing from the playhead; seeking and changing speed mid-playback; a pixel check timing out; the busy guard; recording's countdown, and cancelling it |
@@ -187,6 +189,7 @@ Things learned the hard way:
 
 What automated tests can't cover well:
 
+- [ ] Record with *Screenshot* on: the preview shows your screen (without Relay's widget) under the path; Screen | Sketch switches; with it off, no picture is saved
 - [ ] Drag the widget (expanded and compact) between monitors with different scaling: it keeps its size and layout
 - [ ] Record and replay in Notepad, a browser and an Office app, at 100% and 150% scaling, and across two monitors
 - [ ] Double clicks, drags (including window drags), scrolls, AltGr characters, dead keys

@@ -1,7 +1,7 @@
 // The desktop preview and the four-lane timeline: what they draw for each
 // mode and playhead position, and seeking by clicking or dragging.
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/svelte";
+import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import Preview from "./Preview.svelte";
 import Timeline from "./Timeline.svelte";
 import CompactBar from "../CompactBar.svelte";
@@ -77,6 +77,57 @@ describe("Preview", () => {
     for (const part of [".badge", ".keys", ".info", ".coords"]) expect(bar.querySelector(part)).not.toBeNull();
     expect(container.querySelector(".stage")!.children).toHaveLength(1);
     expect(container.querySelector(".stage svg")).toHaveAttribute("height", "302");
+  });
+
+  describe("the screenshot", () => {
+    const shot = (c: Element) => c.querySelector("svg image.shot");
+    const frames = (c: Element) => c.querySelectorAll("svg > g:first-of-type rect").length;
+
+    test("is drawn over the desktop it shows, in place of the outlines", async () => {
+      core.screens.set(A, new Uint8Array([1]));
+      await relay.loadMacro(A);
+      const { container } = render(Preview);
+      const img = shot(container)!;
+      expect(img.getAttribute("href")).toBe(relay.screenUrl);
+      expect(["x", "y", "width", "height"].map((a) => img.getAttribute(a))).toEqual(["0", "0", "1920", "1080"]);
+      expect(frames(container)).toBe(0);
+      const bg = within(screen.getByRole("radiogroup", { name: "Background" }));
+      expect(bg.getByRole("radio", { name: "Screen" })).toHaveAttribute("aria-checked", "true");
+    });
+
+    test("Sketch shows the outlines instead, and is remembered", async () => {
+      core.screens.set(A, new Uint8Array([1]));
+      await relay.loadMacro(A);
+      const { container } = render(Preview);
+      await fireEvent.click(screen.getByRole("radio", { name: "Sketch" }));
+      await settle();
+      expect(core.lastArgs("update_settings")).toMatchObject({ settings: { preview_background: "sketch" } });
+      expect(shot(container)).toBeNull();
+      expect(frames(container)).toBe(2);
+      await fireEvent.click(screen.getByRole("radio", { name: "Screen" }));
+      await settle();
+      expect(shot(container)).not.toBeNull();
+    });
+
+    test("without one, the switch is off and shows the sketch", () => {
+      const { container } = render(Preview);
+      expect(shot(container)).toBeNull();
+      expect(frames(container)).toBe(2);
+      const bg = within(screen.getByRole("radiogroup", { name: "Background" }));
+      expect(bg.getByRole("radio", { name: "Sketch" })).toHaveAttribute("aria-checked", "true");
+      expect(bg.getByRole("radio", { name: "Screen" })).toBeDisabled();
+      expect(container.querySelector(".bar .bg")).toHaveAttribute("title", "No screenshot: this macro was recorded without one");
+    });
+
+    test("isn't shown while recording, which draws the live desktop", async () => {
+      core.screens.set(A, new Uint8Array([1]));
+      await relay.loadMacro(A);
+      const { container } = render(Preview);
+      core.emit({ type: "session", mode: "recording", macro_id: null });
+      await settle();
+      expect(shot(container)).toBeNull();
+      expect(screen.queryByRole("radiogroup", { name: "Background" })).toBeNull();
+    });
   });
 
   test("the bar names the step under the playhead, as the steps list does", async () => {

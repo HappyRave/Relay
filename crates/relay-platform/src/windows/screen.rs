@@ -12,6 +12,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::BOOL;
 
 use crate::Screen;
+use crate::types::{Snapshot, snapshot_size};
 
 pub struct WinScreen;
 
@@ -89,5 +90,90 @@ impl Screen for WinScreen {
             // CLR_INVALID: off-screen, or a protected surface.
             (c != 0xFFFF_FFFF).then_some(Rgb((c & 0xFF) as u8, ((c >> 8) & 0xFF) as u8, ((c >> 16) & 0xFF) as u8))
         }
+    }
+
+    /// Leaves `exclude` out with `WDA_EXCLUDEFROMCAPTURE` (Windows 10 2004
+    /// and later; on older versions the window shows in the picture) for the
+    /// moment of the capture only, so other screenshot tools still see it.
+    fn capture(&self, area: Rect, max_w: u32, exclude: isize) -> Option<Snapshot> {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE, WDA_NONE};
+        let hwnd = HWND(exclude as *mut _);
+        // The compositor applies the change on its next frame.
+        let excluded = exclude != 0 && unsafe { SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE) }.is_ok();
+        if excluded {
+            unsafe {
+                let _ = windows::Win32::Graphics::Dwm::DwmFlush();
+                let _ = windows::Win32::Graphics::Dwm::DwmFlush();
+            }
+        }
+        let snapshot = unsafe { stretch_capture(area, max_w) };
+        if excluded {
+            unsafe {
+                let _ = SetWindowDisplayAffinity(hwnd, WDA_NONE);
+            }
+        }
+        snapshot
+    }
+}
+
+/// Copies `area` of the screen into a top-down 32-bit bitmap of the snapshot
+/// size (halftone scaling, which averages pixels and keeps text readable).
+unsafe fn stretch_capture(area: Rect, max_w: u32) -> Option<Snapshot> {
+    use windows::Win32::Graphics::Gdi::{
+        BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CAPTUREBLT, CreateCompatibleDC, CreateDIBSection, DIB_RGB_COLORS,
+        DeleteDC, DeleteObject, HALFTONE, SRCCOPY, SelectObject, SetBrushOrgEx, SetStretchBltMode, StretchBlt,
+    };
+    let (w, h) = snapshot_size(area.w, area.h, max_w);
+    unsafe {
+        let screen = GetDC(None);
+        if screen.is_invalid() {
+            return None;
+        }
+        let mem = CreateCompatibleDC(Some(screen));
+        let info = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: w as i32,
+                biHeight: -(h as i32), // negative: top-down rows
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut bits = std::ptr::null_mut();
+        let out = match CreateDIBSection(Some(mem), &info, DIB_RGB_COLORS, &mut bits, None, 0) {
+            Ok(bitmap) if !bits.is_null() => {
+                let old = SelectObject(mem, bitmap.into());
+                SetStretchBltMode(mem, HALFTONE);
+                let _ = SetBrushOrgEx(mem, 0, 0, None);
+                let ok = StretchBlt(
+                    mem,
+                    0,
+                    0,
+                    w as i32,
+                    h as i32,
+                    Some(screen),
+                    area.x,
+                    area.y,
+                    area.w,
+                    area.h,
+                    SRCCOPY | CAPTUREBLT,
+                )
+                .as_bool();
+                let pixels = std::slice::from_raw_parts(bits as *const u8, (w * h * 4) as usize);
+                // BGRA to RGB.
+                let rgb = ok.then(|| pixels.as_chunks::<4>().0.iter().flat_map(|p| [p[2], p[1], p[0]]).collect());
+                SelectObject(mem, old);
+                let _ = DeleteObject(bitmap.into());
+                rgb.map(|rgb| Snapshot { w, h, rgb })
+            }
+            _ => None,
+        };
+        let _ = DeleteDC(mem);
+        ReleaseDC(None, screen);
+        out
     }
 }

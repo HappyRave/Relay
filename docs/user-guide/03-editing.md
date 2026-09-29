@@ -110,7 +110,10 @@ The left side of the editor draws the macro over a sketch of your monitors. Noth
 - The **mode**: *Preview*, *Get ready*, *● Rec*, *Playing* or *Paused*, and while playing, the loop and speed (*Loop 1 / 3 · 1×*).
 - **Keys** or **Typing**: the key combination or the text being typed at that moment (the end of it, for long text).
 - The **step under the playhead**, named as in the steps list (*Step 4 · Double click · Filename field*), or *Waiting for pixel X, Y* while a pixel check waits.
+- **Screen | Sketch**: what the macro is drawn over (see below).
 - The cursor's **X** and **Y** at the current time.
+
+**Screen** draws the macro over the [screenshot](02-recording.md#what-gets-recorded) taken when you recorded it, dimmed so the path stays readable. **Sketch** draws it over outlines of your monitors and of the window you first clicked in. Your choice is remembered. A macro recorded without a screenshot (before Relay 1.3, imported from a file, or with **Settings → Recording → Screenshot** off) always shows the sketch, and the switch is off.
 
 The drawing itself has:
 

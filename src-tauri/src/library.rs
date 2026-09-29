@@ -325,6 +325,10 @@ impl Library {
         copy.modified_at = copy.created_at;
         self.write_macro(&copy)?;
         let new_id = copy.id;
+        // The copy is fine without it (the preview shows the sketch); nothing else is lost.
+        if let Err(e) = crate::screens::copy(&self.dir, id, new_id) {
+            tracing::warn!("couldn't copy the screenshot of a duplicated macro: {e}");
+        }
         // A copy starts with no triggers: two macros on one hotkey or schedule would collide.
         self.entries.insert(pos + 1, Entry::new(copy));
         self.refresh_triggers();
@@ -572,8 +576,10 @@ mod tests {
         let [invoice, timesheet, ..] = ids(&lib)[..] else { panic!("four samples") };
         set_hotkey(&mut lib, invoice, true, "Ctrl + Alt + 1");
         assert_eq!(lib.get(invoice).unwrap().hotkey().as_deref(), Some("Ctrl + Alt + 1"));
+        crate::screens::save(dir.path(), invoice, b"jpeg").unwrap();
 
         let copy = lib.duplicate(invoice).unwrap().value;
+        assert_eq!(crate::screens::read(dir.path(), copy).as_deref(), Some(&b"jpeg"[..]), "with its screenshot");
         let names: Vec<_> = lib.list().into_iter().map(|i| i.name).collect();
         assert_eq!(names[..2], ["Export invoice to PDF".to_string(), "Export invoice to PDF (copy)".to_string()]);
         assert_eq!(lib.get(copy).unwrap().runs, 0);

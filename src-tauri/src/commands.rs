@@ -136,6 +136,14 @@ pub fn load_macro(
     Ok(view_of(&entry.macro_, &history))
 }
 
+/// The screenshot taken when the macro was recorded, as JPEG bytes; empty if
+/// it has none (recorded before screenshots, imported, or with them off).
+#[tauri::command(async)]
+pub fn screenshot(app: AppHandle, id: Uuid) -> tauri::ipc::Response {
+    let dir = crate::storage::data_dir(&app);
+    tauri::ipc::Response::new(crate::screens::read(&dir, id).unwrap_or_default())
+}
+
 #[tauri::command(async)]
 pub fn edit_macro(app: AppHandle, id: Uuid, op: EditOp) -> Result<MacroView> {
     // Editing a macro while it plays or records would change it under the engine.
