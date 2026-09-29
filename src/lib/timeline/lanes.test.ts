@@ -30,6 +30,17 @@ describe("ruler", () => {
     expect(ruler(20000)).toHaveLength(4);
     expect(ruler(61000)[1].label).toBe("15s");
   });
+
+  it("on a measured ruler, picks the smallest step that leaves each label 48 px", () => {
+    // The default timeline's ruler is about 830 px: a 10 s macro gets a tick a second.
+    expect(ruler(10000, 830)).toHaveLength(10);
+    // Narrower, or a longer macro: fewer ticks.
+    expect(ruler(10000, 300).map((r) => r.label)).toEqual(["0s", "2s", "4s", "6s", "8s"]);
+    expect(ruler(60000, 830)[1].label).toBe("5s");
+    expect(ruler(3_600_000, 830)[1].label).toBe("300s");
+    // Wider: every second even for 20 s.
+    expect(ruler(20000, 1400)).toHaveLength(20);
+  });
 });
 
 describe("keyChips", () => {

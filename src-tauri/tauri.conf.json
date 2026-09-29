@@ -19,7 +19,7 @@
         "height": 612,
         "decorations": false,
         "alwaysOnTop": true,
-        "resizable": false,
+        "resizable": true,
         "maximizable": false,
         "shadow": true,
         "skipTaskbar": false,

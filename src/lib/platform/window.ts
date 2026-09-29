@@ -3,22 +3,37 @@
 // a demo desktop instead.
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import type { Panes } from "../ipc/bindings/Panes";
+import { NO_PANES } from "../layout";
 
 export const isTauri = (): boolean => "__TAURI_INTERNALS__" in window;
 
 /**
- * Tells Rust the widget's size in CSS px. Rust keeps the bottom-center where
- * it was, keeps the widget inside the monitor's work area, zooms it down on
- * small screens and remembers the mode.
+ * Tells Rust the compact player's size in CSS px. Rust keeps the
+ * bottom-center where it was, keeps the widget inside the monitor's work
+ * area, zooms it down on small screens and remembers the mode.
  */
 export async function fitWindow(width: number, height: number, expanded: boolean): Promise<void> {
   if (isTauri()) await invoke("fit_window", { width, height, expanded });
 }
 
-/** Whether the widget was expanded last time (defaults to expanded). */
-export async function savedExpanded(): Promise<boolean> {
-  if (!isTauri()) return true;
-  return (await invoke<{ expanded: boolean }>("window_prefs")).expanded;
+/** Switches the window to the editor, whose size is Rust's (the user's, or the default). */
+export const fitEditor = () => fitWindow(0, 0, true);
+
+/** Whether the widget was expanded last time (defaults to expanded), and where the editor's dividers were. */
+export async function savedWindow(): Promise<{ expanded: boolean; panes: Panes }> {
+  if (!isTauri()) return { expanded: true, panes: NO_PANES };
+  return invoke<{ expanded: boolean; panes: Panes }>("window_prefs");
+}
+
+/** Saves where the user put the editor's dividers (window.json). */
+export async function savePanes(panes: Panes): Promise<void> {
+  if (isTauri()) await invoke("save_panes", { panes });
+}
+
+/** *Reset layout*: the editor's default size and dividers. */
+export async function resetLayout(): Promise<void> {
+  if (isTauri()) await invoke("reset_layout");
 }
 
 export async function startDragging(): Promise<void> {

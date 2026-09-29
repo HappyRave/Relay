@@ -51,6 +51,7 @@ These apply to every new recording. See [Recording](02-recording.md#recording-op
 | **Keep on top** | Always | When the widget floats above other windows: **Always**, **While recording or playing** (a normal window the rest of the time), or **Never** |
 | **Close to tray** | On | The **×** button and <kbd>Alt</kbd>+<kbd>F4</kbd> hide Relay to the tray. Hotkeys and triggers keep running. Off, they quit Relay. |
 | **Start with Windows** | Off | Starts Relay in the tray when you sign in, so triggers run without you opening it |
+| **Reset layout** | | Puts the editor back to its default size and dividers |
 
 ### Global hotkeys
 
@@ -61,6 +62,7 @@ The list at the bottom is a reminder of Relay's own hotkeys. They can't be chang
 By default Relay's widget floats **on top** of other windows, so the stop button and the steps stay in view while you work in other apps. **Settings → Window → Keep on top** makes it float only while recording or playing, or never.
 
 - **Move it** by dragging the dotted grip on its left edge. Relay remembers where you left it, even after a restart.
+- **Resize the editor** by dragging any edge or corner of the window, and the **dividers** between its panes: between the preview and the side panel, and above the timeline (a taller timeline gets taller lanes). Double-click a divider to put it back; **Settings → Window → Reset layout** puts everything back. Relay remembers the size and the dividers. The editor can't get smaller than 760 × 520, so every control keeps its room; the compact player keeps its size.
 - **Where it sits:** it stays anchored by its bottom-center, so switching between the compact player and the editor grows or shrinks it upward, around the same point. It never goes off screen or under the taskbar, and keeps 16 pixels from the edges. Near an edge, the bigger editor is pushed inside the screen, and the compact player goes back exactly where you left it. If the monitor it was on is gone, it comes back on the nearest monitor, as close as it can to where it was.
 - **Several monitors:** you can drag it between monitors with different resolutions or display scaling; it keeps its size and layout on each.
 - **Small screens:** if the editor doesn't fit (a small laptop screen or high display scaling), Relay shrinks it to fit, down to 40%.

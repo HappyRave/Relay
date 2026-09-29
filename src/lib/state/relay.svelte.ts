@@ -27,7 +27,9 @@ import type { TimingStats } from "../ipc/bindings/TimingStats";
 import type { FinishReason } from "../ipc/bindings/FinishReason";
 import { backend as defaultBackend, type Backend, type IpcError } from "../ipc/backend";
 import { DEFAULT_PLAYBACK, DEFAULT_SETTINGS } from "../defaults";
-import { isTauri, savedExpanded } from "../platform/window";
+import { isTauri, resetLayout, savePanes, savedWindow } from "../platform/window";
+import { NO_PANES } from "../layout";
+import type { Panes } from "../ipc/bindings/Panes";
 import { lastIndexAtOrBefore } from "../preview/geometry";
 import { currentStepIndex, jumpTarget } from "../timeline/lanes";
 import { plural, slug } from "../format";
@@ -100,6 +102,8 @@ export class RelayStore {
   /** False until the saved window mode is known (so the widget never flashes the wrong size). */
   ready = $state(false);
   expanded = $state(true);
+  /** Where the user put the editor's dividers (null: the default); the layout keeps them inside the window. */
+  panes = $state.raw<Panes>(NO_PANES);
   tab = $state<Tab>("steps");
   exportOpen = $state(false);
   exportFmt = $state<ExportFormat>("rly");
@@ -183,7 +187,9 @@ export class RelayStore {
   // — lifecycle —
 
   async init() {
-    this.expanded = await savedExpanded().catch(() => true);
+    const saved = await savedWindow().catch(() => ({ expanded: true, panes: NO_PANES }));
+    this.expanded = saved.expanded;
+    this.panes = saved.panes;
     this.ready = true;
     await this.run(this.backend.subscribe(this.onEngine));
     this.settings = (await this.run(this.backend.getSettings())) ?? this.settings;
@@ -192,6 +198,25 @@ export class RelayStore {
     if (this.library[0]) await this.loadMacro(this.library[0].id);
     this.autostart = await this.backend.getAutostart().catch(() => false);
   }
+
+  /** A divider moved (shown at once; saved by `savePanes` when the drag ends). */
+  movePanes = (change: Partial<Panes>) => {
+    this.panes = { ...this.panes, ...change };
+  };
+
+  savePanes = () => savePanes(this.panes).catch(() => {});
+
+  /** Double-click on a divider: that one back to the default. */
+  resetPane = (key: keyof Panes) => {
+    this.movePanes({ [key]: null });
+    return this.savePanes();
+  };
+
+  /** Settings → Window → Reset layout: the editor's default size and dividers. */
+  resetLayout = async () => {
+    this.panes = NO_PANES;
+    await resetLayout().catch((e) => this.fail(e));
+  };
 
   start() {
     const loop = (now: number) => {

@@ -132,6 +132,15 @@ describe("Settings tab", () => {
     expect(toggle("Start with Windows")).toHaveAttribute("aria-checked", "true");
   });
 
+  test("Reset layout puts the editor's size and dividers back", async () => {
+    relay.movePanes({ preview_w: 480, timeline_h: 220 });
+    render(SettingsTab);
+    await userEvent.click(screen.getByRole("button", { name: "Reset layout" }));
+    await settle();
+    expect(core.commands()).toEqual(["reset_layout"]);
+    expect(relay.panes).toEqual({ preview_w: null, timeline_h: null });
+  });
+
   test("a setting that fails to save flips back and says why", async () => {
     render(SettingsTab);
     core.hold("update_settings");

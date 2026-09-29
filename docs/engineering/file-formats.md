@@ -227,10 +227,15 @@ Before triggers existed (up to M6), entries had a plain `hotkey` label. It's rea
 ## window.json
 
 ```json
-{ "expanded": true, "anchor": [1280, 1384] }
+{
+  "expanded": true,
+  "anchor": [1280, 1384],
+  "size": [1100, 720],
+  "panes": { "preview_w": 520, "timeline_h": null }
+}
 ```
 
-`anchor` is the widget's bottom-center in physical virtual-desktop pixels, or `null` for the default position. Only Rust writes this file.
+`anchor` is the widget's bottom-center in physical virtual-desktop pixels, or `null` for the default position. `size` is the editor's size in CSS px if the user resized it (`null`: 944 × 612); it never goes below 760 × 520. `panes` are the editor's dividers in CSS px: the preview's width and the timeline's height, each `null` for the default (600 and 146); the UI keeps them inside the window. Every field may be missing (older files), and only Rust writes this file.
 
 ---
 

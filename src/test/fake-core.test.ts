@@ -216,6 +216,18 @@ describe("the library, like library.rs", () => {
   });
 });
 
+describe("the window, like window_ctl.rs", () => {
+  test("dividers are saved sanitized, as Panes::sanitized does, and a reset clears them", async () => {
+    await invoke("save_panes", { panes: { preview_w: -5, timeline_h: 1e9 } });
+    expect((await invoke<{ panes: unknown }>("window_prefs")).panes).toEqual({ preview_w: null, timeline_h: 10_000 });
+    await invoke("save_panes", { panes: { preview_w: 480 } });
+    expect(core.window.panes).toEqual({ preview_w: 480, timeline_h: null });
+    await invoke("reset_layout");
+    expect(core.window.panes).toEqual({ preview_w: null, timeline_h: null });
+    await expect(invoke("save_panes", { panes: { preview_w: "wide" } })).rejects.toMatch(/invalid args `panes`/);
+  });
+});
+
 describe("the busy guard", () => {
   test("deletes, edits and undo are refused during a session, as the session messages say", async () => {
     await edit({ op: "delete_step", index: 0 });

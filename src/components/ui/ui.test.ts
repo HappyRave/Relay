@@ -7,6 +7,7 @@ import Segmented from "./Segmented.svelte";
 import Kbd from "./Kbd.svelte";
 import HotkeyCapture from "./HotkeyCapture.svelte";
 import Icon from "./Icon.svelte";
+import Splitter from "./Splitter.svelte";
 
 describe("Toggle", () => {
   test("is a labeled switch that asks for the opposite state", async () => {
@@ -172,5 +173,83 @@ describe("HotkeyCapture", () => {
     await fireEvent.click(button);
     await press("K", { code: "KeyK", ctrlKey: true });
     expect(onchange).not.toHaveBeenCalled();
+  });
+});
+
+describe("Splitter", () => {
+  const props = (over: Record<string, unknown> = {}) => ({
+    orientation: "vertical" as const,
+    label: "Resize preview",
+    value: 600,
+    min: 360,
+    max: 618,
+    onchange: vi.fn(),
+    oncommit: vi.fn(),
+    onreset: vi.fn(),
+    ...over,
+  });
+  const drag = async (el: Element, axis: "clientX" | "clientY", from: number, to: number) => {
+    await fireEvent.pointerDown(el, { button: 0, pointerId: 1, [axis]: from });
+    await fireEvent.pointerMove(el, { pointerId: 1, [axis]: to });
+    await fireEvent.pointerUp(el, { pointerId: 1, [axis]: to });
+  };
+
+  test("is a labeled, focusable separator with its value and limits", () => {
+    render(Splitter, props());
+    const s = screen.getByRole("separator", { name: "Resize preview" });
+    expect(s).toHaveAttribute("aria-orientation", "vertical");
+    expect([s.getAttribute("aria-valuenow"), s.getAttribute("aria-valuemin"), s.getAttribute("aria-valuemax")]).toEqual([
+      "600",
+      "360",
+      "618",
+    ]);
+    expect(s).toHaveAttribute("tabindex", "0");
+  });
+
+  test("dragging moves it within its limits, and the end of the drag saves once", async () => {
+    const p = props();
+    render(Splitter, p);
+    const s = screen.getByRole("separator");
+    await drag(s, "clientX", 100, 60);
+    expect(p.onchange).toHaveBeenLastCalledWith(560);
+    expect(p.oncommit).toHaveBeenCalledOnce();
+    await drag(s, "clientX", 100, 900);
+    expect(p.onchange).toHaveBeenLastCalledWith(618);
+    await fireEvent.pointerMove(s, { pointerId: 1, clientX: 50 });
+    expect(p.onchange).toHaveBeenCalledTimes(2); // no drag, no move
+  });
+
+  test("a pane after the divider grows as it goes up", async () => {
+    const p = props({ orientation: "horizontal", label: "Resize timeline", value: 146, min: 146, max: 266, invert: true });
+    render(Splitter, p);
+    await drag(screen.getByRole("separator"), "clientY", 400, 350);
+    expect(p.onchange).toHaveBeenLastCalledWith(196);
+  });
+
+  test("the keys: arrows (Shift for more), Home and End, each saved", async () => {
+    const p = props();
+    render(Splitter, p);
+    const s = screen.getByRole("separator");
+    await fireEvent.keyDown(s, { key: "ArrowLeft" });
+    expect(p.onchange).toHaveBeenLastCalledWith(592);
+    await fireEvent.keyDown(s, { key: "ArrowLeft", shiftKey: true });
+    expect(p.onchange).toHaveBeenLastCalledWith(568);
+    await fireEvent.keyDown(s, { key: "End" });
+    expect(p.onchange).toHaveBeenLastCalledWith(618);
+    await fireEvent.keyDown(s, { key: "Home" });
+    expect(p.onchange).toHaveBeenLastCalledWith(360);
+    expect(p.oncommit).toHaveBeenCalledTimes(4);
+    await fireEvent.keyDown(s, { key: "a" });
+    expect(p.oncommit).toHaveBeenCalledTimes(4);
+  });
+
+  test("the timeline's keys go up and down; double-click resets", async () => {
+    const p = props({ orientation: "horizontal", value: 146, min: 146, max: 266, invert: true });
+    render(Splitter, p);
+    const s = screen.getByRole("separator");
+    await fireEvent.keyDown(s, { key: "ArrowUp" });
+    expect(p.onchange).toHaveBeenLastCalledWith(154);
+    await fireEvent.dblClick(s);
+    expect(p.onreset).toHaveBeenCalledOnce();
   });
 });

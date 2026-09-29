@@ -15,6 +15,7 @@ import samples from "../lib/dev/sample-views.json";
 import { DEFAULT_SETTINGS } from "../lib/defaults";
 import type { EditOp, MacroListItem, MacroTriggers, MacroView, Mode, PlaybackOptions, Settings } from "../lib/types";
 import type { EngineMsg } from "../lib/ipc/bindings/EngineMsg";
+import type { Panes } from "../lib/ipc/bindings/Panes";
 import type { IpcError } from "../lib/ipc/backend";
 import { applyEdit, History } from "./fake-edit";
 
@@ -72,6 +73,9 @@ const INFALLIBLE = new Set([
   "list_processes",
   "get_autostart",
   "window_prefs",
+  "screenshot",
+  "save_panes",
+  "reset_layout",
 ]);
 
 const BUSY: IpcError = { code: "busy", message: "Stop the recording or playback first" };
@@ -107,7 +111,8 @@ export class FakeCore {
   /** The pixel color `sample_pixel` reads, or null when unreadable. */
   pixel: string | null = "#123456";
   picked = { x: 640, y: 360, color: "#00FF00" };
-  window = { expanded: true };
+  /** window.json as Rust holds it: the mode and the editor's dividers (the size isn't the page's to see). */
+  window: { expanded: boolean; panes: Panes } = { expanded: true, panes: { preview_w: null, timeline_h: null } };
   private channel: Channel<EngineMsg> | null = null;
   /** Errors and notices sent before the UI subscribed, delivered when it does. */
   private queued: EngineMsg[] = [];
@@ -148,7 +153,7 @@ export class FakeCore {
     this.saveError = null;
     this.pixel = "#123456";
     this.picked = { x: 640, y: 360, color: "#00FF00" };
-    this.window = { expanded: true };
+    this.window = { expanded: true, panes: { preview_w: null, timeline_h: null } };
     this.channel = null;
     this.queued = [];
     this.failures = new Map();
@@ -294,7 +299,18 @@ export class FakeCore {
       case "plugin:window|start_dragging":
         return null;
       case "window_prefs":
-        return this.window;
+        return structuredClone(this.window);
+      case "save_panes": {
+        check("panes", a.panes, PANES);
+        // As Panes::sanitized: what isn't a size is dropped, a huge one capped.
+        const ok = (v: number | null | undefined) => (v != null && v > 0 ? Math.min(v, 10_000) : null);
+        const p = a.panes as Partial<Panes>;
+        this.window.panes = { preview_w: ok(p.preview_w), timeline_h: ok(p.timeline_h) };
+        return null;
+      }
+      case "reset_layout":
+        this.window.panes = { preview_w: null, timeline_h: null };
+        return null;
       case "list_macros":
         return this.list();
       case "load_macro":
@@ -725,6 +741,9 @@ const PLAYBACK: Spec = {
 };
 
 const optional = (s: Spec): [Spec, "optional"] => [s, "optional"];
+/** An `Option<T>`: null, or a T. */
+const nullable = (s: Spec) => (v: unknown) => (v === null ? null : why(v, s));
+const PANES: Spec = { preview_w: optional(nullable("f64")), timeline_h: optional(nullable("f64")) };
 const SETTINGS: Spec = {
   capture_moves: optional("bool"),
   capture_keys: optional("bool"),

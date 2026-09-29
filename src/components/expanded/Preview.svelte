@@ -1,13 +1,17 @@
 <script lang="ts">
   import { relay } from "../../lib/state/relay.svelte";
   import { BADGE, stepTitle, tail } from "../../lib/state/display";
-  import { cumulativeLengths, fitView, lastIndexAtOrBefore, pathD } from "../../lib/preview/geometry";
+  import { PREVIEW_ASPECT, cumulativeLengths, fitView, lastIndexAtOrBefore, pathD } from "../../lib/preview/geometry";
   import { startedCount } from "../../lib/timeline/lanes";
   import { pad4 } from "../../lib/format";
   import type { StepOf } from "../../lib/types";
   import type { PreviewBackground } from "../../lib/ipc/bindings/PreviewBackground";
   import Segmented from "../ui/Segmented.svelte";
 
+  // The drawing's size, as the user's layout makes it (not measured yet: the default's shape).
+  let stageW = $state(0);
+  let stageH = $state(0);
+  const aspect = $derived(stageW > 0 && stageH > 0 ? stageW / stageH : PREVIEW_ASPECT);
   /** The visible part of the desktop: zoomed to the macro, or everything while recording. */
   const d = $derived.by(() => {
     if (relay.mode === "recording") return relay.desktop;
@@ -16,7 +20,7 @@
       ...relay.steps.flatMap((s) => ("x" in s ? [{ x: s.x, y: s.y }] : [])),
     ];
     const anchor = relay.view?.recording.anchor_window?.rect;
-    return fitView(relay.desktop, points, anchor ? [anchor] : []);
+    return fitView(relay.desktop, points, anchor ? [anchor] : [], undefined, aspect);
   });
   /** The design was drawn on a 1600-wide viewBox; scale its sizes to the real desktop. */
   const k = $derived(d.w / 1600);
@@ -121,8 +125,8 @@
     {/if}
     <span class="coords"><span class="axis">X</span> {pad4(cm.x)} <span class="axis">Y</span> {pad4(cm.y)}</span>
   </div>
-  <div class="stage">
-    <svg viewBox="{d.x} {d.y} {d.w} {d.h}" width="600" height="302" preserveAspectRatio="xMidYMid meet">
+  <div class="stage" bind:clientWidth={stageW} bind:clientHeight={stageH}>
+    <svg viewBox="{d.x} {d.y} {d.w} {d.h}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">
       {#if shot}
         <!-- Dimmed, so the path and the clicks stay readable over it. -->
         <image
@@ -228,14 +232,16 @@
 
 <style>
   .preview {
-    width: 600px;
-    height: 338px;
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
     display: flex;
     flex-direction: column;
   }
   .bar {
     height: 36px;
     flex: none;
+    overflow: hidden;
     display: flex;
     align-items: stretch;
     border-bottom: 2px solid var(--color-divider);
@@ -316,10 +322,13 @@
   .stage {
     position: relative;
     flex: 1;
+    min-height: 0;
     background: var(--color-text);
     overflow: hidden;
   }
   svg {
+    position: absolute;
+    inset: 0;
     display: block;
     font-family: var(--font-heading);
   }

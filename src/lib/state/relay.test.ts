@@ -509,11 +509,9 @@ describe("library", () => {
     expect(relay.screenUrl).toBeNull();
   });
 
-  test("a screenshot that can't be read just leaves the sketch, without an error", async () => {
-    core.screens.set(B, new Uint8Array([1]));
-    core.fail("screenshot");
+  test("a macro without a screenshot shows the sketch, without an error", async () => {
     await relay.loadMacro(B);
-    expect(relay.view?.id).toBe(B);
+    expect(core.lastArgs("screenshot")).toEqual({ id: B });
     expect(relay.screenUrl).toBeNull();
     expect(relay.toast).toBeNull();
   });

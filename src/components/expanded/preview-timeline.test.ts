@@ -76,7 +76,7 @@ describe("Preview", () => {
     const bar = container.querySelector(".bar")!;
     for (const part of [".badge", ".keys", ".info", ".coords"]) expect(bar.querySelector(part)).not.toBeNull();
     expect(container.querySelector(".stage")!.children).toHaveLength(1);
-    expect(container.querySelector(".stage svg")).toHaveAttribute("height", "302");
+    expect(container.querySelector(".stage svg")).toHaveAttribute("height", "100%");
   });
 
   describe("the screenshot", () => {

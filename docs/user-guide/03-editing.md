@@ -115,6 +115,8 @@ The left side of the editor draws the macro over a sketch of your monitors. Noth
 
 **Screen** draws the macro over the [screenshot](02-recording.md#what-gets-recorded) taken when you recorded it, dimmed so the path stays readable. **Sketch** draws it over outlines of your monitors and of the window you first clicked in. Your choice is remembered. A macro recorded without a screenshot (before Relay 1.3, imported from a file, or with **Settings → Recording → Screenshot** off) always shows the sketch, and the switch is off.
 
+Drag the **divider** between the preview and the side panel to give either more room, and the one above the timeline to make it taller. You can also resize the whole window from its edges; see [The widget window](08-settings.md#the-widget-window).
+
 The drawing itself has:
 
 - The **mouse path**: a dashed grey line for the whole recording, and a solid red line for the part already played. With **Settings → Preview → Mouse path: Trail only**, only the red part is drawn, which is easier to read on long macros.

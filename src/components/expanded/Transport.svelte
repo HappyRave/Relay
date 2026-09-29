@@ -73,7 +73,6 @@
     align-items: center;
     gap: 16px;
     padding: 12px 16px;
-    border-bottom: 2px solid var(--color-divider);
   }
   .clock {
     width: 190px;

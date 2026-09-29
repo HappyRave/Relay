@@ -160,6 +160,13 @@
       </div>
       <Toggle label="Start with Windows" on={relay.autostart} onchange={(v) => relay.setAutostart(v)} />
     </div>
+    <div class="row">
+      <div class="grow">
+        <div class="title">Layout</div>
+        <div class="sub">Drag the window's edges and the dividers between panes to resize them</div>
+      </div>
+      <button class="btn btn-secondary" onclick={relay.resetLayout}>Reset layout</button>
+    </div>
   {/if}
 
   <div class="section">Global hotkeys</div>

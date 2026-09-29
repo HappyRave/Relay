@@ -44,6 +44,8 @@
     class="host"
     style:bottom="{bottom}px"
     style:transform="translate(calc(-50% + {devDesktop.dx}px), {devDesktop.dy}px) scale({scale})"
+    style:--widget-w="944px"
+    style:--widget-h="612px"
   >
     <Widget onresize={(w, h) => (size = { w, h })} />
   </div>

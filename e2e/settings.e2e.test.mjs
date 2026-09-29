@@ -3,6 +3,7 @@
 // resizes it, and the close button hides or quits.
 import { after, afterEach, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
+import { writeFileSync } from "node:fs";
 import { App, sleep, until, waitingMacro, writeRly } from "./harness.mjs";
 
 describe("settings and window", () => {
@@ -157,6 +158,87 @@ describe("settings and window", () => {
     assert.deepEqual(await rect(), parked, "the compact bar is back where it was parked");
     await page.click("Expand");
     await until(async () => (await rect()).h > 200, { what: "expanded" });
+  });
+
+  const resizable = () => page.invoke("plugin:window|is_resizable", { label: "main" });
+  const widthOf = (selector) => page.run((s) => Math.round(document.querySelector(s).getBoundingClientRect().width), selector);
+  const heightOf = (selector) => page.run((s) => Math.round(document.querySelector(s).getBoundingClientRect().height), selector);
+  /** Drags a divider by `delta` px along `axis`, with the page's own pointer events. */
+  const dragDivider = (label, axis, delta) =>
+    page.run(
+      (label, axis, delta) => {
+        const el = document.querySelector(`[role="separator"][aria-label="${label}"]`);
+        const r = el.getBoundingClientRect();
+        const at = { clientX: r.left + 1, clientY: r.top + 1 };
+        const send = (type, d) =>
+          el.dispatchEvent(new PointerEvent(type, { bubbles: true, button: 0, pointerId: 7, ...at, [axis]: at[axis] + d }));
+        send("pointerdown", 0);
+        send("pointermove", delta);
+        send("pointerup", delta);
+        return true;
+      },
+      label,
+      axis,
+      delta,
+    );
+  const panes = () => (app.exists("window.json") ? app.json("window.json").panes : undefined);
+
+  test("the editor can be resized, the compact player can't", async () => {
+    assert.equal(await resizable(), true);
+    await page.click("Compact player");
+    await until(async () => (await resizable()) === false, { what: "a fixed compact player" });
+    await page.click("Expand");
+    await until(resizable, { what: "a resizable editor again" });
+  });
+
+  test("the dividers are saved to window.json and survive a restart; double-click resets one", async () => {
+    assert.equal(await widthOf(".preview"), 600, "the design's layout by default");
+    assert.equal(await heightOf(".timeline-pane"), 146);
+    await dragDivider("Resize preview", "clientX", -100);
+    await until(() => panes()?.preview_w === 500, { what: "the preview's width saved" });
+    await dragDivider("Resize timeline", "clientY", -60); // up: a taller timeline
+    await until(() => panes()?.timeline_h === 206, { what: "the timeline's height saved" });
+    assert.equal(await widthOf(".preview"), 500);
+    assert.equal(await heightOf(".timeline-pane"), 206);
+
+    page = await app.restart();
+    assert.deepEqual(await page.store("panes"), { preview_w: 500, timeline_h: 206 });
+    await until(async () => (await widthOf(".preview")) === 500, { what: "the preview as it was left" });
+    assert.equal(await heightOf(".timeline-pane"), 206);
+
+    await page.run(() => {
+      const el = document.querySelector('[role="separator"][aria-label="Resize preview"]');
+      el.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+      return true;
+    });
+    await until(() => panes()?.preview_w === null, { what: "the preview's width reset" });
+    assert.equal(await widthOf(".preview"), 600);
+  });
+
+  test("an editor made bigger keeps the preview's width and gives the rest to the side panel; Reset layout undoes it all", async () => {
+    await app.quit();
+    const saved = app.json("window.json");
+    // 980 × 700 fits a 1024 × 768 screen (the CI runner's) without being shrunk.
+    writeFileSync(app.path("window.json"), JSON.stringify({ ...saved, expanded: true, size: [980, 700] }));
+    page = await app.start();
+    const scale = await page.invoke("plugin:window|scale_factor", { label: "main" });
+    const inner = await page.invoke("plugin:window|inner_size", { label: "main" });
+    assert.deepEqual([inner.width, inner.height], [Math.round(980 * scale), Math.round(700 * scale)]);
+    await until(async () => (await widthOf(".panel")) === 980 - 4 - 600 - 2, { what: "the side panel to take the room" });
+    assert.equal(await widthOf(".preview"), 600);
+    assert.equal(await heightOf(".timeline-pane"), 206, "the timeline as the user left it");
+    // The preview row got the extra height: all but the header, the transport, the timeline and the rules.
+    const rest = 700 - 4 - 44 - (await heightOf(".transport")) - 2 - 206 - 2;
+    assert.equal(await heightOf(".preview"), rest);
+    assert.ok(rest > 338);
+
+    await page.tab("Settings");
+    await page.click("Reset layout");
+    await until(async () => (await page.invoke("plugin:window|inner_size", { label: "main" })).width === Math.round(944 * scale), {
+      what: "the default size",
+    });
+    await until(() => app.json("window.json").size === null && panes().timeline_h === null, { what: "window.json reset" });
+    await until(async () => (await heightOf(".timeline-pane")) === 146, { what: "the default timeline" });
   });
 
   test("× with Close to tray hides Relay, which keeps running", async () => {

@@ -33,15 +33,21 @@ export function lastIndexAtOrBefore(moves: MovePoint[], time: number): number {
   return ans;
 }
 
-/** The preview drawing's aspect ratio (600 × 302, under its bar). */
+/** The preview drawing's aspect ratio in the default layout (600 × 302, under its bar). */
 export const PREVIEW_ASPECT = 600 / 302;
 
 /**
  * The part of the desktop to show: everything the macro touches, padded, at
- * the preview's aspect ratio, never narrower than `minWidth` (so a macro that
+ * `aspect` (the drawing's width over its height), never narrower than `minWidth` (so a macro that
  * stays in one spot isn't blown up) and kept inside the desktop when it fits.
  */
-export function fitView(desktop: Rect, points: { x: number; y: number }[], extra: Rect[] = [], minWidth = 960): Rect {
+export function fitView(
+  desktop: Rect,
+  points: { x: number; y: number }[],
+  extra: Rect[] = [],
+  minWidth = 960,
+  aspect = PREVIEW_ASPECT,
+): Rect {
   // One loop, not Math.min(...spread): a long recording has too many points to spread.
   let [minX, maxX, minY, maxY] = [Infinity, -Infinity, Infinity, -Infinity];
   const add = (x: number, y: number) => {
@@ -58,8 +64,8 @@ export function fitView(desktop: Rect, points: { x: number; y: number }[], extra
   if (minX === Infinity) return desktop;
   const pad = Math.max(60, 0.12 * Math.max(maxX - minX, maxY - minY));
   let w = Math.max(maxX - minX + 2 * pad, Math.min(minWidth, desktop.w));
-  let h = Math.max(maxY - minY + 2 * pad, w / PREVIEW_ASPECT);
-  w = Math.max(w, h * PREVIEW_ASPECT);
+  let h = Math.max(maxY - minY + 2 * pad, w / aspect);
+  w = Math.max(w, h * aspect);
   if (w >= desktop.w && h >= desktop.h) return desktop;
   const clamp = (lo: number, size: number, dLo: number, dSize: number) =>
     size >= dSize ? dLo + (dSize - size) / 2 : Math.min(Math.max(lo, dLo), dLo + dSize - size);

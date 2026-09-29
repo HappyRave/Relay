@@ -95,6 +95,8 @@ pub fn run() {
             commands::set_autostart,
             commands::fit_window,
             commands::window_prefs,
+            commands::save_panes,
+            commands::reset_layout,
             commands::hide_to_tray,
             commands::quit,
         ])
@@ -104,6 +106,7 @@ pub fn run() {
             let state = app.state::<window_ctl::WindowState>();
             match event {
                 WindowEvent::Moved(_) => window_ctl::on_moved(&main, &state),
+                WindowEvent::Resized(_) => window_ctl::on_resized(&main, &state),
                 // Moved onto a monitor with another scale (or its scaling changed). The
                 // window system applies its own rect for the new scale after this event,
                 // so re-size once that's done, not here. Called on the main thread,
@@ -147,11 +150,12 @@ pub fn run() {
             let window_state = app.state::<window_ctl::WindowState>();
             if let Some(window) = app.get_webview_window("main") {
                 window_ctl::apply_modernist_frame(&window);
-                window_ctl::keep_size_while_dragging(&window);
+                window_ctl::watch_move_size(&window);
                 let keep_on_top = app.state::<Mutex<settings::SettingsStore>>().lock().current.keep_on_top;
                 window_ctl::apply_on_top(&window, keep_on_top, false);
                 // Place it where it was, then show it (the window starts hidden, so it never jumps).
-                let css = if window_state.prefs().expanded { window_ctl::EXPANDED } else { window_ctl::COMPACT };
+                let prefs = window_state.prefs();
+                let css = if prefs.expanded { window_ctl::expanded_size(&prefs) } else { window_ctl::COMPACT };
                 window_ctl::place(&window, &window_state, css);
                 if !starts_hidden(std::env::args()) {
                     window.show()?;

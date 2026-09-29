@@ -19,7 +19,7 @@ src/
 ├── main.ts                     mounts App
 ├── App.svelte                  the Widget in Tauri, the DevDesktop in a browser, the Export dialog
 ├── components/
-│   ├── Widget.svelte           measures itself and calls fit_window
+│   ├── Widget.svelte           the compact player measures itself; the editor fills the window
 │   ├── CompactBar.svelte       the 604 × 68 player bar
 │   ├── ExpandedWidget.svelte   header, preview, side panel, transport, timeline
 │   ├── ExportDialog.svelte
@@ -42,7 +42,8 @@ src/
 │   ├── timeline/lanes.ts       lane geometry, current step, prev/next
 │   ├── preview/geometry.ts     SVG path, cursor lookup, fitting the view
 │   ├── actions/seekable.ts     click-and-drag to seek
-│   ├── platform/window.ts      isTauri, fit_window, dragging, hide to tray
+│   ├── platform/window.ts      isTauri, fit_window, window prefs and panes, dragging, hide to tray
+│   ├── layout.ts               the editor's dividers kept inside the window (paneLayout)
 │   └── dev/                    the browser fixture and demo desktop state
 └── styles/                     tokens.css, base.css, components.css, app.css
 ```
@@ -147,7 +148,8 @@ A few that do more:
 
 | Component | Notes |
 | --- | --- |
-| `Widget` | A `ResizeObserver` measures the widget's border box and calls `fit_window`, so the native window always matches the content exactly. |
+| `Widget` | The compact player: a `ResizeObserver` measures its border box and calls `fit_window`, so the native window matches it exactly. The editor (`.fill`) fills the window instead (`--widget-w/h`, which the browser preview's demo desktop sets to 944 × 612), and only tells Rust it's the editor. |
+| `ExpandedWidget` | A flex column: the header and the transport keep their height, the preview row and the timeline share the rest. Two `Splitter`s (focusable `role="separator"`s: drag, arrow keys, Home/End, double-click to reset) move `relay.panes`, saved with `save_panes` when a drag or key press ends. `paneLayout` (`layout.ts`) keeps them inside the window as it is (preview 360 px up to the width minus a 320 px side panel; timeline 146 px up to what leaves the preview row 220 px) without changing what's saved, so a window made smaller and bigger again gets the user's layout back. |
 | `StepsTab` | Keeps the current row in view while playing. Opens `StepEditor` under the store's selected row, which follows its step across edits (see [Edits](#edits)). Rows handle Enter and Space only for themselves, not their delete button. Shows window-relative positions in *Window* mode. |
 | `StepEditor` | *Pause before* for every step, plus the fields of its kind. Commits on `change` (blur or Enter), validates hex colors and numbers before sending an `EditOp`. |
 | `HotkeyCapture` | Captures in the capture phase and stops propagation, so a combo being set never triggers anything else. Marked `data-captures-keys` so the undo shortcut leaves it alone. Backspace clears, Esc cancels, blur cancels. |
@@ -158,7 +160,7 @@ A few that do more:
 
 ## The preview and the timeline
 
-**Preview** ([`Preview.svelte`](../../src/components/expanded/Preview.svelte), [`geometry.ts`](../../src/lib/preview/geometry.ts)): the SVG's `viewBox` is a region of the virtual desktop, in the macro's physical pixels, chosen by `fitView` to include everything the macro touches, padded and at the drawing's 600:302 aspect ratio (the preview is 338 px tall, with a 36 px bar above the drawing). The monitors and the anchor window are drawn as outlines. Everything is in desktop coordinates, and a scale factor `k` keeps strokes and labels the same size at any zoom.
+**Preview** ([`Preview.svelte`](../../src/components/expanded/Preview.svelte), [`geometry.ts`](../../src/lib/preview/geometry.ts)): the SVG's `viewBox` is a region of the virtual desktop, in the macro's physical pixels, chosen by `fitView` to include everything the macro touches, padded and at the drawing's aspect ratio, measured from the stage (600:302 in the default layout: the preview is 338 px tall, with a 36 px bar above the drawing). The monitors and the anchor window are drawn as outlines. Everything is in desktop coordinates, and a scale factor `k` keeps strokes and labels the same size at any zoom.
 
 - The **path** is one polyline. The played part is the same path with `stroke-dasharray = "<done length> <total>"`, where the done length comes from precomputed cumulative lengths and a binary search for the current time. So animating the red trail costs nothing per frame.
 - **Click markers** are numbered in order, with a ring that expands for 500 ms after each click. The markers don't depend on the playhead, so they're built once per macro; which ones are "reached" is a count from one binary search, and only the last reached click's ring is animated.

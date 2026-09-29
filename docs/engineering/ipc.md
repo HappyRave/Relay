@@ -86,8 +86,10 @@ Save and open dialogs are shown by the UI with `@tauri-apps/plugin-dialog`, and 
 | --- | --- | --- |
 | `get_settings`, `update_settings` | `settings` | `Settings` |
 | `get_autostart`, `set_autostart` | `enabled` | `bool` |
-| `fit_window` | `width, height, expanded` | Resizes and re-places the window around its bottom-center anchor |
-| `window_prefs` | | `{ expanded }`, read before the first render |
+| `fit_window` | `width, height, expanded` | Resizes and re-places the window around its bottom-center anchor: at the measured `width × height` for the compact player, at the user's (or default) size for the editor, where they're ignored |
+| `window_prefs` | | `{ expanded, panes }`, read before the first render |
+| `save_panes` | `panes: Panes` | Saves the editor's dividers to `window.json` |
+| `reset_layout` | | The editor's default size and dividers |
 | `hide_to_tray` | | Hides, or quits if *Close to tray* is off |
 | `quit` | | |
 

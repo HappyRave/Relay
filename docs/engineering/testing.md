@@ -99,7 +99,7 @@ When proptest finds a failure, it shrinks it to a minimal case and saves it in `
 | `settings` | Persistence and partial files |
 | `rec_thread` | The watchdog: fires on silent movement, respects the cooldown, never fires on a still cursor |
 | `triggers` | `ScheduleWatch` (on time, a few seconds late, skipped after sleep, days, shared times), `LaunchWatch` (lower-case names, the baseline, once per start, triggers switched off) and `PixelWatch` (two samples, tolerance, unreadable screens, a moved pixel) |
-| `window_ctl` | Zoom on small screens and high scaling; the layout (default spot, bottom-center anchor, kept inside the work area, negative coordinates, centering); which monitor owns an anchor; the size after a scale change (dragging or not); `window.json` round trips and bad files |
+| `window_ctl` | Zoom on small screens and high scaling; the layout (default spot, bottom-center anchor, kept inside the work area, negative coordinates, centering); which monitor owns an anchor; the size after a scale change (dragging or not); the editor's size from `window.json` (never below the minimum, made to fit the work area), a user resize in CSS px at 100% and 150%, panes sanitized, saved and reset; `window.json` round trips and bad files |
 | `commands` | Error codes for the UI, exports that import again, an import with broken and missing files |
 | `coordinator` | Click-through detection under the widget, with the window offset |
 | `ipc`, `storage` | The message stream's JSON shape and resubscribing; atomic writes |
@@ -148,7 +148,7 @@ The tests never send input to the desktop. Macros that get played contain only w
 | --- | --- |
 | `library` | The first run's samples; renaming; duplicate; delete to the trash folder, and Undo; import (`.rly`, `.json`, broken, too new, missing); export in both formats and back; a screenshot shown in the preview (the CSP allows it), switched to the sketch, copied with a duplicate and left out of exports; `not_found` for every per-macro command; a restart; damaged macro files and a damaged `library.json` |
 | `editing` | Deleting a step; undo and redo (buttons, and Ctrl + Z / Ctrl + Y); + Wait and + Pixel check; the step editor's label, pause, wait duration and every pixel field; Trim pauses; a rejected edit; every playback option; undo history kept per macro, and not across restarts |
-| `settings` | Every setting in `settings.json`; Keep on top on the native window, including "only during sessions"; compact mode resizing the window and reopening compact; the anchor kept; close to tray hiding, and quitting when it's off |
+| `settings` | Every setting in `settings.json`; Keep on top on the native window, including "only during sessions"; compact mode resizing the window and reopening compact; the anchor kept; the editor resizable and the compact player not; dividers dragged, saved, restored after a restart and reset by double-click; a saved bigger editor laid out, and Reset layout; close to tray hiding, and quitting when it's off |
 | `playback` | Playing to the end, with the run counted; loops; speed; pause and resume; stop; playing from the playhead; seeking and changing speed mid-playback; a pixel check timing out; the busy guard; recording's countdown, and cancelling it |
 | `triggers` | Hotkeys registered, and refused for Relay's own, another macro's or an unusable combo; the schedule saved with its next run, then firing at the minute; the app-launch trigger firing, skipped while busy, and not firing while paused; the pixel trigger firing once per change; the log recording each run; everything after a restart |
 
@@ -191,6 +191,7 @@ What automated tests can't cover well:
 
 - [ ] Record with *Screenshot* on: the preview shows your screen (without Relay's widget) under the path; Screen | Sketch switches; with it off, no picture is saved
 - [ ] Drag the widget (expanded and compact) between monitors with different scaling: it keeps its size and layout
+- [ ] Resize the editor from each edge and corner, at 100% and 150%, and across monitors: the layout follows, it stops at 760 × 520, and the size survives a restart; the compact player can't be resized
 - [ ] Record and replay in Notepad, a browser and an Office app, at 100% and 150% scaling, and across two monitors
 - [ ] Double clicks, drags (including window drags), scrolls, AltGr characters, dead keys
 - [ ] Esc, stop on key press and the kill switch during a long loop, with nothing left pressed afterwards
