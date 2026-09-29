@@ -235,7 +235,7 @@ Before triggers existed (up to M6), entries had a plain `hotkey` label. It's rea
 }
 ```
 
-`anchor` is the widget's bottom-center in physical virtual-desktop pixels, or `null` for the default position. `size` is the editor's size in CSS px if the user resized it (`null`: 944 × 612); it never goes below 760 × 520. `panes` are the editor's dividers in CSS px: the preview's width, the button row's height and the timeline's height, each `null` for the default (600, 76 and 146); the UI keeps them inside the window. Every field may be missing (older files), and only Rust writes this file.
+`anchor` is the widget's bottom-center in physical virtual-desktop pixels, or `null` for the default position. `size` is the editor's size in CSS px if the user resized it (`null`: 944 × 612); it never goes below 760 × 520. `panes` are the editor's dividers in CSS px: the preview's width, the button row's height and the timeline's height, each `null` for the default (600, 102 and 146); the UI keeps them inside the window. Every field may be missing (older files), and only Rust writes this file.
 
 ---
 

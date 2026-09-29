@@ -8,11 +8,10 @@ import {
   MIN_TRANSPORT_H,
   NO_PANES,
   paneLayout,
-  transportScale,
 } from "./layout";
 
 // The default editor: 940 px inside its border; below the header, the preview
-// row, the button row and the timeline share 560 px (338 + 76 + 146).
+// row, the button row and the timeline share 560 px (312 + 102 + 146).
 const [W, FLEX] = [940, 560];
 const panes = (preview_w: number | null, transport_h: number | null, timeline_h: number | null) => ({
   preview_w,
@@ -25,20 +24,20 @@ describe("paneLayout", () => {
     expect(paneLayout(NO_PANES, W, FLEX)).toEqual({
       previewW: 600,
       previewMax: 618, // leaves the side panel its 320 px
-      transportH: 76,
-      transportMax: 152, // twice the default
+      transportH: 102,
+      transportMax: 194, // what leaves the preview row and the timeline their minimums (twice the default is 204)
       timelineH: 146,
-      timelineMax: 264, // leaves the preview row its 220 px
+      timelineMax: 238, // leaves the preview row its 220 px
     });
   });
 
   test("the user's dividers, kept so the side panel and the preview row keep their minimum", () => {
-    expect(paneLayout(panes(500, 100, 200), W, FLEX)).toMatchObject({ previewW: 500, transportH: 100, timelineH: 200 });
+    expect(paneLayout(panes(500, 120, 200), W, FLEX)).toMatchObject({ previewW: 500, transportH: 120, timelineH: 200 });
     // The button row goes first; the timeline gets what's left above the preview row's minimum.
     expect(paneLayout(panes(9000, 9000, 9000), W, FLEX)).toMatchObject({
       previewW: 618,
-      transportH: 152,
-      timelineH: 560 - 220 - 152,
+      transportH: 194,
+      timelineH: 560 - 220 - 194,
     });
     expect(paneLayout(panes(10, 10, 10), W, FLEX)).toMatchObject({
       previewW: MIN_PREVIEW_W,
@@ -58,8 +57,8 @@ describe("paneLayout", () => {
     expect(paneLayout(NO_PANES, 500, 300)).toEqual({
       previewW: 360,
       previewMax: 360,
-      transportH: 76,
-      transportMax: 76,
+      transportH: 102,
+      transportMax: 102,
       timelineH: 146,
       timelineMax: 146,
     });
@@ -83,24 +82,5 @@ describe("paneLayout", () => {
       timelineH: DEFAULT_TIMELINE_H,
     });
     expect(paneLayout(panes(800, 130, 300), 0, 0)).toMatchObject({ previewW: 800, transportH: 130, timelineH: 300 });
-  });
-});
-
-describe("transportScale", () => {
-  test("the controls grow with the row's height, up to twice their size", () => {
-    expect(transportScale(76, 940, 800)).toBe(1);
-    expect(transportScale(114, 1600, 800)).toBe(1.5);
-    expect(transportScale(400, 4000, 800)).toBe(2);
-  });
-
-  test("but never wider than the row: a narrow window shrinks them", () => {
-    expect(transportScale(152, 1200, 800)).toBe(1.5);
-    expect(transportScale(76, 700, 800)).toBe(0.875);
-    expect(transportScale(76, 100, 800)).toBe(0.5); // never below half
-  });
-
-  test("before the controls are measured, only the height counts", () => {
-    expect(transportScale(114, 0, 0)).toBe(1.5);
-    expect(transportScale(114, 940, 0)).toBe(1.5);
   });
 });

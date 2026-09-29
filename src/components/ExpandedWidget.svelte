@@ -6,7 +6,8 @@
   import Timeline from "./expanded/Timeline.svelte";
   import Splitter from "./ui/Splitter.svelte";
   import { relay } from "../lib/state/relay.svelte";
-  import { MIN_PREVIEW_W, MIN_TIMELINE_H, MIN_TRANSPORT_H, SPLITTER, paneLayout, transportScale } from "../lib/layout";
+  import { MIN_PREVIEW_W, MIN_TIMELINE_H, MIN_TRANSPORT_H, SPLITTER, paneLayout } from "../lib/layout";
+  import { barMode, barScale } from "../lib/transport";
 
   // The editor fills the window; the header keeps its height, and the
   // preview row, the button row and the timeline share the rest.
@@ -16,24 +17,11 @@
   const flexible = $derived(height && height - headerH - 2 * SPLITTER);
   const L = $derived(paneLayout(relay.panes, width, flexible));
 
-  // The button row's controls scale with its height, as far as its width allows.
-  let transportPane: HTMLDivElement | undefined = $state();
-  let natural = $state(0);
-  $effect(() => {
-    void width;
-    const t = transportPane?.querySelector<HTMLElement>(".transport");
-    if (!t) return;
-    const measure = () => {
-      const cs = getComputedStyle(t);
-      const items = [...t.children] as HTMLElement[];
-      const gaps = parseFloat(cs.columnGap) * Math.max(0, items.length - 1) || 0;
-      const padding = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) || 0;
-      natural = Math.ceil(items.reduce((sum, el) => sum + el.offsetWidth, 0) + gaps + padding);
-    };
-    measure();
-    document.fonts?.ready.then(measure);
-  });
-  const scale = $derived(transportScale(L.transportH, width, natural));
+  // The control bar scales evenly with its row's height (every control is one
+  // height, so nothing drifts), and compacts its settings for the width it has
+  // at that scale.
+  const scale = $derived(barScale(L.transportH, width));
+  const mode = $derived(barMode(width / scale));
 </script>
 
 <div class="expanded" bind:clientWidth={width} bind:clientHeight={height}>
@@ -63,13 +51,13 @@
     oncommit={relay.savePanes}
     onreset={() => relay.resetPane("transport_h")}
   />
-  <div class="transport-pane" bind:this={transportPane} style:height="{L.transportH}px">
+  <div class="transport-pane" style:height="{L.transportH}px">
     <div
       class="transport-scale"
       style:width={width && scale !== 1 ? `${width / scale}px` : "100%"}
       style:transform={scale !== 1 ? `scale(${scale})` : undefined}
     >
-      <Transport />
+      <Transport {mode} />
     </div>
   </div>
   <Splitter

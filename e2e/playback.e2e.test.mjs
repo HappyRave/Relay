@@ -126,10 +126,15 @@ describe("playback and recording", () => {
     await page.click("Play");
     await page.waitMode("playing");
     const started = Date.now();
-    await page.click("4×", { role: "radio" });
+    // The default-size bar's Speed button cycles: 1× → 2× → 4×.
+    await page.click("Speed 1×");
+    await page.click("Speed 2×");
     await page.waitMode("idle");
     assert.ok(Date.now() - started < 2500, `took ${Date.now() - started} ms`);
-    await page.click("1×", { role: "radio" });
+    // 4× → 0.5× → 1×.
+    await page.click("Speed 4×");
+    await page.click("Speed 0.5×");
+    await until(async () => (await page.store("playback.speed")) === 1, { what: "back to 1×" });
   });
 
   test("a pixel check that never matches times out, stops, and stays on its step", async () => {
@@ -169,7 +174,7 @@ describe("playback and recording", () => {
     await page.waitMode("recording", 5000);
     assert.equal(await page.store("recording"), true);
     await until(async () => (await page.store("cur")) > 200, { what: "the recording clock" });
-    assert.match(await page.text(".transport"), /of recording/);
+    assert.match(await page.text(".transport"), /\/ recording/);
     await page.click("Stop recording");
     await page.waitMode("idle");
   });

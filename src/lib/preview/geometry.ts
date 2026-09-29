@@ -33,8 +33,8 @@ export function lastIndexAtOrBefore(moves: MovePoint[], time: number): number {
   return ans;
 }
 
-/** The preview drawing's aspect ratio in the default layout (600 × 302, under its bar). */
-export const PREVIEW_ASPECT = 600 / 302;
+/** The preview drawing's aspect ratio in the default layout (600 × 276, under its bar). */
+export const PREVIEW_ASPECT = 600 / 276;
 /** How far the preview zooms in. */
 export const MAX_ZOOM = 16;
 

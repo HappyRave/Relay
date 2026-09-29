@@ -17,7 +17,7 @@ beforeEach(async () => {
 
 describe("Record and Play", () => {
   test("Record sends toggle_record; Play sends toggle_play", async () => {
-    render(RecPlayButtons, { variant: "square" });
+    render(RecPlayButtons, { variant: "strip" });
     await userEvent.click(screen.getByRole("button", { name: "Record" }));
     await userEvent.click(screen.getByRole("button", { name: "Play" }));
     expect(core.calls).toEqual([
@@ -48,7 +48,7 @@ describe("Record and Play", () => {
   });
 
   test("Record is off while playing, Play while recording", async () => {
-    render(RecPlayButtons, { variant: "square" });
+    render(RecPlayButtons, { variant: "strip" });
     core.emit({ type: "session", mode: "paused", macro_id: core.ids[0] });
     await settle();
     expect(screen.getByRole("button", { name: "Record" })).toBeDisabled();
@@ -60,7 +60,7 @@ describe("Record and Play", () => {
   });
 
   test("the hotkeys are in the tooltips", () => {
-    render(RecPlayButtons, { variant: "square" });
+    render(RecPlayButtons, { variant: "strip" });
     expect(screen.getByRole("button", { name: "Record" })).toHaveAttribute("title", "Record (F9)");
     expect(screen.getByRole("button", { name: "Play" })).toHaveAttribute("title", "Play / pause (F10)");
   });

@@ -4,16 +4,17 @@
 // what's shown is that, kept inside the window as it is now, so a window
 // made smaller and then bigger again gets the user's layout back.
 import type { Panes } from "./ipc/bindings/Panes";
+import { BAR_H } from "./transport";
 
 /** The design's layout, at the default 944 × 612 editor. */
 export const DEFAULT_PREVIEW_W = 600;
-export const DEFAULT_TRANSPORT_H = 76;
+export const DEFAULT_TRANSPORT_H = BAR_H;
 export const DEFAULT_TIMELINE_H = 146;
 /** Narrowest preview and side panel (the four tabs fit), shortest preview row. */
 export const MIN_PREVIEW_W = 360;
 export const MIN_PANEL_W = 320;
 export const MIN_MAIN_H = 220;
-/** The button row and the timeline never get smaller than the design's; the buttons grow up to twice their size. */
+/** The button row and the timeline never get smaller than the design's; the controls grow up to twice their size. */
 export const MIN_TRANSPORT_H = DEFAULT_TRANSPORT_H;
 export const MAX_TRANSPORT_H = 2 * DEFAULT_TRANSPORT_H;
 export const MIN_TIMELINE_H = DEFAULT_TIMELINE_H;
@@ -56,15 +57,4 @@ export function paneLayout(panes: Panes, width: number, flexible: number): PaneL
     timelineH: Math.round(clamp(wantH, MIN_TIMELINE_H, timelineMax)),
     timelineMax: Math.max(MIN_TIMELINE_H, Math.round(timelineMax)),
   };
-}
-
-/**
- * How much the button row's controls are scaled: with the row's height (from
- * 1 at the default up to 2), but never wider than the row, whose controls
- * need `natural` px at 1 (0: not measured). A narrow window shrinks them.
- */
-export function transportScale(height: number, width: number, natural: number): number {
-  const byHeight = height / DEFAULT_TRANSPORT_H;
-  const byWidth = natural > 0 && width > 0 ? width / natural : Infinity;
-  return Math.max(0.5, Math.min(2, byHeight, byWidth));
 }

@@ -13,6 +13,8 @@
     collapse: { fill: false, sw: 2, body: '<polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/>' },
     export: { fill: false, sw: 2.2, body: '<path d="M12 15V3"/><path d="m7 8 5-5 5 5"/><path d="M20 15v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-4"/>' },
     x: { fill: false, sw: 2.5, body: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>' },
+    minus: { fill: false, sw: 2.5, body: '<path d="M5 12h14"/>' },
+    plus: { fill: false, sw: 2.5, body: '<path d="M5 12h14"/><path d="M12 5v14"/>' },
     loop: { fill: false, sw: 2.2, body: '<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>' },
     copy: { fill: false, sw: 2, body: '<rect x="9" y="9" width="13" height="13"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>' },
     trash: { fill: false, sw: 2, body: '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>' },

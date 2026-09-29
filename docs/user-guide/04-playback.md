@@ -47,6 +47,8 @@ These are in the transport bar, and **each macro remembers its own**.
 | **Speed** | **0.5×**, **1×**, **2×**, **4×**. You can change it while the macro is playing. |
 | **Repeat** | **−** and **+** set how many times the macro runs in a row (1 to 99). **∞** loops until you stop it; while it's on, **+** is off and **−** goes back to the count you had. |
 
+The bar folds to fit the window: below about 1300 px wide, **Speed** is one button that shows the speed and changes it on each click (0.5× → 1× → 2× → 4×); below about 1000 px (the default size), **Repeat** is one button too (*×3*) that steps through 1, 2, 3, 5, 10 and ∞. Make the window wider to get every control back.
+
 > [!CAUTION]
 > Faster isn't always better. At 2× or 4× the apps you're automating get half or a quarter of the time they had when you recorded. If they can't keep up, clicks land before a window is ready. Use [pixel checks](05-pixel-checks.md) to make fast playback reliable.
 

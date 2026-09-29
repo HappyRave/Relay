@@ -203,28 +203,51 @@ describe("editing", () => {
   describe("playback options", () => {
     const pb = () => disk().playback;
 
-    for (const [label, speed] of [
-      ["2×", 2],
-      ["4×", 4],
-      ["0.5×", 0.5],
-      ["1×", 1],
-    ]) {
-      test(`speed ${label}`, async () => {
-        await page.click(label, { role: "radio" });
-        await until(() => pb().speed === speed, { what: `speed ${speed}` });
-      });
-    }
+    // At the default size the control bar is in its narrow mode: one Speed button that cycles.
+    test("speed: the button steps through 2×, 4×, 0.5× and back to 1×", async () => {
+      for (const [from, to] of [
+        [1, 2],
+        [2, 4],
+        [4, 0.5],
+        [0.5, 1],
+      ]) {
+        await page.click(`Speed ${from}×`);
+        await until(() => pb().speed === to, { what: `speed ${to}` });
+      }
+    });
 
-    test("repeat: + and −, and Loop forever and back", async () => {
-      const count = pb().repeat.count;
-      await page.click("More repeats");
-      await until(() => pb().repeat.count === count + 1, { what: "+" });
-      await page.click("Fewer repeats");
-      await until(() => pb().repeat.count === count, { what: "−" });
-      await page.click("Loop forever");
+    test("repeat, folded at the default size: the button steps through the counts and forever", async () => {
+      const start = pb().repeat;
+      await page.invoke("set_playback_options", { id: await page.store("view.id"), options: { ...pb(), repeat: { count: 3 } } });
+      await page.run(async () => (await window.__relay.loadMacro(window.__relay.view.id), true));
+      await page.click("Repeat 3 times");
+      await until(() => pb().repeat.count === 5, { what: "5" });
+      await page.click("Repeat 5 times");
+      await page.click("Repeat 10 times");
       await until(() => pb().repeat === "forever", { what: "forever" });
-      await page.click("Loop forever");
-      await until(() => pb().repeat.count === count, { what: "back to the count" });
+      await page.click("Repeat forever");
+      await until(() => pb().repeat.count === 1, { what: "back to 1" });
+      await page.invoke("set_playback_options", { id: await page.store("view.id"), options: { ...pb(), repeat: start } });
+      await page.run(async () => (await window.__relay.loadMacro(window.__relay.view.id), true));
+    });
+
+    test("repeat in a wider bar: + and −, and Loop forever and back", async () => {
+      // 1000 px: the bar's mid mode (and it fits a 1024 px screen).
+      await page.invoke("plugin:window|set_size", { label: "main", value: { Logical: { width: 1000, height: 612 } } });
+      try {
+        await until(() => page.run(() => !!document.querySelector('[aria-label="More repeats"]')), { what: "the mid bar" });
+        const count = pb().repeat.count;
+        await page.click("More repeats");
+        await until(() => pb().repeat.count === count + 1, { what: "+" });
+        await page.click("Fewer repeats");
+        await until(() => pb().repeat.count === count, { what: "−" });
+        await page.click("Loop forever");
+        await until(() => pb().repeat === "forever", { what: "forever" });
+        await page.click("Loop forever");
+        await until(() => pb().repeat.count === count, { what: "back to the count" });
+      } finally {
+        await page.invoke("reset_layout");
+      }
     });
 
     test("the Settings tab: humanize, jitter, coordinates, stop on key press", async () => {

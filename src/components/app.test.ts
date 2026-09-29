@@ -134,7 +134,7 @@ describe("Widget", () => {
 describe("the editor's dividers", () => {
   beforeEach(async () => {
     relay = await freshStore({ init: false });
-    core.window.panes = { preview_w: 520, transport_h: 114, timeline_h: 200 };
+    core.window.panes = { preview_w: 520, transport_h: 153, timeline_h: 200 };
     await relay.init();
     await settle();
     core.clearCalls();
@@ -149,9 +149,9 @@ describe("the editor's dividers", () => {
 
   test("open where the user left them", () => {
     const { container } = render(ExpandedWidget);
-    expect(relay.panes).toEqual({ preview_w: 520, transport_h: 114, timeline_h: 200 });
+    expect(relay.panes).toEqual({ preview_w: 520, transport_h: 153, timeline_h: 200 });
     expect(style(container, ".main").gridTemplateColumns).toBe("520px 2px minmax(0, 1fr)");
-    expect(style(container, ".transport-pane").height).toBe("114px");
+    expect(style(container, ".transport-pane").height).toBe("153px");
     expect(style(container, ".timeline-pane").height).toBe("200px");
     const names = screen.getAllByRole("separator").map((s) => s.getAttribute("aria-label"));
     expect(names).toEqual(["Resize preview", "Resize buttons", "Resize timeline"]);
@@ -159,21 +159,21 @@ describe("the editor's dividers", () => {
 
   test("a taller button row scales its controls", () => {
     const { container } = render(ExpandedWidget);
-    // 114 px is 1.5 × the default 76 (jsdom measures no width to hold it back).
+    // 153 px is 1.5 × the default 102 (jsdom measures no width to hold it back).
     expect(style(container, ".transport-scale").transform).toBe("scale(1.5)");
   });
 
   test("dragging one is saved once, when the drag ends", async () => {
     render(ExpandedWidget);
     await drag(screen.getByRole("separator", { name: "Resize preview" }), "clientX", 500, 560);
-    expect(core.argsOf("save_panes")).toEqual([{ panes: { preview_w: 580, transport_h: 114, timeline_h: 200 } }]);
+    expect(core.argsOf("save_panes")).toEqual([{ panes: { preview_w: 580, transport_h: 153, timeline_h: 200 } }]);
     // Up: the button row gets taller.
     await drag(screen.getByRole("separator", { name: "Resize buttons" }), "clientY", 300, 280);
-    expect(core.lastArgs("save_panes")).toEqual({ panes: { preview_w: 580, transport_h: 134, timeline_h: 200 } });
+    expect(core.lastArgs("save_panes")).toEqual({ panes: { preview_w: 580, transport_h: 173, timeline_h: 200 } });
     // Down: the timeline gets shorter (jsdom measures nothing, so it can't grow past its size here).
     await drag(screen.getByRole("separator", { name: "Resize timeline" }), "clientY", 400, 430);
-    expect(core.lastArgs("save_panes")).toEqual({ panes: { preview_w: 580, transport_h: 134, timeline_h: 170 } });
-    expect(core.window.panes).toEqual({ preview_w: 580, transport_h: 134, timeline_h: 170 });
+    expect(core.lastArgs("save_panes")).toEqual({ panes: { preview_w: 580, transport_h: 173, timeline_h: 170 } });
+    expect(core.window.panes).toEqual({ preview_w: 580, transport_h: 173, timeline_h: 170 });
   });
 
   test("double-clicking one puts it back to the default, and saves that", async () => {
@@ -181,7 +181,7 @@ describe("the editor's dividers", () => {
     await fireEvent.dblClick(screen.getByRole("separator", { name: "Resize buttons" }));
     await settle();
     expect(core.lastArgs("save_panes")).toEqual({ panes: { preview_w: 520, transport_h: null, timeline_h: 200 } });
-    expect(style(container, ".transport-pane").height).toBe("76px");
+    expect(style(container, ".transport-pane").height).toBe("102px");
     expect(style(container, ".transport-scale").transform).toBe("");
   });
 });

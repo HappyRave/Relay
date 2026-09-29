@@ -212,10 +212,10 @@ describe("settings and window", () => {
     await dragDivider("Resize timeline", "clientY", -60); // up: a taller timeline
     await until(() => panes()?.timeline_h === 206, { what: "the timeline's height saved" });
     await dragDivider("Resize buttons", "clientY", -20); // up: a taller button row, bigger buttons
-    await until(() => panes()?.transport_h === 96, { what: "the button row's height saved" });
+    await until(() => panes()?.transport_h === 122, { what: "the button row's height saved" });
     assert.equal(await widthOf(".preview"), 500);
     assert.equal(await heightOf(".timeline-pane"), 206);
-    assert.equal(await heightOf(".transport-pane"), 96);
+    assert.equal(await heightOf(".transport-pane"), 122);
     // A taller timeline has taller lanes.
     assert.ok((await heightOf(".lanes .lane")) > 26);
     // The narrower preview still shows the whole desktop, at the drawing's shape.
@@ -227,12 +227,12 @@ describe("settings and window", () => {
       return { inside, aspect: Math.abs(w / h - stage.clientWidth / stage.clientHeight) < 0.01 };
     });
     assert.deepEqual(fits, { inside: true, aspect: true });
-    // The buttons are drawn bigger (by up to 96 / 76, as far as the row's width lets them).
+    // The buttons are drawn bigger (by up to 122 / 102, as far as the row's width lets them).
     const bigPlay = await play();
-    assert.ok(bigPlay > smallPlay && bigPlay <= Math.ceil((smallPlay * 96) / 76), `${smallPlay} → ${bigPlay}`);
+    assert.ok(bigPlay > smallPlay && bigPlay <= Math.ceil((smallPlay * 122) / 102), `${smallPlay} → ${bigPlay}`);
 
     page = await app.restart();
-    assert.deepEqual(await page.store("panes"), { preview_w: 500, transport_h: 96, timeline_h: 206 });
+    assert.deepEqual(await page.store("panes"), { preview_w: 500, transport_h: 122, timeline_h: 206 });
     await until(async () => (await widthOf(".preview")) === 500, { what: "the preview as it was left" });
     assert.equal(await heightOf(".timeline-pane"), 206);
     assert.equal(await play(), bigPlay);

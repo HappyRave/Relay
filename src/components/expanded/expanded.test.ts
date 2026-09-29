@@ -147,17 +147,74 @@ describe("Transport", () => {
   test("shows the playhead and the length", async () => {
     render(Transport);
     expect(screen.getByText("00:00.00")).toBeInTheDocument();
-    expect(screen.getByText("of 00:10.15")).toBeInTheDocument();
+    expect(screen.getByText("/ 00:10.15")).toBeInTheDocument();
     relay.seek(1234);
     await settle();
     expect(screen.getByText("00:01.23")).toBeInTheDocument();
   });
 
-  test("says “of recording” while recording", async () => {
+  test("says “/ recording” while recording", async () => {
     render(Transport);
     core.emit({ type: "session", mode: "recording", macro_id: null });
     await settle();
-    expect(screen.getByText("of recording")).toBeInTheDocument();
+    expect(screen.getByText("/ recording")).toBeInTheDocument();
+  });
+
+  test("every zone has its label, on one baseline, at every width", () => {
+    for (const mode of ["wide", "mid", "narrow"] as const) {
+      const { container, unmount } = render(Transport, { mode });
+      const labels = [...container.querySelectorAll(".label")].map((l) => l.firstChild!.textContent);
+      expect(labels).toEqual(["Time", "Playback", "Speed", "Repeat"]);
+      unmount();
+    }
+  });
+
+  test("wide, it has the four speeds and − count +", () => {
+    render(Transport, { mode: "wide" });
+    expect(screen.getAllByRole("radio")).toHaveLength(4);
+    expect(screen.getByRole("button", { name: "More repeats" })).toBeInTheDocument();
+  });
+
+  test("mid: the speed is one button that cycles", async () => {
+    render(Transport, { mode: "mid" });
+    expect(screen.queryByRole("radio")).toBeNull();
+    const speed = screen.getByRole("button", { name: "Speed 1×" });
+    expect(speed).toHaveAttribute("title", "Speed: click for 2×");
+    await userEvent.click(speed);
+    await settle();
+    expect((core.lastArgs("set_playback_options")!.options as { speed: number }).speed).toBe(2);
+    expect(screen.getByRole("button", { name: "Speed 2×" })).toBeInTheDocument();
+    // − count + and Loop forever are still there.
+    for (const name of ["Fewer repeats", "More repeats", "Loop forever"]) expect(screen.getByRole("button", { name })).toBeInTheDocument();
+  });
+
+  test("narrow: the repeat folds into one button that steps through 1, 2, 3, 5, 10 and forever", async () => {
+    render(Transport, { mode: "narrow" });
+    expect(screen.queryByRole("button", { name: "More repeats" })).toBeNull();
+    const folded = () => screen.getByRole("button", { name: /^Repeat/ });
+    expect(folded()).toHaveAccessibleName("Repeat 3 times");
+    expect(folded()).toHaveTextContent("×3");
+    await userEvent.click(folded());
+    await settle();
+    expect(repeat()).toEqual({ count: 5 });
+    await userEvent.click(folded());
+    await userEvent.click(folded());
+    await settle();
+    expect(repeat()).toBe("forever");
+    expect(folded()).toHaveAccessibleName("Repeat forever");
+    expect(folded()).toHaveTextContent("∞");
+    await userEvent.click(folded());
+    await settle();
+    expect(repeat()).toEqual({ count: 1 });
+    expect(folded()).toHaveAccessibleName("Repeat 1 time");
+  });
+
+  test("mid and narrow controls are off while recording too", async () => {
+    render(Transport, { mode: "narrow" });
+    core.emit({ type: "session", mode: "recording", macro_id: null });
+    await settle();
+    expect(screen.getByRole("button", { name: /^Speed/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^Repeat/ })).toBeDisabled();
   });
 
   test("Previous and Next step move the playhead between steps", async () => {

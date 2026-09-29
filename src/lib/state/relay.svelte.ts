@@ -29,6 +29,7 @@ import { backend as defaultBackend, type Backend, type IpcError } from "../ipc/b
 import { DEFAULT_PLAYBACK, DEFAULT_SETTINGS } from "../defaults";
 import { isTauri, resetLayout, savePanes, savedWindow } from "../platform/window";
 import { NO_PANES } from "../layout";
+import { nextRepeat, nextSpeed } from "../transport";
 import type { Panes } from "../ipc/bindings/Panes";
 import { lastIndexAtOrBefore } from "../preview/geometry";
 import { currentStepIndex, jumpTarget } from "../timeline/lanes";
@@ -770,6 +771,17 @@ export class RelayStore {
     if (this.playback.repeat !== "forever" && this.repeatCount < MAX_REPEATS) {
       return this.setPlayback({ repeat: { count: this.repeatCount + 1 } });
     }
+  };
+
+  /** The narrow bar's speed button: the next speed (0.5× → 1× → 2× → 4× → 0.5×). */
+  cycleSpeed = () => this.setPlayback({ speed: nextSpeed(this.playback.speed) });
+
+  /** The narrow bar's folded repeat: 1 → 2 → 3 → 5 → 10 → forever → 1. */
+  cycleRepeat = () => {
+    if (!this.view) return;
+    const r = this.playback.repeat;
+    if (r !== "forever") this.lastCounts = { ...this.lastCounts, [this.view.id]: r.count };
+    return this.setPlayback({ repeat: nextRepeat(r) });
   };
 
   // — triggers —
