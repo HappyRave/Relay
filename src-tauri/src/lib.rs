@@ -145,6 +145,7 @@ pub fn run() {
             let window_state = app.state::<window_ctl::WindowState>();
             if let Some(window) = app.get_webview_window("main") {
                 window_ctl::apply_modernist_frame(&window);
+                window_ctl::keep_size_while_dragging(&window);
                 let keep_on_top = app.state::<Mutex<settings::SettingsStore>>().lock().current.keep_on_top;
                 window_ctl::apply_on_top(&window, keep_on_top, false);
                 // Place it where it was, then show it (the window starts hidden, so it never jumps).

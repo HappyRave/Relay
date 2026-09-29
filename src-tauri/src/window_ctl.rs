@@ -4,7 +4,7 @@
 
 use parking_lot::Mutex;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -260,14 +260,26 @@ pub fn rescale(window: &WebviewWindow, state: &WindowState) {
         set_client_rect(window, r.x, r.y, r.w, r.h);
     }
     if dragging {
+        if let Ok(outer) = window.outer_size() {
+            hold_size(outer.width, outer.height);
+        }
         rescale_after_drag(window);
     }
 }
 
-/// Windows' move loop keeps the size it suggested for the new scale (often a
-/// pixel or two off) and re-applies it on every mouse move, undoing
-/// [`rescale`]'s. So once the widget is dropped, it's sized again, and kept
-/// inside the work area of the monitor it was dropped on.
+/// The outer size the window keeps for the rest of a drag (width in the high
+/// half, height in the low one), or 0. Windows' move loop keeps the size it
+/// suggested for a new scale (often a pixel or two off) and re-applies it on
+/// every mouse move, which would undo [`rescale`]'s; [`keep_size_while_dragging`]
+/// substitutes this one.
+static HELD_SIZE: AtomicU64 = AtomicU64::new(0);
+
+fn hold_size(w: u32, h: u32) {
+    HELD_SIZE.store((w as u64) << 32 | h as u64, Ordering::SeqCst);
+}
+
+/// Once the widget is dropped after a scale change, it stops holding its size,
+/// is sized again and is kept inside the work area of the monitor it's on.
 fn rescale_after_drag(window: &WebviewWindow) {
     static WATCHING: AtomicBool = AtomicBool::new(false);
     if WATCHING.swap(true, Ordering::SeqCst) {
@@ -279,6 +291,7 @@ fn rescale_after_drag(window: &WebviewWindow) {
             std::thread::sleep(Duration::from_millis(50));
         }
         WATCHING.store(false, Ordering::SeqCst);
+        HELD_SIZE.store(0, Ordering::SeqCst);
         let w = window.clone();
         let _ = window.run_on_main_thread(move || rescale(&w, &w.app_handle().state::<WindowState>()));
     });
@@ -297,6 +310,41 @@ fn in_move_loop(window: &WebviewWindow) -> bool {
         GetGUIThreadInfo(thread, &mut info).is_ok() && info.flags.contains(GUI_INMOVESIZE) && info.hwndMoveSize == hwnd
     }
 }
+
+/// Makes Windows' move loop keep the size [`rescale`] gave the window after a
+/// scale change mid-drag (see [`HELD_SIZE`]). A new scale change lets the
+/// window system's own rect for it through, until `rescale` holds the next size.
+#[cfg(windows)]
+pub fn keep_size_while_dragging(window: &WebviewWindow) {
+    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+    use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
+    use windows::Win32::UI::WindowsAndMessaging::{SWP_NOSIZE, WINDOWPOS, WM_DPICHANGED, WM_WINDOWPOSCHANGING};
+
+    unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM, _id: usize, _data: usize) -> LRESULT {
+        match msg {
+            WM_DPICHANGED => HELD_SIZE.store(0, Ordering::SeqCst),
+            WM_WINDOWPOSCHANGING => {
+                let held = HELD_SIZE.load(Ordering::SeqCst);
+                // SAFETY: WM_WINDOWPOSCHANGING's lParam points to the WINDOWPOS being applied.
+                let pos = unsafe { &mut *(lp.0 as *mut WINDOWPOS) };
+                if held != 0 && !pos.flags.contains(SWP_NOSIZE) {
+                    pos.cx = (held >> 32) as i32;
+                    pos.cy = (held & 0xffff_ffff) as i32;
+                }
+            }
+            _ => {}
+        }
+        unsafe { DefSubclassProc(hwnd, msg, wp, lp) }
+    }
+
+    let Ok(hwnd) = window.hwnd() else { return };
+    unsafe {
+        let _ = SetWindowSubclass(hwnd, Some(proc), 1, 0);
+    }
+}
+
+#[cfg(not(windows))]
+pub fn keep_size_while_dragging(_window: &WebviewWindow) {}
 
 #[cfg(not(windows))]
 fn in_move_loop(_window: &WebviewWindow) -> bool {
