@@ -165,7 +165,7 @@ describe("library", () => {
     assert.ok(!existsSync(app.path("screens", `${back}.jpg`)), "an imported macro has none");
     await page.open(back);
     await until(() => page.run(() => window.__relay.screenUrl === null), { what: "no screenshot" });
-    assert.equal(await page.disabled("Screen", { role: "radio" }), true);
+    assert.equal(await page.disabled("Screen", { role: "radio", within: ".bar" }), true);
   });
 
   test("export as .rly and as .json: both import again unchanged", async () => {
@@ -207,6 +207,8 @@ describe("library", () => {
     ]) {
       await assert.rejects(page.invoke(cmd, args), (e) => e.code === "not_found", cmd);
     }
+    // A screenshot can't fail: none is none.
+    assert.equal((await page.run((id) => window.__TAURI_INTERNALS__.invoke("screenshot", { id }).then((b) => b.byteLength), ghost)), 0);
   });
 
   test("everything survives a restart, in the same order", async () => {

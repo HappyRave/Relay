@@ -133,12 +133,12 @@ describe("Settings tab", () => {
   });
 
   test("Reset layout puts the editor's size and dividers back", async () => {
-    relay.movePanes({ preview_w: 480, timeline_h: 220 });
+    relay.movePanes({ preview_w: 480, transport_h: 100, timeline_h: 220 });
     render(SettingsTab);
     await userEvent.click(screen.getByRole("button", { name: "Reset layout" }));
     await settle();
     expect(core.commands()).toEqual(["reset_layout"]);
-    expect(relay.panes).toEqual({ preview_w: null, timeline_h: null });
+    expect(relay.panes).toEqual({ preview_w: null, transport_h: null, timeline_h: null });
   });
 
   test("a setting that fails to save flips back and says why", async () => {

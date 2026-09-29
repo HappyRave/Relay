@@ -1,7 +1,16 @@
 <script lang="ts">
   import { relay } from "../../lib/state/relay.svelte";
   import { BADGE, stepTitle, tail } from "../../lib/state/display";
-  import { PREVIEW_ASPECT, cumulativeLengths, fitView, lastIndexAtOrBefore, pathD } from "../../lib/preview/geometry";
+  import {
+    PREVIEW_ASPECT,
+    cumulativeLengths,
+    lastIndexAtOrBefore,
+    pan,
+    pathD,
+    zoomAround,
+    zoomedView,
+    type Zoom,
+  } from "../../lib/preview/geometry";
   import { startedCount } from "../../lib/timeline/lanes";
   import { pad4 } from "../../lib/format";
   import type { StepOf } from "../../lib/types";
@@ -12,18 +21,50 @@
   let stageW = $state(0);
   let stageH = $state(0);
   const aspect = $derived(stageW > 0 && stageH > 0 ? stageW / stageH : PREVIEW_ASPECT);
-  /** The visible part of the desktop: zoomed to the macro, or everything while recording. */
-  const d = $derived.by(() => {
-    if (relay.mode === "recording") return relay.desktop;
-    const points = [
-      ...relay.moves,
-      ...relay.steps.flatMap((s) => ("x" in s ? [{ x: s.x, y: s.y }] : [])),
-    ];
-    const anchor = relay.view?.recording.anchor_window?.rect;
-    return fitView(relay.desktop, points, anchor ? [anchor] : [], undefined, aspect);
+  // The whole desktop, fitted to the drawing, so resizing never hides any of
+  // it; the wheel zooms in around the pointer, a drag pans, a double-click
+  // (or Fit) fits it again. Another macro, or a recording, starts fitted.
+  let zoom = $state<Zoom | null>(null);
+  $effect(() => {
+    void relay.view?.id;
+    void relay.recording;
+    zoom = null;
   });
-  /** The design was drawn on a 1600-wide viewBox; scale its sizes to the real desktop. */
-  const k = $derived(d.w / 1600);
+  /** The visible part of the desktop. */
+  const d = $derived(zoomedView(relay.desktop, aspect, zoom));
+  /**
+   * The design was drawn on a 1600-wide viewBox in a 600 px preview: sizes
+   * scaled by `k` stay the same on screen at any zoom and pane size.
+   */
+  const k = $derived(((d.w / (stageW || 600)) * 600) / 1600);
+
+  let stage: HTMLDivElement | undefined = $state();
+  /** The desktop point under the pointer. */
+  function pointAt(e: MouseEvent) {
+    const r = stage!.getBoundingClientRect();
+    return { x: d.x + ((e.clientX - r.left) / (r.width || 1)) * d.w, y: d.y + ((e.clientY - r.top) / (r.height || 1)) * d.h };
+  }
+  function onWheel(e: WheelEvent) {
+    zoom = zoomAround(relay.desktop, aspect, zoom, pointAt(e), Math.pow(1.25, -e.deltaY / 100));
+  }
+  let dragging: { x: number; y: number } | null = $state(null);
+  function onDown(e: PointerEvent) {
+    if (e.button !== 0 || !zoom) return;
+    dragging = { x: e.clientX, y: e.clientY };
+    try {
+      stage!.setPointerCapture(e.pointerId);
+    } catch {
+      // Already up: the drag follows its events anyway.
+    }
+  }
+  function onMove(e: PointerEvent) {
+    if (!dragging) return;
+    const r = stage!.getBoundingClientRect();
+    const per = d.w / (r.width || 1); // desktop px per screen px
+    zoom = pan(relay.desktop, aspect, zoom, (dragging.x - e.clientX) * per, (dragging.y - e.clientY) * per);
+    dragging = { x: e.clientX, y: e.clientY };
+  }
+  const fit = () => (zoom = null);
   const cur = $derived(Math.min(relay.cur, relay.duration));
 
   const path = $derived(pathD(relay.moves));
@@ -112,6 +153,9 @@
       </span>
     {/if}
     <span class="info" class:cond={activeCond} title={info}>{info}</span>
+    {#if zoom}
+      <button class="fit" title="Show the whole screen" onclick={fit}>{Math.round(zoom.scale * 100)}% · Fit</button>
+    {/if}
     {#if relay.mode !== "recording"}
       <span class="bg" title={hasScreen ? "" : "No screenshot: this macro was recorded without one"}>
         <Segmented
@@ -125,7 +169,22 @@
     {/if}
     <span class="coords"><span class="axis">X</span> {pad4(cm.x)} <span class="axis">Y</span> {pad4(cm.y)}</span>
   </div>
-  <div class="stage" bind:clientWidth={stageW} bind:clientHeight={stageH}>
+  <!-- svelte-ignore a11y_no_static_element_interactions: the wheel, drag and double-click only move the view; Fit in the bar does it by keyboard -->
+  <div
+    class="stage"
+    class:zoomed={zoom}
+    class:dragging
+    bind:this={stage}
+    bind:clientWidth={stageW}
+    bind:clientHeight={stageH}
+    title="Scroll to zoom; drag to move; double-click to see it all"
+    onwheel={onWheel}
+    onpointerdown={onDown}
+    onpointermove={onMove}
+    onpointerup={() => (dragging = null)}
+    onlostpointercapture={() => (dragging = null)}
+    ondblclick={fit}
+  >
     <svg viewBox="{d.x} {d.y} {d.w} {d.h}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">
       {#if shot}
         <!-- Dimmed, so the path and the clicks stay readable over it. -->
@@ -306,6 +365,28 @@
   }
   .bar > .bg {
     padding: 0 8px;
+  }
+  .fit {
+    flex: none;
+    border: 0;
+    border-left: 2px solid var(--color-divider);
+    background: transparent;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 0 10px;
+    cursor: pointer;
+    color: var(--color-text);
+    white-space: nowrap;
+  }
+  .fit:hover {
+    background: var(--color-neutral-200);
+  }
+  .stage.zoomed {
+    cursor: grab;
+  }
+  .stage.dragging {
+    cursor: grabbing;
   }
   .coords {
     border-left: 2px solid var(--color-divider);

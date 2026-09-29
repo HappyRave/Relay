@@ -218,13 +218,25 @@ describe("the library, like library.rs", () => {
 
 describe("the window, like window_ctl.rs", () => {
   test("dividers are saved sanitized, as Panes::sanitized does, and a reset clears them", async () => {
-    await invoke("save_panes", { panes: { preview_w: -5, timeline_h: 1e9 } });
-    expect((await invoke<{ panes: unknown }>("window_prefs")).panes).toEqual({ preview_w: null, timeline_h: 10_000 });
+    await invoke("save_panes", { panes: { preview_w: -5, transport_h: 90, timeline_h: 1e9 } });
+    expect((await invoke<{ panes: unknown }>("window_prefs")).panes).toEqual({ preview_w: null, transport_h: 90, timeline_h: 10_000 });
     await invoke("save_panes", { panes: { preview_w: 480 } });
-    expect(core.window.panes).toEqual({ preview_w: 480, timeline_h: null });
+    expect(core.window.panes).toEqual({ preview_w: 480, transport_h: null, timeline_h: null });
     await invoke("reset_layout");
-    expect(core.window.panes).toEqual({ preview_w: null, timeline_h: null });
+    expect(core.window.panes).toEqual({ preview_w: null, transport_h: null, timeline_h: null });
     await expect(invoke("save_panes", { panes: { preview_w: "wide" } })).rejects.toMatch(/invalid args `panes`/);
+    // NaN is null over JSON, which Rust drops like any other non-size.
+    await invoke("save_panes", { panes: { preview_w: NaN, transport_h: 90, timeline_h: null } });
+    expect(core.window.panes).toEqual({ preview_w: null, transport_h: 90, timeline_h: null });
+  });
+
+  test("fit_window remembers the mode, as window_ctl::fit does, and checks its arguments", async () => {
+    await invoke("fit_window", { width: 604, height: 68, expanded: false });
+    expect((await invoke<{ expanded: boolean }>("window_prefs")).expanded).toBe(false);
+    await invoke("fit_window", { width: 0, height: 0, expanded: true });
+    expect((await invoke<{ expanded: boolean }>("window_prefs")).expanded).toBe(true);
+    await expect(invoke("fit_window", { width: 604, height: 68 })).rejects.toMatch(/invalid args `expanded`/);
+    expect(() => core.fail("fit_window")).toThrow();
   });
 });
 
@@ -316,6 +328,7 @@ describe("settings and saving", () => {
   test("missing settings fall back to the defaults; unknown values are refused", async () => {
     expect(await invoke("update_settings", { settings: { countdown: false } })).toEqual({ ...DEFAULT_SETTINGS, countdown: false });
     await expect(invoke("update_settings", { settings: { keep_on_top: "sometimes" } })).rejects.toContain("unknown variant");
+    await expect(invoke("update_settings", { settings: { preview_background: "photo" } })).rejects.toContain("unknown variant");
   });
 
   test("a change that couldn't be written is kept, and the engine stream says so", async () => {

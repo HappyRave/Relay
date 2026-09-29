@@ -215,18 +215,21 @@ class Page {
     await until(async () => (await this.store("view.id")) === id, { what: "the macro to open" });
   }
 
-  /** Whether the control with exactly this name is disabled (it must exist). */
-  disabled(name, { role } = {}) {
+  /** Whether the control with exactly this name (inside `within`, if given) is disabled (it must exist). */
+  disabled(name, { role, within } = {}) {
     return this.run(
-      (name, role) => {
+      (name, role, within) => {
+        const root = within ? document.querySelector(within) : document;
+        if (!root) throw new Error(`no ${within}`);
         const label = (el) => (el.getAttribute("aria-label") ?? el.textContent ?? "").replace(/\s+/g, " ").trim();
         const selector = role ? `[role="${role}"]` : 'button, [role="button"], [role="tab"], [role="switch"], [role="radio"]';
-        const el = [...document.querySelectorAll(selector)].find((c) => label(c) === name);
+        const el = [...root.querySelectorAll(selector)].find((c) => label(c) === name);
         if (!el) throw new Error(`no control named “${name}”`);
         return el.disabled || el.getAttribute("aria-disabled") === "true";
       },
       name,
       role ?? null,
+      within ?? null,
     );
   }
 

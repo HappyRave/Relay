@@ -130,6 +130,97 @@ describe("Preview", () => {
     });
   });
 
+  describe("the view", () => {
+    const viewBox = (c: Element) => c.querySelector("svg")!.getAttribute("viewBox")!.split(" ").map(Number);
+    /** The drawing laid out at 600 × 302 (jsdom has no layout). */
+    const layOut = (c: Element) => {
+      const stage = c.querySelector(".stage") as HTMLElement;
+      stage.getBoundingClientRect = () => ({ left: 0, top: 36, width: 600, height: 302, right: 600, bottom: 338 }) as DOMRect;
+      return stage;
+    };
+
+    test("shows the whole screen, fitted to the drawing, so none of it is hidden", () => {
+      const { container } = render(Preview);
+      // The sample's 1920 × 1080 monitor in a 600 × 302 drawing: its full height, centered.
+      const [x, y, w, h] = viewBox(container);
+      expect([y, h]).toEqual([0, 1080]);
+      expect(x).toBeLessThan(0);
+      expect(x + w / 2).toBeCloseTo(960);
+      expect(screen.queryByRole("button", { name: /Fit/ })).toBeNull();
+    });
+
+    test("the wheel zooms in around the pointer; Fit shows it all again", async () => {
+      const { container } = render(Preview);
+      const stage = layOut(container);
+      const [fx, , fw] = viewBox(container);
+      // The pointer a quarter of the way across the drawing; six notches in (1.25⁶ ≈ 3.8×).
+      await fireEvent.wheel(stage, { deltaY: -600, clientX: 150, clientY: 36 + 151 });
+      const [x, , w] = viewBox(container);
+      expect(w).toBeCloseTo(fw / 1.25 ** 6);
+      expect(x + w / 4).toBeCloseTo(fx + fw / 4); // the point under the pointer stayed there
+      await fireEvent.click(screen.getByRole("button", { name: "381% · Fit" }));
+      expect(viewBox(container)[2]).toBeCloseTo(fw);
+      expect(screen.queryByRole("button", { name: /Fit/ })).toBeNull();
+    });
+
+    test("zoomed in, dragging moves the view; a double-click shows it all", async () => {
+      const { container } = render(Preview);
+      const stage = layOut(container);
+      await fireEvent.wheel(stage, { deltaY: -400, clientX: 300, clientY: 187 });
+      const [x0, y0, w] = viewBox(container);
+      await fireEvent.pointerDown(stage, { button: 0, pointerId: 1, clientX: 300, clientY: 187 });
+      await fireEvent.pointerMove(stage, { pointerId: 1, clientX: 250, clientY: 177 });
+      await fireEvent.pointerUp(stage, { pointerId: 1, clientX: 250, clientY: 177 });
+      const [x1, y1] = viewBox(container);
+      const per = w / 600; // desktop px per drawing px
+      expect(x1 - x0).toBeCloseTo(50 * per);
+      expect(y1 - y0).toBeCloseTo(10 * per);
+      await fireEvent.dblClick(stage);
+      expect(viewBox(container)[3]).toBe(1080);
+    });
+
+    test("at the whole screen, a drag doesn't move it, and zooming out does nothing", async () => {
+      const { container } = render(Preview);
+      const stage = layOut(container);
+      const before = viewBox(container);
+      await fireEvent.pointerDown(stage, { button: 0, pointerId: 1, clientX: 300, clientY: 187 });
+      await fireEvent.pointerMove(stage, { pointerId: 1, clientX: 100, clientY: 100 });
+      await fireEvent.wheel(stage, { deltaY: 300, clientX: 300, clientY: 187 });
+      expect(viewBox(container)).toEqual(before);
+    });
+
+    test("markers keep their size on screen when zooming in", async () => {
+      const { container } = render(Preview);
+      const stage = layOut(container);
+      const size = () => {
+        const r = container.querySelector("svg > g:not(:first-of-type) > rect")!;
+        return Number(r.getAttribute("width")) / (viewBox(container)[2] / 600); // drawing px
+      };
+      const at1 = size();
+      await fireEvent.wheel(stage, { deltaY: -400, clientX: 300, clientY: 187 });
+      expect(size()).toBeCloseTo(at1);
+    });
+
+    test("a recording starts with the whole screen", async () => {
+      const { container } = render(Preview);
+      await fireEvent.wheel(layOut(container), { deltaY: -400, clientX: 300, clientY: 187 });
+      core.emit({ type: "session", mode: "recording", macro_id: null });
+      await settle();
+      expect(screen.queryByRole("button", { name: /Fit/ })).toBeNull();
+      // The sample's desktop, fitted: its full height.
+      expect(viewBox(container)[3]).toBe(1080);
+    });
+
+    test("another macro opens with the whole screen", async () => {
+      const { container } = render(Preview);
+      await fireEvent.wheel(layOut(container), { deltaY: -400, clientX: 300, clientY: 187 });
+      expect(screen.getByRole("button", { name: /Fit/ })).toBeInTheDocument();
+      await relay.loadMacro("00000000-0000-0000-0000-000000000002");
+      await settle();
+      expect(screen.queryByRole("button", { name: /Fit/ })).toBeNull();
+    });
+  });
+
   test("the bar names the step under the playhead, as the steps list does", async () => {
     const { container } = render(Preview);
     expect(container.querySelector(".info")).toHaveTextContent(/^$/);
@@ -231,7 +322,11 @@ describe("Preview", () => {
       steps: [],
     });
     await settle();
-    expect(container.querySelector("svg")!.getAttribute("viewBox")).toBe("-1280 0 3200 1080");
+    // The whole live desktop, fitted to the drawing: its full width, centered vertically.
+    const [x, y, w, h] = container.querySelector("svg")!.getAttribute("viewBox")!.split(" ").map(Number);
+    expect([x, w]).toEqual([-1280, 3200]);
+    expect(y).toBeLessThan(0);
+    expect(y + h / 2).toBeCloseTo(540);
     expect(container.querySelectorAll("svg > g:first-child rect")).toHaveLength(0);
   });
 

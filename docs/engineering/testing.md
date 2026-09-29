@@ -110,12 +110,14 @@ The engine is the best example of the approach: `Engine::advance(now)` takes tim
 
 ## The frontend
 
-[Vitest](https://vitest.dev) runs in jsdom with [Testing Library](https://testing-library.com/docs/svelte-testing-library/intro). The pure modules in `src/lib/` have their own tests: formatting, lanes, geometry and hotkey capture. Everything else runs against a **fake Rust core**:
+[Vitest](https://vitest.dev) runs in jsdom with [Testing Library](https://testing-library.com/docs/svelte-testing-library/intro). The pure modules in `src/lib/` have their own tests: formatting, lanes (and the ruler's step for its width), the preview's view (the whole desktop fitted, zoom around the pointer, pan, never past an edge), the editor's dividers (`layout.ts`: `paneLayout` down to Rust's `MIN_EXPANDED`, `transportScale`), step titles and the typed-text tail (`display.ts`), and hotkey capture. Everything else runs against a **fake Rust core**:
 
 - [`src/test/fake-core.ts`](../../src/test/fake-core.ts) sits behind Tauri's own IPC mock (`@tauri-apps/api/mocks`). The UI runs its real `tauriBackend`, and every `invoke` lands in the fake, which records every call (`core.calls`, `core.argsOf("edit_macro")`). **It answers the way the Rust side does**, so a test can't pass on behavior the real app doesn't have, and [`fake-core.test.ts`](../../src/test/fake-core.test.ts) pins that:
   - the library like `library.rs`: the samples seeded with their hotkeys off, only enabled hotkeys in the list, "X (copy)" then "X (copy) 2", restore back in place, imports at the top with unique names (from `core.files`);
   - edits and undo like `edit.rs` and `history.rs` ([`fake-edit.ts`](../../src/test/fake-edit.ts)): inserts snap after the step under the playhead and push the rest later, deleting a wait closes its gap, pauses retime what follows, event indices renumber, wrong-kind edits are refused with Rust's messages, undo restores the name and steps but not the playback options, quick renames merge;
   - refusals: `busy` for deletes and edits during a session (`core.mode`), hotkeys like `hotkeys.rs` (Relay's own, another macro's, Shift + a character, modifier-only, malformed), arguments of the wrong type;
+  - screenshots as raw bytes (empty when there's none, never an error), copied with a duplicate;
+  - the window like `window_ctl.rs`: `fit_window` remembers the mode, `save_panes` sanitized as `Panes::sanitized` does (NaN arrives as null), `reset_layout`;
   - `update_settings` fills in defaults; `set_triggers_paused` emits `triggers_paused`; errors sent before the UI subscribes are queued.
 
   A test can make a command fail (`core.fail`, which refuses commands that can't fail in Rust: for those, `core.saveError` makes the save fail and an `error` message follow, as Rust does), answer it differently (`core.on`), or hold its response until the test releases it (`core.hold`, `core.held`). `core.emit(msg)` delivers an engine message the way the coordinator does, and `core.emitLater(msg)` after a frame, for ordering bugs. `core.view(id)` returns a copy.
@@ -124,10 +126,10 @@ The engine is the best example of the approach: `Engine::advance(now)` takes tim
 | Tests | What's covered |
 | --- | --- |
 | [`backend.test.ts`](../../src/lib/ipc/backend.test.ts) | Every `Backend` method sends one command with the argument names Rust expects; the export and import dialogs, including cancelling; the browser preview's simulation (countdown, loops, pause, seek, speed, forever) |
-| [`relay.test.ts`](../../src/lib/state/relay.test.ts) | The store: startup, every engine message, each action and its guards (busy sessions, nothing open), dropping responses for a macro the user left, rename debouncing, undo and redo, Pick's countdown, toasts, keyboard shortcuts in the app and the browser |
-| `src/components/**/*.test.ts` | Every button, switch, radio and field in every component, checked by the command it sends: the header, the transport, each tab, the step editor, the preview and timeline (including seeking by pointer), the compact player, the export dialog, the app shell and the demo desktop |
+| [`relay.test.ts`](../../src/lib/state/relay.test.ts) | The store: startup, every engine message, each action and its guards (busy sessions, nothing open), dropping responses for a macro the user left (a slow screenshot too; the screenshot's object URL is revoked when another macro opens or the last one is deleted), rename debouncing, undo and redo, Pick's countdown, toasts, keyboard shortcuts in the app and the browser |
+| `src/components/**/*.test.ts` | Every button, switch, radio and field in every component, checked by the command it sends: the header, the transport, each tab, the step editor, the preview (its bar, the screenshot and Screen / Sketch, zooming, panning and Fit) and timeline (including seeking by pointer), the dividers (`Splitter`: drag, keys, double-click; the editor's three, saved once per drag; the button row's scale), the compact player, the export dialog, the app shell (the compact player reports its size, the editor doesn't) and the demo desktop |
 
-jsdom has no layout, so tests that seek by pointer stub `getBoundingClientRect`. [`src/test/setup.ts`](../../src/test/setup.ts) fills in what jsdom lacks: `<dialog>`, `ResizeObserver` and animation frames.
+jsdom has no layout, so tests that seek by pointer stub `getBoundingClientRect`. [`src/test/setup.ts`](../../src/test/setup.ts) fills in what jsdom lacks: `<dialog>`, `ResizeObserver`, pointer capture, object URLs and animation frames. With no layout, nothing is measured: the dividers show the saved values unclamped and the preview uses the default drawing's shape, so what depends on real sizes (the layout at a bigger editor, the preview's aspect following its pane, taller lanes) is checked end to end.
 
 ## End-to-end testing
 

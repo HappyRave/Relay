@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-- **Resizable editor:** drag the window's edges to make the editor bigger or smaller, and the dividers to share it between the preview, the side panel and the timeline (a taller timeline gets taller lanes). Double-click a divider to put it back, or use *Settings → Window → Reset layout*. Relay remembers the size and the dividers; the compact player keeps its size.
+- **Preview:** it now shows your whole screen (every monitor), whatever the size of the pane, instead of zooming to where the macro happens. Scroll to zoom in, drag to move around, double-click or *Fit* to see it all again.
+- **Resizable editor:** drag the window's edges to make the editor bigger or smaller, and the dividers to share it between the preview, the side panel, the buttons (a taller row makes them bigger) and the timeline (a taller timeline gets taller lanes). Double-click a divider to put it back, or use *Settings → Window → Reset layout*. Relay remembers the size and the dividers; the compact player keeps its size.
 - **Screenshots:** each new recording saves a picture of your screen as it starts (without Relay's widget), and the preview draws the macro over it. A **Screen | Sketch** switch in the bar above the preview goes back to the outlines. The picture stays on this PC: exports never include it. *Settings → Recording → Screenshot* turns it off.
 - **Preview:** the mode, keys and typed text, and the cursor's coordinates moved from over the drawing into a bar above it, which also names the step under the playhead. Nothing covers the mouse path or the clicks anymore.
 - **Several monitors:** dragging the widget onto a monitor with a different resolution or display scaling no longer leaves it drawn in a corner of an oversized (or clipped) window.

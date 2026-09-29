@@ -46,13 +46,15 @@ impl Default for WindowPrefs {
     }
 }
 
-/// The editor's dividers, in CSS px: the preview's width and the timeline's
-/// height (`None`: the default). The UI keeps them inside the window.
+/// The editor's dividers, in CSS px: the preview's width, and the heights of
+/// the button row and the timeline (`None`: the default). The UI keeps them
+/// inside the window.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, TS)]
 #[serde(default)]
 #[ts(export)]
 pub struct Panes {
     pub preview_w: Option<f64>,
+    pub transport_h: Option<f64>,
     pub timeline_h: Option<f64>,
 }
 
@@ -61,7 +63,7 @@ impl Panes {
     /// that isn't a size is dropped, a huge one is capped.
     pub fn sanitized(self) -> Panes {
         let ok = |v: Option<f64>| v.filter(|v| v.is_finite() && *v > 0.0).map(|v| v.min(10_000.0));
-        Panes { preview_w: ok(self.preview_w), timeline_h: ok(self.timeline_h) }
+        Panes { preview_w: ok(self.preview_w), transport_h: ok(self.transport_h), timeline_h: ok(self.timeline_h) }
     }
 }
 
@@ -307,12 +309,18 @@ pub fn fit(window: &WebviewWindow, state: &WindowState, css: (f64, f64), expande
         let mut p = state.prefs.lock();
         let changed = p.expanded != expanded;
         p.expanded = expanded;
-        (changed, if expanded { expanded_size(&p) } else { css })
+        (changed, fit_css(&p, css, expanded))
     };
     if *state.size.lock() != css || changed {
         place(window, state, css);
         state.save();
     }
+}
+
+/// The size [`fit`] gives the widget: the compact player's as the UI measured
+/// it (`css`), or the editor's own (the UI sends 0 × 0 for it).
+pub fn fit_css(prefs: &WindowPrefs, css: (f64, f64), expanded: bool) -> (f64, f64) {
+    if expanded { expanded_size(prefs) } else { css }
 }
 
 /// *Reset layout*: the editor goes back to its default size and dividers.
@@ -401,7 +409,7 @@ static RESIZING: AtomicBool = AtomicBool::new(false);
 /// The outer size the window keeps for the rest of a drag (width in the high
 /// half, height in the low one), or 0. Windows' move loop keeps the size it
 /// suggested for a new scale (often a pixel or two off) and re-applies it on
-/// every mouse move, which would undo [`rescale`]'s; [`keep_size_while_dragging`]
+/// every mouse move, which would undo [`rescale`]'s; [`watch_move_size`]
 /// substitutes this one.
 static HELD_SIZE: AtomicU64 = AtomicU64::new(0);
 
@@ -792,7 +800,7 @@ mod tests {
         assert_eq!(fresh.prefs().anchor, None);
         assert_eq!(*fresh.size.lock(), EXPANDED);
 
-        let panes = Panes { preview_w: Some(520.0), timeline_h: Some(180.0) };
+        let panes = Panes { preview_w: Some(520.0), transport_h: Some(110.0), timeline_h: Some(180.0) };
         *fresh.prefs.lock() =
             WindowPrefs { expanded: false, anchor: Some((-300, 700)), size: Some((1200.0, 800.0)), panes };
         fresh.save();
@@ -816,6 +824,20 @@ mod tests {
         assert_eq!(expanded_size(&p), (1400.0, 900.0));
         p.size = Some((300.0, 900.0));
         assert_eq!(expanded_size(&p), (MIN_EXPANDED.0, 900.0), "a size from a hand-edited file");
+    }
+
+    #[test]
+    fn the_ui_sizes_the_compact_player_and_never_the_editor() {
+        let mut p = WindowPrefs::default();
+        assert_eq!(fit_css(&p, COMPACT, false), COMPACT);
+        assert_eq!(fit_css(&p, (0.0, 0.0), true), EXPANDED, "the editor's 0 × 0 is ignored");
+        p.size = Some((1200.0, 800.0));
+        assert_eq!(fit_css(&p, (0.0, 0.0), true), (1200.0, 800.0));
+        assert_eq!(
+            fit_css(&p, (604.0, 68.0), false),
+            (604.0, 68.0),
+            "the user's editor size isn't the compact player's"
+        );
     }
 
     #[test]
@@ -850,9 +872,9 @@ mod tests {
         assert_eq!(state.prefs().size, Some((1200.0, 800.0)));
         assert_eq!(state.prefs().anchor, Some((900, 1000)));
         assert!(state.dirty.lock().is_some(), "saved once the resize pauses");
-        state.set_panes(Panes { preview_w: Some(700.0), timeline_h: None });
+        state.set_panes(Panes { preview_w: Some(700.0), ..Panes::default() });
         let saved = WindowState::open(dir.path()).prefs();
-        assert_eq!(saved.panes, Panes { preview_w: Some(700.0), timeline_h: None }, "saved at once");
+        assert_eq!(saved.panes, Panes { preview_w: Some(700.0), ..Panes::default() }, "saved at once");
 
         state.reset_layout();
         let reset = WindowState::open(dir.path()).prefs();
@@ -862,10 +884,10 @@ mod tests {
 
     #[test]
     fn panes_that_arent_sizes_are_dropped() {
-        let p = Panes { preview_w: Some(f64::NAN), timeline_h: Some(-5.0) }.sanitized();
+        let p = Panes { preview_w: Some(f64::NAN), transport_h: Some(0.0), timeline_h: Some(-5.0) }.sanitized();
         assert_eq!(p, Panes::default());
-        let p = Panes { preview_w: Some(1e9), timeline_h: Some(120.0) }.sanitized();
-        assert_eq!(p, Panes { preview_w: Some(10_000.0), timeline_h: Some(120.0) });
+        let p = Panes { preview_w: Some(1e9), transport_h: Some(100.0), timeline_h: Some(120.0) }.sanitized();
+        assert_eq!(p, Panes { preview_w: Some(10_000.0), transport_h: Some(100.0), timeline_h: Some(120.0) });
     }
 
     #[test]
@@ -880,6 +902,6 @@ mod tests {
         assert_eq!(p.anchor, Some((5, 6)));
         assert_eq!((p.size, p.panes), (None, Panes::default()));
         std::fs::write(dir.path().join("window.json"), r#"{"panes":{"preview_w":480}}"#).unwrap();
-        assert_eq!(WindowState::open(dir.path()).prefs().panes, Panes { preview_w: Some(480.0), timeline_h: None });
+        assert_eq!(WindowState::open(dir.path()).prefs().panes, Panes { preview_w: Some(480.0), ..Panes::default() });
     }
 }

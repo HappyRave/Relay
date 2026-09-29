@@ -6,7 +6,7 @@
 
   let vw = $state(window.innerWidth);
   let vh = $state(window.innerHeight);
-  let size = $state({ w: 944, h: 616 });
+  let size = $state({ w: 944, h: 612 });
   let now = $state(new Date());
 
   $effect(() => {

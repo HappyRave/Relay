@@ -596,9 +596,13 @@ describe("library", () => {
 
   test("deleting the only macro leaves nothing open", async () => {
     for (const id of [B, C, D]) await relay.deleteMacro(id);
+    core.screens.set(A, new Uint8Array([1]));
+    await relay.loadMacro(A);
+    expect(relay.screenUrl).not.toBeNull();
     await relay.deleteMacro(A);
     expect(relay.library).toEqual([]);
     expect(relay.view).toBeNull();
+    expect(relay.screenUrl).toBeNull(); // its screenshot goes with it
     expect(relay.triggerStatus).toBeNull(); // nothing for the Triggers tab to write to
   });
 

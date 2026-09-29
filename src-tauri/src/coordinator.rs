@@ -126,6 +126,14 @@ struct Recording {
 /// A JPEG of the desktop, and the desktop's rect when it was taken.
 type Screenshot = (Rect, Vec<u8>);
 
+/// The screenshot to keep with a new recording: only one of the desktop the
+/// macro was recorded on (a monitor plugged in or out meanwhile would put it
+/// in the wrong place), and none if none was taken (the setting was off, or
+/// the screen couldn't be read).
+fn screenshot_to_save(shot: Option<Screenshot>, desktop: Rect) -> Option<Vec<u8>> {
+    shot.filter(|(area, _)| *area == desktop).map(|(_, jpeg)| jpeg)
+}
+
 /// The playback in progress.
 struct Playback {
     engine: EngineHandle,
@@ -506,7 +514,7 @@ impl Coordinator {
         };
         // Only if it shows the desktop the macro was recorded on (a monitor
         // plugged in or out meanwhile would misplace it).
-        if let Some((_, jpeg)) = snapshot.filter(|(area, _)| *area == meta_desktop)
+        if let Some(jpeg) = screenshot_to_save(snapshot, meta_desktop)
             && let Err(e) = crate::screens::save(&crate::storage::data_dir(&self.app), id, &jpeg)
         {
             self.emit
@@ -679,6 +687,22 @@ fn playhead_after(reason: FinishReason, duration: Ms, timed_out_at: Option<Ms>) 
         FinishReason::Completed => duration as f64,
         FinishReason::PixelTimeout => timed_out_at.unwrap_or(0) as f64,
         FinishReason::Stopped | FinishReason::KeyPressed | FinishReason::Killed | FinishReason::Error => 0.0,
+    }
+}
+
+#[cfg(test)]
+mod screenshot_tests {
+    use super::*;
+
+    #[test]
+    fn a_screenshot_is_kept_only_if_it_shows_the_recordings_desktop() {
+        let desktop = Rect { x: 0, y: 0, w: 6400, h: 1600 };
+        assert_eq!(screenshot_to_save(Some((desktop, vec![1, 2])), desktop), Some(vec![1, 2]));
+        // A monitor unplugged during the recording: the desktop changed.
+        let smaller = Rect { w: 4480, ..desktop };
+        assert_eq!(screenshot_to_save(Some((smaller, vec![1, 2])), desktop), None);
+        // None was taken (Screenshot off, or a locked screen).
+        assert_eq!(screenshot_to_save(None, desktop), None);
     }
 }
 

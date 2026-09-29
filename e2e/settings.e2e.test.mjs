@@ -1,6 +1,8 @@
 // Settings and the window against the real app: every setting reaches
 // settings.json, Keep on top changes the native window, the compact player
-// resizes it, and the close button hides or quits.
+// resizes it, the editor and its dividers resize and are remembered (and
+// Relay's own resizes aren't taken for the user's), and the close button
+// hides or quits.
 import { after, afterEach, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
@@ -128,6 +130,15 @@ describe("settings and window", () => {
     await page.click("Expand");
     await until(async () => (await size())[1] > h * 0.9, { what: "the window to grow" });
     await until(() => app.json("window.json").expanded === true, { what: "window.json" });
+    // Relay resized the window itself, twice: that's not the user's size for the editor.
+    assert.equal(app.json("window.json").size, null);
+  });
+
+  test("a resize that isn't the user's (no drag of an edge) isn't saved as the editor's size", async () => {
+    await page.invoke("plugin:window|set_size", { label: "main", value: { Logical: { width: 900, height: 600 } } });
+    await sleep(1200); // longer than the save after a resize
+    assert.equal(app.json("window.json").size ?? null, null);
+    await page.invoke("reset_layout");
   });
 
   test("switching to the compact player keeps the widget's bottom-center", async () => {
@@ -193,18 +204,45 @@ describe("settings and window", () => {
 
   test("the dividers are saved to window.json and survive a restart; double-click resets one", async () => {
     assert.equal(await widthOf(".preview"), 600, "the design's layout by default");
+    const play = () => page.run(() => Math.round(document.querySelector('[aria-label="Play"]').getBoundingClientRect().height));
+    const smallPlay = await play();
     assert.equal(await heightOf(".timeline-pane"), 146);
     await dragDivider("Resize preview", "clientX", -100);
     await until(() => panes()?.preview_w === 500, { what: "the preview's width saved" });
     await dragDivider("Resize timeline", "clientY", -60); // up: a taller timeline
     await until(() => panes()?.timeline_h === 206, { what: "the timeline's height saved" });
+    await dragDivider("Resize buttons", "clientY", -20); // up: a taller button row, bigger buttons
+    await until(() => panes()?.transport_h === 96, { what: "the button row's height saved" });
     assert.equal(await widthOf(".preview"), 500);
     assert.equal(await heightOf(".timeline-pane"), 206);
+    assert.equal(await heightOf(".transport-pane"), 96);
+    // A taller timeline has taller lanes.
+    assert.ok((await heightOf(".lanes .lane")) > 26);
+    // The narrower preview still shows the whole desktop, at the drawing's shape.
+    const fits = await page.run(() => {
+      const [x, y, w, h] = document.querySelector(".stage svg").getAttribute("viewBox").split(" ").map(Number);
+      const stage = document.querySelector(".stage");
+      const d = window.__relay.desktop;
+      const inside = x <= d.x + 0.5 && y <= d.y + 0.5 && x + w >= d.x + d.w - 0.5 && y + h >= d.y + d.h - 0.5;
+      return { inside, aspect: Math.abs(w / h - stage.clientWidth / stage.clientHeight) < 0.01 };
+    });
+    assert.deepEqual(fits, { inside: true, aspect: true });
+    // The buttons are drawn bigger (by up to 96 / 76, as far as the row's width lets them).
+    const bigPlay = await play();
+    assert.ok(bigPlay > smallPlay && bigPlay <= Math.ceil((smallPlay * 96) / 76), `${smallPlay} → ${bigPlay}`);
 
     page = await app.restart();
-    assert.deepEqual(await page.store("panes"), { preview_w: 500, timeline_h: 206 });
+    assert.deepEqual(await page.store("panes"), { preview_w: 500, transport_h: 96, timeline_h: 206 });
     await until(async () => (await widthOf(".preview")) === 500, { what: "the preview as it was left" });
     assert.equal(await heightOf(".timeline-pane"), 206);
+    assert.equal(await play(), bigPlay);
+    await page.run(() => {
+      const el = document.querySelector('[role="separator"][aria-label="Resize buttons"]');
+      el.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+      return true;
+    });
+    await until(() => panes()?.transport_h === null, { what: "the button row reset" });
+    await until(async () => (await play()) === smallPlay, { what: "the buttons back to their size" });
 
     await page.run(() => {
       const el = document.querySelector('[role="separator"][aria-label="Resize preview"]');
@@ -219,26 +257,35 @@ describe("settings and window", () => {
     await app.quit();
     const saved = app.json("window.json");
     // 980 × 700 fits a 1024 × 768 screen (the CI runner's) without being shrunk.
-    writeFileSync(app.path("window.json"), JSON.stringify({ ...saved, expanded: true, size: [980, 700] }));
+    const layout = { expanded: true, size: [980, 700], panes: { preview_w: null, transport_h: null, timeline_h: 206 } };
+    writeFileSync(app.path("window.json"), JSON.stringify({ ...saved, ...layout }));
     page = await app.start();
-    const scale = await page.invoke("plugin:window|scale_factor", { label: "main" });
-    const inner = await page.invoke("plugin:window|inner_size", { label: "main" });
-    assert.deepEqual([inner.width, inner.height], [Math.round(980 * scale), Math.round(700 * scale)]);
-    await until(async () => (await widthOf(".panel")) === 980 - 4 - 600 - 2, { what: "the side panel to take the room" });
-    assert.equal(await widthOf(".preview"), 600);
-    assert.equal(await heightOf(".timeline-pane"), 206, "the timeline as the user left it");
-    // The preview row got the extra height: all but the header, the transport, the timeline and the rules.
-    const rest = 700 - 4 - 44 - (await heightOf(".transport")) - 2 - 206 - 2;
-    assert.equal(await heightOf(".preview"), rest);
-    assert.ok(rest > 338);
+    try {
+      const scale = await page.invoke("plugin:window|scale_factor", { label: "main" });
+      const inner = await page.invoke("plugin:window|inner_size", { label: "main" });
+      assert.deepEqual([inner.width, inner.height], [Math.round(980 * scale), Math.round(700 * scale)]);
+      await until(async () => (await widthOf(".panel")) === 980 - 4 - 600 - 2, { what: "the side panel to take the room" });
+      assert.equal(await widthOf(".preview"), 600);
+      assert.equal(await heightOf(".timeline-pane"), 206, "the timeline as saved");
+      // The preview row got the extra height: all but the header, the button row, the timeline and two dividers.
+      const rest = 700 - 4 - 44 - 2 - (await heightOf(".transport-pane")) - 2 - 206;
+      assert.equal(await heightOf(".preview"), rest);
+      assert.ok(rest > 338);
 
-    await page.tab("Settings");
-    await page.click("Reset layout");
-    await until(async () => (await page.invoke("plugin:window|inner_size", { label: "main" })).width === Math.round(944 * scale), {
-      what: "the default size",
-    });
-    await until(() => app.json("window.json").size === null && panes().timeline_h === null, { what: "window.json reset" });
-    await until(async () => (await heightOf(".timeline-pane")) === 146, { what: "the default timeline" });
+      await page.tab("Settings");
+      await page.click("Reset layout");
+      await until(async () => (await page.invoke("plugin:window|inner_size", { label: "main" })).width === Math.round(944 * scale), {
+        what: "the default size",
+      });
+      await until(() => app.json("window.json").size === null && panes().timeline_h === null && panes().preview_w === null, {
+        what: "window.json reset",
+      });
+      await until(async () => (await heightOf(".timeline-pane")) === 146, { what: "the default timeline" });
+    } finally {
+      // Whatever happened, the tests after this one get the default layout.
+      await page.invoke("reset_layout");
+      await page.run(() => (window.__relay.movePanes({ preview_w: null, transport_h: null, timeline_h: null }), true));
+    }
   });
 
   test("× with Close to tray hides Relay, which keeps running", async () => {

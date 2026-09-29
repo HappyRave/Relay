@@ -201,6 +201,9 @@ mod tests {
         let (s, problems) = open(dir.path());
         assert!(!s.capture_keys && s.capture_moves);
         assert_eq!(s.keep_on_top, KeepOnTop::Always, "older files keep the old behavior");
+        // A file from before screenshots: taken, and shown, by default.
+        assert!(s.capture_screen);
+        assert_eq!(s.preview_background, PreviewBackground::Screen);
         assert!(problems.is_empty(), "unknown fields are fine: {problems:?}");
         assert!(!dir.path().join("settings.json.bad").exists());
     }
