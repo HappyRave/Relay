@@ -33,8 +33,8 @@ export function lastIndexAtOrBefore(moves: MovePoint[], time: number): number {
   return ans;
 }
 
-/** The preview's aspect ratio (600 × 338). */
-export const PREVIEW_ASPECT = 600 / 338;
+/** The preview drawing's aspect ratio (600 × 302, under its bar). */
+export const PREVIEW_ASPECT = 600 / 302;
 
 /**
  * The part of the desktop to show: everything the macro touches, padded, at

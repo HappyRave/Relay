@@ -64,10 +64,30 @@ describe("Preview", () => {
   });
 
   test("the cursor's coordinates, 4 digits", async () => {
-    render(Preview);
-    expect(screen.getByText(/X 0960/)).toHaveTextContent(/^X 0960\s+Y 0670$/);
+    const { container } = render(Preview);
+    expect(container.querySelector(".bar .coords")).toHaveTextContent(/^X 0960\s+Y 0670$/);
     await at(850);
-    expect(screen.getByText(/X 0134/)).toHaveTextContent(/^X 0134\s+Y 0070$/);
+    expect(container.querySelector(".bar .coords")).toHaveTextContent(/^X 0134\s+Y 0070$/);
+  });
+
+  test("the bar above the drawing holds the text, so nothing covers the drawing", async () => {
+    const { container } = render(Preview);
+    await at(4400);
+    const bar = container.querySelector(".bar")!;
+    for (const part of [".badge", ".keys", ".info", ".coords"]) expect(bar.querySelector(part)).not.toBeNull();
+    expect(container.querySelector(".stage")!.children).toHaveLength(1);
+    expect(container.querySelector(".stage svg")).toHaveAttribute("height", "302");
+  });
+
+  test("the bar names the step under the playhead, as the steps list does", async () => {
+    const { container } = render(Preview);
+    expect(container.querySelector(".info")).toHaveTextContent(/^$/);
+    await at(900);
+    expect(container.querySelector(".info")).toHaveTextContent("Step 1 · Click · File menu");
+    await at(3600);
+    expect(container.querySelector(".info")).toHaveTextContent("Step 4 · Double click · Filename field");
+    await at(3760);
+    expect(container.querySelector(".info")).toHaveTextContent("Step 5 · Ctrl + A");
   });
 
   test("numbered markers for each click, with their labels", () => {

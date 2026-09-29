@@ -28,7 +28,7 @@ Playback replays a macro's clicks, keys and mouse path with the timing you recor
 
 Playback starts **wherever the playhead is**. If it's at the end, playback starts from the beginning. <kbd>F10</kbd> uses the same playhead the widget shows: after **Stop** it's back at the start, after a complete run at the end (so F10 plays again from the beginning), and after a [pixel check timed out](05-pixel-checks.md) on that check.
 
-While playing, the preview shows a **Playing** (or **Paused**) badge with the loop and the speed of what's actually playing, for example *Loop 1 / 3 · 1×*. Record is off while a macro plays, and Play is off while recording.
+While playing, the bar above the preview shows **Playing** (or **Paused**) with the loop and the speed of what's actually playing, for example *Loop 1 / 3 · 1×*. Record is off while a macro plays, and Play is off while recording.
 
 When playback ends:
 

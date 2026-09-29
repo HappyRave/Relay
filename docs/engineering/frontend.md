@@ -31,7 +31,7 @@ src/
 ├── lib/
 │   ├── state/relay.svelte.ts   the RelayStore
 │   ├── state/selection.ts      which step the open editor follows across edits
-│   ├── state/display.ts        badge labels
+│   ├── state/display.ts        badge labels, step titles
 │   ├── fields.ts               number fields: parse, round, clamp, show the committed value
 │   ├── defaults.ts             default settings and playback options (shared with the browser preview)
 │   ├── ipc/backend.ts          Tauri and browser backends
@@ -158,11 +158,11 @@ A few that do more:
 
 ## The preview and the timeline
 
-**Preview** ([`Preview.svelte`](../../src/components/expanded/Preview.svelte), [`geometry.ts`](../../src/lib/preview/geometry.ts)): the SVG's `viewBox` is a region of the virtual desktop, in the macro's physical pixels, chosen by `fitView` to include everything the macro touches, padded and at the preview's 600:338 aspect ratio. The monitors and the anchor window are drawn as outlines. Everything is in desktop coordinates, and a scale factor `k` keeps strokes and labels the same size at any zoom.
+**Preview** ([`Preview.svelte`](../../src/components/expanded/Preview.svelte), [`geometry.ts`](../../src/lib/preview/geometry.ts)): the SVG's `viewBox` is a region of the virtual desktop, in the macro's physical pixels, chosen by `fitView` to include everything the macro touches, padded and at the drawing's 600:302 aspect ratio (the preview is 338 px tall, with a 36 px bar above the drawing). The monitors and the anchor window are drawn as outlines. Everything is in desktop coordinates, and a scale factor `k` keeps strokes and labels the same size at any zoom.
 
 - The **path** is one polyline. The played part is the same path with `stroke-dasharray = "<done length> <total>"`, where the done length comes from precomputed cumulative lengths and a binary search for the current time. So animating the red trail costs nothing per frame.
 - **Click markers** are numbered in order, with a ring that expands for 500 ms after each click. The markers don't depend on the playhead, so they're built once per macro; which ones are "reached" is a count from one binary search, and only the last reached click's ring is animated.
-- The **key overlay** shows the `KEYS` or `TYPE` step under the playhead, and for typing, only the characters typed so far.
+- The **bar** above the drawing holds all the text, so nothing covers it: the mode badge (and loop while playing), the `KEYS` or `TYPE` step under the playhead (for typing, the characters typed so far, the last 16 of them), the step under the playhead titled by `stepTitle` (shared with the steps list) or the pixel check being waited for, and the cursor coordinates.
 
 **Timeline** ([`lanes.ts`](../../src/lib/timeline/lanes.ts)): pure functions turn steps and moves into percentages. Mouse movement becomes bars (samples less than 150 ms apart join), `KEYS` chips grow up to the next chip, `TYPE` chips span their characters, and the ruler picks 1 s, 5 s or 15 s ticks from the macro's length. `currentStepIndex` and `jumpTarget` drive the highlighted row and the ◀ ▶ buttons. None of the lanes depends on the playhead except through `startedCount` (a binary search: how many clicks or chips have been reached), so drawing a frame doesn't rebuild them.
 

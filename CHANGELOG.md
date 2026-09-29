@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Preview:** the mode, keys and typed text, and the cursor's coordinates moved from over the drawing into a bar above it, which also names the step under the playhead. Nothing covers the mouse path or the clicks anymore.
 - **Several monitors:** dragging the widget onto a monitor with a different resolution or display scaling no longer leaves it drawn in a corner of an oversized (or clipped) window.
 
 ## v1.2.0: Reliability, Keep on top and a full test suite

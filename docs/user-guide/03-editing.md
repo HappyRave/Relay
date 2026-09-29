@@ -105,12 +105,19 @@ Every change you make to a macro (deleting, inserting, pauses, waits, pixel chec
 
 ## The preview
 
-The left side of the editor draws the macro over a sketch of your monitors:
+The left side of the editor draws the macro over a sketch of your monitors. Nothing is written over the drawing: a **bar above it** shows, from left to right:
+
+- The **mode**: *Preview*, *Get ready*, *● Rec*, *Playing* or *Paused*, and while playing, the loop and speed (*Loop 1 / 3 · 1×*).
+- **Keys** or **Typing**: the key combination or the text being typed at that moment (the end of it, for long text).
+- The **step under the playhead**, named as in the steps list (*Step 4 · Double click · Filename field*), or *Waiting for pixel X, Y* while a pixel check waits.
+- The cursor's **X** and **Y** at the current time.
+
+The drawing itself has:
 
 - The **mouse path**: a dashed grey line for the whole recording, and a solid red line for the part already played. With **Settings → Preview → Mouse path: Trail only**, only the red part is drawn, which is easier to read on long macros.
 - **Numbered squares** for clicks, with their labels if **Click labels** is on.
 - The **cursor**, at its position for the current time.
-- A **key overlay** in the bottom-left corner, showing the key combination or the text being typed at that moment.
+- A dashed square around a pixel check while it waits.
 
 ## The timeline
 
