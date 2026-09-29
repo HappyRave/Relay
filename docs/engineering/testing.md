@@ -97,7 +97,7 @@ When proptest finds a failure, it shrinks it to a minimal case and saves it in `
 | `settings` | Persistence and partial files |
 | `rec_thread` | The watchdog: fires on silent movement, respects the cooldown, never fires on a still cursor |
 | `triggers` | `ScheduleWatch` (on time, a few seconds late, skipped after sleep, days, shared times), `LaunchWatch` (lower-case names, the baseline, once per start, triggers switched off) and `PixelWatch` (two samples, tolerance, unreadable screens, a moved pixel) |
-| `window_ctl` | Zoom on small screens and high scaling; the layout (default spot, bottom-center anchor, kept inside the work area, negative coordinates, centering); which monitor owns an anchor; `window.json` round trips and bad files |
+| `window_ctl` | Zoom on small screens and high scaling; the layout (default spot, bottom-center anchor, kept inside the work area, negative coordinates, centering); which monitor owns an anchor; the size after a scale change (dragging or not); `window.json` round trips and bad files |
 | `commands` | Error codes for the UI, exports that import again, an import with broken and missing files |
 | `coordinator` | Click-through detection under the widget, with the window offset |
 | `ipc`, `storage` | The message stream's JSON shape and resubscribing; atomic writes |
@@ -187,6 +187,7 @@ Things learned the hard way:
 
 What automated tests can't cover well:
 
+- [ ] Drag the widget (expanded and compact) between monitors with different scaling: it keeps its size and layout
 - [ ] Record and replay in Notepad, a browser and an Office app, at 100% and 150% scaling, and across two monitors
 - [ ] Double clicks, drags (including window drags), scrolls, AltGr characters, dead keys
 - [ ] Esc, stop on key press and the kill switch during a long loop, with nothing left pressed afterwards

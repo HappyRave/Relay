@@ -4,6 +4,7 @@
 
 use parking_lot::Mutex;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -216,10 +217,138 @@ pub fn fit(window: &WebviewWindow, state: &WindowState, css: (f64, f64), expande
     }
 }
 
-/// Re-places the window at its current size (monitor or scaling changes).
-pub fn replace(window: &WebviewWindow, state: &WindowState) {
+/// Where the window goes once the scale of the monitor it's on changed (it
+/// was dragged onto another monitor, or the scaling setting changed): sized
+/// for `sf` and `zoom`. During a drag, its top-left corner stays under the
+/// cursor, where Windows put it; otherwise it's laid out at the `anchor`
+/// inside `work`.
+pub fn rescaled(
+    client: Rect,
+    work: Rect,
+    sf: f64,
+    zoom: f64,
+    css: (f64, f64),
+    anchor: Option<(i32, i32)>,
+    dragging: bool,
+) -> Rect {
+    let r = layout(work, sf, zoom, css, anchor);
+    if dragging { Rect { x: client.x, y: client.y, ..r } } else { r }
+}
+
+/// Re-sizes the window for the monitor it's on after a scale change. Call it
+/// once the window system has applied its own rect for the new scale (not
+/// from inside the `ScaleFactorChanged` event, which would be overwritten),
+/// and on the monitor Windows picked for the new scale, which isn't always
+/// the one the anchor is on.
+pub fn rescale(window: &WebviewWindow, state: &WindowState) {
+    let (Ok(Some(monitor)), Ok(pos), Ok(size)) =
+        (window.current_monitor(), window.inner_position(), window.inner_size())
+    else {
+        return;
+    };
+    let client = Rect { x: pos.x, y: pos.y, w: size.width as i32, h: size.height as i32 };
     let css = *state.size.lock();
-    place(window, state, css);
+    let zoom = zoom_for(&monitor);
+    let _ = window.set_zoom(zoom);
+    let dragging = in_move_loop(window);
+    let (work, sf) = (Rect::work_area(&monitor), monitor.scale_factor());
+    let r = rescaled(client, work, sf, zoom, css, state.prefs().anchor, dragging);
+    if r != client {
+        if !dragging {
+            *state.placed.lock() = Some(r.bottom_center());
+        }
+        set_client_rect(window, r.x, r.y, r.w, r.h);
+    }
+    if dragging {
+        if let Ok(outer) = window.outer_size() {
+            hold_size(outer.width, outer.height);
+        }
+        rescale_after_drag(window);
+    }
+}
+
+/// The outer size the window keeps for the rest of a drag (width in the high
+/// half, height in the low one), or 0. Windows' move loop keeps the size it
+/// suggested for a new scale (often a pixel or two off) and re-applies it on
+/// every mouse move, which would undo [`rescale`]'s; [`keep_size_while_dragging`]
+/// substitutes this one.
+static HELD_SIZE: AtomicU64 = AtomicU64::new(0);
+
+fn hold_size(w: u32, h: u32) {
+    HELD_SIZE.store((w as u64) << 32 | h as u64, Ordering::SeqCst);
+}
+
+/// Once the widget is dropped after a scale change, it stops holding its size,
+/// is sized again and is kept inside the work area of the monitor it's on.
+fn rescale_after_drag(window: &WebviewWindow) {
+    static WATCHING: AtomicBool = AtomicBool::new(false);
+    if WATCHING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let window = window.clone();
+    std::thread::spawn(move || {
+        while in_move_loop(&window) {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        WATCHING.store(false, Ordering::SeqCst);
+        HELD_SIZE.store(0, Ordering::SeqCst);
+        let w = window.clone();
+        let _ = window.run_on_main_thread(move || rescale(&w, &w.app_handle().state::<WindowState>()));
+    });
+}
+
+/// Whether the user is dragging the window (Windows' move loop is running).
+#[cfg(windows)]
+fn in_move_loop(window: &WebviewWindow) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GUI_INMOVESIZE, GUITHREADINFO, GetGUIThreadInfo, GetWindowThreadProcessId,
+    };
+    let Ok(hwnd) = window.hwnd() else { return false };
+    let mut info = GUITHREADINFO { cbSize: size_of::<GUITHREADINFO>() as u32, ..Default::default() };
+    unsafe {
+        let thread = GetWindowThreadProcessId(hwnd, None);
+        GetGUIThreadInfo(thread, &mut info).is_ok() && info.flags.contains(GUI_INMOVESIZE) && info.hwndMoveSize == hwnd
+    }
+}
+
+/// Makes Windows' move loop keep the size [`rescale`] gave the window after a
+/// scale change mid-drag (see [`HELD_SIZE`]). A new scale change lets the
+/// window system's own rect for it through, until `rescale` holds the next size.
+#[cfg(windows)]
+pub fn keep_size_while_dragging(window: &WebviewWindow) {
+    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+    use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
+    use windows::Win32::UI::WindowsAndMessaging::{SWP_NOSIZE, WINDOWPOS, WM_DPICHANGED, WM_WINDOWPOSCHANGING};
+
+    unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM, _id: usize, _data: usize) -> LRESULT {
+        match msg {
+            WM_DPICHANGED => HELD_SIZE.store(0, Ordering::SeqCst),
+            WM_WINDOWPOSCHANGING => {
+                let held = HELD_SIZE.load(Ordering::SeqCst);
+                // SAFETY: WM_WINDOWPOSCHANGING's lParam points to the WINDOWPOS being applied.
+                let pos = unsafe { &mut *(lp.0 as *mut WINDOWPOS) };
+                if held != 0 && !pos.flags.contains(SWP_NOSIZE) {
+                    pos.cx = (held >> 32) as i32;
+                    pos.cy = (held & 0xffff_ffff) as i32;
+                }
+            }
+            _ => {}
+        }
+        unsafe { DefSubclassProc(hwnd, msg, wp, lp) }
+    }
+
+    let Ok(hwnd) = window.hwnd() else { return };
+    unsafe {
+        let _ = SetWindowSubclass(hwnd, Some(proc), 1, 0);
+    }
+}
+
+#[cfg(not(windows))]
+pub fn keep_size_while_dragging(_window: &WebviewWindow) {}
+
+#[cfg(not(windows))]
+fn in_move_loop(_window: &WebviewWindow) -> bool {
+    false
 }
 
 /// Closing the widget (its × or Alt+F4): hides it to the tray when *Close to
@@ -414,6 +543,26 @@ mod tests {
     fn zoom_shrinks_the_window() {
         let r = layout(WORK, 1.25, 0.8, EXPANDED, None);
         assert_eq!((r.w, r.h), (944, 612));
+    }
+
+    #[test]
+    fn a_scale_change_sizes_the_widget_for_the_monitor_it_is_on() {
+        // Dragged from a 150% monitor onto a Full HD one lower down: Windows
+        // put it at (2600, 900) with its own idea of the size.
+        let fhd = Rect { x: 2560, y: 87, w: 1920, h: 1032 };
+        let client = Rect { x: 2600, y: 900, w: 1416, h: 918 };
+        let anchor = Some((2600 + 708, 900 + 918));
+        let r = rescaled(client, fhd, 1.0, 1.0, EXPANDED, anchor, true);
+        assert_eq!(r, Rect { x: 2600, y: 900, w: 944, h: 612 }, "the top-left stays under the cursor");
+        // Not dragging (the scaling setting changed): kept inside the work area.
+        let r = rescaled(client, fhd, 1.0, 1.0, EXPANDED, anchor, false);
+        assert_eq!((r.w, r.h), (944, 612));
+        assert_eq!(r.y + r.h, 87 + 1032 - 16);
+        // Back onto the 150% monitor, compact.
+        let primary = Rect { x: 0, y: 0, w: 2560, h: 1528 };
+        let client = Rect { x: 1500, y: 700, w: 604, h: 68 };
+        let r = rescaled(client, primary, 1.5, 1.0, COMPACT, None, true);
+        assert_eq!(r, Rect { x: 1500, y: 700, w: 906, h: 102 });
     }
 
     #[test]

@@ -102,7 +102,20 @@ pub fn run() {
             let state = app.state::<window_ctl::WindowState>();
             match event {
                 WindowEvent::Moved(_) => window_ctl::on_moved(&main, &state),
-                WindowEvent::ScaleFactorChanged { .. } => window_ctl::replace(&main, &state),
+                // Moved onto a monitor with another scale (or its scaling changed). The
+                // window system applies its own rect for the new scale after this event,
+                // so re-size once that's done, not here. Called on the main thread,
+                // `run_on_main_thread` runs the task right away, so post it from another.
+                WindowEvent::ScaleFactorChanged { .. } => {
+                    let app = app.clone();
+                    std::thread::spawn(move || {
+                        let _ = app.clone().run_on_main_thread(move || {
+                            if let Some(main) = app.get_webview_window("main") {
+                                window_ctl::rescale(&main, &app.state::<window_ctl::WindowState>());
+                            }
+                        });
+                    });
+                }
                 // Alt+F4 and friends: keep running in the tray unless the user opted out.
                 WindowEvent::CloseRequested { api, .. } if window_ctl::close_or_hide(&main) => api.prevent_close(),
                 _ => {}
@@ -132,6 +145,7 @@ pub fn run() {
             let window_state = app.state::<window_ctl::WindowState>();
             if let Some(window) = app.get_webview_window("main") {
                 window_ctl::apply_modernist_frame(&window);
+                window_ctl::keep_size_while_dragging(&window);
                 let keep_on_top = app.state::<Mutex<settings::SettingsStore>>().lock().current.keep_on_top;
                 window_ctl::apply_on_top(&window, keep_on_top, false);
                 // Place it where it was, then show it (the window starts hidden, so it never jumps).
