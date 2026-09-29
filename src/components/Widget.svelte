@@ -22,8 +22,16 @@
     ro.observe(el);
     return () => ro.disconnect();
   });
+  // On switching modes, say so at once. The resize observer alone can miss the
+  // compact player: expanded then compact again before the page lays out the
+  // bigger window, the widget measures what it did before and nothing fires.
   $effect(() => {
-    if (relay.expanded && isTauri()) fitEditor();
+    if (!isTauri()) return;
+    if (relay.expanded) fitEditor();
+    else if (el) {
+      const r = el.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) fitWindow(Math.round(r.width), Math.round(r.height), false);
+    }
   });
 </script>
 

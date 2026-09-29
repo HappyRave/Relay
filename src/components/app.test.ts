@@ -122,6 +122,24 @@ describe("Widget", () => {
     expect(core.lastArgs("fit_window")).toEqual({ width: 0, height: 0, expanded: true });
   });
 
+  test("switching to the compact player sends its size even if no resize is seen", async () => {
+    // Expanded, then compact again before the page laid out the bigger window:
+    // the widget measures what it did before, and the observer doesn't fire.
+    const box = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 604.4, 67.6));
+    try {
+      render(Widget);
+      await settle();
+      relay.expanded = false;
+      await settle();
+      expect(core.argsOf("fit_window")).toEqual([
+        { width: 0, height: 0, expanded: true },
+        { width: 604, height: 68, expanded: false },
+      ]);
+    } finally {
+      box.mockRestore();
+    }
+  });
+
   test("the compact player shows toasts too", async () => {
     relay.expanded = false;
     render(Widget);
