@@ -38,9 +38,9 @@ Relay is a **Windows desktop macro recorder**: it records mouse and keyboard inp
 
 ## Where things stand
 
-- **Latest release: v1.2.0** (2026-09-27), from `main`. Releases so far: v1.0.0, v1.1.0, v1.2.0. Each has an NSIS installer and a portable exe.
-- **Milestone history:** M0–M8 built v1.0. Then: m9 editor polish (v1.1.0), m10 Keep on top, m11 dependency upgrades, m12 a four-reviewer architecture refactor, m13 the three-layer test suite, m14 a four-reviewer audit of every test against the user guide (about 90 findings fixed), then v1.2.0. `git log --first-parent main` shows them as merges.
-- **Tests at v1.2.0:** about 280 Rust (unit, property, snapshot), about 510 Vitest (store, backend contract, fake core, every component), 84 end-to-end tests against the built app. Rust unit coverage is about 76% of lines; the coordinator, commands, tray and Windows backend are exercised end to end instead. The frontend is at about 99.8% of lines.
+- **Latest release: v1.3.0** (2026-09-29), from `main`. Releases so far: v1.0.0, v1.1.0, v1.2.0, v1.3.0. Each has an NSIS installer and a portable exe.
+- **Milestone history:** M0–M8 built v1.0. Then: m9 editor polish (v1.1.0), m10 Keep on top, m11 dependency upgrades, m12 a four-reviewer architecture refactor, m13 the three-layer test suite, m14 a four-reviewer audit of every test against the user guide (about 90 findings fixed), then v1.2.0. Then fix-multi-monitor-scale and m15 the control bar, preview bar, screenshots and resizable editor (v1.3.0). `git log --first-parent main` shows them as merges.
+- **Tests at v1.3.0:** about 290 Rust (unit, property, snapshot), about 570 Vitest (store, backend contract, fake core, every component), about 85 end-to-end tests against the built app. Rust unit coverage is about 76% of lines; the coordinator, commands, tray and Windows backend are exercised end to end instead. The frontend is at about 99.8% of lines.
 - **Next, per the [roadmap](README.md#roadmap):** AutoHotkey v2 and standalone `.exe` export (the Export dialog already shows them as "Coming later"), code signing (needs a certificate; free options for open source: SignPath Foundation, Certum's open-source certificate, Azure Trusted Signing), remapping macros to a different monitor layout, macOS and Linux backends.
 - **Also open:** see [Known limitations and open items](#known-limitations-and-open-items).
 
@@ -208,7 +208,7 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 
 ## Git, CI and GitHub
 
-- **Branches:** never commit directly to `main`. Milestones `mN-short-name` (next is `m15-…`), fixes `fix-…`, docs `docs-…`, releases `release-X.Y.Z`.
+- **Branches:** never commit directly to `main`. Milestones `mN-short-name` (next is `m16-…`), fixes `fix-…`, docs `docs-…`, releases `release-X.Y.Z`.
 - **Commits:** small, [Conventional Commits](https://www.conventionalcommits.org/) (`feat(recorder): …`, `fix(engine): …`, `test(e2e): …`, `docs: …`, `ci: …`, `chore: …`), with a body explaining why when it isn't obvious.
 - **Merging:** `git merge --no-ff` into `main` ("Merge mN-…: <summary>"), then push. Milestones used to be tagged `v0.N.0-mN`; since 1.0, versions are tagged only at release.
 - **Pushing to `HappyRave/Relay` is authorized** for this workflow (branches and `main`).
