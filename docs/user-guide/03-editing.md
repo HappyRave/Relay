@@ -105,12 +105,25 @@ Every change you make to a macro (deleting, inserting, pauses, waits, pixel chec
 
 ## The preview
 
-The left side of the editor draws the macro over a sketch of your monitors:
+The left side of the editor draws the macro over your whole screen: all your monitors, whatever the size of the pane. **Scroll** over it to zoom in on a part, **drag** to move around, and **double-click** (or click **Fit** in the bar) to see it all again. Nothing is written over the drawing: a **bar above it** shows, from left to right:
+
+- The **mode**: *Preview*, *Get ready*, *● Rec*, *Playing* or *Paused*, and while playing, the loop and speed (*Loop 1 / 3 · 1×*).
+- **Keys** or **Typing**: the key combination or the text being typed at that moment (the end of it, for long text).
+- The **step under the playhead**, named as in the steps list (*Step 4 · Double click · Filename field*), or *Waiting for pixel X, Y* while a pixel check waits.
+- **Fit**, while zoomed in, with the zoom (*250% · Fit*): shows the whole screen again.
+- **Screen | Sketch**: what the macro is drawn over (see below).
+- The cursor's **X** and **Y** at the current time.
+
+**Screen** draws the macro over the [screenshot](02-recording.md#what-gets-recorded) taken when you recorded it, dimmed so the path stays readable. **Sketch** draws it over outlines of your monitors and of the window you first clicked in. Your choice is remembered. A macro recorded without a screenshot (before Relay 1.3, imported from a file, or with **Settings → Recording → Screenshot** off) always shows the sketch, and the switch is off.
+
+Drag the **divider** between the preview and the side panel to give either more room, the one above the buttons to make the buttons bigger, and the one above the timeline to make it taller. You can also resize the whole window from its edges; see [The widget window](08-settings.md#the-widget-window).
+
+The drawing itself has:
 
 - The **mouse path**: a dashed grey line for the whole recording, and a solid red line for the part already played. With **Settings → Preview → Mouse path: Trail only**, only the red part is drawn, which is easier to read on long macros.
 - **Numbered squares** for clicks, with their labels if **Click labels** is on.
 - The **cursor**, at its position for the current time.
-- A **key overlay** in the bottom-left corner, showing the key combination or the text being typed at that moment.
+- A dashed square around a pixel check while it waits.
 
 ## The timeline
 

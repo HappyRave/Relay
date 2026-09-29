@@ -15,6 +15,11 @@ Element.prototype.scrollIntoView ??= function () {};
 Element.prototype.setPointerCapture ??= function () {};
 Element.prototype.releasePointerCapture ??= function () {};
 Element.prototype.hasPointerCapture ??= () => false;
+// Object URLs (the preview's screenshot), numbered. jsdom's own only take
+// its own Blobs, not the ones the app builds from IPC bytes.
+let blobs = 0;
+URL.createObjectURL = () => `blob:relay/${++blobs}`;
+URL.revokeObjectURL = () => {};
 
 // Frames at 60 Hz, stamped with performance.now() as browsers do (jsdom's
 // own frames use another time origin, which breaks playhead extrapolation).

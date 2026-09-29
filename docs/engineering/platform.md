@@ -36,7 +36,7 @@ pub fn platform() -> Platform              // the backend for the current OS
 | `InputHook` / `HookSession` | `start(HookConfig, Sender<RawInput>)`; dropping the session removes the hooks | `WH_KEYBOARD_LL` + `WH_MOUSE_LL` on a dedicated thread |
 | `Injector` | `move_to`, `button`, `wheel`, `key` | `SendInput` |
 | `Timer` | `wait_until(deadline)`, `waker()` | High-resolution waitable timer + spin |
-| `Screen` | `monitors`, `virtual_desktop`, `cursor_pos`, `double_click`, `pixel` | `EnumDisplayMonitors`, `GetDpiForMonitor`, `GetPixel` |
+| `Screen` | `monitors`, `virtual_desktop`, `cursor_pos`, `double_click`, `pixel`, `capture` | `EnumDisplayMonitors`, `GetDpiForMonitor`, `GetPixel`, `StretchBlt` |
 | `WindowQuery` | `root_window_at`, `foreground`, `restore_previous`, `find_window`, `input_blocked`, `input_desktop_available` | Win32 windowing, DWM and token APIs |
 | `CharTranslator` | `translate(vk, scan, held)` | `ToUnicodeEx` |
 
@@ -140,6 +140,8 @@ Measured over a 10-minute release-build soak, 12,000 events: median and p99 late
 - **Virtual desktop**: `SM_XVIRTUALSCREEN` … `SM_CYVIRTUALSCREEN`.
 - **Double-click settings**: `GetDoubleClickTime` and `SM_CXDOUBLECLK`/`SM_CYDOUBLECLK`, stored with each recording for step grouping.
 - **Pixel**: `GetPixel` on the screen DC. It takes about 10 ms, because reading the screen waits for the compositor; a cached DC or a 1×1 `BitBlt` measured the same. That's fine for pixel checks every 30 ms and triggers every 250 ms. (Something much faster would need DXGI desktop duplication.)
+
+- **Capture** (the screenshot as a recording starts): `StretchBlt` from the screen DC into a top-down 32-bit DIB of the size `snapshot_size` picks (scaled down evenly to at most `max_w`, never up), in `HALFTONE` mode so text stays readable, then BGRA to RGB. Relay's window is left out with `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` (Windows 10 2004 and later; earlier, it shows), set for the capture only, after two `DwmFlush`es so the compositor has applied it, and reset right after, so other screenshot tools still see Relay. The whole desktop at 6400 × 1600 takes about 200 ms, on its own thread. `Snapshot`'s `Debug` prints only its size: its pixels are someone's screen. The stub returns `None`.
 
 The app is **per-monitor DPI aware (v2)** through `src-tauri/app.manifest`. Every coordinate in Relay, recorded or injected, is a physical pixel, so display scaling never distorts a macro.
 

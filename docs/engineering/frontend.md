@@ -19,7 +19,7 @@ src/
 ├── main.ts                     mounts App
 ├── App.svelte                  the Widget in Tauri, the DevDesktop in a browser, the Export dialog
 ├── components/
-│   ├── Widget.svelte           measures itself and calls fit_window
+│   ├── Widget.svelte           the compact player measures itself; the editor fills the window
 │   ├── CompactBar.svelte       the 604 × 68 player bar
 │   ├── ExpandedWidget.svelte   header, preview, side panel, transport, timeline
 │   ├── ExportDialog.svelte
@@ -31,7 +31,7 @@ src/
 ├── lib/
 │   ├── state/relay.svelte.ts   the RelayStore
 │   ├── state/selection.ts      which step the open editor follows across edits
-│   ├── state/display.ts        badge labels
+│   ├── state/display.ts        badge labels, step titles
 │   ├── fields.ts               number fields: parse, round, clamp, show the committed value
 │   ├── defaults.ts             default settings and playback options (shared with the browser preview)
 │   ├── ipc/backend.ts          Tauri and browser backends
@@ -42,7 +42,8 @@ src/
 │   ├── timeline/lanes.ts       lane geometry, current step, prev/next
 │   ├── preview/geometry.ts     SVG path, cursor lookup, fitting the view
 │   ├── actions/seekable.ts     click-and-drag to seek
-│   ├── platform/window.ts      isTauri, fit_window, dragging, hide to tray
+│   ├── platform/window.ts      isTauri, fit_window, window prefs and panes, dragging, hide to tray
+│   ├── layout.ts               the editor's dividers kept inside the window (paneLayout)
 │   └── dev/                    the browser fixture and demo desktop state
 └── styles/                     tokens.css, base.css, components.css, app.css
 ```
@@ -147,7 +148,9 @@ A few that do more:
 
 | Component | Notes |
 | --- | --- |
-| `Widget` | A `ResizeObserver` measures the widget's border box and calls `fit_window`, so the native window always matches the content exactly. |
+| `Widget` | The compact player: a `ResizeObserver` measures its border box and calls `fit_window`, so the native window matches it exactly. The editor (`.fill`) fills the window instead (`--widget-w/h`, which the browser preview's demo desktop sets to 944 × 612), and only tells Rust it's the editor. |
+| `Transport` | The control bar, from the *Control Bar Options* design (1b, "anchored transport, single row"): a three-column grid (`1fr auto 1fr`), the time on the left, the transport pinned to the middle column between two 2 px rules, speed and repeat on the right. **every control is 48 px tall under a 14 px label**, all labels on one baseline (*Time* with the length, *Playback*, *Speed*, *Repeat*), and the bar 102 px, so nothing drifts at any scale: Previous, Record, Play, Stop and Next are one joined strip of 48 and 64 px cells (`RecPlayButtons variant="strip"`). `barMode` (`transport.ts`) picks what fits the bar's width at scale 1, measured in the app: `wide` (from 1290 px: the four speeds, − count + and loop), `mid` (from 980: one Speed button that cycles 0.5× → 1× → 2× → 4×), `narrow` (below, which includes the default 940 px bar: the repeat folds into one button, ×n, that steps through 1, 2, 3, 5, 10 and forever). |
+| `ExpandedWidget` | A flex column: the header keeps its height; the preview row, the button row and the timeline share the rest. Three `Splitter`s (focusable `role="separator"`s: drag, arrow keys, Home/End, double-click to reset) move `relay.panes`, saved with `save_panes` when a drag or key press ends. `paneLayout` (`layout.ts`) keeps them inside the window as it is (preview 360 px up to the width minus a 320 px side panel; button row 102 to 204 px; timeline 146 px up to what leaves the preview row 220 px) without changing what's saved, so a window made smaller and bigger again gets the user's layout back. The control bar is laid out at 1/scale of the row's width and scaled up with a transform (`barScale`: the row's height over 102, at most 2, and never leaving the bar less than the 750 px its narrow mode needs). |
 | `StepsTab` | Keeps the current row in view while playing. Opens `StepEditor` under the store's selected row, which follows its step across edits (see [Edits](#edits)). Rows handle Enter and Space only for themselves, not their delete button. Shows window-relative positions in *Window* mode. |
 | `StepEditor` | *Pause before* for every step, plus the fields of its kind. Commits on `change` (blur or Enter), validates hex colors and numbers before sending an `EditOp`. |
 | `HotkeyCapture` | Captures in the capture phase and stops propagation, so a combo being set never triggers anything else. Marked `data-captures-keys` so the undo shortcut leaves it alone. Backspace clears, Esc cancels, blur cancels. |
@@ -158,11 +161,12 @@ A few that do more:
 
 ## The preview and the timeline
 
-**Preview** ([`Preview.svelte`](../../src/components/expanded/Preview.svelte), [`geometry.ts`](../../src/lib/preview/geometry.ts)): the SVG's `viewBox` is a region of the virtual desktop, in the macro's physical pixels, chosen by `fitView` to include everything the macro touches, padded and at the preview's 600:338 aspect ratio. The monitors and the anchor window are drawn as outlines. Everything is in desktop coordinates, and a scale factor `k` keeps strokes and labels the same size at any zoom.
+**Preview** ([`Preview.svelte`](../../src/components/expanded/Preview.svelte), [`geometry.ts`](../../src/lib/preview/geometry.ts)): the SVG's `viewBox` is a region of the virtual desktop, in the macro's physical pixels. By default it's the **whole desktop**, fitted to the drawing's aspect ratio (`fitDesktop`: the smallest rect of the drawing's shape around it, centered), so resizing the pane never hides any of it; the aspect is measured from the stage (600:302 in the default layout: the preview is 338 px tall, with a 36 px bar above the drawing). The wheel zooms in around the pointer (`zoomAround`, 1.25× a notch, up to 16×), a drag pans (`pan`), and a double-click or the bar's *Fit* button goes back to the whole desktop; a zoomed-in view never shows past the desktop's edges (`zoomedView`), and opening another macro or recording starts fitted. The monitors and the anchor window are drawn as outlines. Everything is in desktop coordinates, and a scale factor `k` (the viewBox's width over the drawing's) keeps strokes, markers and labels the same size on screen at any zoom and pane size.
 
 - The **path** is one polyline. The played part is the same path with `stroke-dasharray = "<done length> <total>"`, where the done length comes from precomputed cumulative lengths and a binary search for the current time. So animating the red trail costs nothing per frame.
 - **Click markers** are numbered in order, with a ring that expands for 500 ms after each click. The markers don't depend on the playhead, so they're built once per macro; which ones are "reached" is a count from one binary search, and only the last reached click's ring is animated.
-- The **key overlay** shows the `KEYS` or `TYPE` step under the playhead, and for typing, only the characters typed so far.
+- The **bar** above the drawing holds all the text, so nothing covers it: the mode badge (and loop while playing), the `KEYS` or `TYPE` step under the playhead (for typing, the characters typed so far, the last 16 of them), the step under the playhead titled by `stepTitle` (shared with the steps list) or the pixel check being waited for, the **Screen | Sketch** switch, and the cursor coordinates.
+- The **screenshot**: opening a macro fetches it (`screenshot`, raw bytes) into an object URL, `relay.screenUrl`, revoked when another macro opens; an answer for a macro the user has left is dropped, and one that fails just leaves the sketch. With *Screen* chosen, an SVG `<image>` draws it at the recording's `virtual_desktop`, dimmed to 55%, in place of the monitor outlines. It isn't drawn while recording (the preview is live then). The CSP's `img-src` allows `blob:` for it.
 
 **Timeline** ([`lanes.ts`](../../src/lib/timeline/lanes.ts)): pure functions turn steps and moves into percentages. Mouse movement becomes bars (samples less than 150 ms apart join), `KEYS` chips grow up to the next chip, `TYPE` chips span their characters, and the ruler picks 1 s, 5 s or 15 s ticks from the macro's length. `currentStepIndex` and `jumpTarget` drive the highlighted row and the ◀ ▶ buttons. None of the lanes depends on the playhead except through `startedCount` (a binary search: how many clicks or chips have been reached), so drawing a frame doesn't rebuild them.
 
@@ -181,7 +185,7 @@ Components use scoped `<style>` blocks and only `var(--…)` tokens for colors, 
 
 ## The window from the UI's side
 
-[`lib/platform/window.ts`](../../src/lib/platform/window.ts) holds the only window calls: `fitWindow` (after every resize), `savedExpanded` (before the first render), `startDragging` (the grip, via Tauri) and `hideToTray` (the × button). They're no-ops in a browser. Placement, zoom, the saved anchor and focus behavior are all in Rust (see [The app → The window](app.md#the-window)).
+[`lib/platform/window.ts`](../../src/lib/platform/window.ts) holds the only window calls: `fitWindow` (the compact player's size) and `fitEditor`, `savedWindow` (the mode and the dividers, before the first render), `savePanes` and `resetLayout`, `startDragging` (the grip, via Tauri) and `hideToTray` (the × button). They're no-ops in a browser. Placement, zoom, the saved anchor and focus behavior are all in Rust (see [The app → The window](app.md#the-window)).
 
 ## Conventions
 

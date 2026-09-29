@@ -1,6 +1,7 @@
 //! The floating widget's window: placement anchored at its bottom-center,
-//! remembered across runs, zoomed down on small screens, square corners,
-//! and no focus stealing during sessions.
+//! remembered across runs, zoomed down on small screens, resizable as the
+//! editor (not as the compact player), square corners, and no focus
+//! stealing during sessions.
 
 use parking_lot::Mutex;
 use std::path::PathBuf;
@@ -9,12 +10,17 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, Monitor, WebviewWindow};
+use ts_rs::TS;
 
 use crate::storage::write_atomic;
 
-/// The widget's size at 100% zoom, in CSS pixels (expanded and compact).
+/// The widget's size at 100% zoom, in CSS pixels: the editor's by default
+/// (the user can resize it), and the compact player's (fixed).
 pub const EXPANDED: (f64, f64) = (944.0, 612.0);
 pub const COMPACT: (f64, f64) = (604.0, 68.0);
+/// The smallest editor: room for the transport, the four tabs, and the
+/// preview and side panel at their narrowest (the UI's `layout.ts`).
+pub const MIN_EXPANDED: (f64, f64) = (760.0, 520.0);
 /// Space kept between the widget and the edges of the work area (CSS px).
 const MARGIN: f64 = 16.0;
 /// Default distance from the bottom of the work area, as in the design.
@@ -28,20 +34,70 @@ pub struct WindowPrefs {
     /// virtual-desktop pixels. Placing the widget may keep it off an edge,
     /// but only a drag changes this.
     pub anchor: Option<(i32, i32)>,
+    /// The editor's size, in CSS px, if the user resized it.
+    pub size: Option<(f64, f64)>,
+    /// Where the user put the editor's dividers.
+    pub panes: Panes,
 }
 
 impl Default for WindowPrefs {
     fn default() -> Self {
-        WindowPrefs { expanded: true, anchor: None }
+        WindowPrefs { expanded: true, anchor: None, size: None, panes: Panes::default() }
     }
+}
+
+/// The editor's dividers, in CSS px: the preview's width, and the heights of
+/// the button row and the timeline (`None`: the default). The UI keeps them
+/// inside the window.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default)]
+#[ts(export)]
+pub struct Panes {
+    pub preview_w: Option<f64>,
+    pub transport_h: Option<f64>,
+    pub timeline_h: Option<f64>,
+}
+
+impl Panes {
+    /// Sane values only (the UI's own limits depend on the window): a value
+    /// that isn't a size is dropped, a huge one is capped.
+    pub fn sanitized(self) -> Panes {
+        let ok = |v: Option<f64>| v.filter(|v| v.is_finite() && *v > 0.0).map(|v| v.min(10_000.0));
+        Panes { preview_w: ok(self.preview_w), transport_h: ok(self.transport_h), timeline_h: ok(self.timeline_h) }
+    }
+}
+
+/// The editor's size: the one the user chose (never below [`MIN_EXPANDED`]), or the default.
+pub fn expanded_size(prefs: &WindowPrefs) -> (f64, f64) {
+    prefs.size.map_or(EXPANDED, |(w, h)| (w.max(MIN_EXPANDED.0), h.max(MIN_EXPANDED.1)))
+}
+
+/// The editor's size in CSS px once the user resized its client area to
+/// `inner` physical px at this `zoom` and `scale` (rounded, never below the minimum).
+pub fn resized_css(inner: (u32, u32), zoom: f64, scale: f64) -> (f64, f64) {
+    let k = zoom * scale;
+    ((inner.0 as f64 / k).round().max(MIN_EXPANDED.0), (inner.1 as f64 / k).round().max(MIN_EXPANDED.1))
+}
+
+/// A `css` size made to fit a `work` area (physical px, at `sf` and `zoom`)
+/// with the margins, but never below [`MIN_EXPANDED`], which the zoom
+/// always leaves room for.
+pub fn fit_work(css: (f64, f64), work: Rect, sf: f64, zoom: f64) -> (f64, f64) {
+    let k = sf * zoom;
+    let max_w = (work.w as f64 / k - 2.0 * MARGIN).floor();
+    let max_h = (work.h as f64 / k - MARGIN).floor();
+    (css.0.min(max_w).max(MIN_EXPANDED.0), css.1.min(max_h).max(MIN_EXPANDED.1))
 }
 
 /// Window placement state, saved to `window.json` (Relay-only; the UI never writes it).
 pub struct WindowState {
     path: PathBuf,
     prefs: Mutex<WindowPrefs>,
-    /// The widget's current size in CSS px, as last measured by the UI.
+    /// The widget's current size in CSS px: the editor's (the user's), or
+    /// the compact player's as the UI measured it.
     size: Mutex<(f64, f64)>,
+    /// The zoom the window was last placed at.
+    zoom: Mutex<f64>,
     /// When the anchor last changed and hasn't been saved yet.
     dirty: Mutex<Option<Instant>>,
     /// The bottom-center [`place`] last put the widget at, so the Moved
@@ -54,11 +110,12 @@ impl WindowState {
         let path = dir.join("window.json");
         let prefs: WindowPrefs =
             std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
-        let size = if prefs.expanded { EXPANDED } else { COMPACT };
+        let size = if prefs.expanded { expanded_size(&prefs) } else { COMPACT };
         WindowState {
             path,
             prefs: Mutex::new(prefs),
             size: Mutex::new(size),
+            zoom: Mutex::new(1.0),
             dirty: Mutex::new(None),
             placed: Mutex::new(None),
         }
@@ -89,6 +146,32 @@ impl WindowState {
             p.anchor = Some(at);
             *self.dirty.lock() = Some(Instant::now());
         }
+    }
+
+    /// The user resized the editor to `css`, its bottom-center now at `at`.
+    fn resized(&self, css: (f64, f64), at: (i32, i32)) {
+        *self.size.lock() = css;
+        *self.placed.lock() = None;
+        let mut p = self.prefs.lock();
+        p.size = Some(css);
+        p.anchor = Some(at);
+        *self.dirty.lock() = Some(Instant::now());
+    }
+
+    /// Saves where the user put the dividers.
+    pub fn set_panes(&self, panes: Panes) {
+        self.prefs.lock().panes = panes.sanitized();
+        self.save();
+    }
+
+    /// Back to the default size and dividers (the position stays).
+    fn reset_layout(&self) {
+        {
+            let mut p = self.prefs.lock();
+            p.size = None;
+            p.panes = Panes::default();
+        }
+        self.save();
     }
 
     fn save(&self) {
@@ -182,7 +265,8 @@ pub fn layout(work: Rect, sf: f64, zoom: f64, css: (f64, f64), anchor: Option<(i
 /// The saved anchor stays where the user put it, so switching sizes near an
 /// edge comes back to the same spot.
 pub fn place(window: &WebviewWindow, state: &WindowState, css: (f64, f64)) {
-    let anchor = state.prefs().anchor;
+    let prefs = state.prefs();
+    let anchor = prefs.anchor;
     let Ok(monitors) = window.available_monitors() else { return };
     if monitors.is_empty() {
         return;
@@ -197,24 +281,68 @@ pub fn place(window: &WebviewWindow, state: &WindowState, css: (f64, f64)) {
     let monitor = &monitors[choose_monitor(&bounds, anchor, primary)];
 
     let zoom = zoom_for(monitor);
+    let (work, sf) = (Rect::work_area(monitor), monitor.scale_factor());
+    let css = if prefs.expanded { fit_work(css, work, sf, zoom) } else { css };
     let _ = window.set_zoom(zoom);
-    let r = state.placement(Rect::work_area(monitor), monitor.scale_factor(), zoom, css, anchor);
+    *state.zoom.lock() = zoom;
+    set_resizing(window, prefs.expanded, zoom * sf);
+    let r = state.placement(work, sf, zoom, css, anchor);
     set_client_rect(window, r.x, r.y, r.w, r.h);
     *state.size.lock() = css;
 }
 
-/// Called by the UI when the widget's size changes (switching compact/expanded).
+/// The editor can be resized (down to [`MIN_EXPANDED`] at `k` = zoom × scale), the compact player can't.
+fn set_resizing(window: &WebviewWindow, expanded: bool, k: f64) {
+    let min = expanded
+        .then(|| tauri::PhysicalSize::new((MIN_EXPANDED.0 * k).round() as u32, (MIN_EXPANDED.1 * k).round() as u32));
+    // The minimum goes first, so the compact player isn't held to the editor's.
+    let _ = window.set_min_size(min.map(tauri::Size::Physical));
+    let _ = window.set_resizable(expanded);
+}
+
+/// Called by the UI when it switches between the compact player and the
+/// editor, and when the compact player's measured size (`css`) changes. The
+/// editor's size is Relay's own (the user's, or the default), so `css` only
+/// counts for the compact player.
 pub fn fit(window: &WebviewWindow, state: &WindowState, css: (f64, f64), expanded: bool) {
-    let changed = {
+    let (changed, css) = {
         let mut p = state.prefs.lock();
         let changed = p.expanded != expanded;
         p.expanded = expanded;
-        changed
+        (changed, fit_css(&p, css, expanded))
     };
     if *state.size.lock() != css || changed {
         place(window, state, css);
         state.save();
     }
+}
+
+/// The size [`fit`] gives the widget: the compact player's as the UI measured
+/// it (`css`), or the editor's own (the UI sends 0 × 0 for it).
+pub fn fit_css(prefs: &WindowPrefs, css: (f64, f64), expanded: bool) -> (f64, f64) {
+    if expanded { expanded_size(prefs) } else { css }
+}
+
+/// *Reset layout*: the editor goes back to its default size and dividers.
+pub fn reset_layout(window: &WebviewWindow, state: &WindowState) {
+    state.reset_layout();
+    if state.prefs().expanded {
+        place(window, state, EXPANDED);
+    }
+}
+
+/// Tracks the editor's size while the user resizes it; saved shortly after it
+/// stops. Sizes Relay sets itself, and the move loop's own after a scale
+/// change, aren't the user's.
+pub fn on_resized(window: &WebviewWindow, state: &WindowState) {
+    if !RESIZING.load(Ordering::SeqCst) || !state.prefs().expanded {
+        return;
+    }
+    let (Ok(pos), Ok(size), Ok(sf)) = (window.inner_position(), window.inner_size(), window.scale_factor()) else {
+        return;
+    };
+    let css = resized_css((size.width, size.height), *state.zoom.lock(), sf);
+    state.resized(css, (pos.x + size.width as i32 / 2, pos.y + size.height as i32));
 }
 
 /// Where the window goes once the scale of the monitor it's on changed (it
@@ -247,11 +375,16 @@ pub fn rescale(window: &WebviewWindow, state: &WindowState) {
         return;
     };
     let client = Rect { x: pos.x, y: pos.y, w: size.width as i32, h: size.height as i32 };
-    let css = *state.size.lock();
     let zoom = zoom_for(&monitor);
     let _ = window.set_zoom(zoom);
+    *state.zoom.lock() = zoom;
     let dragging = in_move_loop(window);
     let (work, sf) = (Rect::work_area(&monitor), monitor.scale_factor());
+    let expanded = state.prefs().expanded;
+    set_resizing(window, expanded, zoom * sf);
+    let css = *state.size.lock();
+    let css = if expanded && !dragging { fit_work(css, work, sf, zoom) } else { css };
+    *state.size.lock() = css;
     let r = rescaled(client, work, sf, zoom, css, state.prefs().anchor, dragging);
     if r != client {
         if !dragging {
@@ -260,17 +393,23 @@ pub fn rescale(window: &WebviewWindow, state: &WindowState) {
         set_client_rect(window, r.x, r.y, r.w, r.h);
     }
     if dragging {
-        if let Ok(outer) = window.outer_size() {
+        // A resize keeps following the mouse; only a move holds its size.
+        if !RESIZING.load(Ordering::SeqCst)
+            && let Ok(outer) = window.outer_size()
+        {
             hold_size(outer.width, outer.height);
         }
         rescale_after_drag(window);
     }
 }
 
+/// Whether the user is resizing the window (from `WM_SIZING` to the end of the loop).
+static RESIZING: AtomicBool = AtomicBool::new(false);
+
 /// The outer size the window keeps for the rest of a drag (width in the high
 /// half, height in the low one), or 0. Windows' move loop keeps the size it
 /// suggested for a new scale (often a pixel or two off) and re-applies it on
-/// every mouse move, which would undo [`rescale`]'s; [`keep_size_while_dragging`]
+/// every mouse move, which would undo [`rescale`]'s; [`watch_move_size`]
 /// substitutes this one.
 static HELD_SIZE: AtomicU64 = AtomicU64::new(0);
 
@@ -311,17 +450,27 @@ fn in_move_loop(window: &WebviewWindow) -> bool {
     }
 }
 
-/// Makes Windows' move loop keep the size [`rescale`] gave the window after a
-/// scale change mid-drag (see [`HELD_SIZE`]). A new scale change lets the
-/// window system's own rect for it through, until `rescale` holds the next size.
+/// Watches Windows' move and size loop:
+/// - a move keeps the size [`rescale`] gave the window after a scale change
+///   mid-drag (see [`HELD_SIZE`]); a new scale change lets the window
+///   system's own rect for it through, until `rescale` holds the next size;
+/// - a resize by the user ([`RESIZING`], for [`on_resized`]) is told apart
+///   from the ones Relay and the move loop make, and never holds a size.
 #[cfg(windows)]
-pub fn keep_size_while_dragging(window: &WebviewWindow) {
+pub fn watch_move_size(window: &WebviewWindow) {
     use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
     use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
-    use windows::Win32::UI::WindowsAndMessaging::{SWP_NOSIZE, WINDOWPOS, WM_DPICHANGED, WM_WINDOWPOSCHANGING};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SWP_NOSIZE, WINDOWPOS, WM_DPICHANGED, WM_EXITSIZEMOVE, WM_SIZING, WM_WINDOWPOSCHANGING,
+    };
 
     unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM, _id: usize, _data: usize) -> LRESULT {
         match msg {
+            WM_SIZING => {
+                RESIZING.store(true, Ordering::SeqCst);
+                HELD_SIZE.store(0, Ordering::SeqCst);
+            }
+            WM_EXITSIZEMOVE => RESIZING.store(false, Ordering::SeqCst),
             WM_DPICHANGED => HELD_SIZE.store(0, Ordering::SeqCst),
             WM_WINDOWPOSCHANGING => {
                 let held = HELD_SIZE.load(Ordering::SeqCst);
@@ -344,7 +493,7 @@ pub fn keep_size_while_dragging(window: &WebviewWindow) {
 }
 
 #[cfg(not(windows))]
-pub fn keep_size_while_dragging(_window: &WebviewWindow) {}
+pub fn watch_move_size(_window: &WebviewWindow) {}
 
 #[cfg(not(windows))]
 fn in_move_loop(_window: &WebviewWindow) -> bool {
@@ -651,12 +800,94 @@ mod tests {
         assert_eq!(fresh.prefs().anchor, None);
         assert_eq!(*fresh.size.lock(), EXPANDED);
 
-        *fresh.prefs.lock() = WindowPrefs { expanded: false, anchor: Some((-300, 700)) };
+        let panes = Panes { preview_w: Some(520.0), transport_h: Some(110.0), timeline_h: Some(180.0) };
+        *fresh.prefs.lock() =
+            WindowPrefs { expanded: false, anchor: Some((-300, 700)), size: Some((1200.0, 800.0)), panes };
         fresh.save();
         let again = WindowState::open(dir.path());
         assert!(!again.prefs().expanded);
         assert_eq!(again.prefs().anchor, Some((-300, 700)));
+        assert_eq!(again.prefs().size, Some((1200.0, 800.0)));
+        assert_eq!(again.prefs().panes, panes);
         assert_eq!(*again.size.lock(), COMPACT, "opens at the size it was left at");
+        // Expanded, it opens at the editor's size the user chose.
+        again.prefs.lock().expanded = true;
+        again.save();
+        assert_eq!(*WindowState::open(dir.path()).size.lock(), (1200.0, 800.0));
+    }
+
+    #[test]
+    fn the_editor_opens_at_the_users_size_never_below_the_minimum() {
+        let mut p = WindowPrefs::default();
+        assert_eq!(expanded_size(&p), EXPANDED, "the default");
+        p.size = Some((1400.0, 900.0));
+        assert_eq!(expanded_size(&p), (1400.0, 900.0));
+        p.size = Some((300.0, 900.0));
+        assert_eq!(expanded_size(&p), (MIN_EXPANDED.0, 900.0), "a size from a hand-edited file");
+    }
+
+    #[test]
+    fn the_ui_sizes_the_compact_player_and_never_the_editor() {
+        let mut p = WindowPrefs::default();
+        assert_eq!(fit_css(&p, COMPACT, false), COMPACT);
+        assert_eq!(fit_css(&p, (0.0, 0.0), true), EXPANDED, "the editor's 0 × 0 is ignored");
+        p.size = Some((1200.0, 800.0));
+        assert_eq!(fit_css(&p, (0.0, 0.0), true), (1200.0, 800.0));
+        assert_eq!(
+            fit_css(&p, (604.0, 68.0), false),
+            (604.0, 68.0),
+            "the user's editor size isn't the compact player's"
+        );
+    }
+
+    #[test]
+    fn a_resize_by_the_user_is_measured_in_css_px() {
+        assert_eq!(resized_css((1200, 800), 1.0, 1.0), (1200.0, 800.0));
+        // At 150%, 1800 × 1200 physical px is 1200 × 800 CSS px.
+        assert_eq!(resized_css((1800, 1200), 1.0, 1.5), (1200.0, 800.0));
+        assert_eq!(resized_css((1801, 1199), 1.0, 1.5), (1201.0, 799.0), "rounded");
+        // Zoomed down to 80% on a small screen.
+        assert_eq!(resized_css((800, 480), 0.8, 1.0), (1000.0, 600.0));
+        assert_eq!(resized_css((100, 100), 1.0, 1.0), MIN_EXPANDED, "never below the minimum");
+    }
+
+    #[test]
+    fn a_big_editor_is_made_to_fit_the_work_area() {
+        assert_eq!(fit_work((1200.0, 800.0), WORK, 1.0, 1.0), (1200.0, 800.0));
+        assert_eq!(fit_work((2400.0, 1400.0), WORK, 1.0, 1.0), (1920.0 - 32.0, 1032.0 - 16.0));
+        // At 150%: 2880 × 1548 physical px hold 1920 × 1032 CSS px.
+        let big = Rect { x: 0, y: 0, w: 2880, h: 1548 };
+        assert_eq!(fit_work((2400.0, 1400.0), big, 1.5, 1.0), (1888.0, 1016.0));
+        // A work area smaller than the minimum (the zoom shrinks it to fit): the minimum.
+        let tiny = Rect { x: 0, y: 0, w: 700, h: 500 };
+        assert_eq!(fit_work(EXPANDED, tiny, 1.0, 1.0), MIN_EXPANDED);
+    }
+
+    #[test]
+    fn a_resize_moves_the_anchor_and_is_saved_and_a_reset_forgets_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = WindowState::open(dir.path());
+        state.resized((1200.0, 800.0), (900, 1000));
+        assert_eq!(*state.size.lock(), (1200.0, 800.0));
+        assert_eq!(state.prefs().size, Some((1200.0, 800.0)));
+        assert_eq!(state.prefs().anchor, Some((900, 1000)));
+        assert!(state.dirty.lock().is_some(), "saved once the resize pauses");
+        state.set_panes(Panes { preview_w: Some(700.0), ..Panes::default() });
+        let saved = WindowState::open(dir.path()).prefs();
+        assert_eq!(saved.panes, Panes { preview_w: Some(700.0), ..Panes::default() }, "saved at once");
+
+        state.reset_layout();
+        let reset = WindowState::open(dir.path()).prefs();
+        assert_eq!((reset.size, reset.panes), (None, Panes::default()));
+        assert_eq!(reset.anchor, Some((900, 1000)), "the position stays");
+    }
+
+    #[test]
+    fn panes_that_arent_sizes_are_dropped() {
+        let p = Panes { preview_w: Some(f64::NAN), transport_h: Some(0.0), timeline_h: Some(-5.0) }.sanitized();
+        assert_eq!(p, Panes::default());
+        let p = Panes { preview_w: Some(1e9), transport_h: Some(100.0), timeline_h: Some(120.0) }.sanitized();
+        assert_eq!(p, Panes { preview_w: Some(10_000.0), transport_h: Some(100.0), timeline_h: Some(120.0) });
     }
 
     #[test]
@@ -664,9 +895,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("window.json"), "{ not json").unwrap();
         assert!(WindowState::open(dir.path()).prefs().expanded);
+        // A file from before resizing: no size, no panes.
         std::fs::write(dir.path().join("window.json"), r#"{"anchor":[5,6]}"#).unwrap();
         let p = WindowState::open(dir.path()).prefs();
         assert!(p.expanded);
         assert_eq!(p.anchor, Some((5, 6)));
+        assert_eq!((p.size, p.panes), (None, Panes::default()));
+        std::fs::write(dir.path().join("window.json"), r#"{"panes":{"preview_w":480}}"#).unwrap();
+        assert_eq!(WindowState::open(dir.path()).prefs().panes, Panes { preview_w: Some(480.0), ..Panes::default() });
     }
 }

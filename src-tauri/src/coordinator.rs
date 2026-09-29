@@ -118,6 +118,20 @@ struct Recording {
     hook_cfg: HookConfig,
     raw_tx: Sender<RawInput>,
     thread: RecThread,
+    /// The screenshot taken as it started (a JPEG) and the desktop it shows,
+    /// taken and encoded off this thread.
+    screen: Option<std::thread::JoinHandle<Option<Screenshot>>>,
+}
+
+/// A JPEG of the desktop, and the desktop's rect when it was taken.
+type Screenshot = (Rect, Vec<u8>);
+
+/// The screenshot to keep with a new recording: only one of the desktop the
+/// macro was recorded on (a monitor plugged in or out meanwhile would put it
+/// in the wrong place), and none if none was taken (the setting was off, or
+/// the screen couldn't be read).
+fn screenshot_to_save(shot: Option<Screenshot>, desktop: Rect) -> Option<Vec<u8>> {
+    shot.filter(|(area, _)| *area == desktop).map(|(_, jpeg)| jpeg)
 }
 
 /// The playback in progress.
@@ -436,7 +450,15 @@ impl Coordinator {
             mouse_pulse,
         };
         let thread = RecThread::spawn(recorder, raw_rx, ctx);
-        self.recording = Some(Recording { hook, hook_cfg, raw_tx, thread });
+        let screen = settings.capture_screen.then(|| {
+            let screen = self.platform.screen.clone();
+            std::thread::spawn(move || {
+                let area = screen.virtual_desktop();
+                let jpeg = crate::screens::encode(&screen.capture(area, crate::screens::MAX_WIDTH, own_window)?)?;
+                Some((area, jpeg))
+            })
+        });
+        self.recording = Some(Recording { hook, hook_cfg, raw_tx, thread, screen });
     }
 
     /// Windows removes low-level hooks it thinks are too slow, without telling
@@ -459,6 +481,7 @@ impl Coordinator {
         let Some(rec) = self.recording.take() else { return };
         drop(rec.hook);
         drop(rec.raw_tx);
+        let snapshot = rec.screen.and_then(|t| t.join().ok().flatten());
         let Some(recording) = rec.thread.finish() else {
             self.emit.error("The recording failed and couldn't be saved.");
             return;
@@ -476,6 +499,7 @@ impl Coordinator {
             double_click_px,
             anchor_window: recording.first_press.and_then(|(x, y)| self.platform.windows.root_window_at(x, y)),
         };
+        let meta_desktop = meta.virtual_desktop;
         tracing::info!(events = recording.events.len(), ms = recording.duration_ms, "recording saved");
         let id = {
             let lib = self.app.state::<Mutex<Library>>();
@@ -488,6 +512,14 @@ impl Coordinator {
             }
             id
         };
+        // Only if it shows the desktop the macro was recorded on (a monitor
+        // plugged in or out meanwhile would misplace it).
+        if let Some(jpeg) = screenshot_to_save(snapshot, meta_desktop)
+            && let Err(e) = crate::screens::save(&crate::storage::data_dir(&self.app), id, &jpeg)
+        {
+            self.emit
+                .error(format!("Couldn't save the screenshot of this recording: {e}. The preview shows the sketch."));
+        }
         self.current = Some(id);
         self.emit.send(EngineMsg::Saved { id });
         self.emit.send(EngineMsg::LibraryChanged);
@@ -655,6 +687,22 @@ fn playhead_after(reason: FinishReason, duration: Ms, timed_out_at: Option<Ms>) 
         FinishReason::Completed => duration as f64,
         FinishReason::PixelTimeout => timed_out_at.unwrap_or(0) as f64,
         FinishReason::Stopped | FinishReason::KeyPressed | FinishReason::Killed | FinishReason::Error => 0.0,
+    }
+}
+
+#[cfg(test)]
+mod screenshot_tests {
+    use super::*;
+
+    #[test]
+    fn a_screenshot_is_kept_only_if_it_shows_the_recordings_desktop() {
+        let desktop = Rect { x: 0, y: 0, w: 6400, h: 1600 };
+        assert_eq!(screenshot_to_save(Some((desktop, vec![1, 2])), desktop), Some(vec![1, 2]));
+        // A monitor unplugged during the recording: the desktop changed.
+        let smaller = Rect { w: 4480, ..desktop };
+        assert_eq!(screenshot_to_save(Some((smaller, vec![1, 2])), desktop), None);
+        // None was taken (Screenshot off, or a locked screen).
+        assert_eq!(screenshot_to_save(None, desktop), None);
     }
 }
 

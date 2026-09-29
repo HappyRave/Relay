@@ -15,6 +15,7 @@ import samples from "../lib/dev/sample-views.json";
 import { DEFAULT_SETTINGS } from "../lib/defaults";
 import type { EditOp, MacroListItem, MacroTriggers, MacroView, Mode, PlaybackOptions, Settings } from "../lib/types";
 import type { EngineMsg } from "../lib/ipc/bindings/EngineMsg";
+import type { Panes } from "../lib/ipc/bindings/Panes";
 import type { IpcError } from "../lib/ipc/backend";
 import { applyEdit, History } from "./fake-edit";
 
@@ -72,6 +73,12 @@ const INFALLIBLE = new Set([
   "list_processes",
   "get_autostart",
   "window_prefs",
+  "fit_window",
+  "hide_to_tray",
+  "quit",
+  "screenshot",
+  "save_panes",
+  "reset_layout",
 ]);
 
 const BUSY: IpcError = { code: "busy", message: "Stop the recording or playback first" };
@@ -100,12 +107,15 @@ export class FakeCore {
    * read. A file not listed holds a copy of the first sample, named after the file.
    */
   files = new Map<string, MacroView | string>();
+  /** The screenshots taken when macros were recorded (JPEG bytes), by macro id; like Rust's `screens\<id>.jpg`. */
+  screens = new Map<string, Uint8Array>();
   /** When set, saving to disk fails with this: changes are kept and an `error` message says so. */
   saveError: string | null = null;
   /** The pixel color `sample_pixel` reads, or null when unreadable. */
   pixel: string | null = "#123456";
   picked = { x: 640, y: 360, color: "#00FF00" };
-  window = { expanded: true };
+  /** window.json as Rust holds it: the mode and the editor's dividers (the size isn't the page's to see). */
+  window: { expanded: boolean; panes: Panes } = { expanded: true, panes: { preview_w: null, transport_h: null, timeline_h: null } };
   private channel: Channel<EngineMsg> | null = null;
   /** Errors and notices sent before the UI subscribed, delivered when it does. */
   private queued: EngineMsg[] = [];
@@ -121,6 +131,7 @@ export class FakeCore {
 
   reset() {
     this.calls = [];
+    this.screens = new Map();
     this.entries = SAMPLES.map((s) => ({
       view: structuredClone(s.view),
       runs: s.runs,
@@ -145,7 +156,7 @@ export class FakeCore {
     this.saveError = null;
     this.pixel = "#123456";
     this.picked = { x: 640, y: 360, color: "#00FF00" };
-    this.window = { expanded: true };
+    this.window = { expanded: true, panes: { preview_w: null, transport_h: null, timeline_h: null } };
     this.channel = null;
     this.queued = [];
     this.failures = new Map();
@@ -285,17 +296,40 @@ export class FakeCore {
         return null;
       case "toggle_record":
       case "stop_session":
-      case "fit_window":
       case "hide_to_tray":
       case "quit":
       case "plugin:window|start_dragging":
         return null;
+      case "fit_window":
+        check("width", a.width, "f64");
+        check("height", a.height, "f64");
+        check("expanded", a.expanded, "bool");
+        // window_ctl::fit remembers the mode, for the next start.
+        this.window.expanded = a.expanded as boolean;
+        return null;
       case "window_prefs":
-        return this.window;
+        return structuredClone(this.window);
+      case "save_panes": {
+        check("panes", a.panes, PANES);
+        // As Panes::sanitized: what isn't a size is dropped, a huge one capped.
+        const ok = (v: number | null | undefined) => (v != null && Number.isFinite(v) && v > 0 ? Math.min(v, 10_000) : null);
+        const p = a.panes as Partial<Panes>;
+        this.window.panes = { preview_w: ok(p.preview_w), transport_h: ok(p.transport_h), timeline_h: ok(p.timeline_h) };
+        return null;
+      }
+      case "reset_layout":
+        this.window.panes = { preview_w: null, transport_h: null, timeline_h: null };
+        return null;
       case "list_macros":
         return this.list();
       case "load_macro":
         return this.withHistory(this.entry(id));
+      case "screenshot": {
+        // Raw bytes, as a Tauri `Response` arrives: empty when there's none (never an error).
+        check("id", id, "string");
+        const bytes = this.screens.get(id) ?? new Uint8Array();
+        return bytes.slice().buffer;
+      }
       case "edit_macro": {
         const e = this.entry(id);
         const op = a.op as EditOp;
@@ -327,6 +361,8 @@ export class FakeCore {
         // A copy starts with no triggers (two macros on one hotkey would collide) and no history.
         this.entries.splice(this.entries.indexOf(e) + 1, 0, { view, runs: 0, last_run: null, history: new History() });
         this.triggers.set(copyId, defaultTriggers());
+        const screen = this.screens.get(id);
+        if (screen) this.screens.set(copyId, screen.slice());
         return copyId;
       }
       case "delete_macro": {
@@ -714,14 +750,23 @@ const PLAYBACK: Spec = {
 };
 
 const optional = (s: Spec): [Spec, "optional"] => [s, "optional"];
+/** An `Option<T>`: null, or a T. (JSON has no NaN or Infinity: over IPC they arrive as null.) */
+const nullable = (s: Spec) => (v: unknown) => (v === null || (typeof v === "number" && !Number.isFinite(v)) ? null : why(v, s));
+const PANES: Spec = {
+  preview_w: optional(nullable("f64")),
+  transport_h: optional(nullable("f64")),
+  timeline_h: optional(nullable("f64")),
+};
 const SETTINGS: Spec = {
   capture_moves: optional("bool"),
   capture_keys: optional("bool"),
   countdown: optional("bool"),
   esc_stops_recording: optional("bool"),
   ignore_injected: optional("bool"),
+  capture_screen: optional("bool"),
   path_mode: optional(oneOf("full", "trail")),
   show_click_labels: optional("bool"),
+  preview_background: optional(oneOf("screen", "sketch")),
   close_to_tray: optional("bool"),
   keep_on_top: optional(oneOf("always", "sessions", "never")),
 };

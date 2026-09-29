@@ -18,6 +18,17 @@ pub enum PathMode {
     Trail,
 }
 
+/// What the preview draws under the mouse path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum PreviewBackground {
+    /// The screenshot taken when the macro was recorded, if it has one.
+    Screen,
+    /// Outlines of the monitors and of the window first clicked in.
+    Sketch,
+}
+
 /// When the widget floats above other windows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -54,8 +65,11 @@ pub struct Settings {
     /// Ignore input injected by other programs (remote-desktop tools inject
     /// real user input, so their users may want this off).
     pub ignore_injected: bool,
+    /// Save a screenshot when a recording starts, for the preview (on this PC only).
+    pub capture_screen: bool,
     pub path_mode: PathMode,
     pub show_click_labels: bool,
+    pub preview_background: PreviewBackground,
     /// The close button (and Alt+F4) hides Relay to the tray instead of quitting.
     pub close_to_tray: bool,
     pub keep_on_top: KeepOnTop,
@@ -69,8 +83,10 @@ impl Default for Settings {
             countdown: true,
             esc_stops_recording: true,
             ignore_injected: true,
+            capture_screen: true,
             path_mode: PathMode::Full,
             show_click_labels: true,
+            preview_background: PreviewBackground::Screen,
             close_to_tray: true,
             keep_on_top: KeepOnTop::Always,
         }
@@ -185,6 +201,9 @@ mod tests {
         let (s, problems) = open(dir.path());
         assert!(!s.capture_keys && s.capture_moves);
         assert_eq!(s.keep_on_top, KeepOnTop::Always, "older files keep the old behavior");
+        // A file from before screenshots: taken, and shown, by default.
+        assert!(s.capture_screen);
+        assert_eq!(s.preview_background, PreviewBackground::Screen);
         assert!(problems.is_empty(), "unknown fields are fine: {problems:?}");
         assert!(!dir.path().join("settings.json.bad").exists());
     }

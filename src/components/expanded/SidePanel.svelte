@@ -36,9 +36,9 @@
   .panel {
     display: flex;
     flex-direction: column;
-    border-left: 2px solid var(--color-divider);
     min-width: 0;
-    height: 338px;
+    min-height: 0;
+    height: 100%;
   }
   .tabs {
     display: grid;

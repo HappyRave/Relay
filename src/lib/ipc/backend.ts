@@ -25,6 +25,8 @@ export interface Backend {
   seek(t: number): Promise<void>;
   listMacros(): Promise<MacroListItem[]>;
   loadMacro(id: string): Promise<MacroView>;
+  /** The screenshot taken when the macro was recorded (JPEG bytes), empty if it has none. */
+  screenshot(id: string): Promise<ArrayBuffer>;
   editMacro(id: string, op: EditOp): Promise<MacroView>;
   /** Reverts the last edit, or with `redo` re-applies the last undone one. */
   undoEdit(id: string, redo: boolean): Promise<MacroView>;
@@ -73,6 +75,7 @@ export const tauriBackend: Backend = {
   seek: (t) => invoke("seek", { t }),
   listMacros: () => invoke("list_macros"),
   loadMacro: (id) => invoke("load_macro", { id }),
+  screenshot: (id) => invoke("screenshot", { id }),
   editMacro: (id, op) => invoke("edit_macro", { id, op }),
   undoEdit: (id, redo) => invoke("undo_edit", { id, redo }),
   setPlaybackOptions: (id, options) => invoke("set_playback_options", { id, options }),
@@ -243,6 +246,8 @@ export function browserBackend(): Backend {
       mode = { ...mode, macro_id: id };
       return current;
     },
+    // The samples were never recorded here, so they have no screenshot.
+    screenshot: async () => new ArrayBuffer(0),
     editMacro: async () => unavailable(),
     undoEdit: async () => unavailable(),
     setPlaybackOptions: async (id, options) => {

@@ -35,6 +35,7 @@ describe("startup", () => {
       "get_settings",
       "list_macros",
       "load_macro",
+      "screenshot",
       "get_triggers",
       "get_autostart",
     ]);
@@ -449,6 +450,7 @@ describe("library", () => {
     await relay.loadMacro(B);
     expect(core.calls).toEqual([
       { cmd: "load_macro", args: { id: B } },
+      { cmd: "screenshot", args: { id: B } },
       { cmd: "get_triggers", args: { id: B } },
     ]);
     expect(relay.view?.id).toBe(B);
@@ -478,6 +480,42 @@ describe("library", () => {
     expect(relay.view?.id).toBe(C);
   });
 
+  test("a macro's screenshot is fetched when it opens, and dropped with it", async () => {
+    const created = vi.spyOn(URL, "createObjectURL");
+    const revoked = vi.spyOn(URL, "revokeObjectURL");
+    core.screens.set(B, new Uint8Array([0xff, 0xd8, 0xff]));
+    await relay.loadMacro(B);
+    expect(core.lastArgs("screenshot")).toEqual({ id: B });
+    expect(relay.screenUrl).toMatch(/^blob:/);
+    const blob = created.mock.calls[0][0] as Blob;
+    expect(blob.type).toBe("image/jpeg");
+    expect(new Uint8Array(await blob.arrayBuffer())).toEqual(new Uint8Array([0xff, 0xd8, 0xff]));
+    const url = relay.screenUrl;
+    await relay.loadMacro(C);
+    expect(relay.screenUrl).toBeNull();
+    expect(revoked).toHaveBeenCalledWith(url);
+  });
+
+  test("a slow screenshot of a macro the user left isn't shown on the next one", async () => {
+    core.screens.set(B, new Uint8Array([1]));
+    core.hold("screenshot");
+    const first = relay.loadMacro(B);
+    await settle();
+    core.release("screenshot");
+    await relay.loadMacro(C);
+    core.held[0].resolve(new Uint8Array([1]).buffer);
+    await first;
+    expect(relay.view?.id).toBe(C);
+    expect(relay.screenUrl).toBeNull();
+  });
+
+  test("a macro without a screenshot shows the sketch, without an error", async () => {
+    await relay.loadMacro(B);
+    expect(core.lastArgs("screenshot")).toEqual({ id: B });
+    expect(relay.screenUrl).toBeNull();
+    expect(relay.toast).toBeNull();
+  });
+
   test("the old macro's triggers are never shown for the new one", async () => {
     core.hold("get_triggers");
     const opening = relay.loadMacro(B);
@@ -493,7 +531,7 @@ describe("library", () => {
 
   test("Duplicate opens the copy in the Library tab", async () => {
     await relay.duplicateMacro(A);
-    expect(core.commands()).toEqual(["duplicate_macro", "list_macros", "load_macro", "get_triggers"]);
+    expect(core.commands()).toEqual(["duplicate_macro", "list_macros", "load_macro", "screenshot", "get_triggers"]);
     expect(relay.library.map((m) => m.name).slice(0, 2)).toEqual(["Export invoice to PDF", "Export invoice to PDF (copy)"]);
     expect(relay.view?.id).toBe(relay.library[1].id);
     expect(relay.name).toBe("Export invoice to PDF (copy)");
@@ -509,7 +547,7 @@ describe("library", () => {
 
   test("Delete moves the open macro to the trash, opens its neighbour and offers Undo", async () => {
     await relay.deleteMacro(A);
-    expect(core.commands()).toEqual(["delete_macro", "list_macros", "load_macro", "get_triggers"]);
+    expect(core.commands()).toEqual(["delete_macro", "list_macros", "load_macro", "screenshot", "get_triggers"]);
     expect(core.argsOf("delete_macro")).toEqual([{ id: A }]);
     expect(relay.view?.id).toBe(B);
     expect(relay.tab).toBe("library");
@@ -518,7 +556,7 @@ describe("library", () => {
     core.clearCalls();
     relay.toast!.action!.run();
     await settle();
-    expect(core.commands()).toEqual(["restore_macro", "list_macros", "load_macro", "get_triggers"]);
+    expect(core.commands()).toEqual(["restore_macro", "list_macros", "load_macro", "screenshot", "get_triggers"]);
     expect(core.argsOf("restore_macro")).toEqual([{ id: A }]);
     expect(relay.view?.id).toBe(A);
     expect(relay.toast).toBeNull();
@@ -558,9 +596,13 @@ describe("library", () => {
 
   test("deleting the only macro leaves nothing open", async () => {
     for (const id of [B, C, D]) await relay.deleteMacro(id);
+    core.screens.set(A, new Uint8Array([1]));
+    await relay.loadMacro(A);
+    expect(relay.screenUrl).not.toBeNull();
     await relay.deleteMacro(A);
     expect(relay.library).toEqual([]);
     expect(relay.view).toBeNull();
+    expect(relay.screenUrl).toBeNull(); // its screenshot goes with it
     expect(relay.triggerStatus).toBeNull(); // nothing for the Triggers tab to write to
   });
 
@@ -589,7 +631,7 @@ describe("library", () => {
     test("opens the first imported macro and says how many", async () => {
       core.dialog.open = ["C:\\one.rly", "C:\\two.rly"];
       await relay.importMacros();
-      expect(core.commands()).toEqual(["plugin:dialog|open", "import_macros", "list_macros", "load_macro", "get_triggers"]);
+      expect(core.commands()).toEqual(["plugin:dialog|open", "import_macros", "list_macros", "load_macro", "screenshot", "get_triggers"]);
       expect(relay.library.map((m) => m.name).slice(0, 3)).toEqual(["one", "two", "Export invoice to PDF"]);
       expect(relay.view?.id).toBe(relay.library[0].id); // the first imported, at the top
       expect(relay.name).toBe("one");

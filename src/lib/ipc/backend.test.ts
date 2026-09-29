@@ -25,6 +25,7 @@ describe("tauriBackend", () => {
     ["seek", () => b.seek(50.5), "seek", { t: 50.5 }],
     ["listMacros", () => b.listMacros(), "list_macros", {}],
     ["loadMacro", () => b.loadMacro(id), "load_macro", { id }],
+    ["screenshot", () => b.screenshot(id), "screenshot", { id }],
     ["editMacro", () => b.editMacro(id, { op: "rename", name: "N" }), "edit_macro", { id, op: { op: "rename", name: "N" } }],
     ["undoEdit", () => b.undoEdit(id, false), "undo_edit", { id, redo: false }],
     ["redo", () => b.undoEdit(id, true), "undo_edit", { id, redo: true }],
@@ -200,6 +201,11 @@ describe("browserBackend (npm run dev)", () => {
     const bb = await ready();
     expect((await bb.loadMacro(id)).name).toBe("Export invoice to PDF");
     await expect(bb.loadMacro("missing")).rejects.toMatchObject({ code: "not_found" });
+  });
+
+  test("the samples have no screenshot (they were never recorded here)", async () => {
+    const bb = await ready();
+    expect((await bb.screenshot(id)).byteLength).toBe(0);
   });
 
   test("edits, files and pixel picking need the app", async () => {

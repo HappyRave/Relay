@@ -89,3 +89,47 @@ pub enum HookMode {
 
 /// Virtual keys currently held, for character translation.
 pub type HeldKeys = BTreeSet<u16>;
+
+/// A picture of part of the screen: `w` × `h` pixels, rows top to bottom,
+/// 3 bytes (R, G, B) per pixel.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Snapshot {
+    pub w: u32,
+    pub h: u32,
+    pub rgb: Vec<u8>,
+}
+
+impl std::fmt::Debug for Snapshot {
+    // The pixels are someone's screen: never in logs or panic messages.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Snapshot({}×{})", self.w, self.h)
+    }
+}
+
+/// The size of a snapshot of an area `w` × `h` physical pixels wide, at most
+/// `max_w` wide: scaled down evenly, never up, and at least 1 × 1.
+pub fn snapshot_size(w: i32, h: i32, max_w: u32) -> (u32, u32) {
+    let (w, h) = (w.max(1) as f64, h.max(1) as f64);
+    let scale = (max_w as f64 / w).min(1.0);
+    (((w * scale).round() as u32).max(1), ((h * scale).round() as u32).max(1))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn snapshots_scale_down_to_fit_but_never_up() {
+        assert_eq!(snapshot_size(1920, 1080, 3200), (1920, 1080));
+        // Three monitors, 2560 + 1920 + 1920 wide: half size.
+        assert_eq!(snapshot_size(6400, 1600, 3200), (3200, 800));
+        assert_eq!(snapshot_size(3840, 2160, 3200), (3200, 1800));
+        assert_eq!(snapshot_size(0, -5, 3200), (1, 1));
+    }
+
+    #[test]
+    fn a_snapshot_never_shows_its_pixels_in_debug_output() {
+        let s = Snapshot { w: 2, h: 1, rgb: vec![1, 2, 3, 4, 5, 6] };
+        assert_eq!(format!("{s:?}"), "Snapshot(2×1)");
+    }
+}

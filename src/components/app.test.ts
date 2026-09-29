@@ -6,6 +6,7 @@ import userEvent from "@testing-library/user-event";
 import App from "../App.svelte";
 import Widget from "./Widget.svelte";
 import ExportDialog from "./ExportDialog.svelte";
+import ExpandedWidget from "./ExpandedWidget.svelte";
 import { core, freshStore, settle } from "../test/app";
 import { browserBackend } from "../lib/ipc/backend";
 import type { RelayStore } from "../lib/state/relay.svelte";
@@ -43,12 +44,15 @@ describe("App", () => {
     expect(core.commands()).toEqual([
       "window_prefs",
       "subscribe_engine",
+      "fit_window",
       "get_settings",
       "list_macros",
       "load_macro",
+      "screenshot",
       "get_triggers",
       "get_autostart",
     ]);
+    expect(core.lastArgs("fit_window")).toEqual({ width: 0, height: 0, expanded: true });
     expect(container.querySelector(".expanded")).not.toBeNull();
     expect(screen.getByRole("textbox", { name: "Macro name" })).toHaveValue("Export invoice to PDF");
   });
@@ -94,20 +98,28 @@ describe("Widget", () => {
     expect(container.querySelector(".expanded")).not.toBeNull();
   });
 
-  test("tells Rust its size, so the window fits it", async () => {
+  test("the compact player tells Rust its size; the editor fills the window Rust sizes", async () => {
     const onresize = (w: number, h: number) => sizes.push([w, h]);
     const sizes: [number, number][] = [];
-    render(Widget, { onresize });
+    const { container } = render(Widget, { onresize });
     await settle();
-    resize(944.4, 612.6);
+    // The editor only says it's the editor: its size is Rust's (the user's, or the default).
+    expect(core.argsOf("fit_window")).toEqual([{ width: 0, height: 0, expanded: true }]);
+    expect(container.querySelector(".widget")).toHaveClass("fill");
+    resize(1200.4, 800.6); // the user resized the window
     await settle();
-    expect(core.argsOf("fit_window")).toEqual([{ width: 944, height: 613, expanded: true }]);
-    expect(sizes).toEqual([[944, 613]]);
+    expect(core.argsOf("fit_window")).toHaveLength(1);
+    expect(sizes).toEqual([[1200, 801]]);
+
     relay.expanded = false;
     await settle();
-    resize(604, 68);
+    expect(container.querySelector(".widget")).not.toHaveClass("fill");
+    resize(604.4, 67.6);
     await settle();
     expect(core.lastArgs("fit_window")).toEqual({ width: 604, height: 68, expanded: false });
+    relay.expanded = true;
+    await settle();
+    expect(core.lastArgs("fit_window")).toEqual({ width: 0, height: 0, expanded: true });
   });
 
   test("the compact player shows toasts too", async () => {
@@ -116,6 +128,61 @@ describe("Widget", () => {
     relay.notify("Saved");
     await settle();
     expect(screen.getByRole("status")).toHaveTextContent("Saved");
+  });
+});
+
+describe("the editor's dividers", () => {
+  beforeEach(async () => {
+    relay = await freshStore({ init: false });
+    core.window.panes = { preview_w: 520, transport_h: 153, timeline_h: 200 };
+    await relay.init();
+    await settle();
+    core.clearCalls();
+  });
+  const drag = async (el: Element, axis: "clientX" | "clientY", from: number, to: number) => {
+    await fireEvent.pointerDown(el, { button: 0, pointerId: 1, [axis]: from });
+    await fireEvent.pointerMove(el, { pointerId: 1, [axis]: to });
+    await fireEvent.pointerUp(el, { pointerId: 1, [axis]: to });
+    await settle();
+  };
+  const style = (c: Element, selector: string) => (c.querySelector(selector) as HTMLElement).style;
+
+  test("open where the user left them", () => {
+    const { container } = render(ExpandedWidget);
+    expect(relay.panes).toEqual({ preview_w: 520, transport_h: 153, timeline_h: 200 });
+    expect(style(container, ".main").gridTemplateColumns).toBe("520px 2px minmax(0, 1fr)");
+    expect(style(container, ".transport-pane").height).toBe("153px");
+    expect(style(container, ".timeline-pane").height).toBe("200px");
+    const names = screen.getAllByRole("separator").map((s) => s.getAttribute("aria-label"));
+    expect(names).toEqual(["Resize preview", "Resize buttons", "Resize timeline"]);
+  });
+
+  test("a taller button row scales its controls", () => {
+    const { container } = render(ExpandedWidget);
+    // 153 px is 1.5 × the default 102 (jsdom measures no width to hold it back).
+    expect(style(container, ".transport-scale").transform).toBe("scale(1.5)");
+  });
+
+  test("dragging one is saved once, when the drag ends", async () => {
+    render(ExpandedWidget);
+    await drag(screen.getByRole("separator", { name: "Resize preview" }), "clientX", 500, 560);
+    expect(core.argsOf("save_panes")).toEqual([{ panes: { preview_w: 580, transport_h: 153, timeline_h: 200 } }]);
+    // Up: the button row gets taller.
+    await drag(screen.getByRole("separator", { name: "Resize buttons" }), "clientY", 300, 280);
+    expect(core.lastArgs("save_panes")).toEqual({ panes: { preview_w: 580, transport_h: 173, timeline_h: 200 } });
+    // Down: the timeline gets shorter (jsdom measures nothing, so it can't grow past its size here).
+    await drag(screen.getByRole("separator", { name: "Resize timeline" }), "clientY", 400, 430);
+    expect(core.lastArgs("save_panes")).toEqual({ panes: { preview_w: 580, transport_h: 173, timeline_h: 170 } });
+    expect(core.window.panes).toEqual({ preview_w: 580, transport_h: 173, timeline_h: 170 });
+  });
+
+  test("double-clicking one puts it back to the default, and saves that", async () => {
+    const { container } = render(ExpandedWidget);
+    await fireEvent.dblClick(screen.getByRole("separator", { name: "Resize buttons" }));
+    await settle();
+    expect(core.lastArgs("save_panes")).toEqual({ panes: { preview_w: 520, transport_h: null, timeline_h: 200 } });
+    expect(style(container, ".transport-pane").height).toBe("102px");
+    expect(style(container, ".transport-scale").transform).toBe("");
   });
 });
 
@@ -250,14 +317,14 @@ describe("the browser preview", () => {
       setWindow(1400, 900);
       const { container } = render(App);
       await settle();
-      resize(944, 616);
+      resize(944, 612);
       await settle();
       const host = container.querySelector(".host") as HTMLElement;
       expect(host.style.transform).toContain("scale(1)"); // it fits
       setWindow(800, 600);
-      resize(944, 616);
+      resize(944, 612);
       await settle();
-      // The width is what limits it: (800 − 32) / 944, less than (600 − 52 − 16) / 616.
+      // The width is what limits it: (800 − 32) / 944, less than (600 − 52 − 16) / 612.
       expect(host.style.transform).toContain(`scale(${768 / 944})`);
     } finally {
       setWindow(was[0], was[1]);

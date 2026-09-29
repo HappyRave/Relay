@@ -27,7 +27,10 @@ import type { TimingStats } from "../ipc/bindings/TimingStats";
 import type { FinishReason } from "../ipc/bindings/FinishReason";
 import { backend as defaultBackend, type Backend, type IpcError } from "../ipc/backend";
 import { DEFAULT_PLAYBACK, DEFAULT_SETTINGS } from "../defaults";
-import { isTauri, savedExpanded } from "../platform/window";
+import { isTauri, resetLayout, savePanes, savedWindow } from "../platform/window";
+import { NO_PANES } from "../layout";
+import { nextRepeat, nextSpeed } from "../transport";
+import type { Panes } from "../ipc/bindings/Panes";
 import { lastIndexAtOrBefore } from "../preview/geometry";
 import { currentStepIndex, jumpTarget } from "../timeline/lanes";
 import { plural, slug } from "../format";
@@ -84,6 +87,8 @@ export class RelayStore {
   settings = $state.raw<Settings>(DEFAULT_SETTINGS);
   library = $state.raw<MacroListItem[]>([]);
   view = $state.raw<MacroView | null>(null);
+  /** The open macro's screenshot from when it was recorded (an object URL), or null if it has none. */
+  screenUrl = $state<string | null>(null);
   /** The open macro's triggers, with the next scheduled run and hotkey problems. */
   triggerStatus = $state.raw<TriggerStatus | null>(null);
   /** The open macro's triggers couldn't be loaded (the Triggers tab offers to retry). */
@@ -98,6 +103,8 @@ export class RelayStore {
   /** False until the saved window mode is known (so the widget never flashes the wrong size). */
   ready = $state(false);
   expanded = $state(true);
+  /** Where the user put the editor's dividers (null: the default); the layout keeps them inside the window. */
+  panes = $state.raw<Panes>(NO_PANES);
   tab = $state<Tab>("steps");
   exportOpen = $state(false);
   exportFmt = $state<ExportFormat>("rly");
@@ -181,7 +188,9 @@ export class RelayStore {
   // — lifecycle —
 
   async init() {
-    this.expanded = await savedExpanded().catch(() => true);
+    const saved = await savedWindow().catch(() => ({ expanded: true, panes: NO_PANES }));
+    this.expanded = saved.expanded;
+    this.panes = saved.panes;
     this.ready = true;
     await this.run(this.backend.subscribe(this.onEngine));
     this.settings = (await this.run(this.backend.getSettings())) ?? this.settings;
@@ -190,6 +199,25 @@ export class RelayStore {
     if (this.library[0]) await this.loadMacro(this.library[0].id);
     this.autostart = await this.backend.getAutostart().catch(() => false);
   }
+
+  /** A divider moved (shown at once; saved by `savePanes` when the drag ends). */
+  movePanes = (change: Partial<Panes>) => {
+    this.panes = { ...this.panes, ...change };
+  };
+
+  savePanes = () => savePanes(this.panes).catch(() => {});
+
+  /** Double-click on a divider: that one back to the default. */
+  resetPane = (key: keyof Panes) => {
+    this.movePanes({ [key]: null });
+    return this.savePanes();
+  };
+
+  /** Settings → Window → Reset layout: the editor's default size and dividers. */
+  resetLayout = async () => {
+    this.panes = NO_PANES;
+    await resetLayout().catch((e) => this.fail(e));
+  };
 
   start() {
     const loop = (now: number) => {
@@ -461,7 +489,20 @@ export class RelayStore {
     this.triggerStatus = null; // the old macro's triggers mustn't be edited into this one
     this.cur = 0;
     this.loopIdx = 0;
-    await this.loadTriggers();
+    await Promise.all([this.loadScreen(id), this.loadTriggers()]);
+  }
+
+  /** Fetches the open macro's screenshot. Without one (or if reading it fails), the preview shows the sketch. */
+  private async loadScreen(id: string) {
+    this.setScreen(null);
+    const bytes = await this.backend.screenshot(id).catch(() => null);
+    if (!bytes?.byteLength || this.view?.id !== id) return;
+    this.setScreen(URL.createObjectURL(new Blob([bytes], { type: "image/jpeg" })));
+  }
+
+  private setScreen(url: string | null) {
+    if (this.screenUrl) URL.revokeObjectURL(this.screenUrl);
+    this.screenUrl = url;
   }
 
   /** Loads the open macro's triggers (again, with Retry, after a failure). */
@@ -506,6 +547,7 @@ export class RelayStore {
       if (next) await this.loadMacro(next.id);
       else {
         this.view = null;
+        this.setScreen(null);
         this.triggerStatus = null;
         this.triggersFailed = false;
       }
@@ -729,6 +771,17 @@ export class RelayStore {
     if (this.playback.repeat !== "forever" && this.repeatCount < MAX_REPEATS) {
       return this.setPlayback({ repeat: { count: this.repeatCount + 1 } });
     }
+  };
+
+  /** The narrow bar's speed button: the next speed (0.5× → 1× → 2× → 4× → 0.5×). */
+  cycleSpeed = () => this.setPlayback({ speed: nextSpeed(this.playback.speed) });
+
+  /** The narrow bar's folded repeat: 1 → 2 → 3 → 5 → 10 → forever → 1. */
+  cycleRepeat = () => {
+    if (!this.view) return;
+    const r = this.playback.repeat;
+    if (r !== "forever") this.lastCounts = { ...this.lastCounts, [this.view.id]: r.count };
+    return this.setPlayback({ repeat: nextRepeat(r) });
   };
 
   // — triggers —

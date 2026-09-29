@@ -1,11 +1,12 @@
 # File formats
 
-Everything Relay stores is JSON in the data directory, `%APPDATA%\Relay` (or `RELAY_DATA_DIR`). Every file is written atomically: a temporary file, then a rename.
+Everything Relay stores is JSON (and one JPEG per recorded macro) in the data directory, `%APPDATA%\Relay` (or `RELAY_DATA_DIR`). Every file is written atomically: a temporary file, then a rename.
 
 ```text
 %APPDATA%\Relay\
 ├── macros\<uuid>.rly       one macro per file, portable
 ├── macros\.trash\<uuid>.rly
+├── screens\<uuid>.jpg       machine-local: the screen as each recording started
 ├── library.json            machine-local: order, stats, triggers, trash
 ├── settings.json           machine-local
 ├── window.json             machine-local
@@ -13,6 +14,8 @@ Everything Relay stores is JSON in the data directory, `%APPDATA%\Relay` (or `RE
 ```
 
 **Portable** files can be copied to another PC. **Machine-local** files describe this PC's use of the macros (run counts, hotkeys, schedules) and are never exported.
+
+**Screenshots** (`screens\<uuid>.jpg`) are taken when a recording starts, with *Screenshot* on: the whole virtual desktop at the macro's `recording.virtual_desktop`, scaled down to at most 3200 px wide, JPEG quality 80, with Relay's own window left out. The preview draws it at that rect. It's machine-local because it can show anything that was on screen: exports and imports never carry it. A duplicate gets a copy; a trashed macro keeps its screenshot for a restore. A macro without one (recorded before 1.3, imported, or with the setting off) shows the sketch.
 
 - [The .rly macro file](#the-rly-macro-file)
 - [The JSON export](#the-json-export)
@@ -210,22 +213,29 @@ Before triggers existed (up to M6), entries had a plain `hotkey` label. It's rea
   "countdown": true,
   "esc_stops_recording": true,
   "ignore_injected": true,
+  "capture_screen": true,
   "path_mode": "full",
   "show_click_labels": true,
+  "preview_background": "screen",
   "close_to_tray": true,
   "keep_on_top": "always"
 }
 ```
 
-`path_mode` is `"full"` or `"trail"`, and `keep_on_top` is `"always"`, `"sessions"` (while recording or playing) or `"never"`. Missing fields take their defaults (shown above), and unknown fields are ignored. A field with an invalid value (`"keep_on_top": "sometimes"`, or a value from a newer Relay) takes its default and the others are kept; the original file is set aside as `settings.json.bad`, the recovered settings are saved, and the user is told. *Start with Windows* isn't stored here: it's an entry in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (managed by `tauri-plugin-autostart`) that starts Relay with `--autostart`.
+`path_mode` is `"full"` or `"trail"`, `preview_background` is `"screen"` (the screenshot, when the macro has one) or `"sketch"`, and `keep_on_top` is `"always"`, `"sessions"` (while recording or playing) or `"never"`. Missing fields take their defaults (shown above), and unknown fields are ignored. A field with an invalid value (`"keep_on_top": "sometimes"`, or a value from a newer Relay) takes its default and the others are kept; the original file is set aside as `settings.json.bad`, the recovered settings are saved, and the user is told. *Start with Windows* isn't stored here: it's an entry in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (managed by `tauri-plugin-autostart`) that starts Relay with `--autostart`.
 
 ## window.json
 
 ```json
-{ "expanded": true, "anchor": [1280, 1384] }
+{
+  "expanded": true,
+  "anchor": [1280, 1384],
+  "size": [1100, 720],
+  "panes": { "preview_w": 520, "transport_h": null, "timeline_h": null }
+}
 ```
 
-`anchor` is the widget's bottom-center in physical virtual-desktop pixels, or `null` for the default position. Only Rust writes this file.
+`anchor` is the widget's bottom-center in physical virtual-desktop pixels, or `null` for the default position. `size` is the editor's size in CSS px if the user resized it (`null`: 944 × 612); it never goes below 760 × 520. `panes` are the editor's dividers in CSS px: the preview's width, the button row's height and the timeline's height, each `null` for the default (600, 102 and 146); the UI keeps them inside the window. Every field may be missing (older files), and only Rust writes this file.
 
 ---
 

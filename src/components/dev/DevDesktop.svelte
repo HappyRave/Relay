@@ -6,7 +6,7 @@
 
   let vw = $state(window.innerWidth);
   let vh = $state(window.innerHeight);
-  let size = $state({ w: 944, h: 616 });
+  let size = $state({ w: 944, h: 612 });
   let now = $state(new Date());
 
   $effect(() => {
@@ -44,6 +44,8 @@
     class="host"
     style:bottom="{bottom}px"
     style:transform="translate(calc(-50% + {devDesktop.dx}px), {devDesktop.dy}px) scale({scale})"
+    style:--widget-w="944px"
+    style:--widget-h="612px"
   >
     <Widget onresize={(w, h) => (size = { w, h })} />
   </div>

@@ -4,6 +4,7 @@
   import { tick } from "svelte";
   import { relay, TRIM_PAUSE_MS } from "../../../lib/state/relay.svelte";
   import { fmtTime, plural } from "../../../lib/format";
+  import { stepTitle } from "../../../lib/state/display";
   import type { Step } from "../../../lib/types";
 
   const TYPE_NAME: Record<Step["kind"], string> = {
@@ -15,7 +16,6 @@
     wait: "WAIT",
     pixel_wait: "IF",
   };
-  const COUNT_NAME = ["", "Click", "Double click", "Triple click"];
 
   const steps = $derived(relay.steps);
   const curIdx = $derived(relay.curStepIdx);
@@ -37,28 +37,23 @@
 
   function describe(s: Step): [string, string] {
     switch (s.kind) {
-      case "click": {
-        const what = s.btn === "Left" ? (COUNT_NAME[s.count] ?? `${s.count}× click`) : `${s.btn} click`;
-        return [what + (s.label ? " · " + s.label : ""), where(s.x, s.y)];
-      }
+      case "click":
+        return [stepTitle(s), where(s.x, s.y)];
       case "drag":
         return [
-          `${s.btn === "Left" ? "Drag" : s.btn + " drag"}${s.label ? " · " + s.label : ""}`,
+          stepTitle(s),
           inWindow ? `${at(s.x, s.y)} → ${at(s.to_x, s.to_y)}${unit}` : `${where(s.x, s.y)} → ${s.to_x}, ${s.to_y}`,
         ];
       case "scroll":
-        return [`Scroll ${s.horizontal ? (s.delta > 0 ? "right" : "left") : s.delta > 0 ? "up" : "down"}`, `${notches(s.delta)} at ${where(s.x, s.y)}`];
+        return [stepTitle(s), `${notches(s.delta)} at ${where(s.x, s.y)}`];
       case "keys":
-        return [s.combo.join(" + "), "Key combination"];
+        return [stepTitle(s), "Key combination"];
       case "type":
-        return ["“" + s.text + "”", plural(s.text.length, "character")];
+        return [stepTitle(s), plural(s.text.length, "character")];
       case "pixel_wait":
-        return [
-          `Wait for pixel ${s.x}, ${s.y} = ${s.color}`,
-          (s.label ? s.label + " · " : "") + `timeout ${s.timeout_ms / 1000} s, else stop`,
-        ];
+        return [stepTitle(s), (s.label ? s.label + " · " : "") + `timeout ${s.timeout_ms / 1000} s, else stop`];
       case "wait":
-        return ["Wait " + (s.dur / 1000).toFixed(1) + " s", s.label];
+        return [stepTitle(s), s.label];
     }
   }
 

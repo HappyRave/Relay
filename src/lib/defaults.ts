@@ -8,8 +8,10 @@ export const DEFAULT_SETTINGS: Settings = {
   countdown: true,
   esc_stops_recording: true,
   ignore_injected: true,
+  capture_screen: true,
   path_mode: "full",
   show_click_labels: true,
+  preview_background: "screen",
   close_to_tray: true,
   keep_on_top: "always",
 };

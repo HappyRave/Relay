@@ -82,6 +82,7 @@ When proptest finds a failure, it shrinks it to a minimal case and saves it in `
 
 - **Recorder**: synthetic `RawInput` sequences with a fake US translator. Covers a click, typing and Ctrl+S grouped into the right steps, physical key codes, *Capture keystrokes* off, the kill switch (and its modifiers) left out, live moves reported once, and `is_meaningful`.
 - **Key map**: scan code ↔ W3C code round trips.
+- **Snapshots**: `snapshot_size` scales down evenly and never up; a `Snapshot` never prints its pixels. (The Windows capture itself is checked by hand: see the checklist.)
 - **Processes**: sees the test's own process (by prefix, since Linux truncates names to 15 characters).
 
 ## The app
@@ -93,11 +94,12 @@ When proptest finds a failure, it shrinks it to a minimal case and saves it in `
 | `engine` | With a fake clock, a recording injector and a fake screen: injection on schedule and lateness stats, speed, pause/seek/speed changes, loops releasing between loops, releasing a button when dropped mid-drag, pixel checks waiting, timing out with their step number, and pausing during a check, and the window offset |
 | `history` | Undo and redo, a new edit clearing redo, typed renames as one step |
 | `hotkeys` | Parsing UI combos (spacing, order, F1–F24 alone), which hotkeys each session state registers, recognizing Relay's own, conflicts with other macros' hotkeys (written either way; disabled ones don't count) |
-| `library` | Seeding on first run, persistence, duplicate/trash/restore/import, triggers and the pre-trigger hotkey migration, broken files reported without failing |
+| `screens` | Screenshots saved as JPEG and read back, too big to encode, a copy for a duplicate |
+| `library` | Seeding on first run, persistence, duplicate (with its screenshot)/trash/restore/import, triggers and the pre-trigger hotkey migration, broken files reported without failing |
 | `settings` | Persistence and partial files |
 | `rec_thread` | The watchdog: fires on silent movement, respects the cooldown, never fires on a still cursor |
 | `triggers` | `ScheduleWatch` (on time, a few seconds late, skipped after sleep, days, shared times), `LaunchWatch` (lower-case names, the baseline, once per start, triggers switched off) and `PixelWatch` (two samples, tolerance, unreadable screens, a moved pixel) |
-| `window_ctl` | Zoom on small screens and high scaling; the layout (default spot, bottom-center anchor, kept inside the work area, negative coordinates, centering); which monitor owns an anchor; the size after a scale change (dragging or not); `window.json` round trips and bad files |
+| `window_ctl` | Zoom on small screens and high scaling; the layout (default spot, bottom-center anchor, kept inside the work area, negative coordinates, centering); which monitor owns an anchor; the size after a scale change (dragging or not); the editor's size from `window.json` (never below the minimum, made to fit the work area), a user resize in CSS px at 100% and 150%, panes sanitized, saved and reset; `window.json` round trips and bad files |
 | `commands` | Error codes for the UI, exports that import again, an import with broken and missing files |
 | `coordinator` | Click-through detection under the widget, with the window offset |
 | `ipc`, `storage` | The message stream's JSON shape and resubscribing; atomic writes |
@@ -108,12 +110,14 @@ The engine is the best example of the approach: `Engine::advance(now)` takes tim
 
 ## The frontend
 
-[Vitest](https://vitest.dev) runs in jsdom with [Testing Library](https://testing-library.com/docs/svelte-testing-library/intro). The pure modules in `src/lib/` have their own tests: formatting, lanes, geometry and hotkey capture. Everything else runs against a **fake Rust core**:
+[Vitest](https://vitest.dev) runs in jsdom with [Testing Library](https://testing-library.com/docs/svelte-testing-library/intro). The pure modules in `src/lib/` have their own tests: formatting, lanes (and the ruler's step for its width), the preview's view (the whole desktop fitted, zoom around the pointer, pan, never past an edge), the editor's dividers (`layout.ts`: `paneLayout` down to Rust's `MIN_EXPANDED`, `transportScale`), step titles and the typed-text tail (`display.ts`), and hotkey capture. Everything else runs against a **fake Rust core**:
 
 - [`src/test/fake-core.ts`](../../src/test/fake-core.ts) sits behind Tauri's own IPC mock (`@tauri-apps/api/mocks`). The UI runs its real `tauriBackend`, and every `invoke` lands in the fake, which records every call (`core.calls`, `core.argsOf("edit_macro")`). **It answers the way the Rust side does**, so a test can't pass on behavior the real app doesn't have, and [`fake-core.test.ts`](../../src/test/fake-core.test.ts) pins that:
   - the library like `library.rs`: the samples seeded with their hotkeys off, only enabled hotkeys in the list, "X (copy)" then "X (copy) 2", restore back in place, imports at the top with unique names (from `core.files`);
   - edits and undo like `edit.rs` and `history.rs` ([`fake-edit.ts`](../../src/test/fake-edit.ts)): inserts snap after the step under the playhead and push the rest later, deleting a wait closes its gap, pauses retime what follows, event indices renumber, wrong-kind edits are refused with Rust's messages, undo restores the name and steps but not the playback options, quick renames merge;
   - refusals: `busy` for deletes and edits during a session (`core.mode`), hotkeys like `hotkeys.rs` (Relay's own, another macro's, Shift + a character, modifier-only, malformed), arguments of the wrong type;
+  - screenshots as raw bytes (empty when there's none, never an error), copied with a duplicate;
+  - the window like `window_ctl.rs`: `fit_window` remembers the mode, `save_panes` sanitized as `Panes::sanitized` does (NaN arrives as null), `reset_layout`;
   - `update_settings` fills in defaults; `set_triggers_paused` emits `triggers_paused`; errors sent before the UI subscribes are queued.
 
   A test can make a command fail (`core.fail`, which refuses commands that can't fail in Rust: for those, `core.saveError` makes the save fail and an `error` message follow, as Rust does), answer it differently (`core.on`), or hold its response until the test releases it (`core.hold`, `core.held`). `core.emit(msg)` delivers an engine message the way the coordinator does, and `core.emitLater(msg)` after a frame, for ordering bugs. `core.view(id)` returns a copy.
@@ -122,10 +126,10 @@ The engine is the best example of the approach: `Engine::advance(now)` takes tim
 | Tests | What's covered |
 | --- | --- |
 | [`backend.test.ts`](../../src/lib/ipc/backend.test.ts) | Every `Backend` method sends one command with the argument names Rust expects; the export and import dialogs, including cancelling; the browser preview's simulation (countdown, loops, pause, seek, speed, forever) |
-| [`relay.test.ts`](../../src/lib/state/relay.test.ts) | The store: startup, every engine message, each action and its guards (busy sessions, nothing open), dropping responses for a macro the user left, rename debouncing, undo and redo, Pick's countdown, toasts, keyboard shortcuts in the app and the browser |
-| `src/components/**/*.test.ts` | Every button, switch, radio and field in every component, checked by the command it sends: the header, the transport, each tab, the step editor, the preview and timeline (including seeking by pointer), the compact player, the export dialog, the app shell and the demo desktop |
+| [`relay.test.ts`](../../src/lib/state/relay.test.ts) | The store: startup, every engine message, each action and its guards (busy sessions, nothing open), dropping responses for a macro the user left (a slow screenshot too; the screenshot's object URL is revoked when another macro opens or the last one is deleted), rename debouncing, undo and redo, Pick's countdown, toasts, keyboard shortcuts in the app and the browser |
+| `src/components/**/*.test.ts` | Every button, switch, radio and field in every component, checked by the command it sends: the header, the transport, each tab, the step editor, the preview (its bar, the screenshot and Screen / Sketch, zooming, panning and Fit) and timeline (including seeking by pointer), the dividers (`Splitter`: drag, keys, double-click; the editor's three, saved once per drag; the button row's scale), the compact player, the export dialog, the app shell (the compact player reports its size, the editor doesn't) and the demo desktop |
 
-jsdom has no layout, so tests that seek by pointer stub `getBoundingClientRect`. [`src/test/setup.ts`](../../src/test/setup.ts) fills in what jsdom lacks: `<dialog>`, `ResizeObserver` and animation frames.
+jsdom has no layout, so tests that seek by pointer stub `getBoundingClientRect`. [`src/test/setup.ts`](../../src/test/setup.ts) fills in what jsdom lacks: `<dialog>`, `ResizeObserver`, pointer capture, object URLs and animation frames. With no layout, nothing is measured: the dividers show the saved values unclamped and the preview uses the default drawing's shape, so what depends on real sizes (the layout at a bigger editor, the preview's aspect following its pane, taller lanes) is checked end to end.
 
 ## End-to-end testing
 
@@ -144,9 +148,9 @@ The tests never send input to the desktop. Macros that get played contain only w
 
 | Suite | What's covered |
 | --- | --- |
-| `library` | The first run's samples; renaming; duplicate; delete to the trash folder, and Undo; import (`.rly`, `.json`, broken, too new, missing); export in both formats and back; `not_found` for every per-macro command; a restart; damaged macro files and a damaged `library.json` |
+| `library` | The first run's samples; renaming; duplicate; delete to the trash folder, and Undo; import (`.rly`, `.json`, broken, too new, missing); export in both formats and back; a screenshot shown in the preview (the CSP allows it), switched to the sketch, copied with a duplicate and left out of exports; `not_found` for every per-macro command; a restart; damaged macro files and a damaged `library.json` |
 | `editing` | Deleting a step; undo and redo (buttons, and Ctrl + Z / Ctrl + Y); + Wait and + Pixel check; the step editor's label, pause, wait duration and every pixel field; Trim pauses; a rejected edit; every playback option; undo history kept per macro, and not across restarts |
-| `settings` | Every setting in `settings.json`; Keep on top on the native window, including "only during sessions"; compact mode resizing the window and reopening compact; the anchor kept; close to tray hiding, and quitting when it's off |
+| `settings` | Every setting in `settings.json`; Keep on top on the native window, including "only during sessions"; compact mode resizing the window and reopening compact; the anchor kept; the editor resizable and the compact player not; dividers dragged, saved, restored after a restart and reset by double-click; a saved bigger editor laid out, and Reset layout; close to tray hiding, and quitting when it's off |
 | `playback` | Playing to the end, with the run counted; loops; speed; pause and resume; stop; playing from the playhead; seeking and changing speed mid-playback; a pixel check timing out; the busy guard; recording's countdown, and cancelling it |
 | `triggers` | Hotkeys registered, and refused for Relay's own, another macro's or an unusable combo; the schedule saved with its next run, then firing at the minute; the app-launch trigger firing, skipped while busy, and not firing while paused; the pixel trigger firing once per change; the log recording each run; everything after a restart |
 
@@ -187,7 +191,9 @@ Things learned the hard way:
 
 What automated tests can't cover well:
 
+- [ ] Record with *Screenshot* on: the preview shows your screen (without Relay's widget) under the path; Screen | Sketch switches; with it off, no picture is saved
 - [ ] Drag the widget (expanded and compact) between monitors with different scaling: it keeps its size and layout
+- [ ] Resize the editor from each edge and corner, at 100% and 150%, and across monitors: the layout follows, it stops at 760 × 520, and the size survives a restart; the compact player can't be resized
 - [ ] Record and replay in Notepad, a browser and an Office app, at 100% and 150% scaling, and across two monitors
 - [ ] Double clicks, drags (including window drags), scrolls, AltGr characters, dead keys
 - [ ] Esc, stop on key press and the kill switch during a long loop, with nothing left pressed afterwards

@@ -30,9 +30,23 @@ export interface RulerTick {
   label: string;
 }
 
-/** Ruler ticks every 1 s, 5 s or 15 s depending on the macro length. */
-export function ruler(duration: number): RulerTick[] {
-  const step = duration <= 16000 ? 1000 : duration <= 60000 ? 5000 : 15000;
+/** Ruler steps, and the room a label needs between ticks (px). */
+const STEPS = [1000, 2000, 5000, 10000, 15000, 30000, 60000, 120000, 300000, 600000];
+const TICK_ROOM = 48;
+
+/**
+ * Ruler ticks: on a ruler `width` px wide, the smallest step that leaves each
+ * label room; not measured (0), every 1 s, 5 s or 15 s by the macro's length.
+ */
+export function ruler(duration: number, width = 0): RulerTick[] {
+  const step =
+    width > 0
+      ? (STEPS.find((s) => (s / duration) * width >= TICK_ROOM) ?? STEPS[STEPS.length - 1])
+      : duration <= 16000
+        ? 1000
+        : duration <= 60000
+          ? 5000
+          : 15000;
   const out: RulerTick[] = [];
   for (let t = 0; t < duration; t += step) out.push({ l: pct(t, duration), label: t / 1000 + "s" });
   return out;

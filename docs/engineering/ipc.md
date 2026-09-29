@@ -52,6 +52,7 @@ Session commands only send a `Cmd` to the coordinator and return right away. The
 | --- | --- | --- |
 | `list_macros` | | `MacroListItem[]` |
 | `load_macro` | `id` | `MacroView`, and tells the coordinator it's selected |
+| `screenshot` | `id` | The screenshot taken when it was recorded, as raw JPEG bytes (a Tauri `Response`: an `ArrayBuffer` in the UI, no base64), empty if it has none. Never an error, not even for an unknown id. |
 | `edit_macro` | `id, op: EditOp` | The new `MacroView`. Records the edit for undo (an edit that changes nothing isn't recorded). Refused with `busy` while a session runs. |
 | `undo_edit` | `id, redo: bool` | The `MacroView` after undoing (or redoing) the last edit. Refused with `busy` while a session runs. |
 | `set_playback_options` | `id, options: PlaybackOptions` | The new `MacroView`. A speed change also goes to a running engine. |
@@ -85,8 +86,10 @@ Save and open dialogs are shown by the UI with `@tauri-apps/plugin-dialog`, and 
 | --- | --- | --- |
 | `get_settings`, `update_settings` | `settings` | `Settings` |
 | `get_autostart`, `set_autostart` | `enabled` | `bool` |
-| `fit_window` | `width, height, expanded` | Resizes and re-places the window around its bottom-center anchor |
-| `window_prefs` | | `{ expanded }`, read before the first render |
+| `fit_window` | `width, height, expanded` | Resizes and re-places the window around its bottom-center anchor: at the measured `width × height` for the compact player, at the user's (or default) size for the editor, where they're ignored |
+| `window_prefs` | | `{ expanded, panes }`, read before the first render |
+| `save_panes` | `panes: Panes` | Saves the editor's dividers to `window.json` |
+| `reset_layout` | | The editor's default size and dividers |
 | `hide_to_tray` | | Hides, or quits if *Close to tray* is off |
 | `quit` | | |
 

@@ -35,7 +35,7 @@ The widget opens centered at the bottom of your main screen. It comes with four 
 
 Try this:
 
-- Drag the red playhead along the timeline, and watch the mouse path, the steps and the key overlay follow it.
+- Drag the red playhead along the timeline, and watch the mouse path, the steps and the bar above the preview follow it.
 - Click a step in the list to jump to it.
 - Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd> to shrink Relay to the compact player, and again to bring it back.
 
