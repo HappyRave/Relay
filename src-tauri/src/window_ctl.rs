@@ -4,6 +4,7 @@
 
 use parking_lot::Mutex;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -258,6 +259,29 @@ pub fn rescale(window: &WebviewWindow, state: &WindowState) {
         }
         set_client_rect(window, r.x, r.y, r.w, r.h);
     }
+    if dragging {
+        rescale_after_drag(window);
+    }
+}
+
+/// Windows' move loop keeps the size it suggested for the new scale (often a
+/// pixel or two off) and re-applies it on every mouse move, undoing
+/// [`rescale`]'s. So once the widget is dropped, it's sized again, and kept
+/// inside the work area of the monitor it was dropped on.
+fn rescale_after_drag(window: &WebviewWindow) {
+    static WATCHING: AtomicBool = AtomicBool::new(false);
+    if WATCHING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let window = window.clone();
+    std::thread::spawn(move || {
+        while in_move_loop(&window) {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        WATCHING.store(false, Ordering::SeqCst);
+        let w = window.clone();
+        let _ = window.run_on_main_thread(move || rescale(&w, &w.app_handle().state::<WindowState>()));
+    });
 }
 
 /// Whether the user is dragging the window (Windows' move loop is running).
