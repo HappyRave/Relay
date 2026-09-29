@@ -273,7 +273,29 @@ Not fixed yet; each is a candidate task:
 ## Working with the maintainer
 
 - They want work done thoroughly and **verified**: tests at every layer, CI green, and docs updated in the same change. Report results as they are, including failures and what wasn't done.
-- They like regular, well-described commits and visible milestones (branches merged with `--no-ff`).
+- **You own the versioning here**: commit, push and keep the history clean without being asked, following [Git, CI and GitHub](#git-ci-and-github). They like regular, well-described commits and visible milestones (branches merged with `--no-ff`). Merging into `main` still waits for their go when they're checking something by hand.
 - Documentation quality and GitHub UX matter to them (a user guide and an engineering guide, both polished).
 - Ask before anything outward-facing that can't be undone (deleting releases, force-pushing, publishing something they didn't ask for). A release they asked for is authorized to publish.
 - Prefer to fix root causes rather than loosening tests. When a test fails, first decide whether the test or the app is wrong, using the user guide as the spec.
+
+**How to respond**
+- **Precise and concise.** Answer the question in the first sentence, then only what's genuinely needed.
+- No preamble, no restating the question, no recap of what the diff already shows.
+- No caveats or alternatives nobody asked for; one line if there's a real risk.
+- Short prose or a tight list. Headings only when the answer really is that big.
+- Report failures with the actual tool or compiler output, not a paraphrase.
+- Say what was verified and how. A green build proves it builds: don't imply you checked behavior you didn't run (real mouse and keyboard input is theirs to try).
+
+**Ask rather than guess**
+- Any choice beyond the cosmetic (a design fork, a name that will spread, which existing system to hook into, a behavior the user guide doesn't settle) comes as a one-line question **before** building it. Semi-important counts: an answer is cheaper than unpicking a wrong 300-line change.
+- Also ask when they'd know instantly and you'd need a long search to find out. One question beats twenty tool calls.
+
+**Scope and simplicity**
+- The simplest, most direct design that solves the actual problem. No overengineering, no elaborate heuristics when a clean setup solves it outright.
+- **Change only what was asked.** No drive-by refactors, renames, reformatting or cleanups, and no rewriting logic that works. Spotted something worth fixing outside the scope? Say it in one line and leave the code alone.
+- Touch the fewest files that do the job, and reuse what exists before adding something new.
+
+**Code style**
+- **Code must look human-made.** No comments narrating what changed or why an earlier approach was wrong; no rationale essays in the source. Comment what isn't obvious from the code, briefly. The short doc comments on public items are the house style: keep to that density, don't pad it.
+- The formatters and lint configs are the authority (`rustfmt.toml`, clippy, svelte-check). Match the surrounding file's idiom.
+- No summary or notes markdown files unless asked (the docs and `CHANGELOG.md` entries the [Definition of done](#definition-of-done) asks for are part of the work, not extra).
