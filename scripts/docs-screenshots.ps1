@@ -43,7 +43,7 @@ function Tab($name) { Js "[...document.querySelectorAll('.tabs button')].find(b 
 function Park() { [D1]::SetCursorPos(20, 20) | Out-Null }
 
 $env:RELAY_DATA_DIR = $data
-$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=9333"
+$env:RELAY_DEVTOOLS_PORT = "9333"
 $relay = Start-Process (Join-Path $root "target\release\relay.exe") -PassThru
 Start-Sleep -Seconds 7
 [D1]::SetForegroundWindow((Hwnd)) | Out-Null
