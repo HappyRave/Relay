@@ -200,6 +200,8 @@ describe("settings and window", () => {
     await until(async () => (await resizable()) === false, { what: "a fixed compact player" });
     await page.click("Expand");
     await until(resizable, { what: "a resizable editor again" });
+    // Resizable comes first; the editor is laid out at its size a little later.
+    await until(async () => (await widthOf(".preview")) === 600, { what: "the editor laid out again" });
   });
 
   test("the dividers are saved to window.json and survive a restart; double-click resets one", async () => {
