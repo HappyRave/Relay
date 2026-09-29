@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Several monitors:** dragging the widget onto a monitor with a different resolution or display scaling no longer leaves it drawn in a corner of an oversized (or clipped) window.
+
 ## v1.2.0: Reliability, Keep on top and a full test suite
 
 - **Reliability:** a review of the whole code base fixed, among others:
