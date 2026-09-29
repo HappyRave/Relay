@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.3.0: A new control bar, screenshots and a resizable editor
 
 - **Control bar:** redesigned so it stays aligned at any size: every control is the same height under a label (Time, Playback, Speed, Repeat) on one baseline, the transport buttons are one strip centered between two rules, and a narrower window folds Speed into one button that cycles, then Repeat into one button that steps through 1, 2, 3, 5, 10 and forever.
 - **Preview:** it now shows your whole screen (every monitor), whatever the size of the pane, instead of zooming to where the macro happens. Scroll to zoom in, drag to move around, double-click or *Fit* to see it all again.
