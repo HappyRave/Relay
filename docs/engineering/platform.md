@@ -193,7 +193,7 @@ A negative result is a dead key, which types nothing by itself.
 - **First press**: the position of the first button down, to find the anchor window.
 - **`take_new_moves`** returns the cursor samples since the last call, for live progress.
 - **`finish`**: drops modifiers *pressed* after the last real action, with their releases (the Ctrl and Alt of the kill switch that stopped it). The release of a modifier pressed earlier stays where it was. Then `normalize`.
-- **`is_meaningful(events)`**: at least one non-move event, or at least 5 moves. Otherwise the recording is discarded.
+- **`is_meaningful(events)`**: at least one click, key or wheel event. Otherwise (moves only) the recording is discarded.
 
 ## Processes
 

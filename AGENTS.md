@@ -208,7 +208,7 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 
 ## Git, CI and GitHub
 
-- **Branches:** never commit directly to `main`. Milestones `mN-short-name` (next is `m16-…`), fixes `fix-…`, docs `docs-…`, releases `release-X.Y.Z`.
+- **Branches:** never commit directly to `main`. Milestones `mN-short-name` (next is `m17-…`), fixes `fix-…`, docs `docs-…`, releases `release-X.Y.Z`.
 - **Commits:** small, [Conventional Commits](https://www.conventionalcommits.org/) (`feat(recorder): …`, `fix(engine): …`, `test(e2e): …`, `docs: …`, `ci: …`, `chore: …`), with a body explaining why when it isn't obvious.
 - **Merging:** `git merge --no-ff` into `main` ("Merge mN-…: <summary>"), then push. Milestones used to be tagged `v0.N.0-mN`; since 1.0, versions are tagged only at release.
 - **Pushing to `HappyRave/Relay` is authorized** for this workflow (branches and `main`).
@@ -252,6 +252,8 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 
 **Behavior worth knowing** (all tested and documented)
 - Inserts (+ Wait, + Pixel check) go just after the step under the playhead, and push everything after them later.
+- Every cursor move belongs to a step: the click or drag it happened during, or a MOVE step (the run between two other events). MOVE steps are grouped after everything else, so they never break a double click or a Ctrl-click, and humanize ignores them (their samples follow the step before). `pause` is idle time only. Smooth and Straighten keep every sample's time and both ends, because playback replays each sample without interpolating.
+- The sample macros have a MOVE before each click: the invoice sample has 18 steps, 12 of them the design's.
 - A trailing `+` in a hotkey is the plus key ("Ctrl + +"). "Ctrl + + K" is refused. Shift alone with a key that types (Shift + A) is refused. So is a hotkey ending in a modifier.
 - A pixel trigger fires when the pixel matches twice in a row after two non-matching samples, and re-arms only after two non-matches.
 - App launches are detected by process name: a second instance of a program that's already running isn't a launch (`chrome.exe` starts many processes).

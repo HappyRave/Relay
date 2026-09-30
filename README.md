@@ -29,7 +29,7 @@
 | | |
 | --- | --- |
 | 🔴 **Record** | Press <kbd>F9</kbd> and work as usual. Every click, drag, scroll and keystroke is captured with its timing, across all your monitors and at any display scaling. |
-| ✏️ **Edit as steps** | Recordings become readable steps: *Click · Save*, *Ctrl + S*, *"invoice_2026"*. Label them, delete them, add waits, trim the pauses. Undo anything. |
+| ✏️ **Edit as steps** | Recordings become readable steps: *Click · Save*, *Ctrl + S*, *"invoice_2026"*. Label them, delete them, add waits, trim the pauses, speed up or smooth the mouse moves. Undo anything. |
 | ▶️ **Play back** | <kbd>F10</kbd> replays it at 0.5× to 4×, once, N times or forever, with optional *Humanize* timing. Accurate to about a millisecond. |
 | 🎯 **Pixel checks** | Wait until something appears on screen before continuing, instead of guessing how long to wait. |
 | ⏰ **Triggers** | Run a macro on a hotkey, on a weekly schedule, when an app starts, or when a pixel changes color. |
@@ -139,6 +139,7 @@ Relay is a Rust workspace (`relay-core` for the pure logic, `relay-platform` for
 - [x] **1.1**: undo and redo, editing and trimming pauses, waits inserted after the selected step, recording Esc
 - [x] **1.2**: two reviews of the whole code base and of every test, with dozens of bug fixes, *Keep on top* options, a test suite that drives the real app, MIT license
 - [x] **1.3**: a redesigned control bar, screenshots under the preview, a zoomable whole-screen preview, a resizable editor
+- [ ] Mouse moves as steps: retime, smooth or straighten them, delete the trip to the Stop button
 - [ ] AutoHotkey v2 and standalone `.exe` export
 - [ ] Code signing
 - [ ] Remapping macros to a different monitor layout

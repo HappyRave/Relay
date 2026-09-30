@@ -5,6 +5,7 @@ Relay doesn't show you a thousand raw mouse events. It groups them into **steps*
 - [The step types](#the-step-types)
 - [The steps list](#the-steps-list)
 - [The step editor](#the-step-editor)
+- [Moves](#moves)
 - [Waits](#waits)
 - [Pauses](#pauses)
 - [Deleting steps](#deleting-steps)
@@ -24,8 +25,9 @@ Relay doesn't show you a thousand raw mouse events. It groups them into **steps*
 | `TYPE` | Typed text, such as **"invoice_2026"** | Characters typed less than 500 ms apart. Shifted characters and <kbd>AltGr</kbd> characters (like `@` or `€` on many European layouts) are part of the text. |
 | `WAIT` | **Wait 0.5 s** | A pause you inserted. |
 | `IF` | **Wait for pixel 1248, 680 = #EC3013** | A [pixel check](05-pixel-checks.md) you inserted. |
+| `MOVE` | **Move** from one point to another, with how long it takes | The cursor moving between two other steps, including before the first and after the last. See [Moves](#moves). |
 
-Mouse movement between steps isn't a step: it's the path the cursor follows to get to the next one, and it plays back as recorded.
+The cursor moving while a button is held is part of that click or drag, not a move of its own.
 
 > [!NOTE]
 > Key names follow **your keyboard layout**. On an AZERTY keyboard, the key to the right of <kbd>Tab</kbd> shows as **Ctrl + A**, not *Ctrl + Q*.
@@ -51,10 +53,26 @@ You can only edit while nothing is recording or playing: the buttons are off dur
 | --- | --- |
 | Every step | **Pause before**: the idle time before the step, in seconds. See [Pauses](#pauses). |
 | Click, drag | **Label**, for example *Save button*. Labels appear in the list and, if **Click labels** is on, in the preview. |
+| Move | **Duration** in seconds, **Smooth** and **Straighten**. See [Moves](#moves). |
 | Wait | **Duration** in seconds, and a **label**. |
 | Pixel check | **X**, **Y**, **Color**, **Tolerance**, **Timeout** and a **label**, or **Pick** a pixel on screen. See [Pixel checks](05-pixel-checks.md). |
 
 Changes save as soon as you leave a field or press <kbd>Enter</kbd>. There's no Save button.
+
+## Moves
+
+A **MOVE** step is the cursor going from where it was to where it goes next: to the next click, usually. Its row shows where it starts and ends, and how long it takes: *Move 134, 70 → 230, 324 px · 0.63 s*. When you open it, the preview draws its path thicker.
+
+- **Duration**: how long the move takes, from its first recorded position to its last. Shorter is faster. The path keeps its shape, and everything after the move comes earlier or later by the difference.
+- **Smooth** takes the wobble out of a shaky path and keeps its big turns. Press it again to smooth more.
+- **Straighten** makes the path a straight line.
+
+Smooth and Straighten only change where the cursor goes, not when: the move still starts and ends at the same times and places, and keeps the way it sped up and slowed down. Each shows an **Undo** button.
+
+> [!TIP]
+> The last row of a recording is often a move you didn't mean to keep: the cursor going to Relay's **Stop** button. Delete it with its **×**, and the macro ends at your last real step.
+
+A cursor stopping for a moment halfway doesn't split the move: the stop is part of it. A move with a single recorded position is a jump, so it has no duration to set or path to reshape.
 
 ## Waits
 
@@ -69,10 +87,11 @@ Then open the wait to set its length. Making a wait longer or shorter moves ever
 
 ## Pauses
 
-A **pause** is the time you spent between two steps while recording: reading the screen, waiting for a window, reaching for the mouse. Only the cursor moves during a pause. Pauses of a second or more are marked in the steps list, like **1.4 s pause**.
+A **pause** is the time between two steps when nothing happened while you recorded: you were reading the screen or waiting for a window, with the mouse still. Moving the mouse isn't a pause: that's a [move](#moves). Pauses longer than a second are marked in the steps list, like **1.4 s pause**.
 
-- **Change one pause**: open the step after it and set **Pause before**. The mouse movement during the pause is sped up or slowed down to fit, so the cursor still follows the same path. Everything after the step moves earlier or later.
+- **Change one pause**: open the step after it and set **Pause before**. Everything after the step moves earlier or later.
 - **Shorten them all**: **Trim pauses** shortens every pause longer than 1 second to 1 second. Relay tells you how many it changed, with an **Undo** button.
+- **Speed up the mouse**: set a move's **Duration**. See [Moves](#moves).
 
 A pause is different from a [wait](#waits): a wait is a step you added on purpose, a pause is the recorded time between steps.
 
@@ -84,14 +103,14 @@ A pause is different from a [wait](#waits): a wait is a step you added on purpos
 Hover a row and click its **×**. The whole step goes: a click's press and release, all the characters of a typed text, the keys of a combination with their modifiers.
 
 - Deleting a **wait** or a **pixel check** also removes its time, so the rest of the macro moves earlier.
-- Deleting any other step leaves the timing of the rest alone.
+- Deleting any other step leaves the timing of the rest alone. Deleting a **move** makes the cursor jump straight to the next step's position when it plays; the moves on either side of a deleted click join into one.
 - Relay makes sure nothing stays pressed. If you delete a press, its release goes too.
 
 After you delete a step, the message at the bottom of the panel has an **Undo** button. It belongs to that macro: it goes away when you open another one, or make another change.
 
 ## Undo and redo
 
-Every change you make to a macro (deleting, inserting, pauses, waits, pixel checks, labels, the name) can be undone:
+Every change you make to a macro (deleting, inserting, pauses, waits, moves, pixel checks, labels, the name) can be undone:
 
 | To… | Press |
 | --- | --- |
@@ -120,7 +139,7 @@ Drag the **divider** between the preview and the side panel to give either more 
 
 The drawing itself has:
 
-- The **mouse path**: a dashed grey line for the whole recording, and a solid red line for the part already played. With **Settings → Preview → Mouse path: Trail only**, only the red part is drawn, which is easier to read on long macros.
+- The **mouse path**: a dashed grey line for the whole recording, and a solid red line for the part already played. With **Settings → Preview → Mouse path: Trail only**, only the red part is drawn, which is easier to read on long macros. The path of an open [move](#moves) is drawn thicker.
 - **Numbered squares** for clicks, with their labels if **Click labels** is on.
 - The **cursor**, at its position for the current time.
 - A dashed square around a pixel check while it waits.
@@ -138,7 +157,7 @@ The timeline at the bottom shows the whole macro in four lanes:
 | **Keys** | Key combinations and typed text, with their labels |
 | **Logic** | Waits and pixel checks |
 
-**Click or drag anywhere** on the timeline to move the playhead. The preview, the steps list and the clock all follow. The **◀ ▶** buttons in the transport jump to the previous and next step.
+**Click or drag anywhere** on the timeline to move the playhead. The preview, the steps list and the clock all follow. The **◀ ▶** buttons in the transport jump to the previous and next step, moves included.
 
 Playback starts from the playhead, so this is also how you replay just the end of a macro.
 
