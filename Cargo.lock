@@ -3071,9 +3071,12 @@ dependencies = [
 name = "relay-player"
 version = "1.3.0"
 dependencies = [
+ "crossbeam-channel",
+ "embed-resource",
  "relay-core",
  "relay-platform",
  "relay-playback",
+ "windows 0.62.2",
 ]
 
 [[package]]
