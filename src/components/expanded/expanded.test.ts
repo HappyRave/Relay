@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import Header from "./Header.svelte";
 import Transport from "./Transport.svelte";
 import SidePanel from "./SidePanel.svelte";
-import { core, freshStore, settle } from "../../test/app";
+import { core, freshStore, nextFrame, settle } from "../../test/app";
 import { browserBackend } from "../../lib/ipc/backend";
 import type { RelayStore } from "../../lib/state/relay.svelte";
 
@@ -225,7 +225,7 @@ describe("Transport", () => {
     expect(relay.cur).toBe(1116); // the move to the next click
     await userEvent.click(screen.getByRole("button", { name: "Previous step" }));
     expect(relay.cur).toBe(850);
-    await settle();
+    await nextFrame();
     expect(core.argsOf("seek").at(-1)).toEqual({ t: 850 });
   });
 
