@@ -9,13 +9,13 @@ How Relay works inside: for contributors, reviewers and anyone curious about bui
 
 | Page | What it covers |
 | --- | --- |
-| 1. [Architecture](architecture.md) | The three crates, the threads, how a recording and a playback travel through the system, and the design principles |
+| 1. [Architecture](architecture.md) | The five crates, the exported player, the threads, how a recording and a playback travel through the system, and the design principles |
 | 2. [relay-core](core.md) | The macro model, grouping raw events into steps, edits and their invariants, the file format, playback timing, the session state machine, schedules and trigger edges |
 | 3. [relay-platform](platform.md) | The OS traits, low-level hooks, input injection, the precision timer, window and screen queries, the key map and the recorder |
 | 4. [The app (src-tauri)](app.md) | The coordinator, the playback engine, the recorder thread and watchdog, hotkeys, the trigger runtime, storage, the window and the tray |
 | 5. [IPC](ipc.md) | Every Tauri command, the session stream, generated TypeScript bindings and sequence diagrams |
 | 6. [The frontend](frontend.md) | The Svelte 5 store, the backend abstraction, the browser preview, components, styling and playhead extrapolation |
-| 7. [File formats](file-formats.md) | `.rly`, the JSON export, `library.json`, `settings.json`, `window.json` and migrations |
+| 7. [File formats](file-formats.md) | `.rly`, the JSON export, exported programs, `library.json`, `settings.json`, `window.json` and migrations |
 | 8. [Testing and CI](testing.md) | Unit tests, property tests, snapshots, frontend tests, end-to-end testing against the real app, CI and releases |
 
 ## Quick facts

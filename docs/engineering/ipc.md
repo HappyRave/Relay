@@ -59,9 +59,9 @@ Session commands only send a `Cmd` to the coordinator and return right away. The
 | `duplicate_macro` | `id` | The copy's id |
 | `delete_macro` | `id` | Refused with `busy` while a session runs |
 | `restore_macro` | `id` | Sends a `notice` if its hotkey now belongs to another macro (it comes back with the hotkey off) |
-| `export_macro` | `id, format, path` | Writes the file |
+| `export_macro` | `id, format, path` | Writes the file. `format` is `rly`, `json` or `exe` (a [program](architecture.md#the-exported-player) that plays the macro). |
 | `list_runs` | | `RunEntry[]`, the [run history](file-formats.md#runsjson), newest first |
-| `import_macros` | `paths: string[]` | `ImportResult { imported: id[], problems: string[] }`. If writing one fails, the ones before it are kept and the rest are listed in `problems`. |
+| `import_macros` | `paths: string[]` | Reads `.rly`, `.json` and exported programs. `ImportResult { imported: id[], problems: string[] }`. If writing one fails, the ones before it are kept and the rest are listed in `problems`. |
 
 Save and open dialogs are shown by the UI with `@tauri-apps/plugin-dialog`, and the chosen paths are passed to `export_macro` and `import_macros`.
 

@@ -36,7 +36,7 @@ The compact player keeps the essentials in a thin bar:
 5. **[Pixel checks](05-pixel-checks.md):** wait until something on screen changes before continuing.
 6. **[Find image](06-find-image.md):** wait for a picture anywhere on screen, at any size, then click it.
 7. **[Triggers](07-triggers.md):** hotkeys, schedules, app launches, pixel changes and images appearing.
-8. **[Library, export and import](08-library.md):** organizing, sharing and backing up macros, and the run history.
+8. **[Library, export and import](08-library.md):** organizing, sharing and backing up macros, programs that play a macro without Relay, and the run history.
 9. **[Settings, tray and window](09-settings.md):** every option, explained.
 10. **[Troubleshooting and FAQ](10-troubleshooting.md):** when something doesn't do what you expect.
 

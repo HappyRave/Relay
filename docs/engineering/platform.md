@@ -68,8 +68,9 @@ pub struct HookConfig {
 pub enum HookMode {
     /// A recording: report input, leaving out Relay's own window and `skip_vks` (F9).
     Record { own_window: isize, skip_vks: Vec<u16>, esc_stops: bool },
-    /// A playback: report Esc and, with `stop_on_key`, any other key but modifiers and `pass_vks` (F10).
-    Watch { stop_on_key: bool, pass_vks: Vec<u16> },
+    /// A playback: report Esc and, with `stop_on_key`, any other key but modifiers and `pass_vks` (F10);
+    /// with `report_kill_switch` (the exported player), Ctrl + Alt + End too, still passed through.
+    Watch { stop_on_key: bool, pass_vks: Vec<u16>, report_kill_switch: bool },
 }
 ```
 

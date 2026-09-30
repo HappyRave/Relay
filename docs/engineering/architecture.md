@@ -1,12 +1,13 @@
 # Architecture
 
-Relay is a Tauri 2 app: a Rust process that owns everything OS-related and all state, and a Svelte UI in a WebView2 window that shows it. The Rust side is split into three crates so the logic that matters most can be tested without Windows.
+Relay is a Tauri 2 app: a Rust process that owns everything OS-related and all state, and a Svelte UI in a WebView2 window that shows it. The Rust side is split into five crates so the logic that matters most can be tested without Windows, and so a macro can play without the app, as an [exported program](#the-exported-player).
 
 - [The crates](#the-crates)
 - [Threads](#threads)
 - [How a recording flows](#how-a-recording-flows)
 - [How a playback flows](#how-a-playback-flows)
 - [How a trigger flows](#how-a-trigger-flows)
+- [The exported player](#the-exported-player)
 - [Design principles](#design-principles)
 - [Repository layout](#repository-layout)
 
@@ -21,11 +22,15 @@ flowchart TB
     subgraph app["relay (src-tauri/)"]
         cmds["Tauri commands"]
         coord["Coordinator"]
-        engine["Engine"]
         rec["Recorder thread"]
         trig["Triggers"]
         lib["Library / storage"]
     end
+    subgraph playback["relay-playback"]
+        engine["Engine · spawn"]
+        finder["finder · plan"]
+    end
+    player["relay-player<br/>(exported programs)"]
     subgraph platform["relay-platform"]
         traits["InputHook · Injector · Timer<br/>Screen · WindowQuery"]
         win["windows/ backend"]
@@ -41,10 +46,12 @@ flowchart TB
     store -- "invoke()" --> cmds
     coord -- "Channel&lt;EngineMsg&gt;" --> store
     cmds --> coord & lib
-    coord --> engine & rec
+    coord --> engine
+    coord --> rec
     trig --> coord
-    app --> platform
-    app --> core
+    app --> playback & platform & core
+    player --> playback
+    playback --> platform & core
     platform --> core
     traits -.implemented by.-> win & stub
 ```
@@ -53,7 +60,9 @@ flowchart TB
 | --- | --- | --- | --- |
 | **relay-core** | `crates/relay-core` | serde, chrono, uuid, ts-rs | **Pure logic, no I/O.** The macro model, step grouping, edit operations, the `.rly` format and migrations, the playback clock and humanize, the session state machine, schedules and trigger edge detectors. Builds and tests on any OS. |
 | **relay-platform** | `crates/relay-platform` | relay-core, `windows` | **The OS boundary.** Traits for input hooks, injection, timers, screen and window queries, a Windows backend, and a stub for other systems. The recorder (raw input → events) and the key map are OS-independent and live here too. |
-| **relay** | `src-tauri` | both, Tauri 2 and plugins | **The app.** Threads, state, persistence, commands for the UI, the tray, the window and triggers. |
+| **relay-playback** | `crates/relay-playback` | relay-core, relay-platform | **Playing a macro.** The engine and its thread (reporting through a `PlaybackSink`), finding an image on the real screen, and planning a playback (`PlayPlan::for_macro`, `window_offset`). Shared by the app and the player. |
+| **relay-player** | `crates/relay-player` | the three above, `windows` | **The exported program.** A small Win32 player (about 1 MB) that plays the macro appended to it. Its logic (options, exit codes, status text, placement) is a library tested on any OS. |
+| **relay** | `src-tauri` | all but the player, Tauri 2 and plugins | **The app.** Threads, state, persistence, commands for the UI, the tray, the window and triggers. It embeds the player's release build, for exporting. |
 
 The UI never touches the OS or the files. It calls commands and listens to one message stream (see [IPC](ipc.md)).
 
@@ -188,6 +197,26 @@ flowchart LR
 
 The trigger threads don't decide whether a macro can run. They only detect the event and send `Cmd::RunMacro`. The coordinator, which knows the session mode and whether triggers are paused, decides, and adds a skipped run to the history. A schedule tick that finds a run more than 2 minutes late sends `Cmd::LogSkip` instead (`ScheduleWatch::take_missed`). See [The app → Triggers](app.md#triggers).
 
+## The exported player
+
+Exporting a macro as a **Standalone program** writes the player's exe with the macro's `.rly` appended, then a 20-byte trailer (see [File formats](file-formats.md#exported-programs)). The player reads its own file, finds the macro, and plays it with the same engine as the app.
+
+```mermaid
+flowchart LR
+    B["src-tauri/build.rs<br/>cargo build -p relay-player --release<br/>(target/player)"] --> I["relay.exe<br/>include_bytes!"]
+    I -- "export_macro(exe)" --> X["program.exe =<br/>player ‖ .rly ‖ trailer"]
+    X -- "runs" --> P["relay-player:<br/>from_file(own exe)"]
+    P --> E["relay_playback::spawn"]
+    X -- "import_macros" --> R["Relay: from_file"]
+```
+
+- **Build.** `src-tauri/build.rs` builds the player in release, in a target folder of its own (`target/player`: cargo locks the folder of the build that runs the script), without the outer build's wrappers and flags (clippy, coverage). relay.exe embeds it, so the portable exe exports too. `RELAY_PLAYER_EXE` uses a prebuilt player instead.
+- **Flow.** Parse the options over the saved playback options, place a small window (`WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW`, never focused) in the first corner of the primary work area where the macro doesn't click, count down, check the input desktop (a locked screen exits with 6), warn about an elevated app in front, apply the window offset, then `relay_playback::spawn` with a sink that posts `WM_APP` messages to the window. Ticks are coalesced, so the window redraws at most once per message.
+- **Stopping.** The Stop button, a Watch hook (Esc, stop on key press, and the kill switch via `report_kill_switch`, since Relay may own the hotkey), and `RegisterHotKey` for Ctrl + Alt + End, which also works when an elevated window is in front. Stopping drops the `EngineHandle`, which releases held input.
+- **The window** is passed as `own_window`, so Find image paints it over and never finds it. When every corner is busy, it's click-through (`WS_EX_TRANSPARENT`), as the app's widget is during playback.
+- **Exit codes** say how it ended: 0 completed, 1 error, 2 bad options, 3 stopped, 4 kill switch, 5 a check timed out, 6 screen locked. `--quiet` uses a message-only window, so the hotkey and the timers still work with nothing shown.
+- **Resources.** Its manifest makes it per-monitor DPI aware (v2) like Relay, and `asInvoker`; it carries Relay's icon and a version resource.
+
 ## Design principles
 
 - **A pure core.** Everything that can be a pure function is one, in `relay-core`: grouping, edits, the clock, the session state machine, schedules. They take time as a parameter (`now: f64`) instead of reading a clock, so they're tested exhaustively, including with property tests, and run on Linux CI.
@@ -206,10 +235,13 @@ Relay/
 ├── crates/
 │   ├── relay-core/          pure logic (model, steps, edit, format, playback, session, schedule, triggers, view)
 │   │   └── src/snapshots/   insta snapshots of the file format
-│   └── relay-platform/      OS traits, recorder and key map
-│       └── src/windows/     hook, inject, timer, screen, window, text
+│   ├── relay-platform/      OS traits, recorder and key map
+│   │   └── src/windows/     hook, inject, timer, screen, window, text
+│   ├── relay-playback/      the engine, finding images on screen, planning a playback
+│   └── relay-player/        the exported program: its logic, and the Win32 shell (win.rs)
 ├── src-tauri/               the app
-│   ├── src/                 coordinator, engine, rec_thread, hotkeys, triggers, commands, ipc, library, …
+│   ├── build.rs             Tauri's build, and the release player that relay.exe embeds
+│   ├── src/                 coordinator, engine (the app's sink), rec_thread, hotkeys, triggers, commands, ipc, library, …
 │   ├── tauri.conf.json      window, bundle and installer config
 │   └── app.manifest         PerMonitorV2 DPI awareness
 ├── src/                     the Svelte UI
