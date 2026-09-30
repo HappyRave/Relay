@@ -88,6 +88,35 @@ describe("images", () => {
     await page.run(() => document.getElementById("e2e-image")?.remove());
   });
 
+  test("the trigger's own thumbnail is never found, on any monitor", async () => {
+    const { triggers } = await page.invoke("get_triggers", { id: target });
+    await page.run((id) => window.__relay.loadMacro(id), target);
+    await page.invoke("set_triggers", { id: target, triggers: { ...triggers, image: { enabled: false, image, threshold: 85, area: null } } });
+    await page.run(() => window.__relay.loadTriggers());
+    await page.tab("Triggers");
+    const home = await page.invoke("plugin:window|outer_position", { label: "main" });
+    try {
+      for (const m of await page.invoke("plugin:window|available_monitors", {})) {
+        await page.invoke("plugin:window|set_position", { label: "main", value: { Physical: { x: m.position.x + 40, y: m.position.y + 40 } } });
+        // On screen, at a size it would be found at (half its own, or more).
+        await until(
+          () =>
+            page.run(() => {
+              const el = document.querySelector(".thumb");
+              el?.scrollIntoView({ block: "center" });
+              return el && el.complete && el.getBoundingClientRect().width * devicePixelRatio >= 60 ? true : null;
+            }),
+          { what: "the thumbnail shown" },
+        );
+        await sleep(300);
+        const m2 = await find();
+        assert.ok(!(m2?.score >= 85), `the thumbnail was found on the monitor at ${m.position.x}, ${m.position.y}: ${JSON.stringify(m2)}`);
+      }
+    } finally {
+      await page.invoke("plugin:window|set_position", { label: "main", value: { Physical: home } });
+    }
+  });
+
   test("the image trigger runs the macro when the image appears, once", async () => {
     const { triggers } = await page.invoke("get_triggers", { id: target });
     const set = (on) => page.invoke("set_triggers", { id: target, triggers: { ...triggers, image: { enabled: on, image, threshold: 85, area: null } } });

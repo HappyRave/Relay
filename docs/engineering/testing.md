@@ -19,7 +19,7 @@ flowchart BT
 | --- | --- | --- |
 | Rust unit, property and snapshot tests | about 340 | Next to the code, in `#[cfg(test)]` modules |
 | Frontend: the store, the backend contract, the fake core and the components | about 610 | `src/**/*.test.ts` |
-| End to end, against the built app | 97 | [`e2e/`](../../e2e) |
+| End to end, against the built app | 98 | [`e2e/`](../../e2e) |
 
 - [Running the tests](#running-the-tests)
 - [relay-core](#relay-core)
@@ -153,7 +153,7 @@ The tests never send input to the desktop. Macros that get played contain only w
 | `settings` | Every setting in `settings.json`; Keep on top on the native window, including "only during sessions"; compact mode resizing the window and reopening compact; the anchor kept; the editor resizable and the compact player not; dividers dragged, saved, restored after a restart and reset by double-click; a saved bigger editor laid out, and Reset layout; close to tray hiding, and quitting when it's off |
 | `playback` | Playing to the end, with the run counted; loops; speed; pause and resume; stop; playing from the playhead; seeking and changing speed mid-playback; a pixel check timing out; the busy guard; recording's countdown, and cancelling it |
 | `triggers` | Hotkeys registered, and refused for Relay's own, another macro's or an unusable combo; the schedule saved with its next run, then firing at the minute; the app-launch trigger firing, skipped while busy, and not firing while paused; the pixel trigger firing once per change; the log recording each run; everything after a restart |
-| `images` | An image file read, and a plain or missing one refused; *Test* finding the pattern in another window at its exact position, and not the same picture drawn in Relay's own window; the image trigger firing when the window appears, and once; a Find image step whose image never shows stopping playback with *Image not found at step 2* |
+| `images` | An image file read, and a plain or missing one refused; *Test* finding the pattern in another window at its exact position, and not the same picture drawn in Relay's own window, nor the trigger's thumbnail with Relay on each monitor; the image trigger firing when the window appears, and once; a Find image step whose image never shows stopping playback with *Image not found at step 2* |
 
 Anything that needs real input isn't covered end to end: recording actual clicks and keys, Esc, stop on key press, pressing a macro's hotkey, the kill switch, and the tray menu. Nor is anything that clicks what it finds (a Find image step that finds its image), or that changes the user's clipboard or opens the snipping overlay (Paste and Snip). The engine's injection, including a Find image step's click, is covered by its unit tests with a recording injector, and clipboard bitmaps by relay-core's. The rest is in the manual checks below.
 
