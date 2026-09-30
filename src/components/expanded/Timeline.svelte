@@ -18,7 +18,9 @@
   const pastClicks = $derived(startedCount(clicks, cur));
   const pastChips = $derived(startedCount(chips, cur));
   const waits = $derived(steps.filter((s): s is StepOf<"wait"> => s.kind === "wait"));
-  const conds = $derived(steps.filter((s): s is StepOf<"pixel_wait"> => s.kind === "pixel_wait"));
+  const conds = $derived(
+    steps.filter((s): s is StepOf<"pixel_wait" | "find_image"> => s.kind === "pixel_wait" || s.kind === "find_image"),
+  );
 </script>
 
 <div class="timeline">
@@ -54,7 +56,7 @@
       {/each}
       {#each conds as c (c.items[0])}
         <div class="cond" class:past={c.t <= cur} style:left="{pct(c.t, d)}%" style:width="{pct(c.t + c.dur, d) - pct(c.t, d)}%">
-          IF
+          {c.kind === "find_image" ? "FIND" : "IF"}
         </div>
       {/each}
     </div>

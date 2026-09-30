@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { tauriBackend as b } from "../lib/ipc/backend";
 import { core, defaultTriggers } from "./fake-core";
+import { png } from "./app";
 import { DEFAULT_SETTINGS } from "../lib/defaults";
 import type { EditOp, MacroView } from "../lib/types";
 import type { EngineMsg } from "../lib/ipc/bindings/EngineMsg";
@@ -161,6 +162,34 @@ describe("edits, like edit.rs", () => {
     expect([labels[1], labels[4], labels[11]]).toEqual(["L1", "L4", "L11"]);
   });
 
+  test("a Find image step is a wait: inserted, retimed, updated, labeled and deleted like edit.rs", async () => {
+    const before = core.view(A);
+    const image = png(40, 20);
+    const find = { image, click_x: 20, click_y: 10, btn: "Left" as const, threshold: 85, timeout_ms: 5000, area: null };
+    let v = await edit({ op: "insert_find_image", at: 850, dur: 700, ...find, label: "" });
+    expect(v.steps[2]).toMatchObject({ kind: "find_image", t: 911, end: 1611, dur: 700, items: [56], ...find });
+    expect(v.duration).toBe(before.duration + 700);
+    v = await edit({ op: "set_wait_duration", index: 2, dur: 200 });
+    expect(v.duration).toBe(before.duration + 200);
+    const area = { x: -1920, y: 0, w: 1920, h: 1080 };
+    v = await edit({ op: "update_find_image", index: 2, ...find, click_x: -4, btn: "Right", threshold: 120, area });
+    expect(v.steps[2]).toMatchObject({ click_x: -4, btn: "Right", threshold: 100, area, dur: 200 });
+    v = await edit({ op: "update_find_image", index: 2, ...find, threshold: 5 });
+    expect(v.steps[2]).toMatchObject({ threshold: 50, area: null });
+    v = await edit({ op: "set_label", index: 2, label: "OK" });
+    expect(v.steps[2]).toMatchObject({ label: "OK" });
+    await expect(edit({ op: "update_find_image", index: 1, ...find })).rejects.toMatchObject({ message: "step 1 can't be edited this way" });
+    v = await edit({ op: "delete_step", index: 2 });
+    expect(v.steps).toEqual(before.steps);
+    expect(v.duration).toBe(before.duration);
+  });
+
+  test("a Find image step's area may be left out, like an Option", async () => {
+    const op = { op: "insert_find_image", at: 0, dur: 100, image: png(8, 8), click_x: 0, click_y: 0, btn: "Left", threshold: 85, timeout_ms: 5000, label: "" };
+    const v = await edit(op as EditOp);
+    expect(v.steps.find((s) => s.kind === "find_image")).toMatchObject({ area: null });
+  });
+
   test("arguments Rust can't deserialize are refused", async () => {
     const bad: [EditOp, string][] = [
       [{ op: "set_pause", index: 1, dur: 1.5 }, "invalid type: floating point `1.5`, expected u32"],
@@ -168,6 +197,10 @@ describe("edits, like edit.rs", () => {
       [{ op: "update_pixel_wait", index: 11, x: 1.2, y: 0, color: "#000000", tolerance: 1, timeout_ms: 500 }, "expected i32"],
       [{ op: "update_pixel_wait", index: 11, x: 1, y: 0, color: "#000000", tolerance: 256, timeout_ms: 500 }, "expected u8"],
       [{ op: "update_pixel_wait", index: 11, x: 1, y: 0, color: "red", tolerance: 1, timeout_ms: 500 }, 'invalid color "red"'],
+      [{ op: "insert_find_image", at: 0, dur: 1, image: "R0lGOD", click_x: 0, click_y: 0, btn: "Left", threshold: 85, timeout_ms: 1, area: null, label: "" }, "invalid image"],
+      [{ op: "insert_find_image", at: 0, dur: 1, image: png(8, 8), click_x: 0, click_y: 0, btn: "Side" as never, threshold: 85, timeout_ms: 1, area: null, label: "" }, 'unknown variant "Side"'],
+      [{ op: "insert_find_image", at: 0, dur: 1, image: png(8, 8), click_x: 0, click_y: 0, btn: "Left", threshold: 300, timeout_ms: 1, area: null, label: "" }, "expected u8"],
+      [{ op: "insert_find_image", at: 0, dur: 1, image: png(8, 8), click_x: 0, click_y: 0, btn: "Left", threshold: 85, timeout_ms: 1, area: { x: 0, y: 0, w: 1.5, h: 1 }, label: "" }, "expected i32"],
     ];
     for (const [op, why] of bad) await expect(edit(op)).rejects.toContain(why);
     expect(core.view(A).can_undo).toBe(false);
@@ -440,5 +473,33 @@ describe("path reshaping, like path.rs", () => {
       expect(straighten(c.points)).toEqual(c.straighten);
     }
     expect(pathCases.length).toBeGreaterThan(4);
+  });
+});
+
+describe("images, like commands.rs", () => {
+  test("paste reads the clipboard, and says when there's no picture", async () => {
+    await expect(b.pasteImage()).rejects.toEqual({ code: "image", message: "There's no picture on the clipboard. Copy or snip one first." });
+    core.clipboard = png(4, 8);
+    expect(await b.pasteImage()).toBe(png(4, 8));
+  });
+
+  test("a file is read from the path the dialog returns, or nothing when it's cancelled", async () => {
+    expect(await b.chooseImage()).toBeNull();
+    core.dialog.open = "C:\shots\ok.png";
+    await expect(b.chooseImage()).rejects.toMatchObject({ code: "io" });
+    core.images.set("C:\shots\ok.png", png(10, 10));
+    expect(await b.chooseImage()).toBe(png(10, 10));
+    expect(core.argsOf("load_image").at(-1)).toEqual({ path: "C:\shots\ok.png" });
+  });
+
+  test("a snip is the image, or null when cancelled; Test answers what it found", async () => {
+    expect(await b.snipImage()).toBeNull();
+    core.snip = png(6, 6);
+    expect(await b.snipImage()).toBe(png(6, 6));
+    await b.cancelSnip();
+    expect(await b.testFindImage(png(6, 6), 85, null)).toBeNull();
+    core.found = { x: 1, y: 2, w: 6, h: 6, score: 93 };
+    expect(await b.testFindImage(png(6, 6), 85, { x: 0, y: 0, w: 100, h: 100 })).toEqual(core.found);
+    await expect(b.testFindImage("nope", 85, null)).rejects.toContain("invalid image");
   });
 });

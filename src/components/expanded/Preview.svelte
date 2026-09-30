@@ -126,11 +126,15 @@
     const loops = info ? info.loops : relay.loops === Infinity ? null : relay.loops;
     return `Loop ${relay.loopIdx + 1} / ${loops ?? "∞"} · ${info?.speed ?? relay.playback.speed}×`;
   });
-  const activeCond = $derived(lastStep && lastStep.kind === "pixel_wait" && cur < lastStep.end ? lastStep : null);
-  /** The bar's middle: the pixel check being waited for, else the step under the playhead. */
+  const activeCond = $derived(
+    lastStep && (lastStep.kind === "pixel_wait" || lastStep.kind === "find_image") && cur < lastStep.end ? lastStep : null,
+  );
+  /** The bar's middle: the pixel check or image being waited for, else the step under the playhead. */
   const info = $derived(
     activeCond
-      ? `Waiting for pixel ${activeCond.x}, ${activeCond.y}`
+      ? activeCond.kind === "find_image"
+        ? "Looking for the image"
+        : `Waiting for pixel ${activeCond.x}, ${activeCond.y}`
       : lastStep
         ? `Step ${relay.curStepIdx + 1} · ${stepTitle(lastStep)}`
         : "",
@@ -280,7 +284,18 @@
           {/if}
         </g>
       {/each}
-      {#if activeCond}
+      {#if activeCond?.kind === "find_image" && activeCond.area}
+        <rect
+          x={activeCond.area.x}
+          y={activeCond.area.y}
+          width={activeCond.area.w}
+          height={activeCond.area.h}
+          fill="none"
+          stroke="var(--color-accent)"
+          stroke-width={4 * k}
+          stroke-dasharray="{14 * k} {8 * k}"
+        />
+      {:else if activeCond?.kind === "pixel_wait"}
         <rect
           x={activeCond.x - 60 * k}
           y={activeCond.y - 60 * k}

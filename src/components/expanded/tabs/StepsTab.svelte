@@ -97,11 +97,29 @@
   >
   <button
     class="btn btn-ghost"
+    disabled={!relay.canEdit || !!relay.imaging}
+    title="Snip an image: when it's on screen, click it"
+    onclick={() => relay.insertFindImage()}>+ Find image</button
+  >
+  <button
+    class="btn btn-ghost"
     disabled={!relay.canEdit || relay.longPauses === 0}
     title="Shorten every pause longer than 1 s to 1 s"
     onclick={relay.trimPauses}>Trim pauses</button
   >
 </div>
+{#if relay.imaging?.index === -1}
+  <div class="imaging" role="status">
+    {#if relay.imaging.source === "snip"}
+      <span>Snip the image to find, or</span>
+      <button class="btn btn-ghost" onclick={() => relay.insertFindImage("paste")}>Paste</button>
+      <button class="btn btn-ghost" onclick={() => relay.insertFindImage("file")}>File…</button>
+      <button class="btn btn-ghost" onclick={relay.cancelImage}>Cancel</button>
+    {:else}
+      <span>{relay.imaging.source === "paste" ? "Reading the clipboard…" : "Choose an image file…"}</span>
+    {/if}
+  </div>
+{/if}
 <div class="list" bind:this={list}>
   {#each steps as s, i (s.items[0] ?? i)}
     {@const [detail, sub] = describe(s)}
@@ -164,9 +182,19 @@
     color: var(--color-neutral-700);
     margin-right: auto;
   }
-  .bar .btn {
+  .bar .btn,
+  .imaging .btn {
     font-size: 12px;
     padding: 4px 6px;
+  }
+  .imaging {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 12px;
+    font-size: 12px;
+    background: var(--color-accent-100);
+    border-bottom: 1px solid var(--color-divider);
   }
   .list {
     flex: 1;
