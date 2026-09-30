@@ -37,7 +37,7 @@ import { lastIndexAtOrBefore } from "../preview/geometry";
 import { currentStepIndex, jumpTarget } from "../timeline/lanes";
 import { plural, slug } from "../format";
 import { followStep } from "./selection";
-import { pngSize } from "../image";
+import { pngSize, testResult } from "../image";
 
 const RENAME_DEBOUNCE_MS = 250;
 /** "Trim pauses" shortens every pause longer than this to this. */
@@ -46,6 +46,9 @@ export const TRIM_PAUSE_MS = 1000;
 const MAX_EXTRAPOLATION_MS = 100;
 /** Seconds "Pick" waits before reading the pixel under the cursor. */
 const PICK_SECONDS = 3;
+/** What an image is for, besides a step: a step being inserted, or the image trigger. */
+export const INSERTING = -1;
+export const TRIGGER = -2;
 export const MAX_REPEATS = 99;
 const EMPTY_DESKTOP: Rect = { x: 0, y: 0, w: 1920, h: 1080 };
 /** Inputs with their own Ctrl + Z. */
@@ -116,11 +119,11 @@ export class RelayStore {
   /** Seconds left before "Pick" reads the cursor's pixel, or 0 when not picking. */
   picking = $state(0);
   /**
-   * While an image for a Find image step is coming (a snip waits for the
-   * user): where from, and for which step (-1: one being inserted).
+   * While an image is coming (a snip waits for the user): where from, and
+   * what for: a Find image step's index, INSERTING one, or the TRIGGER.
    */
   imaging = $state.raw<{ source: ImageSource; index: number } | null>(null);
-  /** What "Test" last said about a Find image step: the macro, the step's first event, the answer. */
+  /** What "Test" last said, and about what: the macro, and a step's first event or TRIGGER. */
   imageTest = $state.raw<{ id: string; item: number; text: string } | null>(null);
   /** The row whose step editor is open, or -1. It follows its step across edits (see selection.ts). */
   selected = $state(-1);
@@ -728,7 +731,7 @@ export class RelayStore {
     return this.edit({ op: "insert_pixel_wait", at, dur: 800, x, y, color, tolerance: 8, timeout_ms: 5000, label: "" });
   };
 
-  /** An image from `source` for Find image step `index` (-1: a new one), or null (cancelled, or failed and said so). */
+  /** An image from `source` for `index` (see `imaging`), or null (cancelled, or failed and said so). */
   private async takeImage(source: ImageSource, index: number): Promise<string | null> {
     // A snip still waiting would land later, on top of this one.
     if (this.imaging?.source === "snip" && source !== "snip") void this.backend.cancelSnip();
@@ -751,7 +754,7 @@ export class RelayStore {
     if (!this.editable) return this.fail({ code: "unavailable", message: "Editing needs the Relay app" });
     const id = this.view.id;
     const at = Math.round(this.cur);
-    const image = await this.takeImage(source, -1);
+    const image = await this.takeImage(source, INSERTING);
     if (!image || this.view?.id !== id || this.mode !== "idle") return;
     const [w, h] = pngSize(image);
     const click_x = Math.floor(w / 2);
@@ -789,17 +792,44 @@ export class RelayStore {
   };
 
   /** Looks for Find image step `index`'s image on screen once, and says what it found. */
-  testFindImage = async (index: number) => {
+  testFindImage = (index: number) => {
     const s = this.steps[index];
+    if (s?.kind === "find_image") return this.testImage(s.items[0], s.image, s.threshold, s.area);
+  };
+
+  /** Looks for the image trigger's image on screen once, and says what it found. */
+  testTriggerImage = () => {
+    const t = this.triggers?.image;
+    if (t?.image) return this.testImage(TRIGGER, t.image, t.threshold, t.area);
+  };
+
+  private async testImage(item: number, image: string, threshold: number, area: Rect | null) {
     const id = this.view?.id;
-    if (s?.kind !== "find_image" || !id) return;
-    const test = { id, item: s.items[0] };
+    if (!id) return;
+    const test = { id, item };
     this.imageTest = { ...test, text: "Looking…" };
-    const m = await this.run(this.backend.testFindImage(s.image, s.threshold, s.area));
+    const m = await this.run(this.backend.testFindImage(image, threshold, area));
     if (this.imageTest?.id !== test.id || this.imageTest.item !== test.item) return;
-    if (m === undefined) return void (this.imageTest = null);
-    const text = !m ? "Not found" : m.score >= s.threshold ? `Found at ${m.x}, ${m.y} (${m.score}%)` : `Not found: the best match is ${m.score}%`;
-    this.imageTest = { ...test, text };
+    this.imageTest = m === undefined ? null : { ...test, text: testResult(m, threshold) };
+  }
+
+  /** Watches for an image from `source`; the trigger turns on with its first image. */
+  setTriggerImage = async (source: ImageSource) => {
+    const id = this.view?.id;
+    if (!id || !this.triggers) return;
+    if (!this.editable) return this.fail({ code: "unavailable", message: "Triggers need the Relay app" });
+    const image = await this.takeImage(source, TRIGGER);
+    const t = this.triggers;
+    if (!image || this.view?.id !== id || !t) return;
+    return this.setTriggerImageOptions({ image, enabled: t.image.enabled || !t.image.image });
+  };
+
+  /** Changes the image trigger's settings (the others stay). */
+  setTriggerImageOptions = (patch: Partial<MacroTriggers["image"]>) => {
+    const t = this.triggers;
+    if (!t) return;
+    this.imageTest = null; // it was about the old settings
+    return this.setTriggers({ image: { ...t.image, ...patch } });
   };
 
   /**

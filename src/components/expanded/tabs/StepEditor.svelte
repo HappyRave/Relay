@@ -8,8 +8,8 @@
   import Segmented from "../../ui/Segmented.svelte";
   import { relay } from "../../../lib/state/relay.svelte";
   import { clamp, commitNumber, toMs } from "../../../lib/fields";
-  import { pngSize, pngUrl } from "../../../lib/image";
-  import type { MouseBtn, Rect, Step } from "../../../lib/types";
+  import { areaChoice, pngSize, pngUrl } from "../../../lib/image";
+  import type { MouseBtn, Step } from "../../../lib/types";
 
   let { step, index }: { step: Step; index: number } = $props();
 
@@ -64,18 +64,7 @@
     ["Middle", "Middle"],
   ];
   const monitors = $derived(relay.view?.recording.monitors ?? []);
-  const sameRect = (a: Rect, b: Rect) => a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
-  /** Where to look: -1 everywhere, a monitor's index, or -2 an area set another way (in the file). */
-  const areaIndex = $derived.by(() => {
-    if (step.kind !== "find_image" || !step.area) return -1;
-    const area = step.area;
-    const i = monitors.findIndex((m) => sameRect(m.rect, area));
-    return i >= 0 ? i : -2;
-  });
-  const areas = $derived.by((): [number, string][] => {
-    const out: [number, string][] = [[-1, "All screens"], ...monitors.map((_, i): [number, string] => [i, `Screen ${i + 1}`])];
-    return areaIndex === -2 ? [...out, [-2, "Custom"]] : out;
-  });
+  const areas = $derived(areaChoice(monitors, step.kind === "find_image" ? step.area : null));
   const size = $derived(step.kind === "find_image" ? pngSize(step.image) : [0, 0]);
   const test = $derived(
     step.kind === "find_image" && relay.imageTest?.id === relay.view?.id && relay.imageTest?.item === step.items[0]
@@ -190,7 +179,7 @@
     {#if monitors.length > 1}
       <div class="choice">
         <span>Look on</span>
-        <Segmented label="Where to look" options={areas} value={areaIndex} onchange={setArea} />
+        <Segmented label="Where to look" options={areas.options} value={areas.value} onchange={setArea} />
       </div>
     {/if}
   {:else if step.kind === "move"}

@@ -163,6 +163,7 @@ export function browserBackend(): Backend {
       schedule: { enabled: false, schedule: { days: [true, true, true, true, true, false, false], time: "09:00" } },
       app_launch: { enabled: false, exe: "", delay_ms: 2000 },
       pixel: { enabled: false, x: 0, y: 0, color: "#EC3013", tolerance: 8 },
+      image: { enabled: false, image: null, threshold: 85, area: null },
     };
   // Like the app, the Library shows a hotkey only while it's on (the samples' are off).
   const hotkeyOf = (t: MacroTriggers) => (t.hotkey.enabled && t.hotkey.combo ? t.hotkey.combo : null);

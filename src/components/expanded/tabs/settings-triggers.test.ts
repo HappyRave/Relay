@@ -4,7 +4,7 @@ import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import SettingsTab from "./SettingsTab.svelte";
 import TriggersTab from "./TriggersTab.svelte";
-import { core, freshStore, settle } from "../../../test/app";
+import { core, freshStore, png, settle } from "../../../test/app";
 import { defaultTriggers } from "../../../test/fake-core";
 import { DEFAULT_SETTINGS } from "../../../lib/defaults";
 import { browserBackend } from "../../../lib/ipc/backend";
@@ -435,6 +435,74 @@ describe("Triggers tab", () => {
       await settle();
       expect(sent().pixel).toMatchObject({ x: 11, y: 22, color: "#FFFFFF" });
       expect(screen.getByRole("button", { name: "Pick" })).toBeEnabled();
+    });
+  });
+
+  describe("image", () => {
+    const IMAGE = png(40, 20);
+
+    test("off and not switchable until it has an image; the first image turns it on", async () => {
+      render(TriggersTab);
+      expect(toggle("Image trigger")).toBeDisabled();
+      expect(screen.getByText("Snip, paste or choose the image to watch for")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Test" })).toBeDisabled();
+      core.snip = IMAGE;
+      await userEvent.click(screen.getByRole("button", { name: "Snip" }));
+      await settle();
+      expect(sent().image).toEqual({ enabled: true, image: IMAGE, threshold: 85, area: null });
+      expect(screen.getByRole("img", { name: "What to watch for" })).toHaveAttribute("src", `data:image/png;base64,${IMAGE}`);
+      expect(screen.getByText("At a 85% match or better")).toBeInTheDocument();
+      // Off, then a new image: it stays off.
+      await userEvent.click(toggle("Image trigger"));
+      await settle();
+      core.clipboard = png(8, 8);
+      await userEvent.click(screen.getByRole("button", { name: "Paste" }));
+      await settle();
+      expect(sent().image).toEqual({ enabled: false, image: png(8, 8), threshold: 85, area: null });
+    });
+
+    test("File…, the match and Test", async () => {
+      render(TriggersTab);
+      core.dialog.open = "C:\\ok.png";
+      core.images.set("C:\\ok.png", IMAGE);
+      await userEvent.click(screen.getByRole("button", { name: "File…" }));
+      await settle();
+      const match = screen.getByLabelText("Match %");
+      await change(match, "40");
+      expect(match).toHaveValue(50);
+      await settle();
+      expect(sent().image).toEqual({ enabled: true, image: IMAGE, threshold: 50, area: null });
+      core.found = { x: -300, y: 20, w: 40, h: 20, score: 72 };
+      await userEvent.click(screen.getByRole("button", { name: "Test" }));
+      await settle();
+      expect(core.lastArgs("test_find_image")).toEqual({ image: IMAGE, threshold: 50, area: null });
+      expect(screen.getByRole("status")).toHaveTextContent("Found at -300, 20 (72%)");
+    });
+
+    test("a snip can be cancelled, and changes nothing", async () => {
+      render(TriggersTab);
+      core.hold("snip_image");
+      await userEvent.click(screen.getByRole("button", { name: "Snip" }));
+      await settle();
+      expect(screen.getByRole("status")).toHaveTextContent("Snip the image…");
+      await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      await settle();
+      core.held[0].resolve(IMAGE);
+      await settle();
+      expect(core.argsOf("set_triggers")).toEqual([]);
+      expect(screen.getByRole("button", { name: "Snip" })).toBeEnabled();
+    });
+
+    test("with several screens, where to look", async () => {
+      const second = { name: "\\\\.\\DISPLAY2", rect: { x: 1920, y: 0, w: 2560, h: 1440 }, work: { x: 1920, y: 0, w: 2560, h: 1400 }, dpi: 144, primary: false };
+      core.entries[0].view.recording.monitors.push(second);
+      await relay.loadMacro("00000000-0000-0000-0000-000000000002");
+      await relay.loadMacro(A);
+      await settle();
+      render(TriggersTab);
+      await userEvent.click(screen.getByRole("radio", { name: "Screen 2" }));
+      await settle();
+      expect(sent().image.area).toEqual(second.rect);
     });
   });
 

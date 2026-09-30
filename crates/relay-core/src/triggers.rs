@@ -1,11 +1,12 @@
 //! What can start a macro on its own (a hotkey, a weekly schedule, an app
-//! launching, a pixel changing), plus the edge detectors the polling triggers
-//! use: they're fed one sample per poll and report when to fire.
+//! launching, a pixel changing, an image appearing), plus the edge detectors
+//! the polling triggers use: they're fed one sample per poll and report when
+//! to fire.
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::model::Rgb;
+use crate::model::{ImagePng, Rect, Rgb};
 use crate::schedule::WeeklySchedule;
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
@@ -59,6 +60,25 @@ impl Default for PixelTrigger {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default)]
+#[ts(export)]
+pub struct ImageTrigger {
+    pub enabled: bool,
+    /// What to look for; none until one is set.
+    pub image: Option<ImagePng>,
+    /// The lowest match accepted, in percent.
+    pub threshold: u8,
+    /// Where to look; everywhere if `None`.
+    pub area: Option<Rect>,
+}
+
+impl Default for ImageTrigger {
+    fn default() -> Self {
+        ImageTrigger { enabled: false, image: None, threshold: 85, area: None }
+    }
+}
+
 /// All of a macro's triggers. Machine-local: kept in library.json, not in the `.rly`.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
 #[serde(default)]
@@ -68,12 +88,14 @@ pub struct MacroTriggers {
     pub schedule: ScheduleTrigger,
     pub app_launch: AppLaunchTrigger,
     pub pixel: PixelTrigger,
+    pub image: ImageTrigger,
 }
 
 /// Fires when a pixel starts matching the target color: two consecutive
 /// matching samples after two consecutive non-matching ones. So a pixel that
 /// stays red fires once, even if the cursor passes over it for one poll, and
-/// a single-frame flicker doesn't fire.
+/// a single-frame flicker doesn't fire. The image trigger uses it too, a
+/// sample being whether the image is on screen.
 #[derive(Debug, Default, Clone)]
 pub struct PixelEdge {
     armed: bool,

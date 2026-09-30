@@ -1,4 +1,5 @@
-//! The polling triggers: weekly schedules, app launches and pixel changes.
+//! The polling triggers: weekly schedules, app launches, pixel changes and
+//! images appearing.
 //! Each runs on its own thread and asks the coordinator to run a macro; the
 //! coordinator decides whether it can (idle, screen unlocked, not paused).
 //! Macro hotkeys live in `hotkeys`.
@@ -15,7 +16,8 @@ use std::time::Duration;
 use chrono::{DateTime, Local, TimeDelta, TimeZone};
 use crossbeam_channel::{Receiver, Sender, bounded, unbounded};
 use parking_lot::Mutex;
-use relay_core::model::Rgb;
+use relay_core::image::{Gray, Rgb8};
+use relay_core::model::{ImagePng, Rect, Rgb};
 use relay_core::schedule::next_run;
 use relay_core::session::RunSource;
 use relay_core::triggers::{MacroTriggers, PixelEdge, ProcessLaunchEdge};
@@ -30,6 +32,8 @@ use crate::library::Library;
 const SCHEDULE_TICK: Duration = Duration::from_secs(5);
 const APP_POLL: Duration = Duration::from_secs(2);
 const PIXEL_POLL: Duration = Duration::from_millis(250);
+/// A look at the screen for images takes 20–60 ms of one core: twice a second.
+const IMAGE_POLL: Duration = Duration::from_millis(500);
 /// A scheduled run found later than this (e.g. after sleep) is skipped, not run late.
 const MISSED_AFTER: TimeDelta = TimeDelta::minutes(2);
 
@@ -193,6 +197,70 @@ impl PixelWatch {
     }
 }
 
+/// Tells images apart without comparing them.
+fn image_key(image: &ImagePng) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    image.hash(&mut h);
+    h.finish()
+}
+
+/// What an image trigger watches for: the image (by key), the match, where.
+type ImageTarget = (u64, u8, Option<Rect>);
+
+struct ImageWatched {
+    edge: PixelEdge,
+    target: ImageTarget,
+    /// `None` when the image can't be read: it's never looked for.
+    image: Option<Gray>,
+}
+
+/// Fires when a watched image appears on screen.
+#[derive(Default)]
+pub struct ImageWatch {
+    watched: HashMap<Uuid, ImageWatched>,
+}
+
+impl ImageWatch {
+    /// Whether any image trigger is on (else there's no need to look).
+    pub fn wanted(triggers: &[(Uuid, MacroTriggers)]) -> bool {
+        triggers.iter().any(|(_, t)| t.image.enabled && t.image.image.is_some())
+    }
+
+    /// The macros whose image just appeared. `look` says whether an image
+    /// (with its key) is on screen in an area at a match, or `None` when the
+    /// screen can't be read.
+    pub fn tick(
+        &mut self,
+        triggers: &[(Uuid, MacroTriggers)],
+        mut look: impl FnMut(&Gray, u64, Option<Rect>, f32) -> Option<bool>,
+    ) -> Vec<Uuid> {
+        let wanted: Vec<_> = triggers
+            .iter()
+            .filter(|(_, t)| t.image.enabled)
+            .filter_map(|(id, t)| Some((id, &t.image, t.image.image.as_ref()?)))
+            .collect();
+        self.watched.retain(|id, _| wanted.iter().any(|(w, ..)| *w == id));
+        let mut fired = Vec::new();
+        for (id, t, png) in wanted {
+            let target = (image_key(png), t.threshold, t.area);
+            // New, or another image or match: start over, as for a pixel.
+            if self.watched.get(id).is_none_or(|w| w.target != target) {
+                let image = Rgb8::decode(&png.0).ok().map(|i| i.gray());
+                self.watched.insert(*id, ImageWatched { edge: PixelEdge::new(), target, image });
+            }
+            let w = self.watched.get_mut(id).expect("just inserted");
+            let Some(image) = &w.image else { continue };
+            // An unreadable screen is no sample, as for a pixel.
+            let Some(found) = look(image, target.0, t.area, t.threshold as f32 / 100.0) else { continue };
+            if w.edge.update(found) {
+                fired.push(*id);
+            }
+        }
+        fired
+    }
+}
+
 fn snapshot(app: &AppHandle) -> AllTriggers {
     app.state::<Mutex<Library>>().lock().all_triggers()
 }
@@ -211,10 +279,15 @@ pub fn spawn(app: AppHandle, platform: Arc<Platform>) {
         .name("relay-app-launch".into())
         .spawn(move || app_launch_loop(a))
         .expect("spawn app watcher");
+    let (a, p) = (app.clone(), platform.clone());
     std::thread::Builder::new()
         .name("relay-pixel-trigger".into())
-        .spawn(move || pixel_loop(app, platform))
+        .spawn(move || pixel_loop(a, p))
         .expect("spawn pixel watcher");
+    std::thread::Builder::new()
+        .name("relay-image-trigger".into())
+        .spawn(move || image_loop(app, platform))
+        .expect("spawn image watcher");
 }
 
 fn schedule_loop(app: AppHandle) {
@@ -262,6 +335,27 @@ fn pixel_loop(app: AppHandle, platform: Arc<Platform>) {
         std::thread::sleep(PIXEL_POLL);
         for id in watch.tick(&snapshot(&app), |x, y| platform.screen.pixel(x, y)) {
             fire(&app, id, RunSource::Pixel);
+        }
+    }
+}
+
+fn image_loop(app: AppHandle, platform: Arc<Platform>) {
+    let mut watch = ImageWatch::default();
+    let mut looker = crate::finder::Looker::default();
+    loop {
+        std::thread::sleep(IMAGE_POLL);
+        let triggers = snapshot(&app);
+        if !ImageWatch::wanted(&triggers) {
+            watch = ImageWatch::default();
+            continue;
+        }
+        looker.round();
+        let own = crate::window_ctl::main_hwnd(&app);
+        let found = watch.tick(&triggers, |image, key, area, threshold| {
+            looker.look(&*platform.screen, image, key, area, threshold, own)
+        });
+        for id in found {
+            fire(&app, id, RunSource::Image);
         }
     }
 }
@@ -547,5 +641,82 @@ mod tests {
             Some(RED)
         });
         assert_eq!(reads, 0);
+    }
+
+    fn png(seed: u8) -> ImagePng {
+        let img = Rgb8 { w: 12, h: 12, px: (0..432u32).map(|i| (i * 37 % 251) as u8 ^ seed).collect() };
+        ImagePng(img.encode_png())
+    }
+
+    fn looking_for(image: ImagePng) -> MacroTriggers {
+        let image = relay_core::triggers::ImageTrigger { enabled: true, image: Some(image), ..Default::default() };
+        MacroTriggers { image, ..Default::default() }
+    }
+
+    #[test]
+    fn an_image_fires_when_it_appears_after_being_away() {
+        let triggers = vec![(id(1), looking_for(png(0)))];
+        let mut w = ImageWatch::default();
+        let mut seen = Vec::new();
+        let mut tick = |w: &mut ImageWatch, on: Option<bool>| {
+            w.tick(&triggers, |image, _, area, threshold| {
+                seen.push((image.w, area, threshold));
+                on
+            })
+        };
+        // On screen from the start: a baseline, not an appearance.
+        assert!(tick(&mut w, Some(true)).is_empty());
+        assert!(tick(&mut w, Some(true)).is_empty());
+        assert!(tick(&mut w, Some(false)).is_empty());
+        assert!(tick(&mut w, Some(false)).is_empty());
+        assert!(tick(&mut w, Some(true)).is_empty(), "one sample could be a flicker");
+        assert_eq!(tick(&mut w, Some(true)), [id(1)]);
+        assert!(tick(&mut w, Some(true)).is_empty(), "once");
+        // An unreadable screen is no sample.
+        assert!(tick(&mut w, None).is_empty());
+        assert_eq!(seen[0], (12, None, 0.85), "the decoded image, its area and match");
+    }
+
+    #[test]
+    fn another_image_or_match_starts_over_and_only_set_images_are_looked_for() {
+        let mut w = ImageWatch::default();
+        let first = vec![(id(1), looking_for(png(0)))];
+        w.tick(&first, |_, _, _, _| Some(false));
+        w.tick(&first, |_, _, _, _| Some(false));
+        // Another image that's on screen already: a baseline, not an appearance.
+        let other = vec![(id(1), looking_for(png(9)))];
+        let mut keys = Vec::new();
+        for _ in 0..3 {
+            assert!(
+                w.tick(&other, |_, key, _, _| {
+                    keys.push(key);
+                    Some(true)
+                })
+                .is_empty()
+            );
+        }
+        assert_ne!(image_key(&png(0)), keys[0]);
+        let mut stricter = looking_for(png(9));
+        stricter.image.threshold = 95;
+        assert!(w.tick(&[(id(1), stricter.clone())], |_, _, _, _| Some(true)).is_empty());
+        assert!(w.tick(&[(id(1), stricter)], |_, _, _, _| Some(true)).is_empty());
+
+        let mut off = looking_for(png(0));
+        off.image.enabled = false;
+        let unset = MacroTriggers {
+            image: relay_core::triggers::ImageTrigger { enabled: true, ..Default::default() },
+            ..Default::default()
+        };
+        let mut broken = looking_for(png(0));
+        broken.image.image.as_mut().unwrap().0.truncate(30);
+        let all = [(id(1), off), (id(2), unset), (id(3), broken)];
+        let mut looks = 0;
+        w.tick(&all, |_, _, _, _| {
+            looks += 1;
+            Some(true)
+        });
+        assert_eq!(looks, 0);
+        assert!(!ImageWatch::wanted(&all[..2]));
+        assert!(ImageWatch::wanted(&[(id(1), looking_for(png(0)))]));
     }
 }
