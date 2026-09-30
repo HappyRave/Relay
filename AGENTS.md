@@ -51,12 +51,8 @@ Relay is a **Windows desktop macro recorder**: it records mouse and keyboard inp
     - `run_history.rs`: the `runs.json` store. `triggers.rs` adds `ScheduleWatch::take_missed`.
     - Command `list_runs`, message `EngineMsg::RunsChanged`.
     - UI: `src/lib/runs.ts` (the labels), `tabs/RunHistory.svelte`, store `runs`/`runsOpen`/`runsFilter`/`showRuns`/`refreshRuns`, the browser fixture `src/lib/dev/sample-runs.json`.
-  - **Done and passing:** Rust tests, clippy, fmt, `npm test` (635), `npm run check`, and the new `e2e/run-history.e2e.test.mjs` (8 tests, run alone). The view was also checked in `npm run dev`.
-  - **Left to do:**
-    1. Run the full E2E suite, including the new last test in `triggers.e2e.test.mjs` (triggered runs and the busy skip in `runs.json`).
-    2. Docs: a user-guide section in `08-library.md`, plus links from `07-triggers.md`, `05-pixel-checks.md`, `06-find-image.md` and the tour table in `docs/user-guide/README.md`; `runs.json` in `docs/engineering/file-formats.md` and the flow in `architecture.md`; a `CHANGELOG.md` *Unreleased* entry; this file's repo map (`runlog.rs`, `run_history.rs`), and "next is m19".
-    3. Rerun `scripts/docs-screenshots.ps1` and add a Run history shot.
-    4. Push and check CI. Merging into `main` waits for the maintainer.
+  - **Done and passing:** Rust tests, clippy, fmt, `npm test` (635), `npm run check`, the full E2E suite (107), the docs and a Run history screenshot.
+  - **Left to do:** green CI, then merging into `main`, which waits for the maintainer.
   - **Decisions:**
     - The Play button and F10 both record as `manual`.
     - A run still going when Relay quits isn't recorded.
