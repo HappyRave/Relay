@@ -234,21 +234,27 @@ pub fn restore_macro(app: AppHandle, id: Uuid) -> Result<()> {
 pub enum ExportFormat {
     Rly,
     Json,
+    /// A standalone program: the player with the macro appended.
+    Exe,
 }
 
-fn export_body(lib: &Library, id: Uuid, format: ExportFormat) -> Result<String> {
+/// The release build of crates/relay-player, put there by build.rs.
+static PLAYER: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/relay-player.exe"));
+
+fn export_bytes(lib: &Library, id: Uuid, format: ExportFormat) -> Result<Vec<u8>> {
     let entry = lib.get(id).ok_or(IpcError::not_found(id))?;
     Ok(match format {
-        ExportFormat::Rly => format::to_rly(&entry.macro_),
-        ExportFormat::Json => format::to_export_json(&entry.macro_),
+        ExportFormat::Rly => format::to_rly(&entry.macro_).into_bytes(),
+        ExportFormat::Json => format::to_export_json(&entry.macro_).into_bytes(),
+        ExportFormat::Exe => format::bundle(PLAYER, &entry.macro_),
     })
 }
 
 /// Writes an export to `path` (chosen by the user in the save dialog).
 #[tauri::command(async)]
 pub fn export_macro(app: AppHandle, id: Uuid, format: ExportFormat, path: String) -> Result<()> {
-    let body = export_body(&library(&app).lock(), id, format)?;
-    crate::storage::write_atomic(Path::new(&path), &body).map_err(IpcError::io)
+    let body = export_bytes(&library(&app).lock(), id, format)?;
+    crate::storage::write_atomic_bytes(Path::new(&path), &body).map_err(IpcError::io)
 }
 
 #[derive(Debug, Serialize, TS)]
@@ -273,17 +279,17 @@ pub fn import_macros(app: AppHandle, paths: Vec<String>) -> ImportResult {
     ImportResult { imported: imported.value.ids, problems }
 }
 
-/// Reads and parses each file; a file that can't be read or parsed becomes a
-/// problem named after it.
+/// Reads and parses each file (a macro, a JSON export or an exported
+/// program); a file that can't be read or parsed becomes a problem named after it.
 fn read_imports(paths: &[String]) -> (Vec<Macro>, Vec<String>) {
     let mut problems = Vec::new();
     let macros = paths
         .iter()
         .filter_map(|path| {
             let name = Path::new(path).file_name().map_or(path.clone(), |n| n.to_string_lossy().into_owned());
-            std::fs::read_to_string(path)
+            std::fs::read(path)
                 .map_err(|e| e.to_string())
-                .and_then(|s| format::from_rly(&s).map_err(|e| e.to_string()))
+                .and_then(|bytes| format::from_file(&bytes).map_err(|e| e.to_string()))
                 .map_err(|e| problems.push(format!("{name}: {e}")))
                 .ok()
         })
@@ -657,19 +663,19 @@ mod tests {
             coord_mode: relay_core::model::CoordMode::Window,
         };
         let original = &lib.get(id).unwrap().macro_;
-        for f in [ExportFormat::Rly, ExportFormat::Json] {
-            let body = export_body(&lib, id, f).unwrap();
-            let back = format::from_rly(&body).unwrap();
+        for f in [ExportFormat::Rly, ExportFormat::Json, ExportFormat::Exe] {
+            let body = export_bytes(&lib, id, f).unwrap();
+            let back = format::from_file(&body).unwrap();
             assert_eq!(back.name, original.name, "{f:?}");
             assert_eq!(back.events, original.events, "{f:?}");
             assert_eq!(back.playback, original.playback, "{f:?}");
         }
         let repeat = PlaybackOptions { repeat: relay_core::model::Repeat::Count(3), ..original.playback.clone() };
         lib.get_mut(id).unwrap().macro_.playback = repeat.clone();
-        let back = format::from_rly(&export_body(&lib, id, ExportFormat::Json).unwrap()).unwrap();
+        let back = format::from_file(&export_bytes(&lib, id, ExportFormat::Json).unwrap()).unwrap();
         assert_eq!(back.playback, repeat);
         assert_eq!(
-            export_body(&lib, Uuid::from_u128(u128::MAX), ExportFormat::Rly).map(|_| ()).unwrap_err().code,
+            export_bytes(&lib, Uuid::from_u128(u128::MAX), ExportFormat::Rly).map(|_| ()).unwrap_err().code,
             "not_found"
         );
     }
@@ -678,7 +684,19 @@ mod tests {
     fn export_formats_use_the_ui_names() {
         assert!(matches!(serde_json::from_str::<ExportFormat>(r#""rly""#), Ok(ExportFormat::Rly)));
         assert!(matches!(serde_json::from_str::<ExportFormat>(r#""json""#), Ok(ExportFormat::Json)));
+        assert!(matches!(serde_json::from_str::<ExportFormat>(r#""exe""#), Ok(ExportFormat::Exe)));
         assert!(serde_json::from_str::<ExportFormat>(r#""ahk""#).is_err());
+    }
+
+    #[test]
+    fn a_program_is_the_player_with_the_macro() {
+        assert!(PLAYER.starts_with(b"MZ"), "a Windows program");
+        assert!(PLAYER.len() < 2 << 20, "the player is {} bytes", PLAYER.len());
+        let (_dir, lib) = library();
+        let id = lib.list()[0].id;
+        let exe = export_bytes(&lib, id, ExportFormat::Exe).unwrap();
+        assert!(exe.starts_with(PLAYER));
+        assert_eq!(format::unbundle(&exe).unwrap(), format::to_rly(&lib.get(id).unwrap().macro_));
     }
 
     #[test]
@@ -692,15 +710,23 @@ mod tests {
         std::fs::write(&good, format::to_rly(m)).unwrap();
         std::fs::write(&json, format::to_export_json(m)).unwrap();
         std::fs::write(&broken, "{ this isn't a macro").unwrap();
+        let program = files.path().join("program.exe");
+        let other = files.path().join("other.exe");
+        std::fs::write(&program, format::bundle(PLAYER, m)).unwrap();
+        std::fs::write(&other, PLAYER).unwrap();
         let missing = files.path().join("gone.rly");
-        let paths: Vec<String> =
-            [&good, &broken, &json, &missing].iter().map(|p| p.to_string_lossy().into_owned()).collect();
+        let paths: Vec<String> = [&good, &broken, &json, &program, &other, &missing]
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
 
         let (macros, problems) = read_imports(&paths);
-        assert_eq!(macros.len(), 2);
-        assert_eq!(problems.len(), 2);
+        assert_eq!(macros.len(), 3);
+        assert_eq!(macros[2].events, m.events, "back from the program");
+        assert_eq!(problems.len(), 3);
         assert!(problems[0].starts_with("broken.rly: "), "{}", problems[0]);
-        assert!(problems[1].starts_with("gone.rly: "), "named by file, not full path: {}", problems[1]);
+        assert_eq!(problems[1], "other.exe: not a program exported by Relay");
+        assert!(problems[2].starts_with("gone.rly: "), "named by file, not full path: {}", problems[2]);
     }
 
     #[test]

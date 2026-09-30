@@ -211,7 +211,11 @@ export class RelayStore {
   longPauses = $derived(this.steps.filter((s) => s.pause > TRIM_PAUSE_MS).length);
   error = $derived(this.toast?.kind === "error" ? this.toast.message : null);
   shownRuns = $derived(this.runsFilter ? this.runs.filter((r) => r.macro_id === this.runsFilter) : this.runs);
-  exportName = $derived((slug(this.name) || "macro") + "." + this.exportFmt);
+  /** Never "relay.exe": a program named like Relay would pass for it. */
+  exportName = $derived.by(() => {
+    const base = slug(this.name) || "macro";
+    return (this.exportFmt === "exe" && base === "relay" ? "relay-macro" : base) + "." + this.exportFmt;
+  });
 
   // — lifecycle —
 
