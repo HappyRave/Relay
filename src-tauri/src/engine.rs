@@ -13,6 +13,7 @@ use relay_core::image::{Gray, Match, Rgb8};
 use relay_core::keys::KeyStroke;
 use relay_core::model::{Event, MouseBtn, Ms, Rect, Repeat, Rgb};
 use relay_core::playback::{PlayClock, plan_times};
+use relay_core::runlog::{CheckLog, CheckOutcome, CheckResult};
 use relay_core::session::FinishReason;
 use relay_core::steps::{Step, StepKind};
 use relay_platform::{Injector, Platform};
@@ -91,6 +92,15 @@ pub struct TimingStats {
     pub max_ms: f64,
 }
 
+/// What a playback did, for the run history.
+#[derive(Debug, Default)]
+pub struct RunReport {
+    pub timing: Option<TimingStats>,
+    pub checks: CheckLog,
+    /// Loops played, the current one included.
+    pub loops: u32,
+}
+
 /// Lateness in 10 µs buckets up to 20 ms (later counts in the last one), so
 /// an endless loop measures in constant memory.
 struct Lateness {
@@ -162,6 +172,7 @@ pub struct Engine {
     keys_down: Vec<KeyStroke>,
     buttons_down: Vec<MouseBtn>,
     lateness: Lateness,
+    checks: CheckLog,
     /// The first injection failure, and whether it was reported.
     injection_error: Option<String>,
     error_reported: bool,
@@ -188,6 +199,7 @@ impl Engine {
             keys_down: Vec::new(),
             buttons_down: Vec::new(),
             lateness: Lateness::new(),
+            checks: CheckLog::default(),
             injection_error: None,
             error_reported: false,
         }
@@ -332,6 +344,13 @@ impl Engine {
         if let Some((m, click, btn)) = to_click {
             self.click_found(m, click, btn);
         }
+        if matched {
+            let outcome = match to_click {
+                Some((m, ..)) => CheckOutcome::Found { x: m.x, y: m.y, score: (m.score * 100.0).round() as u8 },
+                None => CheckOutcome::Matched,
+            };
+            self.record_check(now, outcome);
+        }
         let w = self.waiting.as_mut()?;
         if matched {
             let resume_at = w.resume_at;
@@ -341,14 +360,43 @@ impl Engine {
             return self.advance(now);
         }
         if now - w.started >= w.timeout_ms {
-            let event = w.event as u32;
-            self.timed_out_step = self.plan.steps.iter().position(|s| s.items.contains(&event)).map(|i| i + 1);
+            let event = w.event;
+            self.timed_out_step = self.step_of(event);
+            self.record_check(now, CheckOutcome::TimedOut);
+            self.waiting = None;
             self.release_all();
             return Some(FinishReason::PixelTimeout);
         }
         // Looked at once more when the timeout ends, so it ends on time.
         w.next_poll = (now + poll).min(w.started + w.timeout_ms);
         None
+    }
+
+    /// The 1-based step that event `event` belongs to.
+    fn step_of(&self, event: usize) -> Option<usize> {
+        self.plan.steps.iter().position(|s| s.items.contains(&(event as u32))).map(|i| i + 1)
+    }
+
+    /// Adds the result of the check being waited on to the run's checks.
+    fn record_check(&mut self, now: f64, outcome: CheckOutcome) {
+        let Some(w) = &self.waiting else { return };
+        // Paused by the user: the wait stopped counting when the pause began.
+        let end = self.user_paused.unwrap_or(now);
+        let check = CheckResult {
+            step: self.step_of(w.event).unwrap_or(0) as u32,
+            loop_idx: self.loop_idx,
+            image: matches!(w.check, Check::Image { .. }),
+            after_ms: (end - w.started).max(0.0).round() as u32,
+            outcome,
+        };
+        self.checks.push(check);
+    }
+
+    /// Ends the run: a check still waiting counts as interrupted.
+    pub fn report(&mut self, now: f64) -> RunReport {
+        self.record_check(now, CheckOutcome::Interrupted);
+        self.waiting = None;
+        RunReport { timing: self.stats(), checks: std::mem::take(&mut self.checks), loops: self.loop_idx + 1 }
     }
 
     /// Clicks `btn` at `click` (in the image's pixels, scaled like it) from
@@ -483,7 +531,7 @@ pub enum EngineCmd {
 pub struct EngineHandle {
     tx: Sender<EngineCmd>,
     wake: Arc<dyn Fn() + Send + Sync>,
-    thread: Option<JoinHandle<Option<TimingStats>>>,
+    thread: Option<JoinHandle<RunReport>>,
 }
 
 impl EngineHandle {
@@ -493,10 +541,10 @@ impl EngineHandle {
     }
 
     /// Stops playback, releases held input, waits for the thread and
-    /// returns the timing so far.
-    pub fn stop(mut self) -> Option<TimingStats> {
+    /// returns what it did so far (`None` if it panicked).
+    pub fn stop(mut self) -> Option<RunReport> {
         self.send(EngineCmd::Stop);
-        self.thread.take().and_then(|t| t.join().ok().flatten())
+        self.thread.take().and_then(|t| t.join().ok())
     }
 }
 
@@ -514,7 +562,7 @@ struct Done {
     coordinator: Sender<Cmd>,
     generation: u64,
     /// `None` until the engine ends; a panic leaves it `None` → `Error`.
-    outcome: Option<(FinishReason, Option<TimingStats>)>,
+    outcome: Option<FinishReason>,
     /// The recorded time of the step whose pixel check timed out.
     timed_out_at: Option<Ms>,
     /// Stopped by the coordinator, which already knows.
@@ -526,9 +574,9 @@ impl Drop for Done {
         if self.stopped {
             return;
         }
-        let (reason, timing) = self.outcome.take().unwrap_or((FinishReason::Error, None));
+        let reason = self.outcome.take().unwrap_or(FinishReason::Error);
         let timed_out_at = self.timed_out_at;
-        let _ = self.coordinator.send(Cmd::EngineDone { generation: self.generation, reason, timing, timed_out_at });
+        let _ = self.coordinator.send(Cmd::EngineDone { generation: self.generation, reason, timed_out_at });
     }
 }
 
@@ -573,7 +621,7 @@ pub fn spawn(
                         Ok(EngineCmd::Speed(v)) => engine.set_speed(v, now),
                         Ok(EngineCmd::Stop) | Err(TryRecvError::Disconnected) => {
                             done.stopped = true;
-                            return engine.stats(); // dropping the engine releases input
+                            return engine.report(now); // dropping the engine releases input
                         }
                         Err(TryRecvError::Empty) => break,
                     }
@@ -600,10 +648,9 @@ pub fn spawn(
                     {
                         emit.send(EngineMsg::Notice { message });
                     }
-                    let stats = engine.stats();
-                    done.outcome = Some((reason, stats.clone()));
+                    done.outcome = Some(reason);
                     done.timed_out_at = engine.timed_out_at();
-                    return stats;
+                    return engine.report(now);
                 }
                 let deadline = engine.next_deadline().map_or(next_tick, |d| d.min(next_tick));
                 timer.wait_until(deadline);
@@ -1189,5 +1236,75 @@ mod tests {
         assert_eq!(run_to(&mut e, &now, 0.0), None);
         assert!(searches.lock().unwrap().is_empty() && rec.take().is_empty());
         assert_eq!(run_to(&mut e, &now, 5000.0), Some(FinishReason::PixelTimeout));
+    }
+
+    fn outcomes(report: &RunReport) -> Vec<(u32, u32, bool, u32, CheckOutcome)> {
+        let (checks, _) = report.checks.clone().into_parts();
+        checks.iter().map(|c| (c.step, c.loop_idx, c.image, c.after_ms, c.outcome)).collect()
+    }
+
+    #[test]
+    fn a_matched_pixel_check_is_reported_with_how_long_it_waited() {
+        let (mut e, _rec, now) = pixel_engine(1200.0);
+        run_to(&mut e, &now, 100.0);
+        run_to(&mut e, &now, 1190.0);
+        run_to(&mut e, &now, 1220.0);
+        run_to(&mut e, &now, 1600.0);
+        let report = e.report(1600.0);
+        assert_eq!(outcomes(&report), [(1, 0, false, 1120, CheckOutcome::Matched)]);
+        assert_eq!(report.loops, 1);
+        assert!(report.timing.is_some());
+    }
+
+    #[test]
+    fn a_timed_out_check_is_reported_once() {
+        let (mut e, _rec, now) = pixel_engine(f64::INFINITY);
+        run_to(&mut e, &now, 100.0);
+        assert_eq!(run_to(&mut e, &now, 5100.0), Some(FinishReason::PixelTimeout));
+        assert_eq!(outcomes(&e.report(5100.0)), [(1, 0, false, 5000, CheckOutcome::TimedOut)]);
+    }
+
+    #[test]
+    fn a_found_image_is_reported_where_it_was_found() {
+        let events = vec![find_image(100, None), key(900, "KeyA", true)];
+        let (mut e, _rec, now, _) = image_engine(events, (0, 0), 1100.0);
+        run_to(&mut e, &now, 100.0);
+        run_to(&mut e, &now, 1100.0);
+        let found = CheckOutcome::Found { x: 300, y: 200, score: 97 };
+        assert_eq!(outcomes(&e.report(1100.0)), [(1, 0, true, 1000, found)]);
+    }
+
+    #[test]
+    fn stopping_during_a_check_reports_it_interrupted_without_the_pause() {
+        let (mut e, _rec, now) = pixel_engine(f64::INFINITY);
+        run_to(&mut e, &now, 100.0);
+        e.pause(400.0);
+        assert_eq!(outcomes(&e.report(9000.0)), [(1, 0, false, 300, CheckOutcome::Interrupted)]);
+        // Stopped outside a check: nothing to add.
+        let (mut e, _rec, now) = pixel_engine(f64::INFINITY);
+        run_to(&mut e, &now, 50.0);
+        assert!(outcomes(&e.report(50.0)).is_empty());
+    }
+
+    #[test]
+    fn each_loop_reports_its_own_checks() {
+        let rec = Recorder::default();
+        let pixel: PixelReader = Box::new(|_, _| Some(Rgb(255, 0, 0)));
+        let mut e = Engine::new(
+            plan(pixel_macro(), Repeat::Count(2), 1.0),
+            Box::new(rec),
+            pixel,
+            Box::new(|_, _, _| None),
+            0.0,
+        );
+        let mut t = 0.0;
+        while e.advance(t).is_none() {
+            t += 10.0;
+            assert!(t < 10_000.0, "never finished");
+        }
+        let report = e.report(t);
+        let loops: Vec<u32> = outcomes(&report).iter().map(|c| c.1).collect();
+        assert_eq!(loops, [0, 1]);
+        assert_eq!(report.loops, 2);
     }
 }

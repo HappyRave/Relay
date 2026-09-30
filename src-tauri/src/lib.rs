@@ -8,6 +8,7 @@ mod ipc;
 mod library;
 mod logging;
 mod rec_thread;
+mod run_history;
 mod screens;
 mod settings;
 mod storage;
@@ -74,6 +75,7 @@ pub fn run() {
             commands::stop_session,
             commands::seek,
             commands::list_macros,
+            commands::list_runs,
             commands::load_macro,
             commands::screenshot,
             commands::edit_macro,
@@ -143,7 +145,9 @@ pub fn run() {
             app.manage(Mutex::new(library));
             let (settings, settings_problems) = settings::SettingsStore::open(&dir);
             app.manage(Mutex::new(settings));
-            for p in library_problems.into_iter().chain(settings_problems) {
+            let (runs, runs_problems) = run_history::RunHistory::open(&dir);
+            app.manage(Mutex::new(runs));
+            for p in library_problems.into_iter().chain(settings_problems).chain(runs_problems) {
                 emit.error(p);
             }
 

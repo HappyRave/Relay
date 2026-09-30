@@ -14,6 +14,7 @@ use std::time::Duration;
 use parking_lot::Mutex;
 use relay_core::image::{self, ImageError, Rgb8};
 use relay_core::model::{ImagePng, PlaybackOptions, Rect, Rgb};
+use relay_core::runlog::RunEntry;
 use relay_core::session::{FinishReason, Input};
 use relay_core::{EditOp, Macro, MacroListItem, MacroView, format};
 use relay_platform::{ClipImage, Platform};
@@ -28,6 +29,7 @@ use crate::history::{EditHistory, Snapshot};
 use crate::hotkeys;
 use crate::ipc::{Emitter, EngineMsg};
 use crate::library::{Library, LibraryError};
+use crate::run_history::RunHistory;
 use crate::settings::{Settings, SettingsStore};
 
 #[derive(Debug, Serialize)]
@@ -116,6 +118,12 @@ pub fn seek(c: State<'_, CoordinatorHandle>, t: f64) {
 #[tauri::command]
 pub fn list_macros(lib: State<'_, Mutex<Library>>) -> Vec<MacroListItem> {
     lib.lock().list()
+}
+
+/// The run history, newest first.
+#[tauri::command]
+pub fn list_runs(runs: State<'_, Mutex<RunHistory>>) -> Vec<RunEntry> {
+    runs.lock().list()
 }
 
 /// The UI's view of a macro, with whether it has edits to undo or redo.

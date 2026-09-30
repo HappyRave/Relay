@@ -53,6 +53,8 @@ pub enum EngineMsg {
         id: Uuid,
     },
     LibraryChanged,
+    /// An entry was added to the run history.
+    RunsChanged,
     /// Ctrl + Shift + M.
     ToggleCompact,
     Error {

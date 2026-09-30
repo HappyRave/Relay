@@ -1,0 +1,160 @@
+[
+  {
+    "ago_ms": 10800000,
+    "entry": {
+      "at": "2026-09-01T09:00:00Z",
+      "checks": [
+        {
+          "after_ms": 640,
+          "image": false,
+          "loop_idx": 0,
+          "outcome": {
+            "type": "matched"
+          },
+          "step": 12
+        },
+        {
+          "after_ms": 910,
+          "image": false,
+          "loop_idx": 1,
+          "outcome": {
+            "type": "matched"
+          },
+          "step": 12
+        },
+        {
+          "after_ms": 420,
+          "image": false,
+          "loop_idx": 2,
+          "outcome": {
+            "type": "matched"
+          },
+          "step": 12
+        }
+      ],
+      "checks_dropped": 0,
+      "duration_ms": 31840,
+      "from_ms": 0,
+      "humanize": true,
+      "loops": 3,
+      "macro_id": "00000000-0000-0000-0000-000000000001",
+      "macro_name": "Export invoice to PDF",
+      "outcome": {
+        "reason": "completed",
+        "type": "finished"
+      },
+      "source": "hotkey",
+      "speed": 1.0
+    }
+  },
+  {
+    "ago_ms": 14400000,
+    "entry": {
+      "at": "2026-09-01T09:00:00Z",
+      "checks": [],
+      "checks_dropped": 0,
+      "duration_ms": 20310,
+      "from_ms": 0,
+      "humanize": true,
+      "loops": 3,
+      "macro_id": "00000000-0000-0000-0000-000000000004",
+      "macro_name": "Open standup tools",
+      "outcome": {
+        "reason": "completed",
+        "type": "finished"
+      },
+      "source": "schedule",
+      "speed": 1.0
+    }
+  },
+  {
+    "ago_ms": 97200000,
+    "entry": {
+      "at": "2026-09-01T09:00:00Z",
+      "checks": [],
+      "checks_dropped": 0,
+      "duration_ms": 0,
+      "from_ms": 0,
+      "humanize": true,
+      "loops": 0,
+      "macro_id": "00000000-0000-0000-0000-000000000004",
+      "macro_name": "Open standup tools",
+      "outcome": {
+        "reason": "busy",
+        "type": "skipped"
+      },
+      "source": "schedule",
+      "speed": 1.0
+    }
+  },
+  {
+    "ago_ms": 108000000,
+    "entry": {
+      "at": "2026-09-01T09:00:00Z",
+      "checks": [
+        {
+          "after_ms": 5000,
+          "image": false,
+          "loop_idx": 0,
+          "outcome": {
+            "type": "timed_out"
+          },
+          "step": 7
+        }
+      ],
+      "checks_dropped": 0,
+      "duration_ms": 9120,
+      "from_ms": 0,
+      "humanize": true,
+      "loops": 1,
+      "macro_id": "00000000-0000-0000-0000-000000000003",
+      "macro_name": "Batch rename photos",
+      "outcome": {
+        "reason": "pixel_timeout",
+        "type": "finished"
+      },
+      "source": "manual",
+      "speed": 1.0
+    }
+  },
+  {
+    "ago_ms": 187200000,
+    "entry": {
+      "at": "2026-09-01T09:00:00Z",
+      "checks": [],
+      "checks_dropped": 0,
+      "duration_ms": 0,
+      "from_ms": 0,
+      "humanize": true,
+      "loops": 0,
+      "macro_id": "00000000-0000-0000-0000-000000000004",
+      "macro_name": "Open standup tools",
+      "outcome": {
+        "reason": "missed",
+        "type": "skipped"
+      },
+      "source": "schedule",
+      "speed": 1.0
+    }
+  },
+  {
+    "ago_ms": 576000000,
+    "entry": {
+      "at": "2026-09-01T09:00:00Z",
+      "checks": [],
+      "checks_dropped": 0,
+      "duration_ms": 4730,
+      "from_ms": 0,
+      "humanize": true,
+      "loops": 1,
+      "macro_id": "00000000-0000-0000-0000-000000000002",
+      "macro_name": "Fill weekly timesheet",
+      "outcome": {
+        "reason": "stopped",
+        "type": "finished"
+      },
+      "source": "manual",
+      "speed": 1.0
+    }
+  }
+]
