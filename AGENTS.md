@@ -43,6 +43,26 @@ Relay is a **Windows desktop macro recorder**: it records mouse and keyboard inp
 - **Tests at v1.3.0:** about 290 Rust (unit, property, snapshot), about 570 Vitest (store, backend contract, fake core, every component), about 85 end-to-end tests against the built app. Rust unit coverage is about 76% of lines; the coordinator, commands, tray and Windows backend are exercised end to end instead. The frontend is at about 99.8% of lines.
 - **Next, per the [roadmap](README.md#roadmap):** AutoHotkey v2 and standalone `.exe` export (the Export dialog already shows them as "Coming later"), code signing (needs a certificate; free options for open source: SignPath Foundation, Certum's open-source certificate, Azure Trusted Signing), remapping macros to a different monitor layout, macOS and Linux backends.
 - **Also open:** see [Known limitations and open items](#known-limitations-and-open-items).
+- **In progress: `m18-run-history`** (not merged). A run history that opens from Library → **Runs**. It records every playback however it ends: when it started, what started it (`RunSource`), the outcome, wall duration, loops, speed, humanize, and each pixel check's or Find image step's result and wait time. It also records triggers that fired but were skipped (busy, locked screen, a schedule missed while asleep). The newest 200 entries are kept in machine-local `runs.json`.
+  - **Code:**
+    - `relay-core/src/runlog.rs`: the types, `RunLog`, `CheckLog`.
+    - `engine.rs`: `RunReport`, `record_check`, `report`.
+    - `coordinator.rs`: `RunStart`, `pending_source`, `finish_playback`, `record_run`, `run_entry`/`skip_entry`, `Cmd::LogSkip`.
+    - `run_history.rs`: the `runs.json` store. `triggers.rs` adds `ScheduleWatch::take_missed`.
+    - Command `list_runs`, message `EngineMsg::RunsChanged`.
+    - UI: `src/lib/runs.ts` (the labels), `tabs/RunHistory.svelte`, store `runs`/`runsOpen`/`runsFilter`/`showRuns`/`refreshRuns`, the browser fixture `src/lib/dev/sample-runs.json`.
+  - **Done and passing:** Rust tests, clippy, fmt, `npm test` (635), `npm run check`, and the new `e2e/run-history.e2e.test.mjs` (8 tests, run alone). The view was also checked in `npm run dev`.
+  - **Left to do:**
+    1. Run the full E2E suite, including the new last test in `triggers.e2e.test.mjs` (triggered runs and the busy skip in `runs.json`).
+    2. Docs: a user-guide section in `08-library.md`, plus links from `07-triggers.md`, `05-pixel-checks.md`, `06-find-image.md` and the tour table in `docs/user-guide/README.md`; `runs.json` in `docs/engineering/file-formats.md` and the flow in `architecture.md`; a `CHANGELOG.md` *Unreleased* entry; this file's repo map (`runlog.rs`, `run_history.rs`), and "next is m19".
+    3. Rerun `scripts/docs-screenshots.ps1` and add a Run history shot.
+    4. Push and check CI. Merging into `main` waits for the maintainer.
+  - **Decisions:**
+    - The Play button and F10 both record as `manual`.
+    - A run still going when Relay quits isn't recorded.
+    - A failed `runs.json` save is reported once, until a save succeeds again.
+    - Paused triggers and deleted macros aren't logged.
+  - **Local quirk:** with Node 25.7, `npm run test:e2e` fails with "Cannot find module …\e2e" because Node doesn't take the folder argument. Node 26, which CI uses, is fine; otherwise pass the files: `node --test --test-concurrency=1 --test-timeout=120000 e2e/*.e2e.test.mjs`.
 
 Before starting work, check `git log --oneline -15`, `git status`, the README roadmap and the *Unreleased* section of `CHANGELOG.md`.
 
