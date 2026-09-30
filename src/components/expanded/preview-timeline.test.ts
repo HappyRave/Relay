@@ -223,13 +223,28 @@ describe("Preview", () => {
 
   test("the bar names the step under the playhead, as the steps list does", async () => {
     const { container } = render(Preview);
-    expect(container.querySelector(".info")).toHaveTextContent(/^$/);
+    // The cursor moves to the first click from the start.
+    expect(container.querySelector(".info")).toHaveTextContent("Step 1 · Move");
     await at(900);
-    expect(container.querySelector(".info")).toHaveTextContent("Step 1 · Click · File menu");
+    expect(container.querySelector(".info")).toHaveTextContent("Step 2 · Click · File menu");
     await at(3600);
-    expect(container.querySelector(".info")).toHaveTextContent("Step 4 · Double click · Filename field");
+    expect(container.querySelector(".info")).toHaveTextContent("Step 7 · Double click · Filename field");
     await at(3760);
-    expect(container.querySelector(".info")).toHaveTextContent("Step 5 · Ctrl + A");
+    expect(container.querySelector(".info")).toHaveTextContent("Step 8 · Ctrl + A");
+  });
+
+  test("the open move's path is highlighted, from where the cursor was before it", async () => {
+    const { container } = render(Preview);
+    expect(container.querySelector(".open-move")).toBeNull();
+    relay.selectStep(2); // 134, 70 (the first click) → 230, 324
+    await settle();
+    const d = container.querySelector(".open-move")!.getAttribute("d")!;
+    expect(d.startsWith("M134 70 L")).toBe(true);
+    expect(d.endsWith(" L230 324")).toBe(true);
+    expect(d.split(" L")).toHaveLength(1 + 41 + 1); // the start, its samples, and the click at its end
+    relay.selectStep(1); // a click
+    await settle();
+    expect(container.querySelector(".open-move")).toBeNull();
   });
 
   test("numbered markers for each click, with their labels", () => {

@@ -680,6 +680,26 @@ export class RelayStore {
     }
   };
 
+  /** Sets how long MOVE step `index` takes, from its first sample to its last. */
+  setMoveDuration = (index: number, ms: number) =>
+    this.edit({ op: "set_move_duration", index, dur: Math.max(0, Math.round(ms)) });
+
+  /** Takes the wobble out of MOVE step `index`'s path. */
+  smoothMove = (index: number) => this.reshapeMove({ op: "smooth_move", index }, "Smoothed the move");
+
+  /** Makes MOVE step `index`'s path a straight line. */
+  straightenMove = (index: number) => this.reshapeMove({ op: "straighten_move", index }, "Straightened the move");
+
+  /** A reshape changes the path in the preview only, so it offers an Undo; one that changed nothing doesn't. */
+  private async reshapeMove(op: EditOp, done: string) {
+    const before = this.view;
+    await this.edit(op);
+    const after = this.view;
+    if (after && before && after !== before && JSON.stringify(after.moves) !== JSON.stringify(before.moves)) {
+      this.offerUndo(done, after.id);
+    }
+  }
+
   insertWait = () => this.edit({ op: "insert_wait", at: Math.round(this.cur), dur: 500, label: "Inserted" });
 
   /** Inserts a check at the playhead for the pixel under the macro's cursor, in its current color. */

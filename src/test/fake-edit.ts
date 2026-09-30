@@ -1,14 +1,17 @@
 // relay-core's edits (crates/relay-core/src/edit.rs) for the fake core, on
 // the view the UI receives: steps, the cursor path and the duration. The
 // fake has no raw events, but it keeps what the UI can see of them the way
-// relay-core would: `items` are event indices (cursor moves count), so an
+// relay-core would: `items` are event indices (cursor moves count, and each
+// belongs to a step: a MOVE, or the click or drag it happened during), so an
 // insertion or a deletion renumbers the steps after it; inserts snap past the
 // step under the playhead and push what follows back; deleting a wait closes
-// its gap; pauses retime what follows. What regrouping would do (two clicks
-// merging into a double click once the step between them is deleted) isn't
-// modelled: that's tested in Rust.
-import type { EditOp, MacroView, MovePoint, Step } from "../lib/types";
+// its gap; pauses and moves retime what follows; smoothing a move reshapes its
+// samples (fake-path.ts). What regrouping would do (two clicks merging into a
+// double click once the step between them is deleted, two moves into one)
+// isn't modelled: that's tested in Rust.
+import type { EditOp, MacroView, MovePoint, Step, StepOf } from "../lib/types";
 import type { IpcError } from "../lib/ipc/backend";
+import { smooth, straighten, type Point } from "./fake-path";
 
 /** The longest wait or pause an edit may set (a day). */
 const MAX_DUR = 24 * 60 * 60 * 1000;
@@ -18,13 +21,6 @@ const MIN_DURATION_MS = 2000;
 
 const rejected = (message: string): IpcError => ({ code: "edit_rejected", message });
 const clampMs = (t: number) => Math.max(0, t);
-
-/** How many of a step's events are button presses and releases (they're in the cursor path). */
-function buttons(s: Step): number {
-  if (s.kind === "click") return 2 * s.count;
-  if (s.kind === "drag") return 2;
-  return 0;
-}
 
 function shiftStep(s: Step, delta: number) {
   s.t = clampMs(s.t + delta);
@@ -63,10 +59,7 @@ function insertTimed(v: MacroView, at: number, dur: number, make: (t: number, it
   at = snap(v.steps, at);
   // Where the new event goes in the event list: after everything earlier. A
   // step is either all before `at` or all after it (that's what snapping is for).
-  const before = v.steps.filter((s) => s.end < at);
-  const items = before.reduce((n, s) => n + s.items.length, 0);
-  const moves = v.moves.filter((m) => m.t < at).length - before.reduce((n, s) => n + buttons(s), 0);
-  const pos = items + moves;
+  const pos = v.steps.filter((s) => s.end < at).reduce((n, s) => n + s.items.length, 0);
   shiftFrom(v, at, dur);
   for (const s of v.steps) s.items = s.items.map((i) => (i >= pos ? i + 1 : i));
   v.steps.push(make(at, pos));
@@ -98,22 +91,46 @@ function retimePauses(v: MacroView, pauses: [number, number, number][]) {
   for (const m of v.moves) m.t = retime(m.t, pauses);
 }
 
-/** Removes the cursor samples of a click's or drag's presses and releases. */
-function dropButtonMoves(v: MacroView, s: Step) {
-  if (s.kind !== "click" && s.kind !== "drag") return;
-  const at = (m: MovePoint, t: number, x: number, y: number) => m.t === t && m.x === x && m.y === y;
-  const drop = new Set<MovePoint>();
-  if (s.kind === "drag") {
-    const down = v.moves.find((m) => at(m, s.t, s.x, s.y));
-    const up = [...v.moves].reverse().find((m) => at(m, s.end, s.to_x, s.to_y));
-    if (down) drop.add(down);
-    if (up) drop.add(up);
+/** A MOVE step's samples in the cursor path: `samples` of them from its start. */
+function samplesOf(v: MacroView, s: StepOf<"move">): MovePoint[] {
+  const first = v.moves.findIndex((m) => m.t >= s.t);
+  return first < 0 ? [] : v.moves.slice(first, first + s.samples);
+}
+
+/**
+ * Removes a deleted step's part of the cursor path: a MOVE's samples, or a
+ * click's or drag's presses, releases and the moves while the button was down
+ * (those in its time that no MOVE step has).
+ */
+function dropMoves(v: MacroView, s: Step) {
+  let drop: Set<MovePoint>;
+  if (s.kind === "move") {
+    drop = new Set(samplesOf(v, s));
+  } else if (s.kind === "click" || s.kind === "drag") {
+    const others = new Set(v.steps.flatMap((o) => (o.kind === "move" ? samplesOf(v, o) : [])));
+    drop = new Set(v.moves.filter((m) => m.t >= s.t && m.t <= s.end && !others.has(m)));
   } else {
-    for (const m of v.moves) {
-      if (drop.size < buttons(s) && m.t >= s.t && m.t <= s.end && m.x === s.x && m.y === s.y) drop.add(m);
-    }
+    return;
   }
   v.moves = v.moves.filter((m) => !drop.has(m));
+}
+
+/** Two MOVE steps with nothing between them (the step between was deleted) are one move. */
+function mergeMoves(v: MacroView) {
+  const moves = v.steps.filter((s): s is StepOf<"move"> => s.kind === "move").sort((a, b) => a.items[0] - b.items[0]);
+  for (let i = moves.length - 1; i > 0; i--) {
+    const [a, b] = [moves[i - 1], moves[i]];
+    if (a.items[a.items.length - 1] + 1 !== b.items[0]) continue;
+    Object.assign(a, { end: b.end, to_x: b.to_x, to_y: b.to_y, samples: a.samples + b.samples, items: [...a.items, ...b.items] });
+    v.steps.splice(v.steps.indexOf(b), 1);
+  }
+}
+
+/** Moves a MOVE step's samples onto the path `f` makes of them, from where the cursor was before. */
+function reshape(v: MacroView, s: StepOf<"move">, f: (p: Point[]) => Point[]) {
+  const samples = samplesOf(v, s);
+  const out = f([[s.x, s.y], ...samples.map((m): Point => [m.x, m.y])]);
+  samples.forEach((m, i) => ([m.x, m.y] = out[i + 1]));
 }
 
 /** Applies `op` to `v` like `relay_core::edit::apply`, or throws its error. */
@@ -134,7 +151,8 @@ export function applyEdit(v: MacroView, op: EditOp) {
       const s = get(op.index);
       v.steps.splice(op.index, 1);
       for (const o of v.steps) o.items = o.items.map((i) => i - s.items.filter((g) => g < i).length);
-      dropButtonMoves(v, s);
+      dropMoves(v, s);
+      mergeMoves(v);
       // Deleting a wait closes the gap it left.
       if (s.kind === "wait" || s.kind === "pixel_wait") shiftFrom(v, s.end, -s.dur);
       break;
@@ -196,7 +214,17 @@ export function applyEdit(v: MacroView, op: EditOp) {
 
     case "set_pause": {
       const s = get(op.index);
-      retimePauses(v, [[s.t - s.pause, s.t, Math.min(op.dur, MAX_DUR)]]);
+      const dur = Math.min(op.dur, MAX_DUR);
+      if (s.pause > 0) {
+        retimePauses(v, [[s.t - s.pause, s.t, dur]]);
+        break;
+      }
+      // No gap to stretch: the step and what follows it in the list move,
+      // not what ends at that moment (the last sample of the move before it).
+      const staying = v.steps.filter((o) => o.items[0] < s.items[0]);
+      const kept = new Set(staying.flatMap((o) => (o.kind === "move" ? samplesOf(v, o) : [])));
+      for (const m of v.moves) if (m.t >= s.t && !kept.has(m)) m.t += dur;
+      for (const o of v.steps) if (o.items[0] >= s.items[0]) shiftStep(o, dur);
       break;
     }
 
@@ -206,6 +234,22 @@ export function applyEdit(v: MacroView, op: EditOp) {
         v.steps.filter((s) => s.pause > op.max).map((s) => [s.t - s.pause, s.t, op.max]),
       );
       break;
+
+    case "set_move_duration": {
+      const s = get(op.index);
+      if (s.kind !== "move") throw wrongKind(op.index);
+      // A single sample is a jump: it has no length to set.
+      if (s.end > s.t) retimePauses(v, [[s.t, s.end, Math.min(op.dur, MAX_DUR)]]);
+      break;
+    }
+
+    case "smooth_move":
+    case "straighten_move": {
+      const s = get(op.index);
+      if (s.kind !== "move") throw wrongKind(op.index);
+      reshape(v, s, op.op === "smooth_move" ? smooth : straighten);
+      break;
+    }
   }
   summarize(v);
 }
@@ -236,7 +280,9 @@ export class History {
     return { name: v.name, events: op.op === "rename" ? null : eventsOf(v) };
   }
 
-  record(before: Snapshot, op: EditOp) {
+  /** Records `before` once `op` has been applied to `v`. An edit that changed nothing isn't one. */
+  record(before: Snapshot, op: EditOp, v: MacroView) {
+    if (before.name === v.name && (!before.events || JSON.stringify(before.events) === JSON.stringify(eventsOf(v)))) return;
     const now = Date.now();
     const renaming = op.op === "rename";
     const sameRename = renaming && this.lastRename != null && now - this.lastRename < RENAME_BURST_MS;

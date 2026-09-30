@@ -8,6 +8,8 @@ import { core, defaultTriggers } from "./fake-core";
 import { DEFAULT_SETTINGS } from "../lib/defaults";
 import type { EditOp, MacroView } from "../lib/types";
 import type { EngineMsg } from "../lib/ipc/bindings/EngineMsg";
+import { smooth, straighten, type Point } from "./fake-path";
+import pathCases from "./path-cases.json";
 
 const [A, B, C] = [1, 2, 3].map((n) => `00000000-0000-0000-0000-00000000000${n}`);
 const edit = (op: EditOp, id = A) => b.editMacro(id, op);
@@ -21,62 +23,119 @@ beforeEach(async () => {
 });
 
 describe("edits, like edit.rs", () => {
+  // The invoice sample: each click has the MOVE step that leads to it just before it.
   test("an insert at a step's start goes after the step, pushes the rest back and grows the macro", async () => {
     const before = core.view(A);
     const v = await edit({ op: "insert_wait", at: 850, dur: 500, label: "x" });
-    expect(v.steps[1]).toMatchObject({ kind: "wait", t: 911, end: 1411, dur: 500, items: [56] });
-    expect(times(v).slice(2, 4)).toEqual([
+    expect(v.steps[2]).toMatchObject({ kind: "wait", t: 911, end: 1411, dur: 500, items: [56] });
+    expect(times(v).slice(4, 6)).toEqual([
       [2250, 2310],
       [2500, 3200],
     ]);
     expect(v.duration).toBe(before.duration + 500);
     // Later steps' events come one later.
-    expect(v.steps[2].items).toEqual([98, 99]);
+    expect(v.steps[4].items).toEqual([98, 99]);
     expect(v.moves.find((m) => m.t > 911)!.t).toBeGreaterThanOrEqual(1411);
   });
 
   test("deleting a wait closes its gap; deleting a step renumbers the later ones", async () => {
-    const v = await edit({ op: "delete_step", index: 2 }); // Wait 0.7 s at 2000
-    expect(times(v).slice(2, 3)).toEqual([[2800, 2980]]); // was 3500
+    const v = await edit({ op: "delete_step", index: 4 }); // Wait 0.7 s at 2000
+    expect(times(v).slice(5, 6)).toEqual([[2800, 2980]]); // was 3500
     expect(v.duration).toBe(10150 - 700);
-    expect(v.steps[2].items).toEqual([149, 150, 151, 152]);
-    const again = await edit({ op: "delete_step", index: 0 }); // a click: its time stays
-    expect(again.steps[0].t).toBe(1750);
-    expect(again.steps[0].items).toEqual([95, 96]);
+    expect(v.steps[5].items).toEqual([149, 150, 151, 152]);
+    const again = await edit({ op: "delete_step", index: 0 }); // the first move: the click keeps its time
+    expect(again.steps[0]).toMatchObject({ kind: "click", t: 850, pause: 850, items: [0, 1] });
+    expect(again.steps[1].items[0]).toBe(2);
+    expect(again.moves).toHaveLength(247);
+  });
+
+  test("deleting a click joins the moves either side of it", async () => {
+    const v = await edit({ op: "delete_step", index: 1 });
+    expect(v.steps[0]).toMatchObject({ kind: "move", t: 0, end: 1750, samples: 54 + 41, items: [...Array(95).keys()] });
+    expect(v.steps[1]).toMatchObject({ kind: "click", t: 1750, items: [95, 96] });
+    expect(v.moves).toHaveLength(299);
   });
 
   test("inserting then deleting a wait gives the macro back", async () => {
     const original = core.view(A);
-    await edit({ op: "insert_wait", at: 1500, dur: 700, label: "" });
-    const v = await edit({ op: "delete_step", index: 1 });
+    const v1 = await edit({ op: "insert_wait", at: 1000, dur: 700, label: "" });
+    expect(v1.steps[2]).toMatchObject({ kind: "wait", t: 1000, pause: 90 });
+    expect(v1.steps[3]).toMatchObject({ kind: "move", t: 1816, pause: 116 });
+    const v = await edit({ op: "delete_step", index: 2 });
     expect(v.steps).toEqual(original.steps);
     expect(v.moves).toEqual(original.moves);
     expect(v.duration).toBe(original.duration);
   });
 
   test("a pause retimes what follows", async () => {
-    const v = await edit({ op: "set_pause", index: 1, dur: 340 }); // was 840
-    expect(times(v).slice(1, 3)).toEqual([
-      [1250, 1310],
-      [1500, 2200],
+    const v = await edit({ op: "set_pause", index: 2, dur: 100 }); // the move after the first click: was 206
+    expect(times(v).slice(2, 5)).toEqual([
+      [1010, 1644],
+      [1644, 1704],
+      [1894, 2594],
     ]);
-    expect(v.duration).toBe(10150 - 500);
-    expect(v.steps[1].pause).toBe(340);
+    expect(v.duration).toBe(10150 - 106);
+    expect(v.steps[2].pause).toBe(100);
+  });
+
+  test("a pause added where there was none leaves the move before it alone", async () => {
+    // The first click comes as its move ends: both at 850.
+    const v = await edit({ op: "set_pause", index: 1, dur: 300 });
+    expect(times(v).slice(0, 3)).toEqual([
+      [0, 850],
+      [1150, 1210],
+      [1416, 2050],
+    ]);
+    expect(v.steps[1].pause).toBe(300);
+    expect(v.moves.filter((m) => m.t === 850)).toHaveLength(1);
   });
 
   test("trimming pauses shortens only the long ones, and the macro", async () => {
+    await edit({ op: "set_pause", index: 4, dur: 2500 }); // the wait: was 190
     const v = await edit({ op: "cap_pauses", max: 1000 });
-    expect(v.steps.map((s) => s.pause)).toEqual([850, 840, 190, 800, 70, 220, 995, 190, 0, 1000, 610, 210]);
-    expect(v.duration).toBe(10150 - 420);
+    expect(v.steps.map((s) => s.pause)).toEqual([0, 0, 206, 0, 1000, 16, 0, 70, 220, 261, 0, 190, 0, 336, 0, 206, 0, 210]);
+    expect(v.duration).toBe(10150 + 810);
   });
 
   test("a pixel check's duration moves what follows", async () => {
-    const v = await edit({ op: "set_wait_duration", index: 7, dur: 400 }); // was 900
-    expect(times(v).slice(7, 9)).toEqual([
+    const v = await edit({ op: "set_wait_duration", index: 11, dur: 400 }); // was 900
+    expect(times(v).slice(11, 13)).toEqual([
       [6270, 6670],
       [6670, 6750],
     ]);
     expect(v.duration).toBe(10150 - 500);
+  });
+
+  test("a move's duration retimes it and moves what follows", async () => {
+    const v = await edit({ op: "set_move_duration", index: 2, dur: 300 }); // 1116..1750
+    expect(times(v).slice(2, 5)).toEqual([
+      [1116, 1416],
+      [1416, 1476],
+      [1666, 2366],
+    ]);
+    expect(v.duration).toBe(10150 - 334);
+    const samples = v.moves.slice(56, 56 + 41); // after the first move and the click's press and release
+    expect([samples[0].t, samples[40].t]).toEqual([1116, 1416]);
+    expect(samples.every((m, i) => i === 0 || m.t >= samples[i - 1].t)).toBe(true);
+  });
+
+  test("smoothing and straightening a move change where its samples are, not when", async () => {
+    const original = core.view(A);
+    const samples = (v: MacroView) => v.moves.slice(56, 56 + 41);
+    const v = await edit({ op: "straighten_move", index: 2 });
+    expect(samples(v).map((m) => m.t)).toEqual(samples(original).map((m) => m.t));
+    expect(samples(v).at(-1)).toEqual(samples(original).at(-1));
+    // On the line from where the cursor was (the click before) to the move's end.
+    const s = original.steps[2];
+    if (s.kind !== "move") throw new Error("not a move");
+    const off = (m: { x: number; y: number }) =>
+      Math.abs((m.x - s.x) * (s.to_y - s.y) - (m.y - s.y) * (s.to_x - s.x)) / Math.hypot(s.to_x - s.x, s.to_y - s.y);
+    for (const m of samples(v)) expect(off(m)).toBeLessThan(1);
+    expect(v.steps).toEqual(original.steps);
+    // A straight line stays straight: nothing changed, so it isn't an edit to undo.
+    await edit({ op: "smooth_move", index: 2 });
+    expect((await b.undoEdit(A, false)).moves).toEqual(original.moves);
+    expect(core.view(A).can_undo).toBe(false);
   });
 
   test("wrong-kind edits and missing steps are refused with Rust's messages", async () => {
@@ -84,27 +143,31 @@ describe("edits, like edit.rs", () => {
       code: "edit_rejected",
       message: "step 0 can't be edited this way",
     });
-    await expect(edit({ op: "update_pixel_wait", index: 2, x: 1, y: 1, color: "#000000", tolerance: 1, timeout_ms: 500 })).rejects.toMatchObject({
-      message: "step 2 can't be edited this way",
+    await expect(edit({ op: "update_pixel_wait", index: 4, x: 1, y: 1, color: "#000000", tolerance: 1, timeout_ms: 500 })).rejects.toMatchObject({
+      message: "step 4 can't be edited this way",
     });
-    await expect(edit({ op: "set_label", index: 4, label: "x" })).rejects.toMatchObject({ message: "step 4 can't be edited this way" });
+    await expect(edit({ op: "set_label", index: 7, label: "x" })).rejects.toMatchObject({ message: "step 7 can't be edited this way" });
+    await expect(edit({ op: "set_label", index: 0, label: "x" })).rejects.toMatchObject({ message: "step 0 can't be edited this way" });
+    await expect(edit({ op: "set_move_duration", index: 1, dur: 5 })).rejects.toMatchObject({ message: "step 1 can't be edited this way" });
+    await expect(edit({ op: "smooth_move", index: 1 })).rejects.toMatchObject({ message: "step 1 can't be edited this way" });
+    await expect(edit({ op: "straighten_move", index: 4 })).rejects.toMatchObject({ message: "step 4 can't be edited this way" });
     await expect(edit({ op: "delete_step", index: 99 })).rejects.toEqual({ code: "edit_rejected", message: "there is no step 99" });
     expect(core.view(A).can_undo).toBe(false);
   });
 
   test("labels go on clicks, drags, waits and pixel checks", async () => {
-    for (const index of [0, 2, 7]) await edit({ op: "set_label", index, label: `L${index}` });
+    for (const index of [1, 4, 11]) await edit({ op: "set_label", index, label: `L${index}` });
     const labels = core.view(A).steps.map((s) => ("label" in s ? s.label : null));
-    expect([labels[0], labels[2], labels[7]]).toEqual(["L0", "L2", "L7"]);
+    expect([labels[1], labels[4], labels[11]]).toEqual(["L1", "L4", "L11"]);
   });
 
   test("arguments Rust can't deserialize are refused", async () => {
     const bad: [EditOp, string][] = [
       [{ op: "set_pause", index: 1, dur: 1.5 }, "invalid type: floating point `1.5`, expected u32"],
       [{ op: "set_pause", index: 1, dur: -1 }, "invalid value: integer `-1`, expected u32"],
-      [{ op: "update_pixel_wait", index: 7, x: 1.2, y: 0, color: "#000000", tolerance: 1, timeout_ms: 500 }, "expected i32"],
-      [{ op: "update_pixel_wait", index: 7, x: 1, y: 0, color: "#000000", tolerance: 256, timeout_ms: 500 }, "expected u8"],
-      [{ op: "update_pixel_wait", index: 7, x: 1, y: 0, color: "red", tolerance: 1, timeout_ms: 500 }, 'invalid color "red"'],
+      [{ op: "update_pixel_wait", index: 11, x: 1.2, y: 0, color: "#000000", tolerance: 1, timeout_ms: 500 }, "expected i32"],
+      [{ op: "update_pixel_wait", index: 11, x: 1, y: 0, color: "#000000", tolerance: 256, timeout_ms: 500 }, "expected u8"],
+      [{ op: "update_pixel_wait", index: 11, x: 1, y: 0, color: "red", tolerance: 1, timeout_ms: 500 }, 'invalid color "red"'],
     ];
     for (const [op, why] of bad) await expect(edit(op)).rejects.toContain(why);
     expect(core.view(A).can_undo).toBe(false);
@@ -120,7 +183,7 @@ describe("history, like history.rs", () => {
     expect(v.steps).toEqual(original.steps);
     expect(v.playback.speed).toBe(4);
     expect([v.can_undo, v.can_redo]).toEqual([false, true]);
-    expect((await b.undoEdit(A, true)).steps).toHaveLength(11);
+    expect((await b.undoEdit(A, true)).steps).toHaveLength(17);
   });
 
   test("renames less than 2 s apart are one undo step", async () => {
@@ -140,7 +203,7 @@ describe("history, like history.rs", () => {
   test("a new edit drops the redo", async () => {
     await edit({ op: "delete_step", index: 0 });
     await b.undoEdit(A, false);
-    const v = await edit({ op: "set_label", index: 0, label: "x" });
+    const v = await edit({ op: "set_label", index: 1, label: "x" });
     expect(v.can_redo).toBe(false);
   });
 });
@@ -334,7 +397,7 @@ describe("settings and saving", () => {
   test("a change that couldn't be written is kept, and the engine stream says so", async () => {
     core.saveError = "disk full";
     const v = await edit({ op: "delete_step", index: 0 });
-    expect(v.steps).toHaveLength(11);
+    expect(v.steps).toHaveLength(17);
     expect(got).toEqual([{ type: "error", message: "Couldn't save the change: disk full. It's kept until you quit." }]);
   });
 });
@@ -366,5 +429,16 @@ describe("the engine stream", () => {
 
   test("commands that can't fail in Rust can't be made to fail", () => {
     for (const cmd of ["toggle_record", "get_settings", "list_macros", "seek"]) expect(() => core.fail(cmd)).toThrow("can't fail");
+  });
+});
+
+describe("path reshaping, like path.rs", () => {
+  test("smoothing and straightening land on the same pixels as Rust", () => {
+    // Written by relay-core's `export_path_cases` test.
+    for (const c of pathCases as { points: Point[]; smooth: Point[]; straighten: Point[] }[]) {
+      expect(smooth(c.points)).toEqual(c.smooth);
+      expect(straighten(c.points)).toEqual(c.straighten);
+    }
+    expect(pathCases.length).toBeGreaterThan(4);
   });
 });

@@ -1,6 +1,7 @@
 <script lang="ts">
   // Inline editor under the selected step: the pause before it, labels, wait
-  // durations and the pixel check's position, color, tolerance and timeout.
+  // and move durations, smoothing a move, and the pixel check's position,
+  // color, tolerance and timeout.
   // Number fields commit on change and then show what's saved: rounded to
   // what Rust stores (whole ms and pixels), clamped, or put back if refused.
   import { relay } from "../../../lib/state/relay.svelte";
@@ -48,6 +49,12 @@
     if (ms != null) relay.setPause(index, ms);
   }
 
+  function setMoveDuration(e: Event) {
+    if (step.kind !== "move") return;
+    const ms = commitNumber(field(e), step.end - step.t, positiveMs, (ms) => (ms / 1000).toFixed(2));
+    if (ms != null) relay.setMoveDuration(index, ms);
+  }
+
   function setWait(e: Event) {
     if (step.kind !== "wait") return;
     const dur = commitNumber(field(e), step.dur, positiveMs, seconds);
@@ -57,7 +64,7 @@
 
 <div class="editor" role="group" aria-label="Edit step">
   <div class="grid">
-    <label class="pause" title="Idle time before this step, while only the mouse moves">
+    <label class="pause" title="Idle time before this step, when nothing happens">
       Pause before s
       <input class="input" type="number" min="0" step="0.1" value={(step.pause / 1000).toFixed(1)} onchange={setPause} />
     </label>
@@ -90,6 +97,34 @@
       <button class="btn btn-secondary pick" disabled={relay.picking > 0} onclick={() => relay.pickPixel(index)}>
         {relay.picking > 0 ? `Point at it… ${relay.picking}` : "Pick"}
       </button>
+    </div>
+  {:else if step.kind === "move"}
+    <!-- One sample is a jump: no length to set, no path to reshape. -->
+    <div class="grid">
+      <label title="How long the move takes: shorter is faster">
+        Duration s
+        <input
+          class="input"
+          type="number"
+          min="0"
+          step="0.05"
+          value={((step.end - step.t) / 1000).toFixed(2)}
+          disabled={step.samples < 2}
+          onchange={setMoveDuration}
+        />
+      </label>
+      <button
+        class="btn btn-secondary tool"
+        title="Take the wobble out of the path"
+        disabled={step.samples < 2}
+        onclick={() => relay.smoothMove(index)}>Smooth</button
+      >
+      <button
+        class="btn btn-secondary tool"
+        title="Make the path a straight line"
+        disabled={step.samples < 2}
+        onclick={() => relay.straightenMove(index)}>Straighten</button
+      >
     </div>
   {:else if step.kind === "wait"}
     <div class="grid">
@@ -169,7 +204,8 @@
     flex: none;
     border: 1px solid var(--color-text);
   }
-  .pick {
+  .pick,
+  .tool {
     min-height: 26px;
     padding: 2px 8px;
     font-size: 12px;
