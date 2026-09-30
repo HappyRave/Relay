@@ -221,11 +221,12 @@ describe("seeking", () => {
   });
 
   test("previous and next step jump between step starts", async () => {
+    // Moves are steps too: the click at 850, the move to the next one at 1116.
     relay.seek(0);
     relay.jump(1);
     expect(relay.cur).toBe(850);
     relay.jump(1);
-    expect(relay.cur).toBe(1750);
+    expect(relay.cur).toBe(1116);
     relay.jump(-1);
     expect(relay.cur).toBe(850);
     relay.jump(-1);
@@ -237,13 +238,13 @@ describe("seeking", () => {
 
   test("the current step follows the playhead", () => {
     relay.seek(0);
-    expect(relay.curStepIdx).toBe(-1);
+    expect(relay.curStepIdx).toBe(0); // the move to the first click
     relay.seek(850);
-    expect(relay.curStepIdx).toBe(0);
+    expect(relay.curStepIdx).toBe(1);
     relay.seek(2500);
-    expect(relay.curStepIdx).toBe(2);
+    expect(relay.curStepIdx).toBe(4);
     relay.seek(relay.duration);
-    expect(relay.curStepIdx).toBe(11);
+    expect(relay.curStepIdx).toBe(17);
   });
 
   test("the cursor is where the path says, or mid-desktop without one", () => {
@@ -294,7 +295,7 @@ describe("engine messages", () => {
     await settle();
     expect(core.argsOf("load_macro")).toEqual([{ id: C }]);
     expect(relay.name).toBe("Batch rename photos");
-    expect(relay.steps).toHaveLength(8);
+    expect(relay.steps).toHaveLength(11);
   });
 
   test("a save arriving when already idle opens the macro at once", async () => {
@@ -660,22 +661,22 @@ describe("step edits", () => {
   test("an edit that couldn't be written is kept and shown, and the error says so", async () => {
     core.saveError = "disk full";
     await relay.edit({ op: "delete_step", index: 0 });
-    expect(relay.steps).toHaveLength(11);
+    expect(relay.steps).toHaveLength(17);
     expect(relay.canUndo).toBe(true);
     expect(relay.toast).toMatchObject({ kind: "error", message: "Couldn't save the change: disk full. It's kept until you quit." });
   });
 
   test("each edit sends its op for the open macro and shows the result", async () => {
-    await relay.edit({ op: "set_label", index: 0, label: "File" });
-    expect(core.calls).toEqual([{ cmd: "edit_macro", args: { id: A, op: { op: "set_label", index: 0, label: "File" } } }]);
-    expect((relay.steps[0] as { label: string }).label).toBe("File");
+    await relay.edit({ op: "set_label", index: 1, label: "File" });
+    expect(core.calls).toEqual([{ cmd: "edit_macro", args: { id: A, op: { op: "set_label", index: 1, label: "File" } } }]);
+    expect((relay.steps[1] as { label: string }).label).toBe("File");
     expect(relay.canUndo).toBe(true);
   });
 
   test("edits that change the step count refresh the library", async () => {
     await relay.edit({ op: "delete_step", index: 0 });
     expect(core.commands()).toEqual(["edit_macro", "list_macros"]);
-    expect(relay.library[0].step_count).toBe(11);
+    expect(relay.library[0].step_count).toBe(17);
   });
 
   test("a rejected edit is explained and the view is kept", async () => {
@@ -691,7 +692,7 @@ describe("step edits", () => {
     core.clearCalls();
     core.emit(session(mode));
     expect(relay.canEdit).toBe(false);
-    await relay.edit({ op: "set_label", index: 0, label: "x" });
+    await relay.edit({ op: "set_label", index: 1, label: "x" });
     await relay.deleteStep(0);
     await relay.insertWait();
     await relay.insertPixelCheck();
@@ -716,13 +717,13 @@ describe("step edits", () => {
     core.held[0].resolve({ ...core.view(A), steps: [] });
     await editing;
     expect(relay.view?.id).toBe(B);
-    expect(relay.steps).toHaveLength(13);
+    expect(relay.steps).toHaveLength(16);
   });
 
   test("of two quick edits, only the last response is shown", async () => {
     core.hold("edit_macro");
-    const one = relay.edit({ op: "set_label", index: 0, label: "one" });
-    const two = relay.edit({ op: "set_label", index: 0, label: "two" });
+    const one = relay.edit({ op: "set_label", index: 1, label: "one" });
+    const two = relay.edit({ op: "set_label", index: 1, label: "two" });
     await settle();
     const [h1, h2] = core.held;
     h2.resolve({ ...core.view(A), name: "second" });
@@ -762,9 +763,9 @@ describe("step edits", () => {
 
   test("Delete step offers Undo, which undoes it", async () => {
     const original = relay.steps;
-    await relay.deleteStep(2);
+    await relay.deleteStep(4);
     expect(relay.steps.some((s) => s.kind === "wait")).toBe(false);
-    expect(core.argsOf("edit_macro")).toEqual([{ id: A, op: { op: "delete_step", index: 2 } }]);
+    expect(core.argsOf("edit_macro")).toEqual([{ id: A, op: { op: "delete_step", index: 4 } }]);
     expect(relay.toast).toMatchObject({ kind: "info", message: "Deleted the step" });
     core.clearCalls();
     relay.toast!.action!.run();
@@ -788,7 +789,11 @@ describe("step edits", () => {
   });
 
   test("Trim pauses caps pauses at 1 s and offers Undo", async () => {
+    // The samples' pauses are short: the cursor moves between their steps.
+    expect(relay.longPauses).toBe(0);
+    await relay.setPause(4, 2500);
     expect(relay.longPauses).toBe(1);
+    core.clearCalls();
     await relay.trimPauses();
     expect(core.argsOf("edit_macro")).toEqual([{ id: A, op: { op: "cap_pauses", max: 1000 } }]);
     expect(relay.longPauses).toBe(0);
@@ -807,7 +812,7 @@ describe("step edits", () => {
     relay.seek(1500.4);
     await relay.insertWait();
     expect(core.argsOf("edit_macro")).toEqual([{ id: A, op: { op: "insert_wait", at: 1500, dur: 500, label: "Inserted" } }]);
-    expect(relay.steps).toHaveLength(13);
+    expect(relay.steps).toHaveLength(19);
   });
 
   test("+ Pixel check reads the pixel under the macro's cursor", async () => {
@@ -848,7 +853,7 @@ describe("step edits", () => {
     core.held[0].resolve("#ABCDEF");
     await inserting;
     expect(core.argsOf("edit_macro")).toEqual([]);
-    expect(relay.steps).toHaveLength(13);
+    expect(relay.steps).toHaveLength(16);
   });
 });
 
@@ -878,7 +883,7 @@ describe("rename", () => {
   });
 
   test("a pending rename is saved before undo", async () => {
-    await relay.edit({ op: "set_label", index: 0, label: "x" });
+    await relay.edit({ op: "set_label", index: 1, label: "x" });
     core.clearCalls();
     relay.rename("Typed");
     await relay.undo();
@@ -888,7 +893,7 @@ describe("rename", () => {
 
   test("a name still being typed wins over the one in an edit's response", async () => {
     relay.rename("Typing…");
-    await relay.edit({ op: "set_label", index: 0, label: "x" });
+    await relay.edit({ op: "set_label", index: 1, label: "x" });
     expect(relay.name).toBe("Typing…");
   });
 
@@ -952,7 +957,7 @@ describe("rename", () => {
     core.hold("edit_macro");
     relay.rename("Invoice");
     await vi.advanceTimersByTimeAsync(300);
-    const labelling = relay.edit({ op: "set_label", index: 0, label: "Menu" });
+    const labelling = relay.edit({ op: "set_label", index: 1, label: "Menu" });
     relay.rename("Invoice PDF");
     await settle();
     const [rename, label] = core.held;
@@ -993,11 +998,11 @@ describe("undo and redo", () => {
   });
 
   test("undo then redo", async () => {
-    await relay.edit({ op: "delete_step", index: 0 });
+    await relay.edit({ op: "delete_step", index: 1 }); // the first click: the moves either side join
     await relay.undo();
     expect(core.argsOf("undo_edit")).toEqual([{ id: A, redo: false }]);
-    expect(relay.steps).toHaveLength(12);
-    expect(relay.steps[0]).toMatchObject({ kind: "click", t: 850, label: "File menu", items: [54, 55] });
+    expect(relay.steps).toHaveLength(18);
+    expect(relay.steps[1]).toMatchObject({ kind: "click", t: 850, label: "File menu", items: [54, 55] });
     expect(relay.canRedo).toBe(true);
     expect(relay.canUndo).toBe(false);
     await relay.redo();
@@ -1005,7 +1010,7 @@ describe("undo and redo", () => {
       { id: A, redo: false },
       { id: A, redo: true },
     ]);
-    expect(relay.steps).toHaveLength(11);
+    expect(relay.steps).toHaveLength(16);
   });
 
   test("are off during a session", async () => {
@@ -1025,7 +1030,7 @@ describe("undo and redo", () => {
 
 describe("Pick (pixel under the real cursor)", () => {
   beforeEach(() => vi.useFakeTimers());
-  const pixelStep = 7;
+  const pixelStep = 11;
 
   test("counts down 3 s, then points the pixel check there", async () => {
     core.hold("pick_pixel");

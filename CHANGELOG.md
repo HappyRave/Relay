@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **Mouse moves are steps:** the cursor moving between two steps is now a **MOVE** row in the steps list (*Move 134, 70 → 230, 324 px · 0.63 s*), including the moves before the first step and after the last, like the trip to Relay's Stop button, which you can now delete. Open one to set how long it takes (shorter is faster), **Smooth** a shaky path or **Straighten** it; each shows an Undo. The preview draws the open move's path thicker, and the timeline shows real mouse movement in its Mouse lane, with pauses striped across its lanes, however short (it used to hide pauses under 0.15 s).
+- **Pauses are real pauses:** *Pause before* and the pause markers now count only the time when nothing happened. The time spent moving the mouse is the move's. *Trim pauses* shortens those real pauses; to speed up the mouse, shorten its moves.
+- **Pause before a step right after another:** giving a step a pause where it had none (a click as the mouse arrives) no longer makes the cursor stall and jump before it.
+
 ## v1.3.0: A new control bar, screenshots and a resizable editor
 
 - **Control bar:** redesigned so it stays aligned at any size: every control is the same height under a label (Time, Playback, Speed, Repeat) on one baseline, the transport buttons are one strip centered between two rules, and a narrower window folds Speed into one button that cycles, then Repeat into one button that steps through 1, 2, 3, 5, 10 and forever.

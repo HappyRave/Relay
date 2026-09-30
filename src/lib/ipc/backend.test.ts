@@ -184,7 +184,7 @@ describe("browserBackend (npm run dev)", () => {
       "Batch rename photos",
       "Open standup tools",
     ]);
-    expect(list[0]).toMatchObject({ step_count: 12, runs: 148, hotkey: null }); // the samples' hotkeys are off
+    expect(list[0]).toMatchObject({ step_count: 18, runs: 148, hotkey: null }); // the samples' hotkeys are off
     expect(new Date(list[0].last_run!).getTime()).toBeLessThan(Date.now());
   });
 

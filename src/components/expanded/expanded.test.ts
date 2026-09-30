@@ -19,7 +19,7 @@ describe("Header", () => {
   test("shows the macro's name and size", () => {
     render(Header);
     expect(screen.getByRole("textbox", { name: "Macro name" })).toHaveValue("Export invoice to PDF");
-    expect(screen.getByText("12 steps · 301 path samples")).toBeInTheDocument();
+    expect(screen.getByText("18 steps · 301 path samples")).toBeInTheDocument();
   });
 
   test("typing renames the macro, saved after a pause", async () => {
@@ -222,7 +222,7 @@ describe("Transport", () => {
     await userEvent.click(screen.getByRole("button", { name: "Next step" }));
     expect(relay.cur).toBe(850);
     await userEvent.click(screen.getByRole("button", { name: "Next step" }));
-    expect(relay.cur).toBe(1750);
+    expect(relay.cur).toBe(1116); // the move to the next click
     await userEvent.click(screen.getByRole("button", { name: "Previous step" }));
     expect(relay.cur).toBe(850);
     await settle();
@@ -340,7 +340,7 @@ describe("SidePanel", () => {
     const tabs = screen.getAllByRole("tab");
     expect(tabs.map((t) => t.textContent?.trim())).toEqual(["Steps", "Library", "Triggers", "Settings"]);
     expect(screen.getByRole("tab", { name: "Steps" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tabpanel")).toHaveTextContent("12 steps");
+    expect(screen.getByRole("tabpanel")).toHaveTextContent("18 steps");
   });
 
   test.each([

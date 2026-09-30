@@ -74,6 +74,13 @@
   const doneLen = $derived(moveIdx > 0 ? lengths[moveIdx] : 0);
   const showFull = $derived(relay.settings.path_mode === "full" && relay.mode !== "recording");
 
+  /** The open MOVE step's path, from where the cursor was before it, to show what editing it changes. */
+  const openMove = $derived.by(() => {
+    const s = relay.mode === "recording" ? undefined : relay.steps[relay.selected];
+    if (s?.kind !== "move") return "";
+    return pathD([{ t: s.t, x: s.x, y: s.y }, ...relay.moves.filter((m) => m.t >= s.t && m.t <= s.end)]);
+  });
+
   const cm = $derived(relay.cursorAt(cur));
   const jitter = $derived.by(() => {
     const pb = relay.playback;
@@ -216,6 +223,18 @@
           stroke-linejoin="round"
           stroke-linecap="square"
           stroke-dasharray="{doneLen} {total + 1}"
+        />
+      {/if}
+      {#if openMove}
+        <path
+          class="open-move"
+          d={openMove}
+          fill="none"
+          stroke="var(--color-accent-700)"
+          stroke-width={9 * k}
+          stroke-linejoin="round"
+          stroke-linecap="round"
+          opacity="0.6"
         />
       {/if}
       {#if ring}

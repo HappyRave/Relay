@@ -9,6 +9,7 @@ pub mod edit;
 pub mod format;
 pub mod keys;
 pub mod model;
+pub mod path;
 pub mod playback;
 pub mod schedule;
 pub mod session;

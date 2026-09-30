@@ -10,6 +10,7 @@ use ts_rs::TS;
 
 use crate::keys::KeyStroke;
 use crate::model::{Event, Macro, MouseBtn, Ms, Rgb};
+use crate::path;
 use crate::steps::{Step, StepKind, group_steps};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -62,6 +63,20 @@ pub enum EditOp {
     /// Shortens every pause longer than `max` to `max`.
     CapPauses {
         max: Ms,
+    },
+    /// Sets how long a MOVE step takes, from its first sample to its last:
+    /// the samples are retimed to fit, and everything after moves with it.
+    SetMoveDuration {
+        index: u32,
+        dur: Ms,
+    },
+    /// Takes the wobble out of a MOVE step's path ([`path::smooth`]).
+    SmoothMove {
+        index: u32,
+    },
+    /// Makes a MOVE step's path a straight line ([`path::straighten`]).
+    StraightenMove {
+        index: u32,
     },
 }
 
@@ -164,13 +179,38 @@ pub fn apply(m: &mut Macro, op: EditOp) -> Result<(), EditError> {
 
         EditOp::SetPause { index, dur } => {
             let step = get(index)?;
-            retime_pauses(&mut m.events, &[(step.t - step.pause, step.t, dur.min(MAX_DUR))]);
+            if step.pause > 0 {
+                retime(&mut m.events, &[(step.t - step.pause, step.t, dur.min(MAX_DUR))]);
+            } else {
+                // No gap to stretch: the step and what follows it in the list
+                // move, not what ends at that same moment (a move's last sample).
+                let first = step.items[0] as usize;
+                for e in &mut m.events[first..] {
+                    let t = e.t_mut();
+                    *t = t.saturating_add(dur.min(MAX_DUR));
+                }
+            }
         }
 
         EditOp::CapPauses { max } => {
             let long: Vec<_> = steps.iter().filter(|s| s.pause > max).map(|s| (s.t - s.pause, s.t, max)).collect();
-            retime_pauses(&mut m.events, &long);
+            retime(&mut m.events, &long);
         }
+
+        EditOp::SetMoveDuration { index, dur } => {
+            let step = get(index)?;
+            let StepKind::Move { .. } = step.kind else {
+                return Err(EditError::WrongKind(index));
+            };
+            // A single sample is a jump: it has no length to set.
+            if step.end > step.t {
+                retime(&mut m.events, &[(step.t, step.end, dur.min(MAX_DUR))]);
+            }
+        }
+
+        EditOp::SmoothMove { index } => reshape(m, get(index)?, index, path::smooth)?,
+
+        EditOp::StraightenMove { index } => reshape(m, get(index)?, index, path::straighten)?,
     }
     if saturated {
         normalize(&mut m.events);
@@ -183,11 +223,29 @@ pub fn apply(m: &mut Macro, op: EditOp) -> Result<(), EditError> {
 /// from overflowing.
 pub const MAX_DUR: Ms = 24 * 60 * 60 * 1000;
 
-/// Gives each pause `from..to` (sorted, not overlapping) a new length `dur`,
-/// in one pass: events inside a pause (cursor moves, a shared modifier's
-/// release) are scaled to fit, events after it shift by the difference.
+/// Moves a MOVE step's samples onto the path `f` makes of it. The path
+/// starts where the cursor was before the move, which stays put, as does the
+/// last sample; the samples keep their times.
+fn reshape(m: &mut Macro, step: &Step, index: u32, f: fn(&[path::Point]) -> Vec<path::Point>) -> Result<(), EditError> {
+    let StepKind::Move { x, y, .. } = step.kind else {
+        return Err(EditError::WrongKind(index));
+    };
+    let mut points = vec![(x, y)];
+    points.extend(step.items.iter().filter_map(|&i| m.events[i as usize].pos()));
+    for (&i, &(nx, ny)) in step.items.iter().zip(&f(&points)[1..]) {
+        if let Event::Move { x, y, .. } = &mut m.events[i as usize] {
+            (*x, *y) = (nx, ny);
+        }
+    }
+    Ok(())
+}
+
+/// Gives each span `from..to` (sorted, not overlapping: pauses, or a move
+/// from its first sample to its last) a new length `dur`, in one pass: events
+/// inside a span (cursor moves, a shared modifier's release) are scaled to
+/// fit, events after it shift by the difference. An event at `from` stays.
 /// Monotone, so the events stay in order.
-fn retime_pauses(events: &mut [Event], pauses: &[(Ms, Ms, Ms)]) {
+fn retime(events: &mut [Event], pauses: &[(Ms, Ms, Ms)]) {
     let mut shift: i64 = 0; // what the pauses already passed added or removed
     let mut k = 0;
     for e in events.iter_mut() {
@@ -475,22 +533,98 @@ mod tests {
     }
 
     #[test]
-    fn set_pause_retimes_the_path_and_moves_what_follows() {
+    fn pauses_are_idle_time_and_set_pause_moves_what_follows() {
         let mv = |t| Event::Move { t, x: t as i32, y: 0 };
-        let mut m = mac([click(0).to_vec(), vec![mv(500), mv(1500)], click(2080).to_vec()].concat());
-        // The second click comes after a 2000 ms pause (80..2080).
+        let mut m = mac([click(0).to_vec(), vec![mv(500), mv(1000), mv(1500)], click(2080).to_vec()].concat());
         let steps = group_steps(&m.events, (&m.recording).into());
-        assert_eq!((steps[0].pause, steps[1].pause), (0, 2000));
-        // (Not under the double-click time: the two clicks would merge.)
-        apply(&mut m, EditOp::SetPause { index: 1, dur: 600 }).unwrap();
-        let ts: Vec<_> = m.events.iter().map(Event::t).collect();
-        assert_eq!(ts, [0, 80, 206, 506, 680, 760]);
-        // The path keeps its shape: the moves keep their positions.
-        assert!(matches!(m.events[3], Event::Move { x: 1500, .. }));
+        assert!(matches!(steps[1].kind, StepKind::Move { x: 5, y: 5, to_x: 1500, to_y: 0, samples: 3 }));
+        // Idle before the move (80..500) and after it (1500..2080); moving isn't a pause.
+        assert_eq!(steps.iter().map(|s| s.pause).collect::<Vec<_>>(), [0, 420, 580]);
+        apply(&mut m, EditOp::SetPause { index: 2, dur: 100 }).unwrap();
+        assert_eq!(m.events.iter().map(Event::t).collect::<Vec<_>>(), [0, 80, 500, 1000, 1500, 1600, 1680]);
+        apply(&mut m, EditOp::SetPause { index: 1, dur: 0 }).unwrap();
+        assert_eq!(m.events.iter().map(Event::t).collect::<Vec<_>>(), [0, 80, 80, 580, 1080, 1180, 1260]);
         check_invariants(&m.events).unwrap();
-        // And back.
-        apply(&mut m, EditOp::SetPause { index: 1, dur: 2000 }).unwrap();
-        assert_eq!(m.events.last().unwrap().t(), 2160);
+    }
+
+    #[test]
+    fn a_pause_added_where_there_was_none_leaves_the_move_before_alone() {
+        // The last sample and the click at the same moment, as recordings have.
+        let mv = |t| Event::Move { t, x: 5, y: t as i32 };
+        let mut m = mac([vec![mv(0), mv(400)], click(400).to_vec()].concat());
+        assert_eq!(steps(&m)[1].pause, 0);
+        apply(&mut m, EditOp::SetPause { index: 1, dur: 300 }).unwrap();
+        assert_eq!(m.events.iter().map(Event::t).collect::<Vec<_>>(), [0, 400, 700, 780]);
+        assert_eq!(steps(&m)[1].pause, 300);
+        check_invariants(&m.events).unwrap();
+    }
+
+    #[test]
+    fn set_move_duration_retimes_the_samples_and_moves_what_follows() {
+        let mv = |t| Event::Move { t, x: t as i32, y: 0 };
+        let mut m = mac([click(0).to_vec(), vec![mv(500), mv(1000), mv(1500)], click(2080).to_vec()].concat());
+        apply(&mut m, EditOp::SetMoveDuration { index: 1, dur: 500 }).unwrap();
+        assert_eq!(m.events.iter().map(Event::t).collect::<Vec<_>>(), [0, 80, 500, 750, 1000, 1580, 1660]);
+        // The path keeps its shape.
+        assert!(matches!(m.events[3], Event::Move { x: 1000, .. }));
+        apply(&mut m, EditOp::SetMoveDuration { index: 1, dur: 2000 }).unwrap();
+        assert_eq!(m.events.iter().map(Event::t).collect::<Vec<_>>(), [0, 80, 500, 1500, 2500, 3080, 3160]);
+        apply(&mut m, EditOp::SetMoveDuration { index: 1, dur: 0 }).unwrap();
+        assert_eq!(m.events.iter().map(Event::t).collect::<Vec<_>>(), [0, 80, 500, 500, 500, 1080, 1160]);
+        check_invariants(&m.events).unwrap();
+        assert_eq!(steps(&m).len(), 3, "still one move");
+        assert_eq!(apply(&mut m, EditOp::SetMoveDuration { index: 0, dur: 5 }), Err(EditError::WrongKind(0)));
+        assert_eq!(apply(&mut m, EditOp::SetMoveDuration { index: 3, dur: 5 }), Err(EditError::NoSuchStep(3)));
+        // A single sample is a jump: nothing to retime.
+        let mut jump = mac([click(0).to_vec(), vec![mv(500)], click(1000).to_vec()].concat());
+        let before = jump.events.clone();
+        apply(&mut jump, EditOp::SetMoveDuration { index: 1, dur: 300 }).unwrap();
+        assert_eq!(jump.events, before);
+    }
+
+    #[test]
+    fn deleting_the_last_move_shortens_the_macro() {
+        // The trip to Relay's Stop button, after the last click.
+        let mv = |t, x| Event::Move { t, x, y: 0 };
+        let mut m = mac([click(0).to_vec(), vec![mv(500, 100), mv(900, 400), mv(1300, 900)]].concat());
+        assert_eq!(crate::timeline::duration(&m.events), 1300 + crate::timeline::TAIL_MS);
+        let s = steps(&m);
+        assert!(matches!(s[1].kind, StepKind::Move { to_x: 900, samples: 3, .. }));
+        apply(&mut m, EditOp::DeleteStep { index: 1 }).unwrap();
+        assert_eq!(m.events.len(), 2);
+        assert_eq!(crate::timeline::duration(&m.events), 80 + crate::timeline::TAIL_MS);
+    }
+
+    #[test]
+    fn smoothing_and_straightening_move_the_samples_in_between() {
+        // From the click at (5, 5) to (205, 5), zigzagging 4 px either side.
+        let zigzag = |i: u32| {
+            let y = if i == 20 {
+                5
+            } else if i.is_multiple_of(2) {
+                9
+            } else {
+                1
+            };
+            Event::Move { t: 100 + i * 16, x: 5 + i as i32 * 10, y }
+        };
+        let fresh = || mac([click(0).to_vec(), (1..=20).map(zigzag).collect(), click(1000).to_vec()].concat());
+        let ys = |m: &Macro| m.events[2..22].iter().map(|e| e.pos().unwrap().1).collect::<Vec<_>>();
+
+        let mut m = fresh();
+        let before = m.events.clone();
+        apply(&mut m, EditOp::StraightenMove { index: 1 }).unwrap();
+        assert_eq!(ys(&m), [5; 20]);
+        assert!(m.events.iter().zip(&before).all(|(a, b)| a.t() == b.t()), "the times stay");
+        assert_eq!(m.events[21], before[21], "the end stays");
+
+        let mut m = fresh();
+        apply(&mut m, EditOp::SmoothMove { index: 1 }).unwrap();
+        assert!(ys(&m).iter().all(|y| (4..=6).contains(y)), "the zigzag is gone: {:?}", ys(&m));
+        assert_eq!(m.events[21], before[21], "the end stays");
+
+        assert_eq!(apply(&mut m, EditOp::SmoothMove { index: 0 }), Err(EditError::WrongKind(0)));
+        assert_eq!(apply(&mut m, EditOp::StraightenMove { index: 2 }), Err(EditError::WrongKind(2)));
     }
 
     #[test]
@@ -653,12 +787,12 @@ mod tests {
     #[test]
     fn the_first_steps_pause_counts_from_the_start() {
         let mv = |t| Event::Move { t, x: t as i32, y: 0 };
-        let mut m = mac([vec![mv(0), mv(500)], click(1000).to_vec()].concat());
-        assert_eq!(steps(&m)[0].pause, 1000);
-        apply(&mut m, EditOp::SetPause { index: 0, dur: 200 }).unwrap();
-        assert_eq!(m.events.iter().map(Event::t).collect::<Vec<_>>(), [0, 100, 200, 280]);
+        let mut m = mac([vec![mv(300), mv(500)], click(1000).to_vec()].concat());
+        assert_eq!(steps(&m)[0].pause, 300);
+        apply(&mut m, EditOp::SetPause { index: 0, dur: 100 }).unwrap();
+        assert_eq!(m.events.iter().map(Event::t).collect::<Vec<_>>(), [100, 300, 800, 880]);
         apply(&mut m, EditOp::SetPause { index: 0, dur: 0 }).unwrap();
-        assert_eq!(m.events.iter().map(Event::t).collect::<Vec<_>>(), [0, 0, 0, 80]);
+        assert_eq!(m.events.iter().map(Event::t).collect::<Vec<_>>(), [0, 200, 700, 780]);
         check_invariants(&m.events).unwrap();
         // A pause of 0 between two steps.
         let mut m = mac([click(0), click(3000)].concat());

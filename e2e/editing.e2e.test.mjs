@@ -130,10 +130,12 @@ describe("editing", () => {
 
   test("the step editor: a click's label", async () => {
     const before = disk();
-    await openStep(0);
+    const i = (await steps()).findIndex((s) => s.kind === "click"); // after the move to it
+    assert.ok(i > 0);
+    await openStep(i);
     await editField("Label", "The File menu");
     const after = await saved(before);
-    const first = (await steps())[0];
+    const first = (await steps())[i];
     assert.equal(first.label, "The File menu");
     assert.ok(after.events.some((e) => e.type === "button" && e.down && e.label === "The File menu"));
   });
@@ -282,6 +284,99 @@ describe("editing", () => {
     assert.equal((await steps())[i - 1].label, all[i].label, "which moved up one row");
   });
 
+  describe("moves", () => {
+    // A click at 100, 100, a zigzag with a bump in it to a click at 300, 100,
+    // then the cursor leaving for Relay's Stop button. Only edited, never played.
+    const zigzag = Array.from({ length: 20 }, (_, i) => ({
+      type: "move",
+      t: 100 + i * 16,
+      x: 110 + i * 10,
+      y: 100 + (i % 2 ? -3 : 3) + (i >= 8 && i <= 12 ? 40 : 0),
+    }));
+    const doc = {
+      ...waitingMacro({ name: "Moves" }),
+      events: [
+        { type: "button", t: 0, x: 100, y: 100, btn: "Left", down: true },
+        { type: "button", t: 60, x: 100, y: 100, btn: "Left", down: false },
+        ...zigzag,
+        { type: "move", t: 420, x: 300, y: 100 },
+        { type: "button", t: 500, x: 300, y: 100, btn: "Left", down: true },
+        { type: "button", t: 560, x: 300, y: 100, btn: "Left", down: false },
+        { type: "move", t: 800, x: 500, y: 300 },
+        { type: "move", t: 1000, x: 700, y: 400 },
+        { type: "move", t: 1200, x: 900, y: 500 },
+      ],
+    };
+    let moves;
+    const file = () => app.macro(moves);
+    const saves = async (before, what) => {
+      await until(() => JSON.stringify(file()) !== JSON.stringify(before), { what });
+      await until(async () => (await page.store("view.modified_at")) === file().modified_at, { what: `${what} in the UI` });
+      return file();
+    };
+    const path = (m) => m.events.filter((e) => e.type === "move" && e.t > 60 && e.t < 500);
+
+    before(async () => {
+      const [p] = writeRly(app.path("import"), [doc]);
+      [moves] = (await page.invoke("import_macros", { paths: [p] })).imported;
+    });
+    after(() => page.open(id));
+
+    test("are steps: between the clicks, and after the last one", async () => {
+      await page.open(moves);
+      assert.deepEqual((await steps()).map((s) => s.kind), ["click", "move", "click", "move"]);
+      assert.deepEqual(
+        (await steps()).filter((s) => s.kind === "move").map((s) => [s.x, s.y, s.to_x, s.to_y, s.samples]),
+        [
+          [100, 100, 300, 100, 21],
+          [300, 100, 900, 500, 3],
+        ],
+      );
+      assert.equal(await page.store("view.duration"), 1200 + 500);
+    });
+
+    test("deleting the trip to the Stop button shortens the macro", async () => {
+      await page.open(moves);
+      const before = file();
+      await page.click("Delete step", { nth: 3 });
+      const after = await saves(before, "the delete");
+      assert.equal(after.events.at(-1).t, 560);
+      assert.equal(after.events.length, before.events.length - 3);
+      assert.equal(await page.store("view.duration"), 560 + 500);
+    });
+
+    test("Smooth takes the zigzag out, Straighten makes it a line; the times stay", async () => {
+      await page.open(moves);
+      await openStep(1);
+      const before = file();
+      await page.click("Smooth");
+      const smoothed = await saves(before, "the smoothing");
+      const ys = (m) => path(m).map((e) => e.y);
+      const turns = (y) => y.slice(2).filter((c, i) => (y[i + 1] - y[i]) * (c - y[i + 1]) < 0).length;
+      assert.ok(turns(ys(before)) > 15 && turns(ys(smoothed)) < 5 && Math.max(...ys(smoothed)) > 120, `no zigzag, the bump kept: ${ys(smoothed)}`);
+      assert.deepEqual(path(smoothed).map((e) => e.t), path(before).map((e) => e.t));
+      assert.deepEqual(path(smoothed).at(-1), path(before).at(-1), "it still ends on the click");
+      assert.equal(await page.store("toast.message"), "Smoothed the move");
+      await page.click("Straighten");
+      const straight = await saves(smoothed, "the straightening");
+      assert.deepEqual(ys(straight), Array(21).fill(100));
+      await page.click("Undo", { within: ".toast" });
+      await saves(straight, "the undo");
+      assert.deepEqual(ys(file()), ys(smoothed));
+    });
+
+    test("a move's duration: shorter is faster, and what follows comes sooner", async () => {
+      await page.open(moves);
+      await openStep(1);
+      const before = file();
+      await editField("Duration", "0.16");
+      const after = await saves(before, "the duration");
+      const ts = path(after).map((e) => e.t);
+      assert.deepEqual([ts[0], ts.at(-1)], [100, 260]);
+      assert.equal(after.events.find((e) => e.type === "button" && e.down && e.t > 60).t, 340);
+    });
+  });
+
   test("nothing can be edited while a macro plays", async () => {
     const [path] = writeRly(app.path("import"), [waitingMacro({ name: "Waits", waits: [3000, 3000] })]);
     const [waits] = (await page.invoke("import_macros", { paths: [path] })).imported;
@@ -303,7 +398,7 @@ describe("editing", () => {
 
   test("the undo history is per macro, and doesn't outlive the app", async () => {
     assert.equal(await page.store("canUndo"), true);
-    const other = await page.run((id) => window.__relay.library.find((m) => m.id !== id && m.name !== "Waits").id, id);
+    const other = await page.run((id) => window.__relay.library.find((m) => m.id !== id && m.name !== "Waits" && m.name !== "Moves").id, id);
     await page.open(other);
     assert.equal(await page.store("canUndo"), false, "another macro has its own (empty) history");
     await page.open(id);

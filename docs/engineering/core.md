@@ -7,6 +7,7 @@
 - [Keys](#keys)
 - [Step grouping](#step-grouping)
 - [Edits and invariants](#edits-and-invariants)
+- [Reshaping a move](#reshaping-a-move)
 - [The file format](#the-file-format)
 - [Playback timing](#playback-timing)
 - [The session state machine](#the-session-state-machine)
@@ -22,6 +23,7 @@
 | [`keys`](../../crates/relay-core/src/keys.rs) | `KeyStroke`, modifiers, key labels, `code_for_label`, `key_for_char` |
 | [`steps`](../../crates/relay-core/src/steps.rs) | `group_steps`: raw events → `Step`s |
 | [`edit`](../../crates/relay-core/src/edit.rs) | `EditOp`, `apply`, `normalize`, `check_invariants` |
+| [`path`](../../crates/relay-core/src/path.rs) | `smooth`, `straighten`, `simplify`: reshaping a MOVE step's path |
 | [`format`](../../crates/relay-core/src/format.rs) | `.rly` serialization, the JSON export, loading and migrations |
 | [`playback`](../../crates/relay-core/src/playback.rs) | `PlayClock`, `plan_times` (humanize) |
 | [`session`](../../crates/relay-core/src/session.rs) | `Mode`, `Input`, `Effect`, `step` |
@@ -88,16 +90,17 @@ pub struct KeyStroke { pub code: String, pub vk: u16, pub scan: u16, pub ext: bo
 | `Type { text, chars }` | A key down that produced a printable character, **without** Ctrl, Alt or Win held (AltGr, which is Right Alt together with Left Ctrl, counts as typing, not as Ctrl + Alt; Right Alt alone is Alt), joins the previous `Type` step if its last character was less than **`TYPE_GAP_MS` = 500** earlier |
 | `Keys { combo }` | Any other key down: the held modifiers (always in the order Ctrl, Alt, Shift, Win), then the key's label, e.g. `["Ctrl", "Shift", "S"]` |
 | `Wait`, `PixelWait` | One step per event |
+| `Move { x, y, to_x, to_y, samples }` | A run of cursor moves that no press owns, between two other events (any other event ends it; a still cursor doesn't). `x, y` is where the cursor was before (the last move, press or wheel event), or the first sample for a macro that starts with one. Added by a pass after the others. |
 
 Details that matter:
 
-- **Moves belong to no step.** They're the path between steps.
+- **Every move belongs to a step.** A move while a button is down belongs to that click or drag (so deleting a drag deletes its path). Moves between the presses of a double click belong to it. Every other run is a `Move` step. Those are added **after** the rest of the grouping, so they never come between a click and the one it merges with, and never count as a step a modifier wraps: Ctrl held across a move and a click is still a Ctrl-click.
 - **Auto-repeat** of a held key extends its step instead of creating new ones (and adds characters to a `Type` step).
 - **Modifier presses** are tracked separately. A modifier's down and up events are attached to the step it wrapped (a shortcut, a Shift-click, a Ctrl-scroll) if it wrapped exactly one, and that step's `t`..`end` widens to cover them, so inserting or retiming around a shortcut never separates it from its modifier. A modifier tapped alone (like the Win key) becomes its own `Keys` step. A modifier held across several steps belongs to none. When two clicks merge into a double click, modifiers that wrapped the second follow the merge.
 - **Releases** join the step of their press, and extend its `end`.
-- **`pause`** is computed last: the time between the latest `end` of all earlier steps (or 0) and this step's `t`, or 0 when they overlap. It's the recorded idle time, when only the cursor moves.
+- **`pause`** is computed last: the time between the latest `end` of all earlier steps (or 0) and this step's `t`, or 0 when they overlap. Moves are steps, so it's the recorded idle time, when nothing happens.
 
-Every non-move event belongs to **at most one** step. That's what makes "delete this step" well-defined: delete its `items`.
+Every event belongs to **at most one** step (and every move to exactly one). That's what makes "delete this step" well-defined: delete its `items`.
 
 ## Edits and invariants
 
@@ -112,8 +115,10 @@ The UI edits macros only through `EditOp`, applied by `edit::apply(&mut Macro, o
 | `SetWaitDuration { index, dur }` | Shifts everything after the wait by the difference |
 | `UpdatePixelWait { index, x, y, color, tolerance, timeout_ms }` | Replaces the check's parameters. Its time and duration don't change. |
 | `SetLabel { index, label }` | On a click or drag (stored on the button-down event), a wait or a pixel check |
-| `SetPause { index, dur }` | Retimes the pause before the step, from `t − pause` to `t`: events inside it (cursor moves, a shared modifier's release) are scaled linearly to fit the new length, events at or after `t` shift by the difference. The mapping is monotone, so order and balance are kept. |
-| `CapPauses { max }` | `SetPause` to `max` for every pause above it, from last to first so the precomputed pauses stay valid |
+| `SetPause { index, dur }` | Retimes the pause before the step, from `t − pause` to `t`: events inside it (a shared modifier's release) are scaled linearly to fit the new length, events at or after `t` shift by the difference. The mapping is monotone, so order and balance are kept. With no pause (0), the step and everything after it **in the list** shift by `dur`, not the events before it at the same time: a click often comes the same millisecond as the last sample of the move to it. |
+| `CapPauses { max }` | Retimes every pause above `max` to `max`, in the same single monotone pass |
+| `SetMoveDuration { index, dur }` | On a `Move`: retimes it from its first sample (which stays) to its last, the same way, so the samples are scaled into `t..t + dur` and everything after shifts by the difference. A single sample has no length: nothing changes. |
+| `SmoothMove { index }`, `StraightenMove { index }` | On a `Move`: moves its samples onto a reshaped path (see [Reshaping a move](#reshaping-a-move)). Times don't change. |
 
 Steps are addressed by index into `group_steps` of the current events. The UI always re-renders from the `MacroView` an edit returns, so indices can't go stale.
 
@@ -134,6 +139,16 @@ Times are `u32` milliseconds, and the arithmetic saturates rather than overflowi
 - events are sorted by time,
 - `normalize` is a no-op (presses are balanced),
 - no event listed after a wait or pixel check comes before its end.
+
+## Reshaping a move
+
+Playback replays every recorded sample at its time and doesn't interpolate, so dropping samples would make the cursor jump. [`path`](../../crates/relay-core/src/path.rs) keeps them all and only changes where they are:
+
+1. The path is the cursor's position before the move, then every sample. Its first and last points never change.
+2. **Straighten** targets the line from the first point to the last. **Smooth** simplifies the path with Ramer–Douglas–Peucker (tolerance `SMOOTH_TOLERANCE_PX` = 8), which drops the wobble and keeps the corners, then rounds the corners with one pass of Chaikin's corner cutting. Each press smooths further, and a straight path stays straight.
+3. **Resampling** puts each sample on the target at the same share of the length it had along the original path. The hand's speed curve (speeding up, then slowing onto the target) survives, and the samples stay in order.
+
+Distances use `sqrt` rather than `hypot`, since `sqrt` is exactly rounded everywhere: the UI tests' copy (`src/test/fake-path.ts`) must land on the same pixels, and `path.rs` writes `src/test/path-cases.json` for them to check.
 
 ## The file format
 
@@ -176,7 +191,7 @@ Loops are the engine's job (see [The app → The playback engine](app.md#the-pla
 `plan_times(events, steps, jitter_ms, seed) → Vec<f64>` gives each event its play time:
 
 1. For each step, draw one offset uniformly in **±jitter** from a seeded RNG ([`fastrand`](https://crates.io/crates/fastrand)). All of a step's events get the same offset, so a click's press and release (or a combo's modifiers and key) move together.
-2. Events outside steps (the cursor path) take the offset of the step before them, so the path stays attached to its clicks.
+2. `Move` steps don't draw an offset: their samples take the offset of the step before them, so the path stays attached to its clicks (and an unedited macro plays exactly as before moves were steps).
 3. Offsets are clamped **per step**: a step never starts before 0 or before the previous step's (moved) end, and steps that overlap or touch share one offset. Every gap inside a step (a click's press to release, a combo's keys) stays exactly as recorded, and steps can never swap. The cursor path stays between its neighbours.
 
 The engine calls it again with a different seed at each loop, so every loop has its own pattern.

@@ -223,13 +223,28 @@ describe("Preview", () => {
 
   test("the bar names the step under the playhead, as the steps list does", async () => {
     const { container } = render(Preview);
-    expect(container.querySelector(".info")).toHaveTextContent(/^$/);
+    // The cursor moves to the first click from the start.
+    expect(container.querySelector(".info")).toHaveTextContent("Step 1 · Move");
     await at(900);
-    expect(container.querySelector(".info")).toHaveTextContent("Step 1 · Click · File menu");
+    expect(container.querySelector(".info")).toHaveTextContent("Step 2 · Click · File menu");
     await at(3600);
-    expect(container.querySelector(".info")).toHaveTextContent("Step 4 · Double click · Filename field");
+    expect(container.querySelector(".info")).toHaveTextContent("Step 7 · Double click · Filename field");
     await at(3760);
-    expect(container.querySelector(".info")).toHaveTextContent("Step 5 · Ctrl + A");
+    expect(container.querySelector(".info")).toHaveTextContent("Step 8 · Ctrl + A");
+  });
+
+  test("the open move's path is highlighted, from where the cursor was before it", async () => {
+    const { container } = render(Preview);
+    expect(container.querySelector(".open-move")).toBeNull();
+    relay.selectStep(2); // 134, 70 (the first click) → 230, 324
+    await settle();
+    const d = container.querySelector(".open-move")!.getAttribute("d")!;
+    expect(d.startsWith("M134 70 L")).toBe(true);
+    expect(d.endsWith(" L230 324")).toBe(true);
+    expect(d.split(" L")).toHaveLength(1 + 41 + 1); // the start, its samples, and the click at its end
+    relay.selectStep(1); // a click
+    await settle();
+    expect(container.querySelector(".open-move")).toBeNull();
   });
 
   test("numbered markers for each click, with their labels", () => {
@@ -350,9 +365,37 @@ describe("Timeline", () => {
     expect(ticks).toEqual(["0s", "1s", "2s", "3s", "4s", "5s", "6s", "7s", "8s", "9s", "10s"]);
   });
 
+  test("pauses are striped across the lanes, however short", async () => {
+    const { container } = render(Timeline);
+    const spans = () => [...container.querySelectorAll<HTMLElement>(".pause")];
+    // The invoice sample's pauses: 206, 190, 16, 70, 220, 261, 190, 336, 206 and 210 ms.
+    expect(spans()).toHaveLength(10);
+    expect([spans()[0].style.left, spans()[0].style.width]).toEqual([`${(910 / 10150) * 100}%`, `${(1116 / 10150) * 100 - (910 / 10150) * 100}%`]);
+    await relay.setPause(1, 100); // the first click, which had none
+    await settle();
+    expect(spans()).toHaveLength(11);
+    await relay.setPause(1, 0);
+    await settle();
+    expect(spans()).toHaveLength(10);
+  });
+
+  test("while recording, the mouse lane follows the live path", async () => {
+    const { container } = render(Timeline);
+    core.emit({ type: "session", mode: "recording", macro_id: null });
+    const desktop = { x: 0, y: 0, w: 1920, h: 1080 };
+    const moves = [0, 16, 32, 600, 616].map((t) => ({ t, x: t, y: 0 }));
+    core.emit({ type: "rec_progress", elapsed_ms: 700, desktop, moves, steps: [] });
+    await settle();
+    expect(container.querySelectorAll(".move")).toHaveLength(2);
+    expect(container.querySelectorAll(".pause")).toHaveLength(0);
+  });
+
   test("lanes for mouse moves, clicks, keys and logic", () => {
     const { container } = render(Timeline);
-    expect(container.querySelectorAll(".move").length).toBeGreaterThan(0);
+    // A bar for each of the six moves, the first to the first click at 850 ms (of 10 150).
+    const bars = [...container.querySelectorAll<HTMLElement>(".move")];
+    expect(bars).toHaveLength(6);
+    expect([bars[0].style.left, bars[0].style.width]).toEqual(["0%", `${(850 / 10150) * 100}%`]);
     expect(container.querySelectorAll(".click")).toHaveLength(6);
     expect([...container.querySelectorAll(".chip")].map((c) => c.getAttribute("title"))).toEqual([
       "Ctrl + A",

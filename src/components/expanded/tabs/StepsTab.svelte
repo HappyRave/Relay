@@ -15,6 +15,7 @@
     type: "TYPE",
     wait: "WAIT",
     pixel_wait: "IF",
+    move: "MOVE",
   };
 
   const steps = $derived(relay.steps);
@@ -54,6 +55,10 @@
         return [stepTitle(s), (s.label ? s.label + " · " : "") + `timeout ${s.timeout_ms / 1000} s, else stop`];
       case "wait":
         return [stepTitle(s), s.label];
+      case "move": {
+        const path = inWindow ? `${at(s.x, s.y)} → ${at(s.to_x, s.to_y)}${unit}` : `${s.x}, ${s.y} → ${where(s.to_x, s.to_y)}`;
+        return [stepTitle(s), `${path} · ${((s.end - s.t) / 1000).toFixed(2)} s`];
+      }
     }
   }
 

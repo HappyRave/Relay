@@ -337,7 +337,7 @@ export class FakeCore {
         if (this.mode !== "idle") throw BUSY;
         const before = History.before(e.view, op);
         applyEdit(e.view, op);
-        e.history.record(before, op);
+        e.history.record(before, op, e.view);
         this.saved();
         return this.withHistory(e);
       }
@@ -738,6 +738,9 @@ const EDIT_OPS: Record<string, Spec> = {
   set_label: { index: "u32", label: "string" },
   set_pause: { index: "u32", dur: "u32" },
   cap_pauses: { max: "u32" },
+  set_move_duration: { index: "u32", dur: "u32" },
+  smooth_move: { index: "u32" },
+  straighten_move: { index: "u32" },
 };
 
 const PLAYBACK: Spec = {

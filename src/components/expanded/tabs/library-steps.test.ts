@@ -24,7 +24,7 @@ describe("Library tab", () => {
     const items = rows();
     expect(items).toHaveLength(4);
     expect(items[0]).toHaveTextContent("Export invoice to PDF");
-    expect(items[0]).toHaveTextContent("10.2 s · 12 steps · 148 runs");
+    expect(items[0]).toHaveTextContent("10.2 s · 18 steps · 148 runs");
     expect(items[0]).toHaveTextContent("Ctrl + Alt + 1");
     expect(items[1]).toHaveTextContent("—"); // the samples' hotkeys are off
     expect(items[0]).toHaveClass("active");
@@ -145,15 +145,17 @@ describe("Steps tab", () => {
   test("describes each step", () => {
     render(StepsTab);
     const r = stepRows();
-    expect(r).toHaveLength(12);
-    expect(screen.getByText("12 steps")).toBeInTheDocument();
-    expect(r[0]).toHaveTextContent("00:00.85 CLICK Click · File menu 134, 70 px");
-    expect(r[2]).toHaveTextContent("WAIT Wait 0.7 s Dialog opens");
-    expect(r[4]).toHaveTextContent("KEYS");
-    expect(r[4]).toHaveTextContent("Key combination");
-    expect(r[5]).toHaveTextContent("TYPE");
-    expect(r[5]).toHaveTextContent("characters");
-    expect(r[7]).toHaveTextContent("IF Wait for pixel 1248, 680 = #9B9797 Save button turns grey · timeout 5 s, else stop");
+    expect(r).toHaveLength(18);
+    expect(screen.getByText("18 steps")).toBeInTheDocument();
+    expect(r[0]).toHaveTextContent("00:00.00 MOVE Move 960, 670 → 134, 70 px · 0.85 s");
+    expect(r[1]).toHaveTextContent("00:00.85 CLICK Click · File menu 134, 70 px");
+    expect(r[2]).toHaveTextContent("00:01.12 MOVE Move 134, 70 → 230, 324 px · 0.63 s");
+    expect(r[4]).toHaveTextContent("WAIT Wait 0.7 s Dialog opens");
+    expect(r[7]).toHaveTextContent("KEYS");
+    expect(r[7]).toHaveTextContent("Key combination");
+    expect(r[8]).toHaveTextContent("TYPE");
+    expect(r[8]).toHaveTextContent("characters");
+    expect(r[11]).toHaveTextContent("IF Wait for pixel 1248, 680 = #9B9797 Save button turns grey · timeout 5 s, else stop");
   });
 
   test.each<[string, Partial<Step>, string, string]>([
@@ -172,6 +174,7 @@ describe("Steps tab", () => {
     ["keys", { kind: "keys", combo: ["Ctrl", "Shift", "S"] }, "Ctrl + Shift + S", "Key combination"],
     ["type", { kind: "type", text: "hi", chars: [] }, "“hi”", "2 characters"],
     ["one char", { kind: "type", text: "x", chars: [] }, "“x”", "1 character"],
+    ["move", { kind: "move", to_x: 300, to_y: 400, samples: 3 }, "Move", "10, 20 → 300, 400 px · 0.01 s"],
   ])("describes a %s", async (_n, step, detail, sub) => {
     relay.view = {
       ...relay.view!,
@@ -186,7 +189,8 @@ describe("Steps tab", () => {
     await relay.setPlayback({ coord_mode: "window" });
     render(StepsTab);
     // The anchor window is at 48, 36.
-    expect(stepRows()[0]).toHaveTextContent("+86, +34 in window");
+    expect(stepRows()[1]).toHaveTextContent("+86, +34 in window");
+    expect(stepRows()[2]).toHaveTextContent("+86, +34 → +182, +288 in window · 0.63 s");
   });
 
   test("in Window coordinates, a drag shows both ends in the window", async () => {
@@ -200,17 +204,22 @@ describe("Steps tab", () => {
     expect(stepRows()[0]).toHaveTextContent("-8, +14 → +252, +364 in window");
   });
 
-  test("long pauses are marked above their step", () => {
+  test("long pauses are marked above their step", async () => {
     render(StepsTab);
+    // The sample's pauses are short: the cursor moves between its steps.
+    expect(screen.queryByText(/s pause$/)).toBeNull();
+    await relay.setPause(4, 1400);
+    await settle();
     expect(screen.getByText("1.4 s pause")).toBeInTheDocument();
     expect(screen.getAllByText(/s pause$/)).toHaveLength(1);
   });
 
   test("a pause trimmed to exactly 1 s isn't marked any more", async () => {
     render(StepsTab);
+    await relay.setPause(4, 1400);
     await relay.trimPauses();
     await settle();
-    expect(relay.steps[9].pause).toBe(1000);
+    expect(relay.steps[4].pause).toBe(1000);
     expect(screen.queryByText(/s pause$/)).toBeNull();
   });
 
@@ -219,18 +228,18 @@ describe("Steps tab", () => {
     relay.seek(2000);
     await settle();
     const r = stepRows();
-    expect(r[2]).toHaveClass("active");
-    expect(r[1]).not.toHaveClass("future");
-    expect(r[3]).toHaveClass("future");
+    expect(r[4]).toHaveClass("active");
+    expect(r[3]).not.toHaveClass("future");
+    expect(r[5]).toHaveClass("future");
   });
 
   test("clicking a step moves the playhead there and opens its editor; again closes it", async () => {
     render(StepsTab);
-    await userEvent.click(stepRows()[2]);
+    await userEvent.click(stepRows()[4]);
     expect(relay.cur).toBe(2000);
-    expect(stepRows()[2]).toHaveAttribute("aria-expanded", "true");
+    expect(stepRows()[4]).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("group", { name: "Edit step" })).toBeInTheDocument();
-    await userEvent.click(stepRows()[2]);
+    await userEvent.click(stepRows()[4]);
     expect(screen.queryByRole("group", { name: "Edit step" })).toBeNull();
   });
 
@@ -243,9 +252,9 @@ describe("Steps tab", () => {
 
   test("Space opens a step's editor, and again closes it", async () => {
     render(StepsTab);
-    stepRows()[3].focus();
+    stepRows()[6].focus();
     await userEvent.keyboard(" ");
-    expect(stepRows()[3]).toHaveAttribute("aria-expanded", "true");
+    expect(stepRows()[6]).toHaveAttribute("aria-expanded", "true");
     expect(relay.cur).toBe(3500);
     await userEvent.keyboard(" ");
     expect(screen.queryByRole("group", { name: "Edit step" })).toBeNull();
@@ -265,12 +274,16 @@ describe("Steps tab", () => {
     await userEvent.click(within(stepRows()[4]).getByRole("button", { name: "Delete step" }));
     await settle();
     expect(core.argsOf("edit_macro")).toEqual([{ id: A, op: { op: "delete_step", index: 4 } }]);
-    expect(stepRows()).toHaveLength(11);
+    expect(stepRows()).toHaveLength(17);
     expect(screen.queryByRole("group", { name: "Edit step" })).toBeNull();
   });
 
   test("+ Wait, + Pixel check and Trim pauses", async () => {
     render(StepsTab);
+    expect(screen.getByRole("button", { name: "Trim pauses" })).toBeDisabled(); // no pause over 1 s
+    await relay.setPause(4, 2500);
+    await settle();
+    core.clearCalls();
     relay.seek(1000);
     await userEvent.click(screen.getByRole("button", { name: "+ Wait" }));
     await settle();
@@ -283,7 +296,7 @@ describe("Steps tab", () => {
       "insert_pixel_wait",
       "cap_pauses",
     ]);
-    expect(stepRows()).toHaveLength(14);
+    expect(stepRows()).toHaveLength(20);
     expect(screen.getByRole("button", { name: "Trim pauses" })).toBeDisabled(); // nothing left to trim
   });
 
@@ -333,27 +346,27 @@ describe("Steps tab", () => {
 
   test("the editor follows its step when a step is inserted before it, and through undo and redo", async () => {
     render(StepsTab);
-    await userEvent.click(stepRows()[2]); // Wait 0.7 s · Dialog opens
+    await userEvent.click(stepRows()[4]); // Wait 0.7 s · Dialog opens
     relay.seek(0);
-    await relay.insertWait();
+    await relay.insertWait(); // after the first move and click
     await settle();
-    expect(stepRows()[3]).toHaveAttribute("aria-expanded", "true");
-    expect(stepRows()[3]).toHaveTextContent("Dialog opens");
+    expect(stepRows()[5]).toHaveAttribute("aria-expanded", "true");
+    expect(stepRows()[5]).toHaveTextContent("Dialog opens");
     await relay.undo();
     await settle();
-    expect(stepRows()[2]).toHaveAttribute("aria-expanded", "true");
+    expect(stepRows()[4]).toHaveAttribute("aria-expanded", "true");
     await relay.redo();
     await settle();
-    expect(stepRows()[3]).toHaveAttribute("aria-expanded", "true");
+    expect(stepRows()[5]).toHaveAttribute("aria-expanded", "true");
   });
 
   test("editing the open step keeps it open, though it looks different now", async () => {
     render(StepsTab);
-    await userEvent.click(stepRows()[2]);
-    await relay.edit({ op: "set_label", index: 2, label: "Save dialog" });
+    await userEvent.click(stepRows()[4]);
+    await relay.edit({ op: "set_label", index: 4, label: "Save dialog" });
     await settle();
-    expect(stepRows()[2]).toHaveAttribute("aria-expanded", "true");
-    expect(stepRows()[2]).toHaveTextContent("Save dialog");
+    expect(stepRows()[4]).toHaveAttribute("aria-expanded", "true");
+    expect(stepRows()[4]).toHaveTextContent("Save dialog");
   });
 
   test("opening another macro closes the editor", async () => {
@@ -397,9 +410,9 @@ describe("Step editor", () => {
   const change = (el: HTMLElement, value: string) => fireEvent.change(el, { target: { value } });
 
   test("the pause before any step", async () => {
-    const editor = await open(9);
+    const editor = await open(13);
     const pause = within(editor).getByLabelText(/Pause before/);
-    expect(pause).toHaveValue(1.4);
+    expect(pause).toHaveValue(0.3);
     await change(pause, "2.5");
     await settle();
     await change(pause, "-1"); // refused: put back
@@ -407,22 +420,22 @@ describe("Step editor", () => {
     await change(pause, ""); // cleared: put back
     expect(pause).toHaveValue(2.5);
     await settle();
-    expect(ops()).toEqual([{ op: "set_pause", index: 9, dur: 2500 }]);
+    expect(ops()).toEqual([{ op: "set_pause", index: 13, dur: 2500 }]);
     expect(pause).toHaveValue(2.5); // the saved pause
   });
 
   test("a click's label", async () => {
-    const editor = await open(0);
+    const editor = await open(1);
     const label = within(editor).getByLabelText("Label");
     expect(label).toHaveValue("File menu");
     expect(label).toHaveAttribute("placeholder", "e.g. Save button");
     await change(label, "The File menu");
     await settle();
-    expect(ops()).toEqual([{ op: "set_label", index: 0, label: "The File menu" }]);
+    expect(ops()).toEqual([{ op: "set_label", index: 1, label: "The File menu" }]);
   });
 
   test("a wait's duration and label", async () => {
-    const editor = await open(2);
+    const editor = await open(4);
     const dur = within(editor).getByLabelText(/Duration/);
     expect(dur).toHaveValue(0.7);
     await change(dur, "1.25");
@@ -433,22 +446,63 @@ describe("Step editor", () => {
     await change(within(editor).getByLabelText("Label"), "Wait for dialog");
     await settle();
     expect(ops()).toEqual([
-      { op: "set_wait_duration", index: 2, dur: 1250 },
-      { op: "set_label", index: 2, label: "Wait for dialog" },
+      { op: "set_wait_duration", index: 4, dur: 1250 },
+      { op: "set_label", index: 4, label: "Wait for dialog" },
     ]);
   });
 
   test("keys and typing have no label", async () => {
-    const editor = await open(4);
+    const editor = await open(7);
     expect(within(editor).queryByLabelText("Label")).toBeNull();
     expect(within(editor).getByLabelText(/Pause before/)).toBeInTheDocument();
   });
 
+  describe("a move", () => {
+    test("its duration: shorter is faster", async () => {
+      const editor = await open(2); // 1116..1750
+      const dur = within(editor).getByLabelText(/Duration/);
+      expect(dur).toHaveValue(0.63);
+      await change(dur, "0.3");
+      await settle();
+      await change(dur, "-1"); // refused: put back
+      expect(dur).toHaveValue(0.3);
+      await settle();
+      expect(ops()).toEqual([{ op: "set_move_duration", index: 2, dur: 300 }]);
+      expect(relay.steps[2]).toMatchObject({ t: 1116, end: 1416 });
+      expect(within(editor).queryByLabelText("Label")).toBeNull();
+      expect(within(editor).getByLabelText(/Pause before/)).toHaveValue(0.2);
+    });
+
+    test("Smooth and Straighten reshape it, and offer Undo", async () => {
+      const editor = await open(2);
+      await userEvent.click(within(editor).getByRole("button", { name: "Straighten" }));
+      await settle();
+      expect(relay.toast).toMatchObject({ message: "Straightened the move", action: { label: "Undo" } });
+      await userEvent.click(within(editor).getByRole("button", { name: "Smooth" }));
+      await settle();
+      expect(ops()).toEqual([
+        { op: "straighten_move", index: 2 },
+        { op: "smooth_move", index: 2 },
+      ]);
+      // Already straight: nothing changed, so there's nothing to undo.
+      expect(relay.toast).toBeNull();
+      expect(stepRows()[2]).toHaveAttribute("aria-expanded", "true");
+    });
+
+    test("one sample is a jump: nothing to retime or reshape", async () => {
+      await relay.loadMacro("00000000-0000-0000-0000-000000000004"); // Open standup tools
+      const editor = await open(1);
+      expect(within(editor).getByLabelText(/Duration/)).toBeDisabled();
+      expect(within(editor).getByRole("button", { name: "Smooth" })).toBeDisabled();
+      expect(within(editor).getByRole("button", { name: "Straighten" })).toBeDisabled();
+    });
+  });
+
   describe("a pixel check", () => {
-    const base = { index: 7, x: 1248, y: 680, color: "#9B9797", tolerance: 8, timeout_ms: 5000 };
+    const base = { index: 11, x: 1248, y: 680, color: "#9B9797", tolerance: 8, timeout_ms: 5000 };
 
     test("shows its position, color, tolerance and timeout", async () => {
-      const e = await open(7);
+      const e = await open(11);
       expect(within(e).getByLabelText("X")).toHaveValue(1248);
       expect(within(e).getByLabelText("Y")).toHaveValue(680);
       expect(within(e).getByLabelText(/Color/)).toHaveValue("#9B9797");
@@ -457,7 +511,7 @@ describe("Step editor", () => {
     });
 
     test("each field sends the whole check", async () => {
-      const e = await open(7);
+      const e = await open(11);
       await change(within(e).getByLabelText("X"), "100");
       await settle();
       await change(within(e).getByLabelText("Y"), "-50");
@@ -478,7 +532,7 @@ describe("Step editor", () => {
     });
 
     test("numbers are rounded to what Rust stores and clamped, and the field shows what's saved", async () => {
-      const e = await open(7);
+      const e = await open(11);
       const x = within(e).getByLabelText("X");
       await change(x, "12.7");
       expect(x).toHaveValue(13);
@@ -501,7 +555,7 @@ describe("Step editor", () => {
     });
 
     test("a color that isn't #RRGGBB is put back", async () => {
-      const e = await open(7);
+      const e = await open(11);
       const color = within(e).getByLabelText(/Color/);
       await change(color, "red");
       expect(color).toHaveValue("#9B9797");
@@ -511,7 +565,7 @@ describe("Step editor", () => {
     });
 
     test("tolerance is kept within 0–255, and non-numbers are ignored", async () => {
-      const e = await open(7);
+      const e = await open(11);
       await change(within(e).getByLabelText("Tolerance"), "-4");
       await settle();
       expect(ops()).toEqual([{ op: "update_pixel_wait", ...base, tolerance: 0 }]);
@@ -526,7 +580,7 @@ describe("Step editor", () => {
     });
 
     test("Pick counts down, then points the check at the pixel under the cursor", async () => {
-      const e = await open(7);
+      const e = await open(11);
       vi.useFakeTimers();
       core.hold("pick_pixel");
       await fireEvent.click(within(e).getByRole("button", { name: "Pick" }));

@@ -56,9 +56,9 @@ enum Action {
         delta: i32,
         horizontal: bool,
     },
+    /// The cursor going through a few points, a sample every 16 ms.
     Move {
-        x: i32,
-        y: i32,
+        path: Vec<(i32, i32)>,
     },
     Wait {
         dur: u32,
@@ -98,7 +98,7 @@ fn action() -> impl Strategy<Value = Action> {
         1 => (typed(), pos.clone()).prop_map(|((code, ch), (x, y))| Action::HeldAcrossClick { code, ch, x, y }),
         1 => (prop::sample::select(vec![-120, 120]), any::<bool>())
             .prop_map(|(delta, horizontal)| Action::Wheel { delta, horizontal }),
-        2 => pos.prop_map(|(x, y)| Action::Move { x, y }),
+        2 => prop::collection::vec(pos, 1..8).prop_map(|path| Action::Move { path }),
         1 => (0..2000u32).prop_map(|dur| Action::Wait { dur }),
         1 => prop_oneof![Just(1 << 31), (Ms::MAX - 20_000)..Ms::MAX].prop_map(|to| Action::Jump { to }),
     ]
@@ -123,6 +123,8 @@ fn record(actions: &[(Action, u32)]) -> Vec<Event> {
             Action::DoubleClick { x, y } => ev.extend([
                 btn(t, *x, *y, left, true),
                 btn(at(60), *x, *y, left, false),
+                // The hand shakes a pixel between the two clicks.
+                Event::Move { t: at(100), x: x + 1, y: *y },
                 btn(at(150), *x, *y, left, true),
                 btn(at(210), *x, *y, left, false),
             ]),
@@ -156,7 +158,10 @@ fn record(actions: &[(Action, u32)]) -> Vec<Event> {
             Action::Wheel { delta, horizontal } => {
                 ev.push(Event::Wheel { t, x: 0, y: 0, delta: *delta, horizontal: *horizontal })
             }
-            Action::Move { x, y } => ev.push(Event::Move { t, x: *x, y: *y }),
+            Action::Move { path } => {
+                ev.extend(path.iter().enumerate().map(|(i, &(x, y))| Event::Move { t: at(i as u32 * 16), x, y }));
+                t = at(path.len() as u32 * 16);
+            }
             Action::Wait { dur } => {
                 // A cursor sample at the same time as the wait, as recordings have.
                 ev.push(Event::Move { t, x: 1, y: 1 });
@@ -197,8 +202,11 @@ fn edit(steps: usize, dur: u32) -> impl Strategy<Value = EditOp> {
         }),
         idx.clone().prop_map(|index| EditOp::SetLabel { index, label: "x".into() }),
         (idx.clone(), 0..3000u32).prop_map(|(index, dur)| EditOp::SetPause { index, dur }),
-        (idx, 0..3u32).prop_map(|(index, dur)| EditOp::SetWaitDuration { index, dur }),
+        (idx.clone(), 0..3u32).prop_map(|(index, dur)| EditOp::SetWaitDuration { index, dur }),
         (0..1500u32).prop_map(|max| EditOp::CapPauses { max }),
+        (idx.clone(), 0..3000u32).prop_map(|(index, dur)| EditOp::SetMoveDuration { index, dur }),
+        idx.clone().prop_map(|index| EditOp::SmoothMove { index }),
+        idx.prop_map(|index| EditOp::StraightenMove { index }),
         Just(EditOp::Rename { name: "renamed".into() }),
     ]
 }
@@ -228,6 +236,9 @@ fn expected(op: &EditOp, steps: &[Step]) -> Result<(), EditError> {
             only(index, |k| matches!(k, StepKind::Wait { .. } | StepKind::PixelWait { .. }))
         }
         EditOp::UpdatePixelWait { index, .. } => only(index, |k| matches!(k, StepKind::PixelWait { .. })),
+        EditOp::SetMoveDuration { index, .. } | EditOp::SmoothMove { index } | EditOp::StraightenMove { index } => {
+            only(index, |k| matches!(k, StepKind::Move { .. }))
+        }
         EditOp::SetLabel { index, .. } => only(index, |k| {
             matches!(
                 k,
@@ -267,9 +278,9 @@ fn check_op(op: &EditOp, before: &[Event], steps: &[Step], after: &[Event]) -> R
                 .map(|(_, e)| e.clone())
                 .collect();
             prop_assert_eq!(after, &kept[..]);
-            // One step less, or two when its neighbours now merge (two clicks into a double click).
-            let n = after_steps.len();
-            prop_assert!(n + 1 == steps.len() || n + 2 == steps.len(), "{} steps, then {}", steps.len(), n);
+            // At least one step less: more when its neighbours now merge (two
+            // clicks into a double click, the moves on either side into one).
+            prop_assert!(after_steps.len() < steps.len(), "{} steps, then {}", steps.len(), after_steps.len());
         }
         EditOp::InsertWait { dur, label, .. } | EditOp::InsertPixelWait { dur, label, .. } => {
             if saturates(before, *dur) {
@@ -306,6 +317,36 @@ fn check_op(op: &EditOp, before: &[Event], steps: &[Step], after: &[Event]) -> R
                 prop_assert!(s.pause <= *max, "{:?}", s);
             }
         }
+        EditOp::SetMoveDuration { index, dur } => {
+            let step = &steps[*index as usize];
+            let (first, last) = (step.items[0] as usize, *step.items.last().unwrap() as usize);
+            // The move starts when it did and lasts `dur`; the rest keep their order.
+            prop_assert_eq!(after.len(), before.len());
+            prop_assert_eq!(after[first].t(), before[first].t());
+            if step.end > step.t && !saturates(before, *dur) {
+                prop_assert_eq!(after[last].t(), step.t + (*dur).min(MAX_DUR));
+            }
+            let delta = after[last].t() as i64 - before[last].t() as i64;
+            for i in last + 1..before.len() {
+                if before[i].t() > step.end {
+                    prop_assert_eq!(after[i].t() as i64, (before[i].t() as i64 + delta).min(Ms::MAX as i64));
+                }
+            }
+        }
+        EditOp::SmoothMove { index } | EditOp::StraightenMove { index } => {
+            // Only the samples in between move; nothing changes time.
+            let step = &steps[*index as usize];
+            let last = *step.items.last().unwrap();
+            for (i, (a, b)) in before.iter().zip(after).enumerate() {
+                let i = i as u32;
+                if step.items.contains(&i) && i != last {
+                    prop_assert!(matches!(b, Event::Move { .. }) && a.t() == b.t(), "{:?} → {:?}", a, b);
+                } else {
+                    prop_assert_eq!(a, b);
+                }
+            }
+            prop_assert_eq!(after_steps.len(), steps.len());
+        }
         _ => {}
     }
     Ok(())
@@ -329,7 +370,6 @@ proptest! {
             for &i in &s.items {
                 prop_assert!((i as usize) < events.len());
                 let e = &events[i as usize];
-                prop_assert!(!matches!(e, Event::Move { .. }), "a move is a step item");
                 prop_assert!(s.t <= e.t() && e.end() <= s.end, "event {} is outside its step {:?}", i, s);
                 prop_assert!(seen.insert(i), "event {} is in two steps", i);
             }
@@ -338,6 +378,17 @@ proptest! {
             busy_until = busy_until.max(s.end);
         }
         prop_assert!(steps.windows(2).all(|w| w[0].t <= w[1].t));
+        // Every cursor move belongs to a step: a press's, or a MOVE.
+        for (i, e) in events.iter().enumerate() {
+            prop_assert!(!matches!(e, Event::Move { .. }) || seen.contains(&(i as u32)), "move {} is in no step", i);
+        }
+        for s in &steps {
+            if let StepKind::Move { samples, .. } = s.kind {
+                let only_moves = s.items.iter().all(|&i| matches!(events[i as usize], Event::Move { .. }));
+                prop_assert!(only_moves, "{:?}", s);
+                prop_assert_eq!(samples as usize, s.items.len());
+            }
+        }
     }
 
     #[test]
@@ -362,12 +413,12 @@ proptest! {
     }
 
     #[test]
-    fn deleting_every_step_leaves_only_moves((events, _) in macro_and_edits()) {
+    fn deleting_every_step_leaves_nothing((events, _) in macro_and_edits()) {
         let mut m = Macro::new("p", RecordingMeta::single_1080p(), events);
         while !group_steps(&m.events, (&m.recording).into()).is_empty() {
             apply(&mut m, EditOp::DeleteStep { index: 0 }).unwrap();
         }
-        prop_assert!(m.events.iter().all(|e| matches!(e, Event::Move { .. })), "{:?}", m.events);
+        prop_assert!(m.events.is_empty(), "{:?}", m.events);
     }
 
     #[test]
@@ -382,7 +433,8 @@ proptest! {
         prop_assert_eq!(plan.len(), events.len());
         prop_assert!(plan.windows(2).all(|w| w[0] <= w[1]), "not ordered");
         prop_assert!(plan.iter().all(|&p| p >= 0.0 && p.is_finite()));
-        for s in &steps {
+        // The cursor path between steps follows them; the rest move as a whole.
+        for s in steps.iter().filter(|s| !matches!(s.kind, StepKind::Move { .. })) {
             let first = s.items[0] as usize;
             let d = plan[first] - events[first].t() as f64;
             for &i in &s.items {

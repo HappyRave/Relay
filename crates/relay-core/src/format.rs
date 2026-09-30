@@ -415,10 +415,12 @@ mod tests {
             .iter()
             .map(|s| serde_json::to_value(s).unwrap()["kind"].as_str().unwrap().to_string())
             .collect();
-        assert_eq!(kinds, ["click", "keys", "type", "wait", "pixel_wait"]);
+        assert_eq!(kinds, ["move", "click", "keys", "type", "wait", "pixel_wait"]);
 
         // The details the snapshot shows, spelled out.
-        let steps = group_steps(&m.events, (&m.recording).into());
+        let all = group_steps(&m.events, (&m.recording).into());
+        assert!(matches!(all[0].kind, StepKind::Move { to_x: 100, to_y: 200, samples: 1, .. }));
+        let steps = &all[1..];
         let StepKind::Click { x: 100, y: 200, btn: MouseBtn::Left, count: 2, label } = &steps[0].kind else {
             panic!("{:?}", steps[0].kind)
         };

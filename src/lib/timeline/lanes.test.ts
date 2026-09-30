@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { currentStepIndex, jumpTarget, keyChips, moveSegments, pct, ruler, startedCount } from "./lanes";
+import { currentStepIndex, jumpTarget, keyChips, moveBars, moveSegments, pauseSpans, pct, ruler, startedCount } from "./lanes";
 import type { Step } from "../types";
 
 const keys = (t: number, combo: string): Step => ({ kind: "keys", t, end: t + 350, pause: 0, combo: combo.split(" + "), items: [] });
@@ -10,6 +10,35 @@ describe("pct", () => {
     expect(pct(-5, 100)).toBe(0);
     expect(pct(50, 100)).toBe(50);
     expect(pct(500, 100)).toBe(100);
+  });
+});
+
+const move = (t: number, end: number, pause = 0): Step => ({ kind: "move", t, end, pause, items: [], x: 0, y: 0, to_x: 1, to_y: 1, samples: 2 });
+const click = (t: number, pause = 0): Step => ({ kind: "click", t, end: t + 60, pause, items: [], x: 1, y: 1, btn: "Left", count: 1, label: "" });
+
+describe("moveBars", () => {
+  it("is one bar per move or drag: a click is no movement, and a jump has no bar", () => {
+    const drag: Step = { kind: "drag", t: 1500, end: 1800, pause: 0, items: [], x: 0, y: 0, to_x: 9, to_y: 9, btn: "Left", label: "" };
+    const bars = moveBars([move(0, 800), click(800), move(860, 1400), drag, move(1900, 1900)], 2000);
+    expect(bars.map((b) => [b.l, +b.w.toFixed(6)])).toEqual([
+      [0, 40],
+      [43, 27],
+      [75, 15],
+    ]);
+  });
+
+  it("a very short move still shows", () => {
+    expect(moveBars([move(1000, 1001)], 2000)).toEqual([{ l: 50, w: 0.4 }]);
+  });
+});
+
+describe("pauseSpans", () => {
+  it("spans each pause before its step, however short, and nothing where there's none", () => {
+    const spans = pauseSpans([move(0, 800), click(800), move(960, 1400, 100), click(1416, 16)], 2000);
+    expect(spans.map((p) => [+p.l.toFixed(6), +p.w.toFixed(6)])).toEqual([
+      [43, 5],
+      [70, 0.8],
+    ]);
   });
 });
 

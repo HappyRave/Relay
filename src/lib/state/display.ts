@@ -39,5 +39,7 @@ export function stepTitle(s: Step): string {
       return `Wait for pixel ${s.x}, ${s.y} = ${s.color}`;
     case "wait":
       return "Wait " + (s.dur / 1000).toFixed(1) + " s";
+    case "move":
+      return "Move";
   }
 }

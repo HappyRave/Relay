@@ -50,7 +50,7 @@ Relay also remembers a little about the recording's context:
 
 Relay leaves out anything that would break the macro or loop back into itself:
 
-- **Clicks and scrolls on the Relay widget.** You can press stop or look at the steps without them ending up in the macro.
+- **Clicks and scrolls on the Relay widget.** You can press stop or look at the steps without them ending up in the macro. The cursor's trip to the widget is still recorded: it's the last [move](03-editing.md#moves) in the steps, and you can delete it.
 - **Keys typed while Relay's own window is focused.**
 - **<kbd>F9</kbd>**, the key that stops the recording.
 - **<kbd>Esc</kbd>**, by default. It stops the recording and is swallowed, so the app you're recording doesn't see it either. You can [record it instead](#recording-esc).
@@ -64,7 +64,7 @@ Need <kbd>Esc</kbd> in your macro, for example to close a dialog? Turn off **Set
 
 ## While you record
 
-- The steps list fills in as you go, and the preview draws your mouse path live.
+- The steps list fills in as you go, and the preview draws your mouse path live. A move shows up in the list once the next step after it starts; the last one shows up when you stop.
 - The clock shows how long you've been recording, and the transport reads *of recording*.
 - The widget **doesn't take the focus** when you click it during a session, so your keystrokes keep going to the app you're recording.
 - Relay's other hotkeys are released while you record, so <kbd>F10</kbd> and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd> reach the app you're recording like any other key.
@@ -88,9 +88,9 @@ These are in **Settings → Recording** and apply to new recordings.
 
 1. **Start from a known state.** Open the window you'll work in, in the same place and size it will be when the macro runs.
 2. **Prefer the keyboard over the mouse** where you can. <kbd>Ctrl</kbd>+<kbd>S</kbd> works wherever the Save button is.
-3. **Don't rush, and don't worry about being slow.** The macro replays your timing. If an app needs a moment to open a dialog, give it that moment while recording, or add a [pixel check](05-pixel-checks.md) afterwards. Pauses where you hesitated can be [shortened](03-editing.md#pauses) later.
+3. **Don't rush, and don't worry about being slow.** The macro replays your timing. If an app needs a moment to open a dialog, give it that moment while recording, or add a [pixel check](05-pixel-checks.md) afterwards. Pauses where you hesitated can be [shortened](03-editing.md#pauses) later, and slow or shaky mouse moves [sped up or smoothed](03-editing.md#moves).
 4. **Keep the widget out of the way.** Clicks that land on the widget aren't recorded, so drag it aside before you start if you need to click where it is.
-5. **Trim afterwards.** Delete stray clicks and extra steps in the [editor](03-editing.md) rather than recording again.
+5. **Trim afterwards.** Delete stray clicks, extra steps and the final move to the stop button in the [editor](03-editing.md) rather than recording again.
 
 ## Privacy
 

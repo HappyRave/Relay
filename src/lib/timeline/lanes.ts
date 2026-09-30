@@ -8,7 +8,25 @@ export interface Span {
   w: number;
 }
 
-/** Bars for continuous mouse movement: samples closer than 150 ms join one bar. */
+/** Bars for the mouse moving: one per MOVE or DRAG step. A jump (a move with a single sample) has none. */
+export function moveBars(steps: Step[], duration: number): Span[] {
+  return steps
+    .filter((s) => (s.kind === "move" || s.kind === "drag") && s.end > s.t)
+    .map((s) => ({ l: pct(s.t, duration), w: Math.max(0.4, pct(s.end, duration) - pct(s.t, duration)) }));
+}
+
+/** The pauses before steps, when nothing happens, however short. */
+export function pauseSpans(steps: Step[], duration: number): Span[] {
+  return steps
+    .filter((s) => s.pause > 0)
+    .map((s) => ({ l: pct(s.t - s.pause, duration), w: pct(s.t, duration) - pct(s.t - s.pause, duration) }));
+}
+
+/**
+ * Bars for the mouse moving while recording, when the MOVE steps aren't
+ * known yet (the steps are grouped as actions come): samples closer than
+ * 150 ms join one bar.
+ */
 export function moveSegments(moves: MovePoint[], duration: number): Span[] {
   const segs: { s: number; e: number }[] = [];
   let seg: { s: number; e: number } | null = null;

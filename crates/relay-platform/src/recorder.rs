@@ -271,10 +271,11 @@ mod tests {
                 StepKind::Click { .. } => "CLICK".to_string(),
                 StepKind::Type { text, .. } => format!("TYPE {text}"),
                 StepKind::Keys { combo } => format!("KEYS {}", combo.join(" + ")),
+                StepKind::Move { to_x, to_y, samples, .. } => format!("MOVE {to_x},{to_y} ×{samples}"),
                 k => format!("{k:?}"),
             })
             .collect();
-        assert_eq!(steps, ["CLICK", "TYPE hello", "KEYS Ctrl + S"]);
+        assert_eq!(steps, ["MOVE 200,150 ×2", "CLICK", "TYPE hello", "KEYS Ctrl + S"]);
     }
 
     #[test]
