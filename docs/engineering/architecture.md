@@ -163,10 +163,13 @@ sequenceDiagram
         P->>C: EngineDone{generation, completed, timing}
         C-->>UI: Finished{completed, timing}, count the run
     end
-    C-->>UI: Session{idle}
+    C->>C: run history += RunEntry{source, outcome, checks}
+    C-->>UI: RunsChanged, Session{idle}
 ```
 
 The engine computes each event's deadline from a `PlayClock` (macro time = anchor + (wall time − anchor wall) × speed), sleeps until it with a high-resolution waitable timer plus a 1 ms spin, and injects. Speed changes, pauses and seeks re-anchor the clock, so timing never drifts. In a 10-minute soak test, 12,000 events were injected with a p99 lateness of 0.008 ms and a maximum of about 1 ms.
+
+Every playback ends in the coordinator's `finish_playback`, however it ends. It takes the engine's `RunReport` (loops played, each pixel check's and Find image step's result and wait, the timing) and the `RunStart` it kept when the playback began (the source, the options, the wall clock), and adds a `RunEntry` to the [run history](file-formats.md#runsjson). A run still going when Relay quits isn't recorded.
 
 ## How a trigger flows
 
@@ -178,12 +181,12 @@ flowchart LR
     K["Macro hotkey<br/>(RegisterHotKey)"] --> F
     F -- "Cmd::RunMacro" --> C{"Coordinator"}
     C -- "triggers paused" --> N1["drop"]
-    C -- "not idle" --> N2["Notice: Skipped … Relay was busy"]
-    C -- "desktop locked / UAC" --> N3["log and skip"]
+    C -- "not idle" --> N2["Notice: Skipped … Relay was busy<br/>+ run history"]
+    C -- "desktop locked / UAC" --> N3["log and skip<br/>+ run history"]
     C -- "idle" --> P["step(Idle, Trigger) → Playing from 0"]
 ```
 
-The trigger threads don't decide whether a macro can run. They only detect the event and send `Cmd::RunMacro`. The coordinator, which knows the session mode and whether triggers are paused, decides. See [The app → Triggers](app.md#triggers).
+The trigger threads don't decide whether a macro can run. They only detect the event and send `Cmd::RunMacro`. The coordinator, which knows the session mode and whether triggers are paused, decides, and adds a skipped run to the history. A schedule tick that finds a run more than 2 minutes late sends `Cmd::LogSkip` instead (`ScheduleWatch::take_missed`). See [The app → Triggers](app.md#triggers).
 
 ## Design principles
 

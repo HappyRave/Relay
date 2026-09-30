@@ -27,6 +27,7 @@
 | [`history.rs`](../../src-tauri/src/history.rs) | 150 | Undo and redo of macro edits |
 | [`ipc.rs`](../../src-tauri/src/ipc.rs) | 89 | `EngineMsg` and the `Emitter` |
 | [`library.rs`](../../src-tauri/src/library.rs) | 487 | Macros on disk, trash, import |
+| [`run_history.rs`](../../src-tauri/src/run_history.rs) | 151 | `runs.json`, the run history |
 | [`settings.rs`](../../src-tauri/src/settings.rs) | 121 | `settings.json` |
 | [`storage.rs`](../../src-tauri/src/storage.rs) | 55 | Data directory, atomic writes |
 | [`window_ctl.rs`](../../src-tauri/src/window_ctl.rs) | 277 | Placement, zoom, frame, focus |

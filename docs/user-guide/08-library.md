@@ -3,6 +3,7 @@
 Every recording is saved automatically to your **Library**. From there you can open, duplicate, delete, export and import macros.
 
 - [The Library tab](#the-library-tab)
+- [Run history](#run-history)
 - [Duplicate](#duplicate)
 - [Delete and undo](#delete-and-undo)
 - [Export](#export)
@@ -20,12 +21,33 @@ An empty Library says *No macros yet — press Record (F9) to make one.* Each ro
 | --- | --- |
 | **Name** | The macro's name. The open macro is highlighted with a red bar. |
 | **Hotkey** | Its [hotkey trigger](07-triggers.md#hotkey) if one is on, or **—** |
-| **Length · steps · runs** | For example *10.9 s · 12 steps · 5 runs*. A run counts when the macro plays to the end. |
+| **Length · steps · runs** | For example *10.9 s · 12 steps · 5 runs*. A run counts when the macro plays to the end. The [run history](#run-history) lists every run. |
 | **Last run** | *Today, 09:12*, *Fri, 17:40*, *Sep 12* or *Never* |
 
 **Click a row** to open that macro in the editor. New recordings and imports go to the top.
 
 Hover a row to see its **Duplicate** and **Delete** buttons. They're hidden while Relay is recording or playing.
+
+## Run history
+
+Press **Runs** at the bottom of the Library tab to see what ran, and when. **Macros** at the top goes back to the list; the menu next to it shows one macro's runs, or all of them.
+
+<p align="center"><img src="../images/run-history.png" alt="The run history, with a run's pixel checks showing" width="720"></p>
+
+Each run shows the macro's name (as it was then), when it started, and:
+
+| | |
+| --- | --- |
+| **What started it** | *Play* (the Play button or <kbd>F10</kbd>), *Hotkey*, *Schedule*, *App launch*, *Pixel trigger* or *Image trigger* |
+| **How it ended** | *Completed*, *Stopped*, *Stopped by a key*, *Kill switch*, *Pixel check timed out*, *Image not found* or *Failed* |
+| **Loops** | How many loops it played, when more than one |
+| **Duration** | From start to end, pauses included |
+
+Runs that didn't end as planned have a red bar. Click a run to see what its [pixel checks](05-pixel-checks.md) and [Find image](06-find-image.md) steps did (*Step 4 · Pixel check matched after 1.2 s*, *Step 6 · Image found at 812, 344 (93 %) after 0.4 s*), and its playback settings if they weren't the usual ones (*From 00:03.20 · 2× speed · Humanized*). A run keeps its last 50 checks.
+
+The history also lists [triggers](07-triggers.md) that fired but didn't run their macro: *Skipped: Relay was busy*, *Skipped: screen locked*, and *Skipped: PC was asleep* for a scheduled run the PC slept through.
+
+Relay keeps the last 200 runs, in `runs.json`. A run still going when you quit Relay isn't recorded.
 
 ## Duplicate
 
@@ -91,6 +113,7 @@ Everything is in `%APPDATA%\Relay` (usually `C:\Users\<you>\AppData\Roaming\Rela
 │   ├── <id>.rly        one file per macro
 │   └── .trash\         deleted macros
 ├── library.json        the Library's order, run counts and triggers
+├── runs.json           the run history
 ├── settings.json       your settings
 ├── window.json         where the widget sits
 └── logs\               diagnostics from the last 7 days

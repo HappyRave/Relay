@@ -8,12 +8,13 @@ Everything Relay stores is JSON (and one JPEG per recorded macro) in the data di
 ├── macros\.trash\<uuid>.rly
 ├── screens\<uuid>.jpg       machine-local: the screen as each recording started
 ├── library.json            machine-local: order, stats, triggers, trash
+├── runs.json               machine-local: the run history
 ├── settings.json           machine-local
 ├── window.json             machine-local
 └── logs\relay.YYYY-MM-DD.log
 ```
 
-**Portable** files can be copied to another PC. **Machine-local** files describe this PC's use of the macros (run counts, hotkeys, schedules) and are never exported.
+**Portable** files can be copied to another PC. **Machine-local** files describe this PC's use of the macros (run counts, the run history, hotkeys, schedules) and are never exported.
 
 **Screenshots** (`screens\<uuid>.jpg`) are taken when a recording starts, with *Screenshot* on: the whole virtual desktop at the macro's `recording.virtual_desktop`, scaled down to at most 3200 px wide, JPEG quality 80, with Relay's own window left out. The preview draws it at that rect. It's machine-local because it can show anything that was on screen: exports and imports never carry it. A duplicate gets a copy; a trashed macro keeps its screenshot for a restore. A macro without one (recorded before 1.3, imported, or with the setting off) shows the sketch.
 
@@ -21,6 +22,7 @@ Everything Relay stores is JSON (and one JPEG per recorded macro) in the data di
 - [The JSON export](#the-json-export)
 - [Versioning and migrations](#versioning-and-migrations)
 - [library.json](#libraryjson)
+- [runs.json](#runsjson)
 - [settings.json](#settingsjson)
 - [window.json](#windowjson)
 
@@ -207,6 +209,55 @@ To change the format:
 | `trash` | Deleted macros and their stats, so *Undo* restores them exactly. `next` is the macro that came right after (`null` at the end); restoring follows it (through other trashed macros) to the first one still in the Library, so the macro returns to the right place even after others were added or restored. Older files have only `position`, used as is. `name` keeps recording names from repeating one that's in the trash. |
 
 Before triggers existed (up to M6), entries had a plain `hotkey` label. It's read as a disabled hotkey trigger.
+
+## runs.json
+
+The run history (Library → Runs), oldest first. Relay keeps the newest 200 entries (`runlog::MAX_RUNS`).
+
+```json
+{
+  "version": 1,
+  "entries": [
+    {
+      "at": "2026-09-30T07:00:02Z",
+      "macro_id": "3f0c…",
+      "macro_name": "Daily report",
+      "source": "schedule",
+      "outcome": { "type": "finished", "reason": "pixel_timeout" },
+      "duration_ms": 8420,
+      "from_ms": 0,
+      "loops": 1,
+      "speed": 1.0,
+      "humanize": false,
+      "checks": [
+        { "step": 4, "loop_idx": 0, "image": true, "after_ms": 380, "outcome": { "type": "found", "x": 812, "y": 344, "score": 93 } },
+        { "step": 7, "loop_idx": 0, "image": false, "after_ms": 5000, "outcome": { "type": "timed_out" } }
+      ],
+      "checks_dropped": 0
+    },
+    {
+      "at": "2026-09-30T08:00:00Z",
+      "macro_id": "8a21…",
+      "macro_name": "Backup",
+      "source": "schedule",
+      "outcome": { "type": "skipped", "reason": "missed" },
+      "duration_ms": 0, "from_ms": 0, "loops": 0, "speed": 1.0, "humanize": false, "checks": [], "checks_dropped": 0
+    }
+  ]
+}
+```
+
+| Field | Notes |
+| --- | --- |
+| `at` | When the run started, or when the skipped trigger fired |
+| `macro_name` | The name at that time: the macro may be renamed or deleted since |
+| `source` | `manual` (the Play button or F10), `hotkey`, `schedule`, `app_launch`, `pixel` or `image` |
+| `outcome` | `finished` with a `FinishReason` (`completed`, `stopped`, `key_pressed`, `killed`, `pixel_timeout`, `error`), or `skipped` with `busy`, `locked` or `missed` (a schedule slept through) |
+| `duration_ms` | Wall time, pauses included; 0 for a skip |
+| `loops` | Loops played, the last one included even if it didn't finish |
+| `checks` | The last 50 pixel checks and Find image steps (`runlog::MAX_CHECKS`), with `checks_dropped` counting earlier ones. `step` is 1-based, `loop_idx` 0-based, `after_ms` excludes pauses. `outcome` is `matched`, `found` (an image's top-left corner and score in percent), `timed_out` or `interrupted` (stopped while waiting). |
+
+A run still going when Relay quits isn't recorded. Paused triggers and deleted macros aren't logged. Like `library.json`, a `runs.json` that exists but can't be read is left alone until Relay restarts, and one that doesn't parse is set aside as `runs.json.bad`. A failed save keeps the entry in memory and tells the user once, until a save succeeds again.
 
 ## settings.json
 
