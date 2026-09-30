@@ -645,7 +645,11 @@ impl Coordinator {
     /// Watches for Esc and, if the macro wants it, any other key.
     fn watch_for_stop_keys(&self, m: &Macro) -> Option<Box<dyn HookSession>> {
         let cfg = HookConfig {
-            mode: HookMode::Watch { stop_on_key: m.playback.stop_on_key, pass_vks: vec![VK_F10] },
+            mode: HookMode::Watch {
+                stop_on_key: m.playback.stop_on_key,
+                pass_vks: vec![VK_F10],
+                report_kill_switch: false,
+            },
             ignore_injected: self.settings().ignore_injected,
             mouse_pulse: None,
         };

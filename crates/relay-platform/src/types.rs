@@ -40,6 +40,9 @@ pub enum RawKind {
     Escape,
     /// Another key was pressed during playback with "stop on key press" (swallowed).
     StopKey,
+    /// Ctrl + Alt + End was pressed while watching with `report_kill_switch`
+    /// (passed through, so a registered hotkey still gets it).
+    KillSwitch,
 }
 
 /// What a hook session does, fixed for its lifetime.
@@ -84,7 +87,13 @@ pub enum HookMode {
     },
     /// Playback: report Esc (swallowed) and, with `stop_on_key`, any other key
     /// but modifiers and `pass_vks` (swallowed too). Nothing is recorded.
-    Watch { stop_on_key: bool, pass_vks: Vec<u16> },
+    Watch {
+        stop_on_key: bool,
+        pass_vks: Vec<u16>,
+        /// Also report the kill switch, for a program that can't register it
+        /// as a hotkey (Relay has).
+        report_kill_switch: bool,
+    },
 }
 
 /// Virtual keys currently held, for character translation.

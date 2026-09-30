@@ -137,7 +137,7 @@ impl Recorder {
                 let key = KeyStroke { code: keymap::code(scan, ext, vk), vk, scan, ext };
                 self.events.push(Event::Key { t, down, key, ch });
             }
-            RawKind::Escape | RawKind::StopKey => {}
+            RawKind::Escape | RawKind::StopKey | RawKind::KillSwitch => {}
         }
     }
 
@@ -348,6 +348,7 @@ mod tests {
         r.push(raw(5.0, RawKind::Move { x: 2, y: 2 })); // throttled
         r.push(raw(10.0, RawKind::Escape));
         r.push(raw(20.0, RawKind::StopKey));
+        r.push(raw(30.0, RawKind::KillSwitch));
         assert!(r.events().iter().all(|e| matches!(e, Event::Move { .. })), "{:?}", r.events());
         // (They still flush the cursor's last position, as any non-move input does.)
         assert_eq!(r.events().len(), 2);
