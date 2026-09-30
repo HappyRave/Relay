@@ -8,8 +8,9 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use ts_rs::TS;
 
+use crate::image::MIN_THRESHOLD;
 use crate::keys::KeyStroke;
-use crate::model::{Event, Macro, MouseBtn, Ms, Rgb};
+use crate::model::{Event, ImagePng, Macro, MouseBtn, Ms, Rect, Rgb};
 use crate::path;
 use crate::steps::{Step, StepKind, group_steps};
 
@@ -49,6 +50,28 @@ pub enum EditOp {
         color: Rgb,
         tolerance: u8,
         timeout_ms: Ms,
+    },
+    InsertFindImage {
+        at: Ms,
+        dur: Ms,
+        image: ImagePng,
+        click_x: i32,
+        click_y: i32,
+        btn: MouseBtn,
+        threshold: u8,
+        timeout_ms: Ms,
+        area: Option<Rect>,
+        label: String,
+    },
+    UpdateFindImage {
+        index: u32,
+        image: ImagePng,
+        click_x: i32,
+        click_y: i32,
+        btn: MouseBtn,
+        threshold: u8,
+        timeout_ms: Ms,
+        area: Option<Rect>,
     },
     SetLabel {
         index: u32,
@@ -109,7 +132,9 @@ pub fn apply(m: &mut Macro, op: EditOp) -> Result<(), EditError> {
                 keep
             });
             // Deleting a wait closes the gap it left.
-            if let StepKind::Wait { dur, .. } | StepKind::PixelWait { dur, .. } = step.kind {
+            if let StepKind::Wait { dur, .. } | StepKind::PixelWait { dur, .. } | StepKind::FindImage { dur, .. } =
+                step.kind
+            {
                 shift_from(&mut m.events, step.end, -(dur as i64));
             }
             normalize(&mut m.events);
@@ -134,10 +159,29 @@ pub fn apply(m: &mut Macro, op: EditOp) -> Result<(), EditError> {
             });
         }
 
+        EditOp::InsertFindImage { at, dur, image, click_x, click_y, btn, threshold, timeout_ms, area, label } => {
+            let (dur, threshold) = (dur.min(MAX_DUR), threshold.clamp(MIN_THRESHOLD, 100));
+            insert_timed(&mut m.events, &steps, at, dur, |t| Event::FindImage {
+                t,
+                dur,
+                image,
+                click_x,
+                click_y,
+                btn,
+                threshold,
+                timeout_ms,
+                area,
+                label,
+            });
+        }
+
         EditOp::SetWaitDuration { index, dur: new } => {
             let step = get(index)?;
             let item = step.items[0] as usize;
-            let (StepKind::Wait { dur: old, .. } | StepKind::PixelWait { dur: old, .. }) = step.kind else {
+            let (StepKind::Wait { dur: old, .. }
+            | StepKind::PixelWait { dur: old, .. }
+            | StepKind::FindImage { dur: old, .. }) = step.kind
+            else {
                 return Err(EditError::WrongKind(index));
             };
             let new = new.min(MAX_DUR);
@@ -148,7 +192,9 @@ pub fn apply(m: &mut Macro, op: EditOp) -> Result<(), EditError> {
                 let t = e.t_mut();
                 *t = (*t as i64 + delta).clamp(0, Ms::MAX as i64) as Ms;
             }
-            if let Event::Wait { dur, .. } | Event::PixelWait { dur, .. } = &mut m.events[item] {
+            if let Event::Wait { dur, .. } | Event::PixelWait { dur, .. } | Event::FindImage { dur, .. } =
+                &mut m.events[item]
+            {
                 *dur = new;
             }
         }
@@ -163,16 +209,45 @@ pub fn apply(m: &mut Macro, op: EditOp) -> Result<(), EditError> {
             }
         }
 
+        EditOp::UpdateFindImage {
+            index,
+            image: ni,
+            click_x: ncx,
+            click_y: ncy,
+            btn: nb,
+            threshold: nt,
+            timeout_ms: no,
+            area: na,
+        } => {
+            let step = get(index)?;
+            match &mut m.events[step.items[0] as usize] {
+                Event::FindImage { image, click_x, click_y, btn, threshold, timeout_ms, area, .. } => {
+                    (*image, *click_x, *click_y, *btn) = (ni, ncx, ncy, nb);
+                    (*threshold, *timeout_ms, *area) = (nt.clamp(MIN_THRESHOLD, 100), no, na);
+                }
+                _ => return Err(EditError::WrongKind(index)),
+            }
+        }
+
         EditOp::SetLabel { index, label: new } => {
             let step = get(index)?;
             // The first press, not the first item: a Shift-click starts with Shift.
             let target = step.items.iter().map(|&i| i as usize).find(|&i| {
-                matches!(m.events[i], Event::Button { down: true, .. } | Event::Wait { .. } | Event::PixelWait { .. })
+                matches!(
+                    m.events[i],
+                    Event::Button { down: true, .. }
+                        | Event::Wait { .. }
+                        | Event::PixelWait { .. }
+                        | Event::FindImage { .. }
+                )
             });
             match target.map(|i| &mut m.events[i]) {
-                Some(Event::Button { label, .. } | Event::Wait { label, .. } | Event::PixelWait { label, .. }) => {
-                    *label = new
-                }
+                Some(
+                    Event::Button { label, .. }
+                    | Event::Wait { label, .. }
+                    | Event::PixelWait { label, .. }
+                    | Event::FindImage { label, .. },
+                ) => *label = new,
                 _ => return Err(EditError::WrongKind(index)),
             }
         }
@@ -338,7 +413,7 @@ pub fn normalize(events: &mut Vec<Event>) {
         {
             *e.t_mut() = end;
         }
-        if matches!(e, Event::Wait { .. } | Event::PixelWait { .. }) {
+        if matches!(e, Event::Wait { .. } | Event::PixelWait { .. } | Event::FindImage { .. }) {
             wait_end = Some(e.end());
         }
     }
@@ -396,7 +471,7 @@ pub fn check_invariants(events: &[Event]) -> Result<(), String> {
         {
             return Err(format!("{e:?} happens during the wait at {start}..{end}"));
         }
-        if matches!(e, Event::Wait { .. } | Event::PixelWait { .. }) {
+        if matches!(e, Event::Wait { .. } | Event::PixelWait { .. } | Event::FindImage { .. }) {
             wait = Some((e.t(), e.end()));
         }
     }
@@ -757,6 +832,92 @@ mod tests {
         );
         assert_eq!(apply(&mut m, update(0)), Err(EditError::WrongKind(0)));
         assert_eq!(apply(&mut m, update(3)), Err(EditError::NoSuchStep(3)));
+    }
+
+    fn find_at(at: Ms, dur: Ms) -> EditOp {
+        EditOp::InsertFindImage {
+            at,
+            dur,
+            image: ImagePng(b"\x89PNG1".to_vec()),
+            click_x: 50,
+            click_y: 20,
+            btn: MouseBtn::Left,
+            threshold: 85,
+            timeout_ms: 5000,
+            area: None,
+            label: String::new(),
+        }
+    }
+
+    #[test]
+    fn a_find_image_step_is_a_wait_that_can_be_retimed_updated_labeled_and_deleted() {
+        let original = mac([click(0), click(1000)].concat());
+        let mut m = original.clone();
+        apply(&mut m, find_at(500, 700)).unwrap();
+        assert_eq!(m.events.iter().map(Event::t).collect::<Vec<_>>(), [0, 80, 500, 1700, 1780]);
+        check_invariants(&m.events).unwrap();
+        let s = steps(&m);
+        assert!(matches!(s[1].kind, StepKind::FindImage { dur: 700, click_x: 50, threshold: 85, .. }));
+        assert_eq!((s[1].t, s[1].end), (500, 1200));
+
+        apply(&mut m, EditOp::SetWaitDuration { index: 1, dur: 200 }).unwrap();
+        assert_eq!(m.events[3].t(), 1200);
+        apply(&mut m, EditOp::SetLabel { index: 1, label: "OK button".into() }).unwrap();
+        let area = Some(Rect { x: -1920, y: 0, w: 800, h: 600 });
+        let update = |index, threshold| EditOp::UpdateFindImage {
+            index,
+            image: ImagePng(b"\x89PNG2".to_vec()),
+            click_x: -4,
+            click_y: 3,
+            btn: MouseBtn::Right,
+            threshold,
+            timeout_ms: 9000,
+            area,
+        };
+        apply(&mut m, update(1, 99)).unwrap();
+        assert_eq!(
+            m.events[2],
+            Event::FindImage {
+                t: 500,
+                dur: 200,
+                image: ImagePng(b"\x89PNG2".to_vec()),
+                click_x: -4,
+                click_y: 3,
+                btn: MouseBtn::Right,
+                threshold: 99,
+                timeout_ms: 9000,
+                area,
+                label: "OK button".into(),
+            }
+        );
+        apply(&mut m, update(1, 5)).unwrap();
+        assert!(matches!(m.events[2], Event::FindImage { threshold: MIN_THRESHOLD, .. }));
+        assert_eq!(apply(&mut m, update(0, 90)), Err(EditError::WrongKind(0)));
+
+        apply(&mut m, EditOp::DeleteStep { index: 1 }).unwrap();
+        assert_eq!(m.events.iter().map(Event::t).collect::<Vec<_>>(), [0, 80, 1000, 1080]);
+    }
+
+    #[test]
+    fn nothing_happens_during_a_find_image_step() {
+        let mut ev = vec![
+            Event::FindImage {
+                t: 100,
+                dur: 500,
+                image: ImagePng(b"\x89PNG".to_vec()),
+                click_x: 0,
+                click_y: 0,
+                btn: MouseBtn::Left,
+                threshold: 85,
+                timeout_ms: 5000,
+                area: None,
+                label: String::new(),
+            },
+            Event::Move { t: 300, x: 1, y: 1 },
+        ];
+        normalize(&mut ev);
+        assert_eq!(ev[1].t(), 600);
+        check_invariants(&ev).unwrap();
     }
 
     #[test]

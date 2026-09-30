@@ -26,3 +26,11 @@ opt-level = "s"
 # Unwind (not abort) so a panic still runs the engine's Drop, which releases
 # every key and button a macro was holding.
 strip = true
+
+# Image search is a tight numeric loop: full speed there is worth the size,
+# and in dev builds too, where it's otherwise some 40 times slower.
+[profile.release.package.relay-core]
+opt-level = 3
+
+[profile.dev.package.relay-core]
+opt-level = 3

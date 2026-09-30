@@ -1,5 +1,7 @@
 //! The macro model: raw input events plus recording metadata and playback options.
 
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use ts_rs::TS;
@@ -60,6 +62,33 @@ impl<'de> Deserialize<'de> for Rgb {
     }
 }
 
+/// A PNG image (as [`crate::image::prepare`] makes it), serialized as base64.
+#[derive(Clone, PartialEq, Eq, Hash, TS)]
+#[ts(export, type = "string")]
+pub struct ImagePng(pub Vec<u8>);
+
+impl std::fmt::Debug for ImagePng {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ImagePng({} bytes)", self.0.len())
+    }
+}
+
+impl Serialize for ImagePng {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&BASE64.encode(&self.0))
+    }
+}
+
+impl<'de> Deserialize<'de> for ImagePng {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        match BASE64.decode(s.as_bytes()) {
+            Ok(bytes) if bytes.starts_with(b"\x89PNG") => Ok(ImagePng(bytes)),
+            _ => Err(serde::de::Error::custom("invalid image")),
+        }
+    }
+}
+
 /// A raw recorded (or inserted) event. Coordinates are physical pixels on the
 /// virtual desktop.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -113,6 +142,24 @@ pub enum Event {
         #[serde(default, skip_serializing_if = "String::is_empty")]
         label: String,
     },
+    /// Waits for `image` to appear (within `area`, or anywhere), then clicks
+    /// it with `btn` at (`click_x`, `click_y`) from its top-left, in the
+    /// image's own pixels (scaled with it).
+    FindImage {
+        t: Ms,
+        dur: Ms,
+        image: ImagePng,
+        click_x: i32,
+        click_y: i32,
+        btn: MouseBtn,
+        /// The lowest match accepted, in percent.
+        threshold: u8,
+        timeout_ms: Ms,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        area: Option<Rect>,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        label: String,
+    },
 }
 
 impl Event {
@@ -123,7 +170,8 @@ impl Event {
             | Event::Wheel { t, .. }
             | Event::Key { t, .. }
             | Event::Wait { t, .. }
-            | Event::PixelWait { t, .. } => *t,
+            | Event::PixelWait { t, .. }
+            | Event::FindImage { t, .. } => *t,
         }
     }
 
@@ -134,14 +182,17 @@ impl Event {
             | Event::Wheel { t, .. }
             | Event::Key { t, .. }
             | Event::Wait { t, .. }
-            | Event::PixelWait { t, .. } => t,
+            | Event::PixelWait { t, .. }
+            | Event::FindImage { t, .. } => t,
         }
     }
 
     /// When the event is over: `t` for instant events, `t + dur` for waits.
     pub fn end(&self) -> Ms {
         match self {
-            Event::Wait { t, dur, .. } | Event::PixelWait { t, dur, .. } => t.saturating_add(*dur),
+            Event::Wait { t, dur, .. } | Event::PixelWait { t, dur, .. } | Event::FindImage { t, dur, .. } => {
+                t.saturating_add(*dur)
+            }
             e => e.t(),
         }
     }
@@ -157,7 +208,7 @@ impl Event {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct Rect {
     pub x: i32,

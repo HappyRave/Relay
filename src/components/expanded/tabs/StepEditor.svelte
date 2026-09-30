@@ -1,12 +1,15 @@
 <script lang="ts">
   // Inline editor under the selected step: the pause before it, labels, wait
-  // and move durations, smoothing a move, and the pixel check's position,
-  // color, tolerance and timeout.
+  // and move durations, smoothing a move, the pixel check's position, color,
+  // tolerance and timeout, and the Find image step's image, click point,
+  // button, match, timeout and search area.
   // Number fields commit on change and then show what's saved: rounded to
   // what Rust stores (whole ms and pixels), clamped, or put back if refused.
+  import Segmented from "../../ui/Segmented.svelte";
   import { relay } from "../../../lib/state/relay.svelte";
   import { clamp, commitNumber, toMs } from "../../../lib/fields";
-  import type { Step } from "../../../lib/types";
+  import { areaChoice, pngSize, pngUrl } from "../../../lib/image";
+  import type { MouseBtn, Step } from "../../../lib/types";
 
   let { step, index }: { step: Step; index: number } = $props();
 
@@ -55,6 +58,45 @@
     if (ms != null) relay.setMoveDuration(index, ms);
   }
 
+  const BUTTONS: [MouseBtn, string][] = [
+    ["Left", "Left"],
+    ["Right", "Right"],
+    ["Middle", "Middle"],
+  ];
+  const monitors = $derived(relay.view?.recording.monitors ?? []);
+  const areas = $derived(areaChoice(monitors, step.kind === "find_image" ? step.area : null));
+  const size = $derived(step.kind === "find_image" ? pngSize(step.image) : [0, 0]);
+  const test = $derived(
+    step.kind === "find_image" && relay.imageTest?.id === relay.view?.id && relay.imageTest?.item === step.items[0]
+      ? relay.imageTest.text
+      : "",
+  );
+  const snipping = $derived(relay.imaging?.index === index && relay.imaging.source === "snip");
+
+  /** Commits one of the Find image step's number fields. */
+  function findNumber(e: Event, key: "threshold" | "timeout_ms", accept: (v: number) => number | null, show?: (v: number) => string) {
+    if (step.kind !== "find_image") return;
+    const v = commitNumber(field(e), step[key], accept, show);
+    if (v != null) relay.updateFindImage(index, { [key]: v });
+  }
+
+  /** Clicking the image sets where to click it. */
+  function setClickPoint(e: MouseEvent) {
+    // A keyboard press has no position.
+    if (step.kind !== "find_image" || e.detail === 0) return;
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    const [w, h] = size;
+    const click_x = clamp(Math.floor(((e.clientX - r.left) / r.width) * w), 0, w - 1);
+    const click_y = clamp(Math.floor(((e.clientY - r.top) / r.height) * h), 0, h - 1);
+    relay.updateFindImage(index, { click_x, click_y });
+  }
+
+  function setArea(i: number) {
+    if (i === -2) return;
+    relay.updateFindImage(index, { area: i < 0 ? null : monitors[i].rect });
+  }
+
   function setWait(e: Event) {
     if (step.kind !== "wait") return;
     const dur = commitNumber(field(e), step.dur, positiveMs, seconds);
@@ -98,6 +140,48 @@
         {relay.picking > 0 ? `Point at it… ${relay.picking}` : "Pick"}
       </button>
     </div>
+  {:else if step.kind === "find_image"}
+    <div class="find">
+      <button class="shot" title="Click the image where it should be clicked" onclick={setClickPoint}>
+        <img src={pngUrl(step.image)} alt="What to find" />
+        {#if size[0] > 0}
+          <span class="target" style:left="{((step.click_x + 0.5) / size[0]) * 100}%" style:top="{((step.click_y + 0.5) / size[1]) * 100}%"
+          ></span>
+        {/if}
+      </button>
+      <div class="sources">
+        {#if snipping}
+          <span class="hint" role="status">Snip the image…</span>
+          <button class="btn btn-secondary tool" onclick={relay.cancelImage}>Cancel</button>
+        {:else}
+          <button class="btn btn-secondary tool" disabled={!!relay.imaging} title="Snip it from the screen" onclick={() => relay.replaceImage(index, "snip")}>Snip</button>
+          <button class="btn btn-secondary tool" disabled={!!relay.imaging} title="Use the picture on the clipboard" onclick={() => relay.replaceImage(index, "paste")}>Paste</button>
+          <button class="btn btn-secondary tool" disabled={!!relay.imaging} onclick={() => relay.replaceImage(index, "file")}>File…</button>
+        {/if}
+      </div>
+    </div>
+    <div class="grid">
+      <label>
+        Match %
+        <input class="input" type="number" min="50" max="100" value={step.threshold} onchange={(e) => findNumber(e, "threshold", (v) => clamp(Math.round(v), 50, 100))} />
+      </label>
+      <label>
+        Timeout s
+        <input class="input" type="number" min="0.5" step="0.5" value={step.timeout_ms / 1000} onchange={(e) => findNumber(e, "timeout_ms", (s) => Math.max(MIN_TIMEOUT_MS, toMs(s)), seconds)} />
+      </label>
+      <button class="btn btn-secondary pick" title="Look for it on the screen now" onclick={() => relay.testFindImage(index)}>Test</button>
+    </div>
+    {#if test}<div class="test" role="status">{test}</div>{/if}
+    <div class="choice">
+      <span>Click</span>
+      <Segmented label="Button to click" options={BUTTONS} value={step.btn} onchange={(btn) => relay.updateFindImage(index, { btn })} />
+    </div>
+    {#if monitors.length > 1}
+      <div class="choice">
+        <span>Look on</span>
+        <Segmented label="Where to look" options={areas.options} value={areas.value} onchange={setArea} />
+      </div>
+    {/if}
   {:else if step.kind === "move"}
     <!-- One sample is a jump: no length to set, no path to reshape. -->
     <div class="grid">
@@ -134,7 +218,7 @@
       </label>
     </div>
   {/if}
-  {#if step.kind === "click" || step.kind === "drag" || step.kind === "wait" || step.kind === "pixel_wait"}
+  {#if step.kind === "click" || step.kind === "drag" || step.kind === "wait" || step.kind === "pixel_wait" || step.kind === "find_image"}
     <label class="label">
       Label
       <input
@@ -213,5 +297,59 @@
   }
   .label {
     width: 100%;
+  }
+  .find {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+  }
+  /* The image at its size, down to fit; a checkerboard shows where it ends. */
+  .shot {
+    position: relative;
+    display: block;
+    flex: none;
+    max-width: 60%;
+    padding: 0;
+    border: 1px solid var(--color-text);
+    background: repeating-conic-gradient(var(--color-neutral-300) 0 25%, var(--color-bg) 0 50%) 0 0 / 8px 8px;
+    cursor: crosshair;
+  }
+  .shot img {
+    display: block;
+    max-width: 100%;
+    max-height: 96px;
+  }
+  .target {
+    position: absolute;
+    width: 11px;
+    height: 11px;
+    margin: -6px 0 0 -6px;
+    border: 2px solid var(--color-accent);
+    border-radius: 50%;
+    pointer-events: none;
+  }
+  .sources {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+  }
+  .hint,
+  .test {
+    font-size: 12px;
+    color: var(--color-neutral-700);
+  }
+  .choice {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--color-neutral-700);
+  }
+  .choice span {
+    width: 52px;
   }
 </style>

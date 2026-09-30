@@ -16,6 +16,7 @@ import { DEFAULT_SETTINGS } from "../lib/defaults";
 import type { EditOp, MacroListItem, MacroTriggers, MacroView, Mode, PlaybackOptions, Settings } from "../lib/types";
 import type { EngineMsg } from "../lib/ipc/bindings/EngineMsg";
 import type { Panes } from "../lib/ipc/bindings/Panes";
+import type { FoundImage } from "../lib/ipc/bindings/FoundImage";
 import type { IpcError } from "../lib/ipc/backend";
 import { applyEdit, History } from "./fake-edit";
 
@@ -50,6 +51,7 @@ export const defaultTriggers = (): MacroTriggers => ({
   schedule: { enabled: false, schedule: { days: [true, true, true, true, true, false, false], time: "09:00" } },
   app_launch: { enabled: false, exe: "", delay_ms: 2000 },
   pixel: { enabled: false, x: 0, y: 0, color: "#EC3013", tolerance: 8 },
+  image: { enabled: false, image: null, threshold: 85, area: null },
 });
 
 interface Sample {
@@ -79,6 +81,7 @@ const INFALLIBLE = new Set([
   "screenshot",
   "save_panes",
   "reset_layout",
+  "cancel_snip",
 ]);
 
 const BUSY: IpcError = { code: "busy", message: "Stop the recording or playback first" };
@@ -114,6 +117,14 @@ export class FakeCore {
   /** The pixel color `sample_pixel` reads, or null when unreadable. */
   pixel: string | null = "#123456";
   picked = { x: 640, y: 360, color: "#00FF00" };
+  /** The picture on the clipboard (a base64 PNG, as `paste_image` makes it), or null. */
+  clipboard: string | null = null;
+  /** What `snip_image` returns: the snip, or null when the user cancelled. */
+  snip: string | null = null;
+  /** Image files for `load_image`, by path: the image, or why it can't be used. */
+  images = new Map<string, string | IpcError>();
+  /** What `test_find_image` finds. */
+  found: FoundImage | null = null;
   /** window.json as Rust holds it: the mode and the editor's dividers (the size isn't the page's to see). */
   window: { expanded: boolean; panes: Panes } = { expanded: true, panes: { preview_w: null, transport_h: null, timeline_h: null } };
   private channel: Channel<EngineMsg> | null = null;
@@ -156,6 +167,10 @@ export class FakeCore {
     this.saveError = null;
     this.pixel = "#123456";
     this.picked = { x: 640, y: 360, color: "#00FF00" };
+    this.clipboard = null;
+    this.snip = null;
+    this.images = new Map();
+    this.found = null;
     this.window = { expanded: true, panes: { preview_w: null, transport_h: null, timeline_h: null } };
     this.channel = null;
     this.queued = [];
@@ -414,6 +429,27 @@ export class FakeCore {
       case "pick_pixel":
         check("delayMs", a.delayMs, "u32");
         return this.picked;
+      case "paste_image":
+        if (!this.clipboard) throw { code: "image", message: "There's no picture on the clipboard. Copy or snip one first." } satisfies IpcError;
+        return this.clipboard;
+      case "load_image": {
+        check("path", a.path, "string");
+        const image = this.images.get(a.path as string);
+        if (image == null) {
+          throw { code: "io", message: "Couldn't read that file: The system cannot find the file specified. (os error 2)" } satisfies IpcError;
+        }
+        if (typeof image !== "string") throw image;
+        return image;
+      }
+      case "snip_image":
+        return this.snip;
+      case "cancel_snip":
+        return null;
+      case "test_find_image":
+        check("image", a.image, "png");
+        check("threshold", a.threshold, "u8");
+        check("area", a.area, nullable(RECT));
+        return this.found;
       case "get_triggers":
         this.entry(id);
         return this.status(id);
@@ -560,6 +596,7 @@ function withDefaults(t: Partial<MacroTriggers>): MacroTriggers {
     schedule: { ...d.schedule, ...t.schedule },
     app_launch: { ...d.app_launch, ...t.app_launch },
     pixel: { ...d.pixel, ...t.pixel },
+    image: { ...d.image, ...t.image },
   };
   out.pixel.color = out.pixel.color.toUpperCase();
   return structuredClone(out);
@@ -670,7 +707,7 @@ const RELAYS_OWN: Shortcut[] = [
 
 // — argument types: what serde would refuse before a command runs —
 
-type Kind = "u32" | "i32" | "u8" | "f64" | "bool" | "string" | "color" | "time" | "days";
+type Kind = "u32" | "i32" | "u8" | "f64" | "bool" | "string" | "color" | "time" | "days" | "png";
 type Spec = Kind | { [field: string]: Spec | [Spec, "optional"] } | ((v: unknown) => string | null) | string;
 
 const INT: Record<string, [number, number]> = { u32: [0, 2 ** 32 - 1], i32: [-(2 ** 31), 2 ** 31 - 1], u8: [0, 255] };
@@ -712,6 +749,9 @@ function why(v: unknown, spec: Spec): string | null {
       return typeof v === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(v) ? null : `invalid time ${JSON.stringify(v)}`;
     case "days":
       return Array.isArray(v) && v.length === 7 && v.every((d) => typeof d === "boolean") ? null : "expected 7 days";
+    case "png":
+      // ImagePng: base64 of bytes that start like a PNG.
+      return typeof v === "string" && v.startsWith("iVBORw0KGgo") ? null : "invalid image";
     default:
       return spec; // a fixed refusal, e.g. an unknown variant
   }
@@ -728,20 +768,6 @@ const oneOf =
   (v: unknown) =>
     values.includes(v as string) ? null : `unknown variant ${JSON.stringify(v)}, expected one of ${values.join(", ")}`;
 
-const EDIT_OPS: Record<string, Spec> = {
-  rename: { name: "string" },
-  delete_step: { index: "u32" },
-  insert_wait: { at: "u32", dur: "u32", label: "string" },
-  insert_pixel_wait: { at: "u32", dur: "u32", x: "i32", y: "i32", color: "color", tolerance: "u8", timeout_ms: "u32", label: "string" },
-  set_wait_duration: { index: "u32", dur: "u32" },
-  update_pixel_wait: { index: "u32", x: "i32", y: "i32", color: "color", tolerance: "u8", timeout_ms: "u32" },
-  set_label: { index: "u32", label: "string" },
-  set_pause: { index: "u32", dur: "u32" },
-  cap_pauses: { max: "u32" },
-  set_move_duration: { index: "u32", dur: "u32" },
-  smooth_move: { index: "u32" },
-  straighten_move: { index: "u32" },
-};
 
 const PLAYBACK: Spec = {
   speed: "f64",
@@ -755,6 +781,36 @@ const PLAYBACK: Spec = {
 const optional = (s: Spec): [Spec, "optional"] => [s, "optional"];
 /** An `Option<T>`: null, or a T. (JSON has no NaN or Infinity: over IPC they arrive as null.) */
 const nullable = (s: Spec) => (v: unknown) => (v === null || (typeof v === "number" && !Number.isFinite(v)) ? null : why(v, s));
+const RECT: Spec = { x: "i32", y: "i32", w: "i32", h: "i32" };
+const BUTTON = oneOf("Left", "Right", "Middle", "X1", "X2");
+/** A Find image step's settings; `area` is an `Option`, so it may be left out. */
+const FIND_IMAGE = {
+  image: "png",
+  click_x: "i32",
+  click_y: "i32",
+  btn: BUTTON,
+  threshold: "u8",
+  timeout_ms: "u32",
+  area: optional(nullable(RECT)),
+} satisfies Record<string, Spec | [Spec, "optional"]>;
+
+const EDIT_OPS: Record<string, Spec> = {
+  rename: { name: "string" },
+  delete_step: { index: "u32" },
+  insert_wait: { at: "u32", dur: "u32", label: "string" },
+  insert_pixel_wait: { at: "u32", dur: "u32", x: "i32", y: "i32", color: "color", tolerance: "u8", timeout_ms: "u32", label: "string" },
+  set_wait_duration: { index: "u32", dur: "u32" },
+  update_pixel_wait: { index: "u32", x: "i32", y: "i32", color: "color", tolerance: "u8", timeout_ms: "u32" },
+  insert_find_image: { at: "u32", dur: "u32", ...FIND_IMAGE, label: "string" },
+  update_find_image: { index: "u32", ...FIND_IMAGE },
+  set_label: { index: "u32", label: "string" },
+  set_pause: { index: "u32", dur: "u32" },
+  cap_pauses: { max: "u32" },
+  set_move_duration: { index: "u32", dur: "u32" },
+  smooth_move: { index: "u32" },
+  straighten_move: { index: "u32" },
+};
+
 const PANES: Spec = {
   preview_w: optional(nullable("f64")),
   transport_h: optional(nullable("f64")),
@@ -779,6 +835,7 @@ const TRIGGERS: Spec = {
   schedule: optional({ enabled: optional("bool"), schedule: optional({ days: "days", time: "time" }) }),
   app_launch: optional({ enabled: optional("bool"), exe: optional("string"), delay_ms: optional("u32") }),
   pixel: optional({ enabled: optional("bool"), x: optional("i32"), y: optional("i32"), color: optional("color"), tolerance: optional("u8") }),
+  image: optional({ enabled: optional("bool"), image: optional(nullable("png")), threshold: optional("u8"), area: optional(nullable(RECT)) }),
 };
 
 export const core = new FakeCore();

@@ -35,4 +35,4 @@ Relay only holds on to a key while it needs it. For example, <kbd>F10</kbd> belo
 
 ---
 
-<p align="center"><a href="09-troubleshooting.md">← Troubleshooting and FAQ</a> · <a href="README.md">Contents</a> · <a href="../engineering/README.md">Engineering guide →</a></p>
+<p align="center"><a href="10-troubleshooting.md">← Troubleshooting and FAQ</a> · <a href="README.md">Contents</a> · <a href="../engineering/README.md">Engineering guide →</a></p>

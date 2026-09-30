@@ -8,6 +8,8 @@ import type { EngineMsg } from "./bindings/EngineMsg";
 import type { Mode } from "./bindings/Mode";
 import type { Settings } from "./bindings/Settings";
 import type { PickedPixel } from "./bindings/PickedPixel";
+import type { FoundImage } from "./bindings/FoundImage";
+import type { Rect } from "./bindings/Rect";
 import type { ImportResult } from "./bindings/ImportResult";
 import type { MacroTriggers } from "./bindings/MacroTriggers";
 import type { TriggerStatus } from "./bindings/TriggerStatus";
@@ -46,6 +48,16 @@ export interface Backend {
   samplePixel(x: number, y: number): Promise<string | null>;
   /** After `delayMs`, the position and color under the cursor. */
   pickPixel(delayMs: number): Promise<PickedPixel>;
+  /** The picture on the clipboard, for a Find image step (a base64 PNG). */
+  pasteImage(): Promise<string>;
+  /** Asks for a PNG or JPEG file and reads it. Returns null if cancelled. */
+  chooseImage(): Promise<string | null>;
+  /** Opens Windows' snipping overlay and waits for the snip. Returns null if cancelled. */
+  snipImage(): Promise<string | null>;
+  /** Stops waiting for a snip. */
+  cancelSnip(): Promise<void>;
+  /** Looks for an image on screen once: the best match (its score in percent), or null. */
+  testFindImage(image: string, threshold: number, area: Rect | null): Promise<FoundImage | null>;
   getTriggers(id: string): Promise<TriggerStatus>;
   /** Rejects a hotkey that clashes with Relay's own or another macro's. */
   setTriggers(id: string, triggers: MacroTriggers): Promise<TriggerStatus>;
@@ -100,6 +112,15 @@ export const tauriBackend: Backend = {
   updateSettings: (settings) => invoke("update_settings", { settings }),
   samplePixel: (x, y) => invoke("sample_pixel", { x, y }),
   pickPixel: (delayMs) => invoke("pick_pixel", { delayMs }),
+  pasteImage: () => invoke("paste_image"),
+  chooseImage: async () => {
+    const picked = await open({ filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg"] }] });
+    if (!picked || Array.isArray(picked)) return null;
+    return invoke("load_image", { path: picked });
+  },
+  snipImage: () => invoke("snip_image"),
+  cancelSnip: () => invoke("cancel_snip"),
+  testFindImage: (image, threshold, area) => invoke("test_find_image", { image, threshold, area }),
   getTriggers: (id) => invoke("get_triggers", { id }),
   setTriggers: (id, triggers) => invoke("set_triggers", { id, triggers }),
   setTriggersPaused: (paused) => invoke("set_triggers_paused", { paused }),
@@ -142,6 +163,7 @@ export function browserBackend(): Backend {
       schedule: { enabled: false, schedule: { days: [true, true, true, true, true, false, false], time: "09:00" } },
       app_launch: { enabled: false, exe: "", delay_ms: 2000 },
       pixel: { enabled: false, x: 0, y: 0, color: "#EC3013", tolerance: 8 },
+      image: { enabled: false, image: null, threshold: 85, area: null },
     };
   // Like the app, the Library shows a hotkey only while it's on (the samples' are off).
   const hotkeyOf = (t: MacroTriggers) => (t.hotkey.enabled && t.hotkey.combo ? t.hotkey.combo : null);
@@ -270,6 +292,11 @@ export function browserBackend(): Backend {
     updateSettings: async (s) => (settings = s),
     samplePixel: async () => null,
     pickPixel: async () => unavailable(),
+    pasteImage: async () => unavailable(),
+    chooseImage: async () => unavailable(),
+    snipImage: async () => unavailable(),
+    cancelSnip: async () => {},
+    testFindImage: async () => unavailable(),
     // Triggers only live in memory here, so the tab can be tried out.
     getTriggers: async (id) => {
       await ready; // the sample hotkeys come from the fixture

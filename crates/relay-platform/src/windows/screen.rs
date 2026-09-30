@@ -98,6 +98,10 @@ impl Screen for WinScreen {
     fn capture(&self, area: Rect, max_w: u32, exclude: isize) -> Option<Snapshot> {
         use windows::Win32::Foundation::HWND;
         use windows::Win32::UI::WindowsAndMessaging::{SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE, WDA_NONE};
+        // One at a time: another capture ending would show the window again
+        // during this one.
+        static CAPTURING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _one = CAPTURING.lock().unwrap_or_else(|e| e.into_inner());
         let hwnd = HWND(exclude as *mut _);
         // The compositor applies the change on its next frame.
         let excluded = exclude != 0 && unsafe { SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE) }.is_ok();

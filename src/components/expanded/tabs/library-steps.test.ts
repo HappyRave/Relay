@@ -304,7 +304,7 @@ describe("Steps tab", () => {
     render(StepsTab);
     core.emit({ type: "session", mode: "recording", macro_id: null });
     await settle();
-    for (const name of ["+ Wait", "+ Pixel check", "Trim pauses"]) expect(screen.getByRole("button", { name })).toBeDisabled();
+    for (const name of ["+ Wait", "+ Pixel check", "+ Find image", "Trim pauses"]) expect(screen.getByRole("button", { name })).toBeDisabled();
     expect(screen.getByText("0 steps")).toBeInTheDocument();
     const step = core.view(A).steps[0];
     core.emit({ type: "rec_progress", elapsed_ms: 900, desktop: { x: 0, y: 0, w: 1920, h: 1080 }, moves: [], steps: [step] });
@@ -318,14 +318,14 @@ describe("Steps tab", () => {
     render(StepsTab);
     core.emit({ type: "session", mode, macro_id: A });
     await settle();
-    for (const name of ["+ Wait", "+ Pixel check", "Trim pauses"]) expect(screen.getByRole("button", { name })).toBeDisabled();
+    for (const name of ["+ Wait", "+ Pixel check", "+ Find image", "Trim pauses"]) expect(screen.getByRole("button", { name })).toBeDisabled();
     expect(within(stepRows()[0]).getByRole("button", { name: "Delete step" })).toBeDisabled();
   });
 
   test("with no macro open, there's nothing to add to or trim", async () => {
     relay.view = null;
     render(StepsTab);
-    for (const name of ["+ Wait", "+ Pixel check", "Trim pauses"]) expect(screen.getByRole("button", { name })).toBeDisabled();
+    for (const name of ["+ Wait", "+ Pixel check", "+ Find image", "Trim pauses"]) expect(screen.getByRole("button", { name })).toBeDisabled();
   });
 
   test("the editor closes when its step goes away", async () => {

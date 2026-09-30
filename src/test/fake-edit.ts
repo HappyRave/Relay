@@ -15,6 +15,8 @@ import { smooth, straighten, type Point } from "./fake-path";
 
 /** The longest wait or pause an edit may set (a day). */
 const MAX_DUR = 24 * 60 * 60 * 1000;
+/** The lowest match a Find image step may ask for, in percent (image::MIN_THRESHOLD). */
+const MIN_THRESHOLD = 50;
 /** Silence kept after the last event; the length of an empty macro. */
 const TAIL_MS = 500;
 const MIN_DURATION_MS = 2000;
@@ -84,7 +86,7 @@ function retimePauses(v: MacroView, pauses: [number, number, number][]) {
   if (!pauses.length) return;
   for (const s of v.steps) {
     const t = retime(s.t, pauses);
-    s.end = s.kind === "wait" || s.kind === "pixel_wait" ? t + s.dur : retime(s.end, pauses);
+    s.end = s.kind === "wait" || s.kind === "pixel_wait" || s.kind === "find_image" ? t + s.dur : retime(s.end, pauses);
     s.t = t;
     if (s.kind === "type") for (const c of s.chars) c.t = retime(c.t, pauses);
   }
@@ -154,7 +156,7 @@ export function applyEdit(v: MacroView, op: EditOp) {
       dropMoves(v, s);
       mergeMoves(v);
       // Deleting a wait closes the gap it left.
-      if (s.kind === "wait" || s.kind === "pixel_wait") shiftFrom(v, s.end, -s.dur);
+      if (s.kind === "wait" || s.kind === "pixel_wait" || s.kind === "find_image") shiftFrom(v, s.end, -s.dur);
       break;
     }
 
@@ -184,9 +186,33 @@ export function applyEdit(v: MacroView, op: EditOp) {
       break;
     }
 
+    case "insert_find_image": {
+      const dur = Math.min(op.dur, MAX_DUR);
+      const { image, click_x, click_y, btn, timeout_ms, label } = op;
+      const threshold = Math.min(Math.max(op.threshold, MIN_THRESHOLD), 100);
+      const area = op.area ?? null;
+      insertTimed(v, op.at, dur, (t, item) => ({
+        kind: "find_image",
+        t,
+        end: t + dur,
+        pause: 0,
+        items: [item],
+        dur,
+        image,
+        click_x,
+        click_y,
+        btn,
+        threshold,
+        timeout_ms,
+        area,
+        label,
+      }));
+      break;
+    }
+
     case "set_wait_duration": {
       const s = get(op.index);
-      if (s.kind !== "wait" && s.kind !== "pixel_wait") throw wrongKind(op.index);
+      if (s.kind !== "wait" && s.kind !== "pixel_wait" && s.kind !== "find_image") throw wrongKind(op.index);
       const dur = Math.min(op.dur, MAX_DUR);
       const delta = dur - s.dur;
       // Nothing happens during a wait, so what comes after it in the list is
@@ -205,9 +231,19 @@ export function applyEdit(v: MacroView, op: EditOp) {
       break;
     }
 
+    case "update_find_image": {
+      const s = get(op.index);
+      if (s.kind !== "find_image") throw wrongKind(op.index);
+      const { image, click_x, click_y, btn, timeout_ms } = op;
+      const threshold = Math.min(Math.max(op.threshold, MIN_THRESHOLD), 100);
+      Object.assign(s, { image, click_x, click_y, btn, threshold, timeout_ms, area: op.area ?? null });
+      break;
+    }
+
     case "set_label": {
       const s = get(op.index);
-      if (s.kind !== "click" && s.kind !== "drag" && s.kind !== "wait" && s.kind !== "pixel_wait") throw wrongKind(op.index);
+      const labeled = s.kind === "click" || s.kind === "drag" || s.kind === "wait" || s.kind === "pixel_wait" || s.kind === "find_image";
+      if (!labeled) throw wrongKind(op.index);
       s.label = op.label;
       break;
     }

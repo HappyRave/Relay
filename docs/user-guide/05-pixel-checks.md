@@ -79,6 +79,9 @@ A macro that times out has usually hit one of these:
 
 ## Choosing a good pixel
 
+> [!TIP]
+> Waiting for something whose position changes, or that isn't one flat color? A [Find image](06-find-image.md) step waits for a picture anywhere on screen, then clicks it.
+
 - ✅ **The middle of a solid area** of something that only appears when you're ready: a dialog's title bar, a colored button, a status icon.
 - ✅ **A distinctive color**, not white or light grey, which are everywhere.
 - ❌ **Edges of text or icons**, where colors blend with the background.
@@ -99,4 +102,4 @@ Now the macro clicks **Close** as soon as the export is done: after 2 seconds on
 
 ---
 
-<p align="center"><a href="04-playback.md">← Playing back</a> · <a href="README.md">Contents</a> · <a href="06-triggers.md">Triggers →</a></p>
+<p align="center"><a href="04-playback.md">← Playing back</a> · <a href="README.md">Contents</a> · <a href="06-find-image.md">Find image →</a></p>

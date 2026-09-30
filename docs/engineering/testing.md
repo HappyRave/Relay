@@ -17,9 +17,9 @@ flowchart BT
 
 | Layer | Tests | Where |
 | --- | --- | --- |
-| Rust unit, property and snapshot tests | about 280 | Next to the code, in `#[cfg(test)]` modules |
-| Frontend: the store, the backend contract, the fake core and the components | about 510 | `src/**/*.test.ts` |
-| End to end, against the built app | 84 | [`e2e/`](../../e2e) |
+| Rust unit, property and snapshot tests | about 340 | Next to the code, in `#[cfg(test)]` modules |
+| Frontend: the store, the backend contract, the fake core and the components | about 610 | `src/**/*.test.ts` |
+| End to end, against the built app | 97 | [`e2e/`](../../e2e) |
 
 - [Running the tests](#running-the-tests)
 - [relay-core](#relay-core)
@@ -144,7 +144,7 @@ The build puts the app, with the UI built in, at `target/debug/relay.exe`. Quit 
 
 [`e2e/harness.mjs`](../../e2e/harness.mjs) starts Relay on a scratch data folder (`RELAY_DATA_DIR`), with remote debugging on a random port (`RELAY_DEVTOOLS_PORT`: Relay passes it to WebView2 itself, since `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` isn't honored on CI runners). It clicks the page's own controls by their accessible names (`page.click("Play")`) and reads the store (`page.store("mode")`). Where the UI would open a native dialog, it calls the command instead (`page.invoke("import_macros", …)`). Then it checks the files Relay writes. `app.restart()` quits and relaunches on the same folder, to check what survives.
 
-The tests never send input to the desktop. Macros that get played contain only waits and pixel checks (`waitingMacro()`). The triggers fire on real events: `ping.exe` launching, a scheduled minute arriving, and, for the pixel trigger, a patch of Relay's own window changing color.
+The tests never send input to the desktop. Macros that get played contain only waits and pixel checks (`waitingMacro()`), and one Find image step whose image is never on screen (the suite checks first: found, it would click). The triggers fire on real events: `ping.exe` launching, a scheduled minute arriving, for the pixel trigger a patch of Relay's own window changing color, and for the image trigger a small window appearing. Relay leaves its own window out of image searches, so [`e2e/image-window.ps1`](../../e2e/image-window.ps1) (PowerShell and WinForms, DPI-aware) draws a fixed pattern, saves it as the PNG to look for, and shows it in a borderless window of its own.
 
 | Suite | What's covered |
 | --- | --- |
@@ -153,8 +153,9 @@ The tests never send input to the desktop. Macros that get played contain only w
 | `settings` | Every setting in `settings.json`; Keep on top on the native window, including "only during sessions"; compact mode resizing the window and reopening compact; the anchor kept; the editor resizable and the compact player not; dividers dragged, saved, restored after a restart and reset by double-click; a saved bigger editor laid out, and Reset layout; close to tray hiding, and quitting when it's off |
 | `playback` | Playing to the end, with the run counted; loops; speed; pause and resume; stop; playing from the playhead; seeking and changing speed mid-playback; a pixel check timing out; the busy guard; recording's countdown, and cancelling it |
 | `triggers` | Hotkeys registered, and refused for Relay's own, another macro's or an unusable combo; the schedule saved with its next run, then firing at the minute; the app-launch trigger firing, skipped while busy, and not firing while paused; the pixel trigger firing once per change; the log recording each run; everything after a restart |
+| `images` | An image file read, and a plain or missing one refused; *Test* finding the pattern in another window at its exact position, and not the same picture drawn in Relay's own window; the image trigger firing when the window appears, and once; a Find image step whose image never shows stopping playback with *Image not found at step 2* |
 
-Anything that needs real input isn't covered end to end: recording actual clicks and keys, Esc, stop on key press, pressing a macro's hotkey, the kill switch, and the tray menu. The engine's injection is covered by its unit tests with a recording injector. The rest is in the manual checks below.
+Anything that needs real input isn't covered end to end: recording actual clicks and keys, Esc, stop on key press, pressing a macro's hotkey, the kill switch, and the tray menu. Nor is anything that clicks what it finds (a Find image step that finds its image), or that changes the user's clipboard or opens the snipping overlay (Paste and Snip). The engine's injection, including a Find image step's click, is covered by its unit tests with a recording injector, and clipboard bitmaps by relay-core's. The rest is in the manual checks below.
 
 ### By hand
 
@@ -200,6 +201,7 @@ What automated tests can't cover well:
 - [ ] Play from the play button: input goes to the previous app, not Relay
 - [ ] An elevated target shows the warning
 - [ ] Each trigger type fires once, and is skipped while busy or locked
+- [ ] Find image: **+ Find image** snips (Esc, then Cancel, inserts nothing); Paste a screenshot copied from another app and one from a browser; a Find image step clicks a real button at 100% and 150% scaling, and on a second monitor; *Test* agrees; the image trigger fires when a dialog opens; CPU in Task Manager stays low while a step or trigger waits
 - [ ] Close to tray, Start with Windows (sign out and in), single instance
 - [ ] A 10-minute soak: memory stays flat, timing stats in the log stay under 2 ms p99
 - [ ] The installer installs, upgrades and uninstalls cleanly on a fresh Windows 10 and 11

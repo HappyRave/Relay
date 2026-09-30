@@ -25,6 +25,7 @@ Relay doesn't show you a thousand raw mouse events. It groups them into **steps*
 | `TYPE` | Typed text, such as **"invoice_2026"** | Characters typed less than 500 ms apart. Shifted characters and <kbd>AltGr</kbd> characters (like `@` or `€` on many European layouts) are part of the text. |
 | `WAIT` | **Wait 0.5 s** | A pause you inserted. |
 | `IF` | **Wait for pixel 1248, 680 = #EC3013** | A [pixel check](05-pixel-checks.md) you inserted. |
+| `FIND` | **Find image · OK button** | A [Find image](06-find-image.md) step you inserted: it waits for a picture, then clicks it. |
 | `MOVE` | **Move** from one point to another, with how long it takes | The cursor moving between two other steps, including before the first and after the last. See [Moves](#moves). |
 
 The cursor moving while a button is held is part of that click or drag, not a move of its own.
@@ -41,7 +42,7 @@ Each row shows the **time** the step starts, its **type** tag, what it does and 
 - The row under the playhead is **highlighted**, and rows not yet reached are dimmed. During playback, the list scrolls to follow along.
 - **Click a row** to move the playhead there and open the step editor. Click the row again to close it.
 - A striped line such as **1.4 s pause** above a row marks a long [pause](#pauses) before that step.
-- The bar above the list shows the step count, with **+ Wait**, **+ Pixel check** and **Trim pauses**.
+- The bar above the list shows the step count, with **+ Wait**, **+ Pixel check**, **+ Find image** and **Trim pauses**.
 
 You can only edit while nothing is recording or playing: the buttons are off during a session. The open step editor stays on its step when you insert or delete other steps, or undo.
 
@@ -56,6 +57,7 @@ You can only edit while nothing is recording or playing: the buttons are off dur
 | Move | **Duration** in seconds, **Smooth** and **Straighten**. See [Moves](#moves). |
 | Wait | **Duration** in seconds, and a **label**. |
 | Pixel check | **X**, **Y**, **Color**, **Tolerance**, **Timeout** and a **label**, or **Pick** a pixel on screen. See [Pixel checks](05-pixel-checks.md). |
+| Find image | The image (click it where it should be clicked), **Snip**, **Paste** or **File…** to replace it, **Match %**, **Timeout**, **Test**, the button to **Click**, where to **Look** with several monitors, and a **label**. See [Find image](06-find-image.md). |
 
 Changes save as soon as you leave a field or press <kbd>Enter</kbd>. There's no Save button.
 
@@ -102,7 +104,7 @@ A pause is different from a [wait](#waits): a wait is a step you added on purpos
 
 Hover a row and click its **×**. The whole step goes: a click's press and release, all the characters of a typed text, the keys of a combination with their modifiers.
 
-- Deleting a **wait** or a **pixel check** also removes its time, so the rest of the macro moves earlier.
+- Deleting a **wait**, a **pixel check** or a **Find image** step also removes its time, so the rest of the macro moves earlier.
 - Deleting any other step leaves the timing of the rest alone. Deleting a **move** makes the cursor jump straight to the next step's position when it plays; the moves on either side of a deleted click join into one.
 - Relay makes sure nothing stays pressed. If you delete a press, its release goes too.
 
@@ -110,7 +112,7 @@ After you delete a step, the message at the bottom of the panel has an **Undo** 
 
 ## Undo and redo
 
-Every change you make to a macro (deleting, inserting, pauses, waits, moves, pixel checks, labels, the name) can be undone:
+Every change you make to a macro (deleting, inserting, pauses, waits, moves, pixel checks, Find image steps, labels, the name) can be undone:
 
 | To… | Press |
 | --- | --- |
@@ -128,21 +130,21 @@ The left side of the editor draws the macro over your whole screen: all your mon
 
 - The **mode**: *Preview*, *Get ready*, *● Rec*, *Playing* or *Paused*, and while playing, the loop and speed (*Loop 1 / 3 · 1×*).
 - **Keys** or **Typing**: the key combination or the text being typed at that moment (the end of it, for long text).
-- The **step under the playhead**, named as in the steps list (*Step 4 · Double click · Filename field*), or *Waiting for pixel X, Y* while a pixel check waits.
+- The **step under the playhead**, named as in the steps list (*Step 4 · Double click · Filename field*), *Waiting for pixel X, Y* while a pixel check waits, or *Looking for the image* while a Find image step does.
 - **Fit**, while zoomed in, with the zoom (*250% · Fit*): shows the whole screen again.
 - **Screen | Sketch**: what the macro is drawn over (see below).
 - The cursor's **X** and **Y** at the current time.
 
 **Screen** draws the macro over the [screenshot](02-recording.md#what-gets-recorded) taken when you recorded it, dimmed so the path stays readable. **Sketch** draws it over outlines of your monitors and of the window you first clicked in. Your choice is remembered. A macro recorded without a screenshot (before Relay 1.3, imported from a file, or with **Settings → Recording → Screenshot** off) always shows the sketch, and the switch is off.
 
-Drag the **divider** between the preview and the side panel to give either more room, the one above the buttons to make the buttons bigger, and the one above the timeline to make it taller. You can also resize the whole window from its edges; see [The widget window](08-settings.md#the-widget-window).
+Drag the **divider** between the preview and the side panel to give either more room, the one above the buttons to make the buttons bigger, and the one above the timeline to make it taller. You can also resize the whole window from its edges; see [The widget window](09-settings.md#the-widget-window).
 
 The drawing itself has:
 
 - The **mouse path**: a dashed grey line for the whole recording, and a solid red line for the part already played. With **Settings → Preview → Mouse path: Trail only**, only the red part is drawn, which is easier to read on long macros. The path of an open [move](#moves) is drawn thicker.
 - **Numbered squares** for clicks, with their labels if **Click labels** is on.
 - The **cursor**, at its position for the current time.
-- A dashed square around a pixel check while it waits.
+- A dashed square around a pixel check while it waits, and around the screen a Find image step looks on (when it looks on one only).
 
 ## The timeline
 
@@ -155,7 +157,7 @@ The timeline at the bottom shows the whole macro in four lanes:
 | **Mouse** | When the mouse moves: a bar for each [move](#moves) and drag |
 | **Clicks** | A tick for each click |
 | **Keys** | Key combinations and typed text, with their labels |
-| **Logic** | Waits and pixel checks |
+| **Logic** | Waits, pixel checks (`IF`) and Find image steps (`FIND`) |
 
 [Pauses](#pauses), when nothing happens, are striped across all four lanes, however short. While you record, the Mouse lane follows the live cursor path, and pauses show once you stop.
 

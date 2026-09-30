@@ -404,11 +404,7 @@ impl Coordinator {
             (Ok(p), Ok(s)) => Some(Rect { x: p.x, y: p.y, w: s.width as i32, h: s.height as i32 }),
             _ => None,
         };
-        #[cfg(windows)]
-        let hwnd = w.hwnd().map(|h| h.0 as isize).unwrap_or(0);
-        #[cfg(not(windows))]
-        let hwnd = 0;
-        (rect, hwnd)
+        (rect, crate::window_ctl::main_hwnd(&self.app))
     }
 
     fn start_recording(&mut self) {
@@ -548,6 +544,7 @@ impl Coordinator {
             seed: (self.platform.now_ms)().to_bits() ^ (m.id.as_u128() as u64),
             offset,
             from,
+            own_window,
             steps: group_steps(&m.events, (&m.recording).into()),
             events: m.events,
         };

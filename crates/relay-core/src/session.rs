@@ -28,6 +28,7 @@ pub enum RunSource {
     Schedule,
     AppLaunch,
     Pixel,
+    Image,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]

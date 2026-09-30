@@ -4,6 +4,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { browserBackend, tauriBackend } from "./backend";
 import { core } from "../../test/fake-core";
+import { png } from "../../test/app";
 import type { EngineMsg } from "./bindings/EngineMsg";
 import type { MacroTriggers, PlaybackOptions, Settings } from "../types";
 import { DEFAULT_PLAYBACK, DEFAULT_SETTINGS } from "../defaults";
@@ -34,6 +35,9 @@ describe("tauriBackend", () => {
     ["getSettings", () => b.getSettings(), "get_settings", {}],
     ["samplePixel", () => b.samplePixel(-5, 7), "sample_pixel", { x: -5, y: 7 }],
     ["pickPixel", () => b.pickPixel(3000), "pick_pixel", { delayMs: 3000 }],
+    ["snipImage", () => b.snipImage(), "snip_image", {}],
+    ["cancelSnip", () => b.cancelSnip(), "cancel_snip", {}],
+    ["testFindImage", () => b.testFindImage(png(4, 4), 90, null), "test_find_image", { image: png(4, 4), threshold: 90, area: null }],
     ["getTriggers", () => b.getTriggers(id), "get_triggers", { id }],
     ["setTriggersPaused", () => b.setTriggersPaused(true), "set_triggers_paused", { paused: true }],
     ["listProcesses", () => b.listProcesses(), "list_processes", {}],
@@ -64,12 +68,13 @@ describe("tauriBackend", () => {
     expect(core.calls).toEqual([{ cmd: "update_settings", args: { settings } }]);
   });
 
-  test("setTriggers sends all four triggers", async () => {
+  test("setTriggers sends all five triggers", async () => {
     const triggers: MacroTriggers = {
       hotkey: { enabled: true, combo: "Ctrl + Alt + 9" },
       schedule: { enabled: true, schedule: { days: [true, false, true, false, true, false, false], time: "07:30" } },
       app_launch: { enabled: true, exe: "excel.exe", delay_ms: 1500 },
       pixel: { enabled: true, x: 10, y: 20, color: "#ABCDEF", tolerance: 4 },
+      image: { enabled: true, image: png(8, 8), threshold: 90, area: { x: -1920, y: 0, w: 1920, h: 1080 } },
     };
     const status = await b.setTriggers(id, triggers);
     expect(core.calls).toEqual([{ cmd: "set_triggers", args: { id, triggers } }]);
@@ -219,10 +224,15 @@ describe("browserBackend (npm run dev)", () => {
       bb.deleteMacro(id),
       bb.restoreMacro(id),
       bb.pickPixel(0),
+      bb.pasteImage(),
+      bb.chooseImage(),
+      bb.snipImage(),
+      bb.testFindImage(png(4, 4), 85, null),
     ]) {
       await expect(p).rejects.toMatchObject({ code: "unavailable" });
     }
     expect(await bb.samplePixel(1, 2)).toBeNull();
+    await bb.cancelSnip(); // nothing to cancel
     expect(await bb.getAutostart()).toBe(false);
     expect(await bb.setAutostart(true)).toBe(false);
     expect(await bb.listProcesses()).toContain("excel.exe");

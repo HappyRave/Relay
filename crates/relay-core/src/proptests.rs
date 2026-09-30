@@ -9,7 +9,7 @@ use proptest::test_runner::TestCaseError;
 
 use crate::edit::{EditError, EditOp, MAX_DUR, apply, check_invariants};
 use crate::keys::KeyStroke;
-use crate::model::{Event, Macro, MouseBtn, Ms, RecordingMeta, Rgb};
+use crate::model::{Event, ImagePng, Macro, MouseBtn, Ms, RecordingMeta, Rgb};
 use crate::playback::plan_times;
 use crate::steps::{GroupOptions, Step, StepKind, group_steps};
 use crate::timeline::duration;
@@ -181,6 +181,28 @@ fn edit(steps: usize, dur: u32) -> impl Strategy<Value = EditOp> {
     prop_oneof![
         idx.clone().prop_map(|index| EditOp::DeleteStep { index }),
         (at.clone(), 0..3000u32).prop_map(|(at, dur)| EditOp::InsertWait { at, dur, label: String::new() }),
+        (at.clone(), 1..3000u32).prop_map(|(at, dur)| EditOp::InsertFindImage {
+            at,
+            dur,
+            image: ImagePng(b"\x89PNG".to_vec()),
+            click_x: 3,
+            click_y: 4,
+            btn: MouseBtn::Left,
+            threshold: 85,
+            timeout_ms: 5000,
+            area: None,
+            label: String::new()
+        }),
+        idx.clone().prop_map(|index| EditOp::UpdateFindImage {
+            index,
+            image: ImagePng(b"\x89PNG".to_vec()),
+            click_x: -1,
+            click_y: 0,
+            btn: MouseBtn::Right,
+            threshold: 70,
+            timeout_ms: 100,
+            area: None
+        }),
         (at, 1..3000u32).prop_map(|(at, dur)| EditOp::InsertPixelWait {
             at,
             dur,
@@ -230,19 +252,25 @@ fn expected(op: &EditOp, steps: &[Step]) -> Result<(), EditError> {
         EditOp::Rename { .. }
         | EditOp::InsertWait { .. }
         | EditOp::InsertPixelWait { .. }
+        | EditOp::InsertFindImage { .. }
         | EditOp::CapPauses { .. } => Ok(()),
         EditOp::DeleteStep { index } | EditOp::SetPause { index, .. } => kind(index).map(|_| ()),
-        EditOp::SetWaitDuration { index, .. } => {
-            only(index, |k| matches!(k, StepKind::Wait { .. } | StepKind::PixelWait { .. }))
-        }
+        EditOp::SetWaitDuration { index, .. } => only(index, |k| {
+            matches!(k, StepKind::Wait { .. } | StepKind::PixelWait { .. } | StepKind::FindImage { .. })
+        }),
         EditOp::UpdatePixelWait { index, .. } => only(index, |k| matches!(k, StepKind::PixelWait { .. })),
+        EditOp::UpdateFindImage { index, .. } => only(index, |k| matches!(k, StepKind::FindImage { .. })),
         EditOp::SetMoveDuration { index, .. } | EditOp::SmoothMove { index } | EditOp::StraightenMove { index } => {
             only(index, |k| matches!(k, StepKind::Move { .. }))
         }
         EditOp::SetLabel { index, .. } => only(index, |k| {
             matches!(
                 k,
-                StepKind::Click { .. } | StepKind::Drag { .. } | StepKind::Wait { .. } | StepKind::PixelWait { .. }
+                StepKind::Click { .. }
+                    | StepKind::Drag { .. }
+                    | StepKind::Wait { .. }
+                    | StepKind::PixelWait { .. }
+                    | StepKind::FindImage { .. }
             )
         }),
     }
@@ -267,7 +295,7 @@ fn check_op(op: &EditOp, before: &[Event], steps: &[Step], after: &[Event]) -> R
     match op {
         EditOp::DeleteStep { index } => {
             let step = &steps[*index as usize];
-            if matches!(step.kind, StepKind::Wait { .. } | StepKind::PixelWait { .. }) {
+            if matches!(step.kind, StepKind::Wait { .. } | StepKind::PixelWait { .. } | StepKind::FindImage { .. }) {
                 return Ok(());
             }
             // Exactly its events go; the others keep their times.
@@ -282,17 +310,26 @@ fn check_op(op: &EditOp, before: &[Event], steps: &[Step], after: &[Event]) -> R
             // clicks into a double click, the moves on either side into one).
             prop_assert!(after_steps.len() < steps.len(), "{} steps, then {}", steps.len(), after_steps.len());
         }
-        EditOp::InsertWait { dur, label, .. } | EditOp::InsertPixelWait { dur, label, .. } => {
+        EditOp::InsertWait { dur, label, .. }
+        | EditOp::InsertPixelWait { dur, label, .. }
+        | EditOp::InsertFindImage { dur, label, .. } => {
             if saturates(before, *dur) {
                 return Ok(());
             }
-            let p = after.iter().position(
-                |e| matches!(e, Event::Wait { label: l, .. } | Event::PixelWait { label: l, .. } if l == label),
-            );
+            let p = after.iter().position(|e| {
+                matches!(
+                    e,
+                    Event::Wait { label: l, .. } | Event::PixelWait { label: l, .. } | Event::FindImage { label: l, .. }
+                        if l == label
+                )
+            });
             let p = p.expect("the inserted wait") as u32;
             let new = after_steps.iter().position(|s| s.items == [p]).expect("the inserted wait's step");
             let dur = (*dur).min(MAX_DUR);
-            let (StepKind::Wait { dur: d, .. } | StepKind::PixelWait { dur: d, .. }) = after_steps[new].kind else {
+            let (StepKind::Wait { dur: d, .. }
+            | StepKind::PixelWait { dur: d, .. }
+            | StepKind::FindImage { dur: d, .. }) = after_steps[new].kind
+            else {
                 return Err(TestCaseError::fail(format!("{:?}", after_steps[new])));
             };
             prop_assert_eq!(d, dur);
@@ -396,7 +433,10 @@ proptest! {
         let mut m = Macro::new("p", RecordingMeta::single_1080p(), events);
         for (n, mut op) in ops.into_iter().enumerate() {
             // A label no other wait has, to find the one inserted.
-            if let EditOp::InsertWait { label, .. } | EditOp::InsertPixelWait { label, .. } = &mut op {
+            if let EditOp::InsertWait { label, .. }
+            | EditOp::InsertPixelWait { label, .. }
+            | EditOp::InsertFindImage { label, .. } = &mut op
+            {
                 *label = format!("inserted {n}");
             }
             let before = m.events.clone();

@@ -1,6 +1,7 @@
 mod commands;
 mod coordinator;
 mod engine;
+mod finder;
 mod history;
 mod hotkeys;
 mod ipc;
@@ -85,6 +86,11 @@ pub fn run() {
             commands::restore_macro,
             commands::sample_pixel,
             commands::pick_pixel,
+            commands::paste_image,
+            commands::load_image,
+            commands::snip_image,
+            commands::cancel_snip,
+            commands::test_find_image,
             commands::get_settings,
             commands::update_settings,
             commands::get_triggers,

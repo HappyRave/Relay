@@ -8,13 +8,15 @@
 
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use parking_lot::Mutex;
-use relay_core::model::{PlaybackOptions, Rgb};
+use relay_core::image::{self, ImageError, Rgb8};
+use relay_core::model::{ImagePng, PlaybackOptions, Rect, Rgb};
 use relay_core::session::{FinishReason, Input};
 use relay_core::{EditOp, Macro, MacroListItem, MacroView, format};
-use relay_platform::Platform;
+use relay_platform::{ClipImage, Platform};
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
@@ -315,6 +317,116 @@ pub async fn pick_pixel(platform: State<'_, Arc<Platform>>, delay_ms: u32) -> Re
     .unwrap_or(Err(IpcError { code: "unavailable", message: "Couldn't read the screen".into() }))
 }
 
+// — images —
+
+fn image_error(e: ImageError) -> IpcError {
+    IpcError { code: "image", message: e.to_string() }
+}
+
+fn from_clip(clip: ClipImage) -> Result<ImagePng> {
+    let img = match clip {
+        ClipImage::Png(bytes) => Rgb8::decode(&bytes),
+        ClipImage::Dib(bytes) => Rgb8::from_dib(&bytes),
+    };
+    let img = image::check(img.map_err(image_error)?).map_err(image_error)?;
+    Ok(ImagePng(img.encode_png()))
+}
+
+/// The picture on the clipboard, ready for a Find image step.
+#[tauri::command(async)]
+pub fn paste_image(platform: State<'_, Arc<Platform>>) -> Result<ImagePng> {
+    let clip = platform.clipboard.image().ok_or(IpcError {
+        code: "image",
+        message: "There's no picture on the clipboard. Copy or snip one first.".into(),
+    })?;
+    from_clip(clip)
+}
+
+/// A PNG or JPEG file, ready for a Find image step.
+#[tauri::command(async)]
+pub fn load_image(path: String) -> Result<ImagePng> {
+    let bytes =
+        std::fs::read(&path).map_err(|e| IpcError { code: "io", message: format!("Couldn't read that file: {e}") })?;
+    image::prepare(&bytes).map(ImagePng).map_err(image_error)
+}
+
+/// Counts snips started and cancelled: a snip waits only while it's the latest.
+static SNIPS: AtomicU64 = AtomicU64::new(0);
+/// How long a snip waits for the user.
+const SNIP_WAIT: Duration = Duration::from_secs(60);
+
+/// Opens Windows' snipping overlay and waits for the snip to land on the
+/// clipboard. `None` when the user cancels ([`cancel_snip`]) or never snips.
+#[tauri::command]
+pub async fn snip_image(platform: State<'_, Arc<Platform>>) -> Result<Option<ImagePng>> {
+    let platform = platform.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let me = SNIPS.fetch_add(1, Ordering::SeqCst) + 1;
+        let before = platform.clipboard.sequence();
+        platform.clipboard.start_snip().map_err(|e| IpcError {
+            code: "unavailable",
+            message: format!("Couldn't open Windows' snipping tool ({e}). Snip with another tool, then paste."),
+        })?;
+        let until = std::time::Instant::now() + SNIP_WAIT;
+        while std::time::Instant::now() < until && SNIPS.load(Ordering::SeqCst) == me {
+            std::thread::sleep(Duration::from_millis(150));
+            if platform.clipboard.sequence() != before
+                && let Some(clip) = platform.clipboard.image()
+            {
+                return from_clip(clip).map(Some);
+            }
+        }
+        Ok(None)
+    })
+    .await
+    .unwrap_or(Err(IpcError { code: "unavailable", message: "Couldn't read the snip".into() }))
+}
+
+/// Stops waiting for a snip.
+#[tauri::command]
+pub fn cancel_snip() {
+    SNIPS.fetch_add(1, Ordering::SeqCst);
+}
+
+/// The best match for an image on screen, with its score in percent.
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+pub struct FoundImage {
+    pub x: i32,
+    pub y: i32,
+    pub w: i32,
+    pub h: i32,
+    pub score: u8,
+}
+
+/// Looks for `image` once, as a Find image step would (Relay's window left
+/// out). Returns the best match even below `threshold` (percent), so the
+/// UI can say how close it came, or `None` if nothing came close.
+#[tauri::command]
+pub async fn test_find_image(
+    app: AppHandle,
+    platform: State<'_, Arc<Platform>>,
+    image: ImagePng,
+    threshold: u8,
+    area: Option<Rect>,
+) -> Result<Option<FoundImage>> {
+    let platform = platform.inner().clone();
+    let exclude = crate::window_ctl::main_hwnd(&app);
+    tauri::async_runtime::spawn_blocking(move || {
+        let gray = Rgb8::decode(&image.0).map_err(image_error)?.gray();
+        let m = crate::finder::best_on_screen(&*platform.screen, &gray, area, threshold as f32 / 100.0, exclude);
+        Ok(m.map(|m| FoundImage {
+            x: m.x,
+            y: m.y,
+            w: m.w,
+            h: m.h,
+            score: (m.score * 100.0).round().clamp(0.0, 100.0) as u8,
+        }))
+    })
+    .await
+    .unwrap_or(Err(IpcError { code: "unavailable", message: "Couldn't read the screen".into() }))
+}
+
 // — triggers —
 
 #[derive(Debug, Serialize, TS)]
@@ -488,6 +600,21 @@ mod tests {
         assert_eq!(IpcError::io(std::io::Error::other("disk full")).message, "Couldn't save: disk full");
         let bad = format::from_rly("nope").unwrap_err();
         assert_eq!(IpcError::from(LibraryError::Format(bad)).code, "format");
+    }
+
+    #[test]
+    fn clipboard_pictures_become_step_images() {
+        let stripes = Rgb8 { w: 16, h: 8, px: (0..384).map(|i| if i / 12 % 2 == 0 { 20 } else { 230 }).collect() };
+        let png = from_clip(ClipImage::Png(stripes.encode_png())).unwrap();
+        assert_eq!(Rgb8::decode(&png.0).unwrap(), stripes);
+        // A 24-bit, bottom-up bitmap of one plain color: refused, with a code.
+        let mut dib = [40u32, 10, 10].iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<_>>();
+        dib.extend([1, 0, 24, 0]);
+        dib.extend([0; 24]);
+        dib.extend(std::iter::repeat_n(90, 32 * 10));
+        let e = serde_json::to_value(from_clip(ClipImage::Dib(dib)).unwrap_err()).unwrap();
+        assert_eq!(e["code"], "image");
+        assert_eq!(e["message"], "This image is too plain to find reliably. Pick a part with more detail.");
     }
 
     #[test]

@@ -106,6 +106,34 @@ pub trait Timer: Send {
     fn waker(&self) -> Arc<dyn Fn() + Send + Sync>;
 }
 
+/// A picture from the clipboard, as the program that copied it offered it.
+#[derive(Clone, PartialEq, Eq)]
+pub enum ClipImage {
+    Png(Vec<u8>),
+    /// A device-independent bitmap (`CF_DIB`): a BITMAPINFOHEADER, then pixels.
+    Dib(Vec<u8>),
+}
+
+impl std::fmt::Debug for ClipImage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ClipImage::Png(b) => write!(f, "Png({} bytes)", b.len()),
+            ClipImage::Dib(b) => write!(f, "Dib({} bytes)", b.len()),
+        }
+    }
+}
+
+/// Pictures on the clipboard, and the OS's screen snip.
+pub trait Clipboard: Send + Sync {
+    /// A number that changes whenever something is copied.
+    fn sequence(&self) -> u32;
+    /// The picture on the clipboard, if there is one.
+    fn image(&self) -> Option<ClipImage>;
+    /// Opens the OS's overlay for snipping part of the screen, which puts
+    /// the snip on the clipboard.
+    fn start_snip(&self) -> Result<()>;
+}
+
 /// Turns a key press into the character it types, for display.
 pub trait CharTranslator: Send {
     fn translate(&mut self, vk: u16, scan: u16, held: &HeldKeys) -> Option<String>;
@@ -115,6 +143,7 @@ pub struct Platform {
     pub hook: Box<dyn InputHook>,
     pub screen: Arc<dyn Screen>,
     pub windows: Arc<dyn WindowQuery>,
+    pub clipboard: Arc<dyn Clipboard>,
     /// A new translator, owned by the recorder thread.
     pub translator: fn() -> Box<dyn CharTranslator>,
     /// A new injector, owned by the playback thread.

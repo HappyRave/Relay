@@ -8,6 +8,7 @@
 - [Step grouping](#step-grouping)
 - [Edits and invariants](#edits-and-invariants)
 - [Reshaping a move](#reshaping-a-move)
+- [Finding an image](#finding-an-image)
 - [The file format](#the-file-format)
 - [Playback timing](#playback-timing)
 - [The session state machine](#the-session-state-machine)
@@ -19,16 +20,17 @@
 
 | Module | Contents |
 | --- | --- |
-| [`model`](../../crates/relay-core/src/model.rs) | `Macro`, `Event`, `RecordingMeta`, `PlaybackOptions`, `Rgb`, `Rect`, `MonitorInfo`, `WindowInfo` |
+| [`model`](../../crates/relay-core/src/model.rs) | `Macro`, `Event`, `RecordingMeta`, `PlaybackOptions`, `Rgb`, `Rect`, `ImagePng`, `MonitorInfo`, `WindowInfo` |
 | [`keys`](../../crates/relay-core/src/keys.rs) | `KeyStroke`, modifiers, key labels, `code_for_label`, `key_for_char` |
 | [`steps`](../../crates/relay-core/src/steps.rs) | `group_steps`: raw events → `Step`s |
 | [`edit`](../../crates/relay-core/src/edit.rs) | `EditOp`, `apply`, `normalize`, `check_invariants` |
 | [`path`](../../crates/relay-core/src/path.rs) | `smooth`, `straighten`, `simplify`: reshaping a MOVE step's path |
+| [`image`](../../crates/relay-core/src/image.rs) | `find`: an image on a screen capture, at any scale from 0.5 to 2. `Rgb8`: reading PNG, JPEG and clipboard bitmaps, `prepare`/`check` |
 | [`format`](../../crates/relay-core/src/format.rs) | `.rly` serialization, the JSON export, loading and migrations |
 | [`playback`](../../crates/relay-core/src/playback.rs) | `PlayClock`, `plan_times` (humanize) |
 | [`session`](../../crates/relay-core/src/session.rs) | `Mode`, `Input`, `Effect`, `step` |
 | [`schedule`](../../crates/relay-core/src/schedule.rs) | `WeeklySchedule`, `next_run` |
-| [`triggers`](../../crates/relay-core/src/triggers.rs) | `MacroTriggers`, `PixelEdge`, `ProcessLaunchEdge` |
+| [`triggers`](../../crates/relay-core/src/triggers.rs) | `MacroTriggers` (including `ImageTrigger`), `PixelEdge`, `ProcessLaunchEdge` |
 | [`timeline`](../../crates/relay-core/src/timeline.rs) | `duration`, shared by the editor and the engine |
 | [`view`](../../crates/relay-core/src/view.rs) | `MacroView` and `MacroListItem`, what the UI receives |
 | [`samples`](../../crates/relay-core/src/samples.rs) | The four sample macros from the design |
@@ -150,6 +152,20 @@ Playback replays every recorded sample at its time and doesn't interpolate, so d
 
 Distances use `sqrt` rather than `hypot`, since `sqrt` is exactly rounded everywhere: the UI tests' copy (`src/test/fake-path.ts`) must land on the same pixels, and `path.rs` writes `src/test/path-cases.json` for them to check.
 
+## Finding an image
+
+[`image.rs`](../../crates/relay-core/src/image.rs) finds a picture (a Find image step's or the image trigger's) on a capture of the screen. Both are compared in gray by **normalized cross-correlation** (NCC): the score is 1 for a perfect match and doesn't change when the whole area gets lighter, darker or more contrasted, so a hovered button still matches. Windows with no spread (flat areas, most of a screen) are skipped at once.
+
+A naive search is far too slow (every position × every pixel of the image × every scale), so it's coarse to fine:
+
+1. **Scales.** 1 first (the picture as it was taken), then 0.5 to 2, each 10% larger than the one before: 15 in all. The search stops at the first scale with a match at the threshold.
+2. **Coarse.** The screen is halved up to four times (a pyramid of 2×2 averages). Each scale is searched on the smallest copy where the scaled picture is still at least 5 pixels on its short side, using summed-area tables for each window's mean and spread. The best 8 spots scoring at least 0.3 are kept, no two closer than half the picture. The floor is low on purpose: a few pixels of misalignment cost a lot at that size.
+3. **Refine.** Each spot is followed down the pyramid, searching ±3 pixels at each level (±6 on the first step, where the coarse picture's rounding shows most). A spot scoring below 0.5 on the way is dropped: the real picture scores well above that once it's a dozen pixels across. At the last level it also tries 3% smaller and larger, then 1.5% either side of the best, which keeps the scale within about 1% of the truth. Refining stops at the level where the picture fits in 128 × 128 pixels, so a big picture never costs a full-size comparison.
+
+`find` returns the best match (position, size, scale, score), even below the threshold, so *Test* can say how close it came; `None` means nothing came close. On a 2560 × 1440 screen, a 100 × 40 picture that isn't there costs about **22 ms** in a release build; one found at scale 1 about **8 ms**. relay-core is built at `opt-level = 3` in both the release and the dev profile for this.
+
+Pictures are kept as PNG (`ImagePng`, base64 in JSON). `prepare` reads a PNG or JPEG (transparent parts on white), `Rgb8::from_dib` a clipboard bitmap (24 or 32 bits, top-down or bottom-up), and `check` shrinks them to 512 px on the long side and refuses ones under 8 px or too plain to find (a standard deviation under 4 gray levels).
+
 ## The file format
 
 `format::to_rly` writes a compact JSON envelope, `{"format": "relay-macro", "version": 1, ...macro}`. `to_export_json` pretty-prints the same thing plus the derived `steps`, for humans and scripts.
@@ -245,7 +261,7 @@ The polling triggers feed one sample per poll into an edge detector and fire on 
 | Detector | Fires when | Why |
 | --- | --- | --- |
 | `ProcessLaunchEdge` | The process is present now and was absent at the previous sample. The first sample is only a baseline. | An app already running when Relay starts (or when the trigger is turned on) must not fire. |
-| `PixelEdge` | The pixel matches on **two consecutive** samples after **two consecutive** non-matching samples. It re-arms only after two non-matches in a row. | A single-frame flicker doesn't fire, a pixel that stays red fires once, and the mouse passing over it for one sample doesn't re-arm it. |
+| `PixelEdge` | The pixel matches on **two consecutive** samples after **two consecutive** non-matching samples. It re-arms only after two non-matches in a row. | A single-frame flicker doesn't fire, a pixel that stays red fires once, and the mouse passing over it for one sample doesn't re-arm it. The image trigger uses it too, a sample being whether the image is on screen. |
 
 ## Views for the UI
 

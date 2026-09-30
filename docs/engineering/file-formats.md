@@ -75,7 +75,7 @@ A `.rly` file is a single-line JSON object. Here's a small one, pretty-printed (
 | Field | Type | Notes |
 | --- | --- | --- |
 | `format` | `"relay-macro"` | Required. Anything else is *not a Relay macro*. |
-| `version` | integer | `1`. See [migrations](#versioning-and-migrations). |
+| `version` | integer | `2` if the macro has a `find_image` event, else `1`. See [migrations](#versioning-and-migrations). |
 | `id` | UUID | Also the file name |
 | `name` | string | |
 | `created_at`, `modified_at` | RFC 3339 UTC | |
@@ -118,6 +118,7 @@ Every event has a `type` and `t`, the time in milliseconds from the start. Optio
 | `key` | `down`, `key`, `ch`? | `key` is `{ code, vk?, scan?, ext? }` (see below). `ch` is the text the press typed, on `down` events only. |
 | `wait` | `dur`, `label`? | |
 | `pixel_wait` | `dur`, `x`, `y`, `color`, `tolerance`, `timeout_ms`, `label`? | `color` is `"#RRGGBB"`. `tolerance` is per channel, 0–255. |
+| `find_image` | `dur`, `image`, `click_x`, `click_y`, `btn`, `threshold`, `timeout_ms`, `area`?, `label`? | `image` is a PNG in base64 (at most 512 px a side). `click_x`, `click_y` are where to click, from the image's top-left in its own pixels (they scale with it). `threshold` is the lowest match accepted, 50–100 %. `area` is a rect to look in; without it, all monitors. |
 
 **Keys**: `code` is the W3C [`KeyboardEvent.code`](https://www.w3.org/TR/uievents-code/) of the physical key (`KeyA`, `Digit1`, `ShiftLeft`, `Enter`, `ArrowLeft`, `Numpad5`, `F9`…). `vk` is the Windows virtual-key code, `scan` the hardware scan code (set 1) and `ext` the extended-key flag. Playback prefers `scan`, then `vk`, then a scan code looked up from `code`, then types `ch` as Unicode. A hand-written file only needs `code`.
 
@@ -127,7 +128,7 @@ Relay enforces these when loading (by normalizing), so a hand-edited file doesn'
 
 - Events are sorted by `t`.
 - Every `down` has a matching release later. Releases without a press are dropped, and presses without a release are released at the end.
-- Nothing happens inside a `wait` or `pixel_wait` (between `t` and `t + dur`). An event inside one, or at its start but listed after it, is moved to its end.
+- Nothing happens inside a `wait`, `pixel_wait` or `find_image` (between `t` and `t + dur`). An event inside one, or at its start but listed after it, is moved to its end.
 
 ## The JSON export
 
@@ -158,6 +159,7 @@ A step looks like:
 | --- | --- | --- |
 | **0** | The M0 prototype's export | High-level events: `click` (with `count`), `key` combos like `"Ctrl + A"`, `char`, `wait`, `cond`. No recording metadata. |
 | **1** | Relay 0.2 and later | Low-level presses and releases, as above |
+| **2** | Relay 1.4 and later, for macros with a `find_image` event | Version 1 plus `find_image`. Loading a v1 file as v2 needs no change. A macro without one is still written as v1, so older Relays keep reading it; one with one is refused by them as too new rather than as invalid. |
 
 `migrate_v0` expands each v0 event: a `click` with `count: 2` becomes two press/release pairs 120 ms apart, a combo becomes modifier presses around the key, a `char` becomes its US-layout key (with Shift if needed), and a `cond` becomes a `pixel_wait` with tolerance 8 and a 5 s timeout. Missing metadata defaults to a single 1920×1080 monitor.
 
@@ -182,7 +184,8 @@ To change the format:
         "hotkey": { "enabled": true, "combo": "Ctrl + Alt + 1" },
         "schedule": { "enabled": true, "schedule": { "days": [true, true, true, true, true, false, false], "time": "09:00" } },
         "app_launch": { "enabled": false, "exe": "", "delay_ms": 2000 },
-        "pixel": { "enabled": false, "x": 0, "y": 0, "color": "#EC3013", "tolerance": 8 }
+        "pixel": { "enabled": false, "x": 0, "y": 0, "color": "#EC3013", "tolerance": 8 },
+        "image": { "enabled": false, "image": null, "threshold": 85, "area": null }
       }
     }
   },
@@ -200,6 +203,7 @@ To change the format:
 | `triggers.schedule.schedule.days` | Monday first |
 | `triggers.schedule.schedule.time` | Local `"HH:MM"` |
 | `triggers.app_launch.exe` | File name, matched case-insensitively |
+| `triggers.image.image` | A PNG in base64, as in `find_image`, or `null` until one is set |
 | `trash` | Deleted macros and their stats, so *Undo* restores them exactly. `next` is the macro that came right after (`null` at the end); restoring follows it (through other trashed macros) to the first one still in the Library, so the macro returns to the right place even after others were added or restored. Older files have only `position`, used as is. `name` keeps recording names from repeating one that's in the trash. |
 
 Before triggers existed (up to M6), entries had a plain `hotkey` label. It's read as a disabled hotkey trigger.

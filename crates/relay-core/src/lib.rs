@@ -7,6 +7,7 @@
 
 pub mod edit;
 pub mod format;
+pub mod image;
 pub mod keys;
 pub mod model;
 pub mod path;

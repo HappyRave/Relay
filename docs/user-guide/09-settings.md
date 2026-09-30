@@ -80,7 +80,7 @@ Relay's icon sits in the notification area of the taskbar. Hover it to see what 
 | **Show / hide Relay** | Same as left-click |
 | **Record** <kbd>F9</kbd> | Starts or stops a recording |
 | **Stop** <kbd>Esc</kbd> | Stops the recording or playback |
-| **Triggers active** | Checked while triggers can run. Uncheck it to pause them all, check it to resume. See [Pausing triggers](06-triggers.md#pausing-triggers). |
+| **Triggers active** | Checked while triggers can run. Uncheck it to pause them all, check it to resume. See [Pausing triggers](07-triggers.md#pausing-triggers). |
 | **Open macros folder** | Opens `%APPDATA%\Relay` in Explorer |
 | **Quit Relay** | Quits for real. Hotkeys and triggers stop. |
 
@@ -105,4 +105,4 @@ Uninstall Relay from **Settings → Apps → Installed apps**. For the portable 
 
 ---
 
-<p align="center"><a href="07-library.md">← Library, export and import</a> · <a href="README.md">Contents</a> · <a href="09-troubleshooting.md">Troubleshooting and FAQ →</a></p>
+<p align="center"><a href="08-library.md">← Library, export and import</a> · <a href="README.md">Contents</a> · <a href="10-troubleshooting.md">Troubleshooting and FAQ →</a></p>

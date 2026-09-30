@@ -11,8 +11,8 @@ use relay_core::keys::KeyStroke;
 use relay_core::model::MouseBtn;
 
 use crate::{
-    CharTranslator, HeldKeys, HookConfig, HookSession, Injector, InputHook, Platform, PlatformError, RawInput, Result,
-    Screen, Timer, WindowQuery, WindowRef,
+    CharTranslator, ClipImage, Clipboard, HeldKeys, HookConfig, HookSession, Injector, InputHook, Platform,
+    PlatformError, RawInput, Result, Screen, Timer, WindowQuery, WindowRef,
 };
 
 struct Stub;
@@ -105,6 +105,18 @@ impl Timer for SleepTimer {
     }
 }
 
+impl Clipboard for Stub {
+    fn sequence(&self) -> u32 {
+        0
+    }
+    fn image(&self) -> Option<ClipImage> {
+        None
+    }
+    fn start_snip(&self) -> Result<()> {
+        Err(PlatformError::Unsupported)
+    }
+}
+
 impl CharTranslator for Stub {
     fn translate(&mut self, _: u16, _: u16, _: &HeldKeys) -> Option<String> {
         None
@@ -121,6 +133,7 @@ pub fn platform() -> Platform {
         hook: Box::new(Stub),
         screen: Arc::new(Stub),
         windows: Arc::new(Stub),
+        clipboard: Arc::new(Stub),
         translator: || Box::new(Stub),
         injector: || Box::new(Stub),
         timer: || Box::new(SleepTimer(Arc::default())),

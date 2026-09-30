@@ -19,8 +19,12 @@ chrono = { version = "0.4.45", default-features = false, features = ["std", "clo
 uuid = { version = "1.26", features = ["v4", "serde"] }
 ts-rs = { version = "12", features = ["chrono-impl", "uuid-impl", "no-serde-warnings"] }
 fastrand = "2.5"
+png = "0.18.1"
+jpeg-decoder = { version = "0.3.2", default-features = false }
+base64 = "0.22"
 
 [dev-dependencies]
 chrono-tz = "0.10"
 proptest = "1.11"
 insta = { version = "1.48", features = ["json"] }
+jpeg-encoder = "0.7.1"
