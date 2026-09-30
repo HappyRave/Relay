@@ -51,7 +51,7 @@ jobs:
             - **`Relay_…_x64-setup.exe`**: the installer (per user, no administrator rights needed). Recommended.
             - **`Relay_…_x64-portable.exe`**: the app on its own, nothing to install. Needs the WebView2 runtime, which Windows 11 includes. Macros and settings are still kept in `%APPDATA%\Relay`.
 
-            Neither is code-signed yet, so Windows SmartScreen may warn on first run: choose **More info → Run anyway**.
+            Neither is code-signed yet, so Windows SmartScreen may warn on first run (and on macros exported as programs, when they come from another PC): choose **More info → Run anyway**.
           releaseDraft: true
           prerelease: false
       - name: Build (adding to an existing release)
