@@ -5,6 +5,10 @@
 //!
 //! v2 only adds the `find_image` event, so a macro without one is still
 //! written as v1, which older Relays read.
+//!
+//! An exported program is the player's exe with the `.rly` appended, then a
+//! trailer: its length (u64 LE), [`BUNDLE_VERSION`] (u32 LE) and
+//! [`BUNDLE_MAGIC`]. Windows ignores data after the image it loads.
 
 use chrono::Utc;
 use serde::Serialize;
@@ -19,11 +23,17 @@ use crate::steps::{Step, group_steps};
 
 pub const FORMAT: &str = "relay-macro";
 pub const VERSION: u64 = 2;
+/// The last 8 bytes of an exported program.
+pub const BUNDLE_MAGIC: &[u8; 8] = b"RELAYRLY";
+pub const BUNDLE_VERSION: u32 = 1;
+const TRAILER: usize = 8 + 4 + 8;
 
 #[derive(Debug, Error)]
 pub enum FormatError {
     #[error("not a Relay macro")]
     NotRelay,
+    #[error("not a program exported by Relay")]
+    NotRelayProgram,
     #[error("this macro was saved by a newer Relay (format version {0})")]
     TooNew(u64),
     #[error("invalid macro file: {0}")]
@@ -85,6 +95,45 @@ pub fn from_rly(s: &str) -> Result<Macro, FormatError> {
     let mut m: Macro = serde_json::from_value(v).map_err(invalid)?;
     normalize(&mut m.events);
     Ok(m)
+}
+
+/// An exported program: the player `stub` playing `m`.
+pub fn bundle(stub: &[u8], m: &Macro) -> Vec<u8> {
+    let rly = to_rly(m);
+    let mut out = Vec::with_capacity(stub.len() + rly.len() + TRAILER);
+    out.extend_from_slice(stub);
+    out.extend_from_slice(rly.as_bytes());
+    out.extend_from_slice(&(rly.len() as u64).to_le_bytes());
+    out.extend_from_slice(&BUNDLE_VERSION.to_le_bytes());
+    out.extend_from_slice(BUNDLE_MAGIC);
+    out
+}
+
+/// The `.rly` inside an exported program.
+pub fn unbundle(file: &[u8]) -> Result<&str, FormatError> {
+    let Some(body) = file.len().checked_sub(TRAILER) else { return Err(FormatError::NotRelayProgram) };
+    let (rest, trailer) = file.split_at(body);
+    if &trailer[12..] != BUNDLE_MAGIC {
+        return Err(FormatError::NotRelayProgram);
+    }
+    let version = u32::from_le_bytes(trailer[8..12].try_into().expect("4 bytes"));
+    if version > BUNDLE_VERSION {
+        return Err(FormatError::TooNew(version.into()));
+    }
+    let len = u64::from_le_bytes(trailer[..8].try_into().expect("8 bytes"));
+    let start = usize::try_from(len)
+        .ok()
+        .and_then(|len| rest.len().checked_sub(len))
+        .ok_or_else(|| FormatError::Invalid("the program's macro is cut short".into()))?;
+    std::str::from_utf8(&rest[start..]).map_err(|e| FormatError::Invalid(e.to_string()))
+}
+
+/// Reads a `.rly`, a JSON export or an exported program (an exe starts with "MZ").
+pub fn from_file(bytes: &[u8]) -> Result<Macro, FormatError> {
+    if bytes.starts_with(b"MZ") {
+        return from_rly(unbundle(bytes)?);
+    }
+    from_rly(std::str::from_utf8(bytes).map_err(|_| FormatError::NotRelay)?)
 }
 
 fn migrate(from: u64, obj: &mut Map<String, Value>) -> Result<(), FormatError> {
@@ -320,6 +369,81 @@ mod tests {
         assert!(e.contains("invalid image"), "{e}");
         let old = text.replace(r#""version":2,"#, r#""version":1,"#);
         assert_eq!(from_rly(&old).unwrap(), m, "no migration needed");
+    }
+
+    /// Something shaped like the player: an MZ header and some bytes.
+    const STUB: &[u8] = b"MZ\x90\0the player\0\0";
+
+    #[test]
+    fn a_program_carries_its_macro() {
+        let mut m = fixed_macro();
+        m.name = "Relevé mensuel ✓".into();
+        let exe = bundle(STUB, &m);
+        assert!(exe.starts_with(STUB) && exe.ends_with(BUNDLE_MAGIC));
+        assert_eq!(unbundle(&exe).unwrap(), to_rly(&m));
+        assert_eq!(from_file(&exe).unwrap(), m);
+    }
+
+    #[test]
+    fn a_program_that_finds_an_image_carries_a_v2_macro() {
+        let mut m = fixed_macro();
+        let png = crate::image::Rgb8 { w: 4, h: 4, px: vec![200; 48] }.encode_png();
+        m.events.push(Event::FindImage {
+            t: 1500,
+            dur: 800,
+            image: ImagePng(png),
+            click_x: 2,
+            click_y: 2,
+            btn: MouseBtn::Left,
+            threshold: 85,
+            timeout_ms: 5000,
+            area: None,
+            label: String::new(),
+        });
+        let exe = bundle(STUB, &m);
+        assert!(unbundle(&exe).unwrap().contains(r#""version":2,"#));
+        assert_eq!(from_file(&exe).unwrap(), m);
+    }
+
+    #[test]
+    fn plain_macro_files_read_as_before() {
+        let m = fixed_macro();
+        assert_eq!(from_file(to_rly(&m).as_bytes()).unwrap(), m);
+        assert_eq!(from_file(to_export_json(&m).as_bytes()).unwrap(), m);
+        assert!(matches!(from_file(&[0xFF, 0xFE, 0x00]), Err(FormatError::NotRelay)), "not UTF-8");
+    }
+
+    #[test]
+    fn other_programs_are_refused() {
+        let program = |tail: &[u8]| [STUB, tail].concat();
+        assert_eq!(from_file(b"MZ").unwrap_err().to_string(), "not a program exported by Relay", "too short");
+        assert!(matches!(from_file(&program(&[0; 64])), Err(FormatError::NotRelayProgram)), "no trailer");
+        let exe = bundle(STUB, &fixed_macro());
+        let mut other = exe.clone();
+        *other.last_mut().unwrap() = b'X';
+        assert!(matches!(from_file(&other), Err(FormatError::NotRelayProgram)), "another magic");
+    }
+
+    #[test]
+    fn a_damaged_or_newer_program_says_so() {
+        let exe = bundle(STUB, &fixed_macro());
+        let n = exe.len();
+        let mut newer = exe.clone();
+        newer[n - 12..n - 8].copy_from_slice(&2u32.to_le_bytes());
+        assert!(matches!(unbundle(&newer), Err(FormatError::TooNew(2))));
+
+        let mut too_long = exe.clone();
+        too_long[n - 20..n - 12].copy_from_slice(&(n as u64).to_le_bytes());
+        assert!(matches!(unbundle(&too_long), Err(FormatError::Invalid(_))), "longer than the file");
+        let mut huge = exe.clone();
+        huge[n - 20..n - 12].copy_from_slice(&u64::MAX.to_le_bytes());
+        assert!(matches!(unbundle(&huge), Err(FormatError::Invalid(_))));
+
+        // A byte of the macro lost: its JSON no longer parses.
+        let mut cut = exe[..STUB.len()].to_vec();
+        cut.extend_from_slice(&exe[STUB.len() + 1..]);
+        let e = from_file(&cut).unwrap_err();
+        assert!(matches!(e, FormatError::Invalid(_) | FormatError::NotRelay), "{e:?}");
     }
 
     #[test]
