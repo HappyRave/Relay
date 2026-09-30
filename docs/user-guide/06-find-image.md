@@ -43,6 +43,8 @@ Relay keeps pictures up to 512 pixels on their longest side (larger ones are shr
 
 ## Adjusting it
 
+<p align="center"><img src="../images/find-image.png" alt="The Find image editor" width="720"></p>
+
 Click the `FIND` row to open its editor:
 
 | Field | Meaning |

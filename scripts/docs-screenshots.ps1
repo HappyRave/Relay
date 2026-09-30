@@ -26,6 +26,8 @@ function Js($code) { $code | Out-File -Encoding utf8 "$s\snippet.js"; node (Join
 # The tray icon also owns a window titled "Relay"; the widget's class is "Tauri Window".
 function Hwnd() { [D1]::FindWindow("Tauri Window", "Relay") }
 function Shot($name) {
+  # An error from an earlier step would stay on screen.
+  Js 'if (window.__relay.toast) window.__relay.dismissToast(); return true' | Out-Null
   Start-Sleep -Milliseconds 350
   # The visible frame (DWMWA_EXTENDED_FRAME_BOUNDS), without the invisible borders.
   $h = Hwnd; $r = New-Object D1+R; [D1]::DwmGetWindowAttribute($h, 9, [ref]$r, 16) | Out-Null
@@ -55,8 +57,8 @@ Shot "editor.png"
 
 # 2. Playing, with the loop badge and the red trail. The samples were recorded
 # on a 1920x1080 desktop and would really click there, so this plays only
-# inside a pause (stretched to 5 s, then undone), where the cursor just moves.
-Js 'const r = window.__relay; const i = r.steps.findIndex(s => s.pause >= 1000); await r.setPause(i, 5000); await r.setPlayback({ repeat: { count: 3 } }); const s = r.steps[i]; r.seek(s.t - s.pause + 200); await r.togglePlay(); return i' | Out-Null
+# inside the longest pause (stretched to 5 s, then undone), where nothing happens.
+Js 'const r = window.__relay; const i = r.steps.reduce((b, s, j) => (s.pause > r.steps[b].pause ? j : b), 0); await r.setPause(i, 5000); await r.setPlayback({ repeat: { count: 3 } }); const s = r.steps[i]; r.seek(s.t - s.pause + 200); await r.togglePlay(); return i' | Out-Null
 Start-Sleep -Milliseconds 1200
 Shot "playing.png"
 Js 'const r = window.__relay; await r.stop(); while (r.mode !== "idle") await new Promise(res => setTimeout(res, 50)); await r.undo(); r.seek(0); return r.duration' | Out-Null
@@ -66,6 +68,21 @@ Js 'const i = window.__relay.steps.findIndex(s => s.kind === "pixel_wait"); docu
 Park
 Shot "step-editor.png"
 Js 'const i = window.__relay.steps.findIndex(s => s.kind === "pixel_wait"); document.querySelectorAll(".list .row")[i].click(); window.__relay.seek(0); return true' | Out-Null
+
+# 3b. The step editor on a Find image step, whose image is the header's Export
+# button cut out of editor.png (inserted after the first click, then undone).
+$b = (Js "const b = [...document.querySelectorAll('.header button')].find(b => b.textContent.trim() === 'Export').getBoundingClientRect(); const k = devicePixelRatio; return [b.x, b.y, b.width, b.height].map(v => Math.round(v * k))") | ConvertFrom-Json
+$src = [System.Drawing.Bitmap]::FromFile((Join-Path $outDir "editor.png"))
+$pad = 6
+$x0 = [math]::Max(0, $b[0] - $pad); $y0 = [math]::Max(0, $b[1] - $pad)
+$cw = [math]::Min($src.Width, $b[0] + $b[2] + $pad) - $x0; $ch = [math]::Min($src.Height, $b[1] + $b[3] + $pad) - $y0
+$crop = $src.Clone((New-Object System.Drawing.Rectangle $x0, $y0, $cw, $ch), $src.PixelFormat)
+$crop.Save("$s\button.png", [System.Drawing.Imaging.ImageFormat]::Png); $crop.Dispose(); $src.Dispose()
+$png = ("$s\button.png" -replace '\\', '/')
+Js "const r = window.__relay; const image = await window.__TAURI_INTERNALS__.invoke('load_image', { path: '$png' }); const at = r.steps.find(s => s.kind === 'click').t; await r.edit({ op: 'insert_find_image', at, dur: 800, image, click_x: $([int]($cw / 2)), click_y: $([int]($ch / 2)), btn: 'Left', threshold: 85, timeout_ms: 5000, area: null, label: 'Export button' }); const i = r.steps.findIndex(s => s.kind === 'find_image'); r.seek(r.steps[i].t); document.querySelectorAll('.list .row')[i].click(); await new Promise(res => setTimeout(res, 400)); document.querySelector('.editor').scrollIntoView({ block: 'start' }); return i" | Out-Null
+Park
+Shot "find-image.png"
+Js 'const r = window.__relay; const i = r.steps.findIndex(s => s.kind === "find_image"); document.querySelectorAll(".list .row")[i].click(); await r.undo(); r.seek(0); return true' | Out-Null
 
 # 4. The Library, a row hovered to show its actions.
 Tab "Library"
