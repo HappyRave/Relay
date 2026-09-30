@@ -31,7 +31,7 @@ This page takes you from downloading Relay to replaying your first macro.
 The widget opens centered at the bottom of your main screen. It comes with four **sample macros** from the design ("Export invoice to PDF", "Fill weekly timesheet"…), so you can explore the editor right away.
 
 > [!WARNING]
-> The samples were recorded on an imaginary 1920×1080 desktop. **Don't play them on your real desktop**: they would click at those positions in whatever is there. Delete them from the [Library](07-library.md) once you've looked around.
+> The samples were recorded on an imaginary 1920×1080 desktop. **Don't play them on your real desktop**: they would click at those positions in whatever is there. Delete them from the [Library](08-library.md) once you've looked around.
 
 Try this:
 
@@ -67,8 +67,8 @@ That's it: recording, then playback. Everything else builds on these two keys.
 ## What to read next
 
 - Want the macro to wait for something to load? See [Pixel checks](05-pixel-checks.md) and [waits](03-editing.md#waits).
-- Want it to run on its own every morning? See [Triggers](06-triggers.md).
-- Something didn't replay as expected? See [Troubleshooting](09-troubleshooting.md).
+- Want it to run on its own every morning? See [Triggers](07-triggers.md).
+- Something didn't replay as expected? See [Troubleshooting](10-troubleshooting.md).
 
 ---
 

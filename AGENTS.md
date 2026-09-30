@@ -80,17 +80,19 @@ crates/relay-core/src/       pure logic, heavily tested
   playback.rs  timeline.rs   PlayClock, plan_times (humanize); durations
   session.rs                 the session state machine: Mode × Input → effects
   schedule.rs  triggers.rs   next scheduled run (DST-safe); PixelEdge, ProcessLaunchEdge
+  image.rs                   finding an image on a capture (gray NCC, coarse to fine, scales 0.5–2); PNG/JPEG/DIB
   samples.rs  proptests.rs   the four design samples; property tests
 crates/relay-platform/src/
   lib.rs  types.rs           the OS traits (InputHook, Screen, WindowQuery, Injector, Timer…), RawInput, HookConfig
   recorder.rs  keymap.rs     RawInput → Events; scan code ↔ W3C code
   processes.rs               running programs (sysinfo)
-  windows/                   the Win32 backend: hook, inject, screen, text, timer, window
+  windows/                   the Win32 backend: clipboard (and the snip), hook, inject, screen, text, timer, window
   stub.rs                    placeholder backend for non-Windows builds
 src-tauri/src/
   lib.rs                     app setup, plugins, commands list, RELAY_DEVTOOLS_PORT, shutdown
   coordinator.rs             owns the session: commands in, effects out; F10 playhead; trigger admission
   engine.rs                  the playback engine (pure Engine + thread)
+  finder.rs                  an image on the real screen (1:1 capture, Relay's window left out); the trigger's Looker
   rec_thread.rs              recorder thread and hook watchdog
   commands.rs  ipc.rs        Tauri commands; the EngineMsg stream (queues errors until the UI subscribes)
   library.rs  history.rs     macros on disk + trash + import; undo/redo (in memory)
@@ -104,10 +106,10 @@ src/                         the Svelte UI
   lib/ipc/backend.ts         Backend interface: tauriBackend and the read-only browserBackend
   lib/ipc/bindings/          GENERATED from Rust by ts-rs (never edit by hand)
   lib/dev/sample-views.json  GENERATED browser fixture (by relay-core's tests)
-  lib/fields.ts  format.ts  hotkeys.ts  timeline/  preview/  platform/window.ts
+  lib/fields.ts  format.ts  hotkeys.ts  image.ts  timeline/  preview/  platform/window.ts
   components/                Widget, CompactBar, ExportDialog, expanded/{Header,Preview,SidePanel,Transport,Timeline,tabs/*}, ui/*, shared/*
   test/                      fake-core.ts (+ fake-edit.ts, fake-core.test.ts), app.ts, setup.ts
-e2e/                         end-to-end suites (*.e2e.test.mjs), harness.mjs, github-reporter.mjs, ci-diagnose.mjs
+e2e/                         end-to-end suites (*.e2e.test.mjs), harness.mjs, image-window.ps1, github-reporter.mjs, ci-diagnose.mjs
 scripts/                     cdp.mjs (run JS in a running Relay), docs-screenshots.ps1 (regenerates docs/images)
 docs/                        user-guide/, engineering/, images/
 Design/                      the original prototype and design system (reference only)
@@ -208,7 +210,7 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 
 ## Git, CI and GitHub
 
-- **Branches:** never commit directly to `main`. Milestones `mN-short-name` (next is `m17-…`), fixes `fix-…`, docs `docs-…`, releases `release-X.Y.Z`.
+- **Branches:** never commit directly to `main`. Milestones `mN-short-name` (next is `m18-…`), fixes `fix-…`, docs `docs-…`, releases `release-X.Y.Z`.
 - **Commits:** small, [Conventional Commits](https://www.conventionalcommits.org/) (`feat(recorder): …`, `fix(engine): …`, `test(e2e): …`, `docs: …`, `ci: …`, `chore: …`), with a body explaining why when it isn't obvious.
 - **Merging:** `git merge --no-ff` into `main` ("Merge mN-…: <summary>"), then push. Milestones used to be tagged `v0.N.0-mN`; since 1.0, versions are tagged only at release.
 - **Pushing to `HappyRave/Relay` is authorized** for this workflow (branches and `main`).
@@ -255,7 +257,11 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 - Every cursor move belongs to a step: the click or drag it happened during, or a MOVE step (the run between two other events). MOVE steps are grouped after everything else, so they never break a double click or a Ctrl-click, and humanize ignores them (their samples follow the step before). `pause` is idle time only. Smooth and Straighten keep every sample's time and both ends, because playback replays each sample without interpolating.
 - The sample macros have a MOVE before each click: the invoice sample has 18 steps, 12 of them the design's.
 - A trailing `+` in a hotkey is the plus key ("Ctrl + +"). "Ctrl + + K" is refused. Shift alone with a key that types (Shift + A) is refused. So is a hotkey ending in a modifier.
-- A pixel trigger fires when the pixel matches twice in a row after two non-matching samples, and re-arms only after two non-matches.
+- A pixel trigger fires when the pixel matches twice in a row after two non-matching samples, and re-arms only after two non-matches. The image trigger works the same way, a sample being "the image is on screen".
+- Image searches never look inside Relay's own window (`WDA_EXCLUDEFROMCAPTURE` for the capture), so the editor's thumbnail is never found; captures run one at a time for that. The E2E tests show their image in a separate PowerShell window for this reason.
+- A Find image step that finds its image clicks it: E2E only plays one whose image is absent.
+- `.rly` is written as v2 only when the macro has a `find_image` event, so other macros still open in older Relays.
+- relay-core is built at `opt-level = 3` in dev too: unoptimized, an image search takes seconds instead of ~25 ms.
 - App launches are detected by process name: a second instance of a program that's already running isn't a launch (`chrome.exe` starts many processes).
 - A schedule run found up to 2 minutes late (after waking) still runs; later than that, it's skipped. A clock set back never repeats a run.
 

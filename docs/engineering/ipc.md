@@ -70,6 +70,11 @@ Save and open dialogs are shown by the UI with `@tauri-apps/plugin-dialog`, and 
 | --- | --- | --- |
 | `sample_pixel` | `x, y` | `"#RRGGBB"` or `null` |
 | `pick_pixel` | `delay_ms` | `PickedPixel { x, y, color }` under the real cursor after the delay (async, doesn't block the IPC thread) |
+| `paste_image` | | The clipboard's picture as a base64 PNG, ready for a Find image step or the image trigger (shrunk to 512 px). `code: "image"` when there's none, or it's too small or plain. |
+| `load_image` | `path` | The same from a PNG or JPEG file; `code: "io"` when it can't be read |
+| `snip_image` | | Opens Windows' snipping overlay and waits (up to a minute) for the snip on the clipboard: the image, or `null` when cancelled |
+| `cancel_snip` | | Stops a `snip_image` waiting, which then returns `null` |
+| `test_find_image` | `image, threshold, area` | `FoundImage { x, y, w, h, score }`: the best match in screen pixels, its score in percent (even below `threshold`), or `null` when nothing came close. Relay's window is left out. |
 
 ### Triggers
 

@@ -97,7 +97,7 @@ These are in **Settings → Recording** and apply to new recordings.
 > [!WARNING]
 > **A recording stores what you type, passwords included.** It's saved as plain text in the macro file. Stop the recording before typing anything secret, or delete that step afterwards.
 
-Everything stays on your PC, and Relay never connects to the internet. The [diagnostic logs](08-settings.md#logs) record what Relay did (a recording started, a trigger fired), never what you typed.
+Everything stays on your PC, and Relay never connects to the internet. The [diagnostic logs](09-settings.md#logs) record what Relay did (a recording started, a trigger fired), never what you typed.
 
 ---
 

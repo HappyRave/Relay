@@ -21,10 +21,11 @@ How to install Relay and automate your work with it.
 3. [Editing steps](user-guide/03-editing.md)
 4. [Playing back](user-guide/04-playback.md)
 5. [Pixel checks](user-guide/05-pixel-checks.md)
-6. [Triggers](user-guide/06-triggers.md)
-7. [Library, export and import](user-guide/07-library.md)
-8. [Settings, tray and window](user-guide/08-settings.md)
-9. [Troubleshooting and FAQ](user-guide/09-troubleshooting.md)
+6. [Find image](user-guide/06-find-image.md)
+7. [Triggers](user-guide/07-triggers.md)
+8. [Library, export and import](user-guide/08-library.md)
+9. [Settings, tray and window](user-guide/09-settings.md)
+10. [Troubleshooting and FAQ](user-guide/10-troubleshooting.md)
 
 ⌨️ [Keyboard shortcuts](user-guide/keyboard-shortcuts.md)
 

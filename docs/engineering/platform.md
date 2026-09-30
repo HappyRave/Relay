@@ -11,6 +11,7 @@
 - [Character translation](#character-translation)
 - [The key map](#the-key-map)
 - [The recorder](#the-recorder)
+- [Clipboard](#clipboard)
 - [Processes](#processes)
 - [The stub backend](#the-stub-backend)
 - [Adding a backend](#adding-a-backend)
@@ -22,6 +23,7 @@ pub struct Platform {
     pub hook: Box<dyn InputHook>,
     pub screen: Arc<dyn Screen>,
     pub windows: Arc<dyn WindowQuery>,
+    pub clipboard: Arc<dyn Clipboard>,
     pub translator: fn() -> Box<dyn CharTranslator>,
     pub injector: fn() -> Box<dyn Injector>,
     pub timer: fn() -> Box<dyn Timer>,      // also raises the calling thread's priority
@@ -39,6 +41,7 @@ pub fn platform() -> Platform              // the backend for the current OS
 | `Screen` | `monitors`, `virtual_desktop`, `cursor_pos`, `double_click`, `pixel`, `capture` | `EnumDisplayMonitors`, `GetDpiForMonitor`, `GetPixel`, `StretchBlt` |
 | `WindowQuery` | `root_window_at`, `foreground`, `restore_previous`, `find_window`, `input_blocked`, `input_desktop_available` | Win32 windowing, DWM and token APIs |
 | `CharTranslator` | `translate(vk, scan, held)` | `ToUnicodeEx` |
+| `Clipboard` | `sequence`, `image`, `start_snip` | `GetClipboardSequenceNumber`; the registered `PNG` format, else `CF_DIB`; `ShellExecuteW("ms-screenclip:")` |
 
 Injectors, translators and timers are created by factory functions (`fn() -> Box<dyn …>`) so each thread that uses one owns its own. For the timer it also matters where it's created: it raises the calling thread's priority, and opts the process out of power throttling until it's dropped.
 
@@ -142,6 +145,17 @@ Measured over a 10-minute release-build soak, 12,000 events: median and p99 late
 - **Pixel**: `GetPixel` on the screen DC. It takes about 10 ms, because reading the screen waits for the compositor; a cached DC or a 1×1 `BitBlt` measured the same. That's fine for pixel checks every 30 ms and triggers every 250 ms. (Something much faster would need DXGI desktop duplication.)
 
 - **Capture** (the screenshot as a recording starts): `StretchBlt` from the screen DC into a top-down 32-bit DIB of the size `snapshot_size` picks (scaled down evenly to at most `max_w`, never up), in `HALFTONE` mode so text stays readable, then BGRA to RGB. Relay's window is left out with `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` (Windows 10 2004 and later; earlier, it shows), set for the capture only, after two `DwmFlush`es so the compositor has applied it, and reset right after, so other screenshot tools still see Relay. The whole desktop at 6400 × 1600 takes about 200 ms, on its own thread. `Snapshot`'s `Debug` prints only its size: its pixels are someone's screen. The stub returns `None`.
+
+  Finding images uses the same call with `max_w` = the area's width, which gives a 1:1 copy. Captures run one at a time (a static lock): otherwise one ending would reset the affinity while another is still capturing, and Relay's window would show in that one.
+
+## Clipboard
+
+[`windows/clipboard.rs`](../../crates/relay-platform/src/windows/clipboard.rs), for the images of Find image steps and the image trigger:
+
+- **Image**: opens the clipboard (retrying a few times: another program may hold it for a moment) and copies out the registered `PNG` format if a program offered it (the Snipping Tool and browsers do), else `CF_DIB`. relay-core reads either (`Rgb8::decode`, `Rgb8::from_dib`).
+- **Snip**: `ShellExecuteW` on `ms-screenclip:` opens Windows' snipping overlay (<kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd>), which puts its snip on the clipboard. The app's `snip_image` notes `sequence()` before, then polls it until it changes and an image is there.
+
+The stub has no clipboard: no image, and `start_snip` is `Unsupported`.
 
 The app is **per-monitor DPI aware (v2)** through `src-tauri/app.manifest`. Every coordinate in Relay, recorded or injected, is a physical pixel, so display scaling never distorts a macro.
 

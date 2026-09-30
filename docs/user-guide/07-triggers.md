@@ -1,12 +1,13 @@
 # Triggers
 
-Triggers run a macro without you pressing play: on a hotkey, on a schedule, when an app starts or when something changes on screen. Each macro has its own triggers, in the **Triggers** tab.
+Triggers run a macro without you pressing play: on a hotkey, on a schedule, when an app starts, or when something changes or appears on screen. Each macro has its own triggers, in the **Triggers** tab.
 
-- [The four triggers](#the-four-triggers)
+- [The five triggers](#the-five-triggers)
 - [Hotkey](#hotkey)
 - [Schedule](#schedule)
 - [When app launches](#when-app-launches)
 - [When pixel changes](#when-pixel-changes)
+- [When image appears](#when-image-appears)
 - [When a trigger fires](#when-a-trigger-fires)
 - [Pausing triggers](#pausing-triggers)
 - [Keep Relay running](#keep-relay-running)
@@ -15,7 +16,7 @@ Triggers run a macro without you pressing play: on a hotkey, on a schedule, when
 
 The tab shows the open macro's triggers. With no macro open it says so, and if they couldn't be loaded it shows *Couldn't load the triggers* with a **Retry** button.
 
-## The four triggers
+## The five triggers
 
 | Trigger | Runs the macro… | Example |
 | --- | --- | --- |
@@ -23,8 +24,9 @@ The tab shows the open macro's triggers. With no macro open it says so, and if t
 | **Schedule** | On chosen days at a set time | Weekdays at 09:00, export yesterday's report |
 | **When app launches** | A few seconds after a program starts | When `EXCEL.EXE` starts, open the usual workbook |
 | **When pixel changes** | When a pixel on screen turns a given color | When a build light turns red, take a screenshot |
+| **When image appears** | When a picture shows up anywhere on screen | When an *Update available* dialog appears, click *Later* |
 
-Each has a switch on the right. You can use several on the same macro. Triggers are saved on this PC only: they're not included when you [export](07-library.md#export) a macro.
+Each has a switch on the right. You can use several on the same macro. Triggers are saved on this PC only: they're not included when you [export](08-library.md#export) a macro.
 
 ## Hotkey
 
@@ -97,6 +99,20 @@ The trigger fires when the pixel **becomes** that color: it has to be a differen
 
 Relay checks the pixel 4 times a second, with a tolerance of 8 per color channel. See [Choosing a good pixel](05-pixel-checks.md#choosing-a-good-pixel).
 
+## When image appears
+
+1. Press **Snip** and drag a rectangle around the thing to watch for, as it looks when the macro should start. Or **Paste** a picture from the clipboard, or choose a PNG or JPEG **File…**.
+2. The switch turns on by itself with the first image. (Until there's an image, it's off and can't be turned on.)
+
+The thumbnail shows the image, and the line under the title the match it needs, for example *At a 85% match or better*. Set **Match %** (50 to 100) and, with several monitors, which screen to watch. **Test** looks for the image once, now, and says where it found it or how close it came.
+
+Like the pixel trigger, it fires when the image **appears**: it has to be away twice in a row first, then be seen twice in a row (about a second). An image that stays on screen runs the macro **once**. Changing the image or the match starts over. The image may be anywhere, and from half to twice its size; see [Find image](06-find-image.md#another-size).
+
+Relay looks twice a second, and only while an image trigger is on. It never looks inside its own window.
+
+> [!TIP]
+> The trigger only starts the macro; it doesn't know where to click. To click what appeared, wherever it is, start the macro with a [Find image](06-find-image.md) step for the same image.
+
 ## When a trigger fires
 
 A triggered macro plays **from the start**, with its own speed, repeat and other playback options. Its run count and *last run* go up as usual.
@@ -127,8 +143,8 @@ Triggers only work while Relay runs. To make sure it's always there:
 - Keep **Settings → Window → Close to tray** on (the default). Closing the widget then hides it to the tray instead of quitting.
 - Turn on **Settings → Window → Start with Windows**. Relay then starts hidden in the tray when you sign in.
 
-See [Settings, tray and window](08-settings.md).
+See [Settings, tray and window](09-settings.md).
 
 ---
 
-<p align="center"><a href="05-pixel-checks.md">← Pixel checks</a> · <a href="README.md">Contents</a> · <a href="07-library.md">Library, export and import →</a></p>
+<p align="center"><a href="06-find-image.md">← Find image</a> · <a href="README.md">Contents</a> · <a href="08-library.md">Library, export and import →</a></p>

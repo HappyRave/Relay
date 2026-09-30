@@ -1,6 +1,6 @@
 # Troubleshooting and FAQ
 
-Find your problem below. If it isn't here, [open an issue](https://github.com/HappyRave/Relay/issues) and attach that day's [log](08-settings.md#logs).
+Find your problem below. If it isn't here, [open an issue](https://github.com/HappyRave/Relay/issues) and attach that day's [log](09-settings.md#logs).
 
 Error messages stay at the bottom of the panel until you close them (×), so you don't miss one; other messages go away after a few seconds.
 
@@ -21,6 +21,8 @@ A macro clicks at the screen positions you recorded. Check that:
 - the app's window is where it was when you recorded. Maximize it, or switch the macro to [Window coordinates](04-playback.md#screen-or-window-coordinates).
 - your monitor layout and display scaling are the same as when you recorded.
 - the app is ready. At 2× or 4×, or when the app is slow today, clicks land before the window is there. Add a [pixel check](05-pixel-checks.md) or a [wait](03-editing.md#waits).
+
+When the thing to click isn't always in the same place, replace the click with a [Find image](06-find-image.md) step: it clicks the button wherever it is.
 
 </details>
 
@@ -52,8 +54,9 @@ When you press play in Relay, it gives the keyboard back to the app you used jus
 
 The message at the bottom of the panel says why:
 
-- **You pressed a key** or moved to another app with the keyboard, and *Stop on key press* is on. Turn it off in [Settings → Playback](08-settings.md#playback-for-the-open-macro) if you need to type during playback.
+- **You pressed a key** or moved to another app with the keyboard, and *Stop on key press* is on. Turn it off in [Settings → Playback](09-settings.md#playback-for-the-open-macro) if you need to type during playback.
 - *"Pixel check timed out at step N"*. See [When the pixel never matches](05-pixel-checks.md#when-the-pixel-never-matches).
+- *"Image not found at step N"*. See [When the image isn't found](06-find-image.md#when-the-image-isnt-found).
 - The **kill switch** was pressed. Triggers are now paused too.
 
 </details>
@@ -101,7 +104,7 @@ Windows sometimes removes an input hook when the PC is very busy. Relay noticed,
 <details>
 <summary><b>My recording disappeared</b></summary>
 
-A recording with nothing in it (no click, key or scroll: only mouse movement, however much) isn't saved. Otherwise, every recording goes to the top of the [Library](07-library.md).
+A recording with nothing in it (no click, key or scroll: only mouse movement, however much) isn't saved. Otherwise, every recording goes to the top of the [Library](08-library.md).
 
 </details>
 
@@ -135,6 +138,7 @@ Check each of these:
 5. **Schedule:** was the PC asleep at that time? Missed runs are skipped, not made up.
 6. **App launch:** was the program already running? The trigger fires when it starts, not while it runs.
 7. **Pixel:** did the pixel *change* to the color? A pixel that already had the color when you turned the trigger on doesn't count until it changes and comes back.
+8. **Image:** did the image *appear*? One already on screen when you turned the trigger on doesn't count until it goes away and comes back. Press **Test** to see how well it matches now.
 
 </details>
 
@@ -209,4 +213,4 @@ Not in v1. Both are planned, and are shown as *Coming later* in the Export dialo
 
 ---
 
-<p align="center"><a href="08-settings.md">← Settings, tray and window</a> · <a href="README.md">Contents</a> · <a href="keyboard-shortcuts.md">Keyboard shortcuts →</a></p>
+<p align="center"><a href="09-settings.md">← Settings, tray and window</a> · <a href="README.md">Contents</a> · <a href="keyboard-shortcuts.md">Keyboard shortcuts →</a></p>

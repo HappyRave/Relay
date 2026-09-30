@@ -2,7 +2,7 @@
 
 <p align="center">
   <b>Record what you do. Edit it as steps. Play it back on cue.</b><br>
-  A macro recorder for Windows, with a timeline editor, pixel checks and triggers.
+  A macro recorder for Windows, with a timeline editor, pixel checks, image search and triggers.
 </p>
 
 <p align="center">
@@ -32,7 +32,8 @@
 | ✏️ **Edit as steps** | Recordings become readable steps: *Click · Save*, *Ctrl + S*, *"invoice_2026"*. Label them, delete them, add waits, trim the pauses, speed up or smooth the mouse moves. Undo anything. |
 | ▶️ **Play back** | <kbd>F10</kbd> replays it at 0.5× to 4×, once, N times or forever, with optional *Humanize* timing. Accurate to about a millisecond. |
 | 🎯 **Pixel checks** | Wait until something appears on screen before continuing, instead of guessing how long to wait. |
-| ⏰ **Triggers** | Run a macro on a hotkey, on a weekly schedule, when an app starts, or when a pixel changes color. |
+| 🔍 **Find image** | Wait for a button or icon to appear anywhere on screen, even at another size, then click it. Snip it, paste it or pick a file. |
+| ⏰ **Triggers** | Run a macro on a hotkey, on a weekly schedule, when an app starts, when a pixel changes color, or when an image appears. |
 | 🛑 **Safe** | <kbd>Esc</kbd>, any key, or the <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd> kill switch stops everything. Nothing is ever left pressed. |
 | 📦 **Portable** | Macros are plain JSON `.rly` files. Export, import, back up, keep them in Git. |
 | 🔒 **Private** | Everything stays on your PC. Relay never connects to the internet. |
@@ -89,10 +90,11 @@ More in [Keyboard shortcuts](docs/user-guide/keyboard-shortcuts.md).
 - [Editing steps](docs/user-guide/03-editing.md)
 - [Playing back](docs/user-guide/04-playback.md)
 - [Pixel checks](docs/user-guide/05-pixel-checks.md)
-- [Triggers](docs/user-guide/06-triggers.md)
-- [Library, export and import](docs/user-guide/07-library.md)
-- [Settings, tray and window](docs/user-guide/08-settings.md)
-- [Troubleshooting and FAQ](docs/user-guide/09-troubleshooting.md)
+- [Find image](docs/user-guide/06-find-image.md)
+- [Triggers](docs/user-guide/07-triggers.md)
+- [Library, export and import](docs/user-guide/08-library.md)
+- [Settings, tray and window](docs/user-guide/09-settings.md)
+- [Troubleshooting and FAQ](docs/user-guide/10-troubleshooting.md)
 
 </td>
 <td width="50%" valign="top">
@@ -140,6 +142,7 @@ Relay is a Rust workspace (`relay-core` for the pure logic, `relay-platform` for
 - [x] **1.2**: two reviews of the whole code base and of every test, with dozens of bug fixes, *Keep on top* options, a test suite that drives the real app, MIT license
 - [x] **1.3**: a redesigned control bar, screenshots under the preview, a zoomable whole-screen preview, a resizable editor
 - [ ] Mouse moves as steps: retime, smooth or straighten them, delete the trip to the Stop button
+- [ ] Find image: click a button or icon wherever it appears, at any size, and run a macro when an image appears
 - [ ] AutoHotkey v2 and standalone `.exe` export
 - [ ] Code signing
 - [ ] Remapping macros to a different monitor layout

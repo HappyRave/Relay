@@ -19,7 +19,7 @@ An empty Library says *No macros yet — press Record (F9) to make one.* Each ro
 | | |
 | --- | --- |
 | **Name** | The macro's name. The open macro is highlighted with a red bar. |
-| **Hotkey** | Its [hotkey trigger](06-triggers.md#hotkey) if one is on, or **—** |
+| **Hotkey** | Its [hotkey trigger](07-triggers.md#hotkey) if one is on, or **—** |
 | **Length · steps · runs** | For example *10.9 s · 12 steps · 5 runs*. A run counts when the macro plays to the end. |
 | **Last run** | *Today, 09:12*, *Fri, 17:40*, *Sep 12* or *Never* |
 
@@ -58,7 +58,7 @@ If you deleted the macro that was open, Relay opens the next one in the list.
 
 3. Press **Save…** and choose where. The name defaults to the macro's name, like `export-invoice-to-pdf.rly`.
 
-An export contains the macro's events, its playback options and a little about the PC it was recorded on (monitor layout, the window it was anchored to). It doesn't contain its triggers, run count or last run: those stay on your PC.
+An export contains the macro's events, its playback options and a little about the PC it was recorded on (monitor layout, the window it was anchored to). It includes the pictures its [Find image](06-find-image.md) steps look for. It doesn't contain its triggers, run count or last run: those stay on your PC.
 
 > [!WARNING]
 > A macro contains everything you typed while recording it. Check the `TYPE` steps before sharing a macro file.
@@ -66,7 +66,7 @@ An export contains the macro's events, its playback options and a little about t
 ## Import
 
 1. Open the **Library** tab and press **Import…** at the bottom (it's off while recording or playing).
-2. Pick one or more `.rly` or `.json` files. Relay can read files from any version of Relay up to its own.
+2. Pick one or more `.rly` or `.json` files. Relay can read files from any version of Relay up to its own. (A macro with Find image steps needs Relay 1.4 or later; older versions say it was saved by a newer Relay.)
 
 Imported macros go to the top of the Library, and the first one opens. Relay then tells you *Imported 3 macros*, or what went wrong with each file that didn't work:
 
@@ -105,4 +105,4 @@ The `.rly` files are plain JSON, so they're easy to back up, keep in version con
 
 ---
 
-<p align="center"><a href="06-triggers.md">← Triggers</a> · <a href="README.md">Contents</a> · <a href="08-settings.md">Settings, tray and window →</a></p>
+<p align="center"><a href="07-triggers.md">← Triggers</a> · <a href="README.md">Contents</a> · <a href="09-settings.md">Settings, tray and window →</a></p>

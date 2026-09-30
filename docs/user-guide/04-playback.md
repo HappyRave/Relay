@@ -26,7 +26,7 @@ Playback replays a macro's clicks, keys and mouse path with the timing you recor
 | Replay part of a macro | Move the playhead (click a step or the timeline), then play |
 | Jump while playing | Click the timeline or a step. Playback continues from there. |
 
-Playback starts **wherever the playhead is**. If it's at the end, playback starts from the beginning. <kbd>F10</kbd> uses the same playhead the widget shows: after **Stop** it's back at the start, after a complete run at the end (so F10 plays again from the beginning), and after a [pixel check timed out](05-pixel-checks.md) on that check.
+Playback starts **wherever the playhead is**. If it's at the end, playback starts from the beginning. <kbd>F10</kbd> uses the same playhead the widget shows: after **Stop** it's back at the start, after a complete run at the end (so F10 plays again from the beginning), and after a [pixel check](05-pixel-checks.md) or a [Find image](06-find-image.md) step timed out on that step.
 
 While playing, the bar above the preview shows **Playing** (or **Paused**) with the loop and the speed of what's actually playing, for example *Loop 1 / 3 · 1×*. Record is off while a macro plays, and Play is off while recording.
 
@@ -34,7 +34,7 @@ When playback ends:
 
 - **It finished:** the playhead stays at the end, and the macro's run count and *last run* in the Library go up.
 - **You stopped it** (<kbd>Esc</kbd>, stop, a key press, the kill switch): the playhead goes back to the start, ready for the next run.
-- **A pixel check timed out:** the playhead stays on that step, so you can see where it got stuck. See [Pixel checks](05-pixel-checks.md#when-the-pixel-never-matches).
+- **A pixel check timed out, or a Find image step didn't find its image:** the playhead stays on that step, so you can see where it got stuck. See [Pixel checks](05-pixel-checks.md#when-the-pixel-never-matches) and [Find image](06-find-image.md#when-the-image-isnt-found).
 
 Relay never leaves a key or mouse button stuck. Anything the macro is holding down is released when playback stops, at the end of each loop and when you jump to another point.
 
@@ -107,7 +107,7 @@ Nothing can be sent while the screen is locked or a UAC prompt is up. Games with
 1. It stops whatever Relay is doing: countdown, recording (which is kept) or playback.
 2. It **pauses all triggers**, so a scheduled or looping macro can't restart right away.
 
-Resume triggers from the banner in the Triggers tab or with **Triggers active** in the tray menu. See [Triggers](06-triggers.md#pausing-triggers).
+Resume triggers from the banner in the Triggers tab or with **Triggers active** in the tray menu. See [Triggers](07-triggers.md#pausing-triggers).
 
 ## The compact player
 
