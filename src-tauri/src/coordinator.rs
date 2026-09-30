@@ -548,6 +548,7 @@ impl Coordinator {
             seed: (self.platform.now_ms)().to_bits() ^ (m.id.as_u128() as u64),
             offset,
             from,
+            own_window,
             steps: group_steps(&m.events, (&m.recording).into()),
             events: m.events,
         };

@@ -37,6 +37,8 @@ export function stepTitle(s: Step): string {
       return "“" + s.text + "”";
     case "pixel_wait":
       return `Wait for pixel ${s.x}, ${s.y} = ${s.color}`;
+    case "find_image":
+      return "Find image" + (s.label ? " · " + s.label : "");
     case "wait":
       return "Wait " + (s.dur / 1000).toFixed(1) + " s";
     case "move":

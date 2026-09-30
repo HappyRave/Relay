@@ -2,6 +2,9 @@
 //!
 //! Loading parses into a JSON value first, runs the migration chain up to
 //! [`VERSION`], then deserializes. Files from a newer Relay are rejected.
+//!
+//! v2 only adds the `find_image` event, so a macro without one is still
+//! written as v1, which older Relays read.
 
 use chrono::Utc;
 use serde::Serialize;
@@ -11,11 +14,11 @@ use uuid::Uuid;
 
 use crate::edit::normalize;
 use crate::keys::{code_for_label, key_for_char, split_combo};
-use crate::model::{Macro, PlaybackOptions, RecordingMeta};
+use crate::model::{Event, Macro, PlaybackOptions, RecordingMeta};
 use crate::steps::{Step, group_steps};
 
 pub const FORMAT: &str = "relay-macro";
-pub const VERSION: u64 = 1;
+pub const VERSION: u64 = 2;
 
 #[derive(Debug, Error)]
 pub enum FormatError {
@@ -40,7 +43,8 @@ struct Envelope<'a> {
 
 impl<'a> Envelope<'a> {
     fn new(body: &'a Macro, steps: Option<Vec<Step>>) -> Self {
-        Envelope { format: FORMAT, version: VERSION, body, steps }
+        let version = if body.events.iter().any(|e| matches!(e, Event::FindImage { .. })) { VERSION } else { 1 };
+        Envelope { format: FORMAT, version, body, steps }
     }
 }
 
@@ -86,6 +90,8 @@ pub fn from_rly(s: &str) -> Result<Macro, FormatError> {
 fn migrate(from: u64, obj: &mut Map<String, Value>) -> Result<(), FormatError> {
     match from {
         0 => migrate_v0(obj),
+        // v2 added an event type: v1 files are v2 files as they are.
+        1 => Ok(()),
         _ => Err(FormatError::Invalid(format!("no migration from version {from}"))),
     }
 }
@@ -182,7 +188,7 @@ mod tests {
     use super::*;
     use crate::edit::check_invariants;
     use crate::keys::KeyStroke;
-    use crate::model::{CoordMode, Event, MouseBtn, Rect, Repeat, Rgb, WindowInfo};
+    use crate::model::{CoordMode, ImagePng, MouseBtn, Rect, Repeat, Rgb, WindowInfo};
     use crate::steps::StepKind;
     use chrono::TimeZone;
 
@@ -287,6 +293,33 @@ mod tests {
         assert_eq!(from_rly(&to_export_json(&m)).unwrap(), m);
         m.playback.repeat = Repeat::Count(3);
         assert_eq!(from_rly(&to_rly(&m)).unwrap(), m);
+    }
+
+    #[test]
+    fn a_macro_that_finds_an_image_is_v2_and_round_trips() {
+        let mut m = fixed_macro();
+        assert!(to_rly(&m).contains(r#""version":1,"#), "no image: still v1");
+        let png = crate::image::Rgb8 { w: 8, h: 8, px: (0..192).map(|i| (i * 37 % 256) as u8).collect() }.encode_png();
+        m.events.push(Event::FindImage {
+            t: 1500,
+            dur: 800,
+            image: ImagePng(png),
+            click_x: 4,
+            click_y: -2,
+            btn: MouseBtn::Right,
+            threshold: 85,
+            timeout_ms: 5000,
+            area: Some(Rect { x: -1920, y: 0, w: 1920, h: 1080 }),
+            label: "OK".into(),
+        });
+        let text = to_rly(&m);
+        assert!(text.contains(r#""version":2,"#) && text.contains(r#""image":"iVBORw0KGgo"#), "{text}");
+        assert_eq!(from_rly(&text).unwrap(), m);
+        assert_eq!(from_rly(&to_export_json(&m)).unwrap(), m);
+        let e = from_rly(&text.replace(r#""image":"iVBOR"#, r#""image":"AAAA"#)).unwrap_err().to_string();
+        assert!(e.contains("invalid image"), "{e}");
+        let old = text.replace(r#""version":2,"#, r#""version":1,"#);
+        assert_eq!(from_rly(&old).unwrap(), m, "no migration needed");
     }
 
     #[test]

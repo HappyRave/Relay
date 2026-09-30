@@ -9,7 +9,7 @@ use serde::Serialize;
 use ts_rs::TS;
 
 use crate::keys::{self, Modifier};
-use crate::model::{Event, MouseBtn, Ms, RecordingMeta, Rgb};
+use crate::model::{Event, ImagePng, MouseBtn, Ms, RecordingMeta, Rect, Rgb};
 
 /// Characters typed less than this apart join the same TYPE step (the design's rule).
 pub const TYPE_GAP_MS: Ms = 500;
@@ -68,6 +68,17 @@ pub enum StepKind {
         color: Rgb,
         tolerance: u8,
         timeout_ms: Ms,
+        label: String,
+    },
+    FindImage {
+        dur: Ms,
+        image: ImagePng,
+        click_x: i32,
+        click_y: i32,
+        btn: MouseBtn,
+        threshold: u8,
+        timeout_ms: Ms,
+        area: Option<Rect>,
         label: String,
     },
     /// The cursor going from `x, y` (where it was before) to `to_x, to_y`,
@@ -384,6 +395,26 @@ pub fn group_steps(events: &[Event], opts: GroupOptions) -> Vec<Step> {
                         color: *color,
                         tolerance: *tolerance,
                         timeout_ms: *timeout_ms,
+                        label: label.clone(),
+                    },
+                );
+                steps[s].end = t.saturating_add(*dur);
+            }
+
+            Event::FindImage { t, dur, image, click_x, click_y, btn, threshold, timeout_ms, area, label } => {
+                let s = push(
+                    &mut steps,
+                    *t,
+                    i,
+                    StepKind::FindImage {
+                        dur: *dur,
+                        image: image.clone(),
+                        click_x: *click_x,
+                        click_y: *click_y,
+                        btn: *btn,
+                        threshold: *threshold,
+                        timeout_ms: *timeout_ms,
+                        area: *area,
                         label: label.clone(),
                     },
                 );

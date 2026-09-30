@@ -15,6 +15,7 @@
     type: "TYPE",
     wait: "WAIT",
     pixel_wait: "IF",
+    find_image: "FIND",
     move: "MOVE",
   };
 
@@ -53,6 +54,8 @@
         return [stepTitle(s), plural(s.text.length, "character")];
       case "pixel_wait":
         return [stepTitle(s), (s.label ? s.label + " · " : "") + `timeout ${s.timeout_ms / 1000} s, else stop`];
+      case "find_image":
+        return [stepTitle(s), `${s.btn} click when found · timeout ${s.timeout_ms / 1000} s, else stop`];
       case "wait":
         return [stepTitle(s), s.label];
       case "move": {

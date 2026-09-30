@@ -89,6 +89,10 @@ fn area_weights(src: usize, dst: usize) -> Vec<Vec<(usize, f32)>> {
         .collect()
 }
 
+/// The lowest match threshold a step or trigger may ask for, in percent:
+/// below it, almost anything matches.
+pub const MIN_THRESHOLD: u8 = 50;
+
 /// Below this detail (standard deviation, in gray levels) an image is too
 /// plain to find reliably.
 pub const MIN_DETAIL: f32 = 4.0;

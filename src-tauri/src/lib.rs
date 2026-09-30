@@ -1,6 +1,7 @@
 mod commands;
 mod coordinator;
 mod engine;
+mod finder;
 mod history;
 mod hotkeys;
 mod ipc;

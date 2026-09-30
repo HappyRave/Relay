@@ -9,11 +9,12 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 
 use crossbeam_channel::{Sender, TryRecvError, unbounded};
+use relay_core::image::{Gray, Match, Rgb8};
 use relay_core::keys::KeyStroke;
-use relay_core::model::{Event, MouseBtn, Ms, Repeat, Rgb};
+use relay_core::model::{Event, MouseBtn, Ms, Rect, Repeat, Rgb};
 use relay_core::playback::{PlayClock, plan_times};
 use relay_core::session::FinishReason;
-use relay_core::steps::Step;
+use relay_core::steps::{Step, StepKind};
 use relay_platform::{Injector, Platform};
 use serde::Serialize;
 use ts_rs::TS;
@@ -24,19 +25,40 @@ use crate::ipc::{Emitter, EngineMsg};
 const TICK_MS: f64 = 33.0;
 /// How often a pixel check samples the screen.
 const PIXEL_POLL_MS: f64 = 30.0;
+/// How often a Find image step looks at the screen (a search takes 20–50 ms).
+const IMAGE_POLL_MS: f64 = 250.0;
 
 /// Reads one screen pixel (a closure so tests can fake the screen).
 pub type PixelReader = Box<dyn FnMut(i32, i32) -> Option<Rgb> + Send>;
+/// Looks for an image in an area of the screen (or all of it), and returns
+/// the best match at or above a score, in screen pixels.
+pub type ImageFinder = Box<dyn FnMut(&Gray, Option<Rect>, f32) -> Option<Match> + Send>;
 
-/// A pixel check in progress: the clock is frozen until the pixel matches.
-struct PixelWaiting {
+/// What a check waits for.
+enum Check {
+    Pixel {
+        x: i32,
+        y: i32,
+        color: Rgb,
+        tolerance: u8,
+    },
+    /// `image` is `None` when the step's image can't be read: it's never found.
+    Image {
+        image: Option<Gray>,
+        click: (i32, i32),
+        btn: MouseBtn,
+        threshold: f32,
+        area: Option<Rect>,
+    },
+}
+
+/// A pixel check or Find image step in progress: the clock is frozen until
+/// the pixel matches or the image shows up.
+struct Waiting {
     event: usize,
-    /// Where playback continues once the pixel matches (the end of the IF block).
+    /// Where playback continues once it's found (the end of the step's block).
     resume_at: f64,
-    x: i32,
-    y: i32,
-    color: Rgb,
-    tolerance: u8,
+    check: Check,
     started: f64,
     timeout_ms: f64,
     next_poll: f64,
@@ -55,6 +77,8 @@ pub struct PlayPlan {
     /// Added to every position ("Window" coordinates: where the anchor window moved).
     pub offset: (i32, i32),
     pub from: Ms,
+    /// Relay's window, left out of the screen when looking for an image.
+    pub own_window: isize,
 }
 
 /// How late events were injected relative to their deadlines.
@@ -125,10 +149,11 @@ pub struct Engine {
     plan: PlayPlan,
     injector: Box<dyn Injector>,
     pixel: PixelReader,
-    waiting: Option<PixelWaiting>,
+    find: ImageFinder,
+    waiting: Option<Waiting>,
     /// Paused by the user (as opposed to frozen by a pixel check).
     user_paused: Option<f64>,
-    /// The 1-based step whose pixel check timed out.
+    /// The 1-based step whose pixel check or Find image step timed out.
     pub timed_out_step: Option<usize>,
     times: Vec<f64>,
     idx: usize,
@@ -143,7 +168,7 @@ pub struct Engine {
 }
 
 impl Engine {
-    pub fn new(plan: PlayPlan, injector: Box<dyn Injector>, pixel: PixelReader, now: f64) -> Self {
+    pub fn new(plan: PlayPlan, injector: Box<dyn Injector>, pixel: PixelReader, find: ImageFinder, now: f64) -> Self {
         let from = if plan.from.saturating_add(1) >= plan.duration { 0 } else { plan.from };
         let times = plan_times(&plan.events, &plan.steps, plan.jitter_ms, plan.seed);
         let idx = start_index(&plan.events, from as f64);
@@ -152,6 +177,7 @@ impl Engine {
             plan,
             injector,
             pixel,
+            find,
             waiting: None,
             user_paused: None,
             timed_out_step: None,
@@ -178,6 +204,14 @@ impl Engine {
     /// The recorded time of the step whose pixel check timed out.
     pub fn timed_out_at(&self) -> Option<Ms> {
         self.timed_out_step.and_then(|n| self.plan.steps.get(n - 1)).map(|s| s.t)
+    }
+
+    /// Why playback stopped at `timed_out_step`, for the notice.
+    pub fn timeout_notice(&self) -> Option<String> {
+        let n = self.timed_out_step?;
+        let image = self.plan.steps.get(n - 1).is_some_and(|s| matches!(s.kind, StepKind::FindImage { .. }));
+        let what = if image { "Image not found" } else { "Pixel check timed out" };
+        Some(format!("{what} at step {n}; playback stopped."))
     }
 
     pub fn macro_time(&self, now: f64) -> f64 {
@@ -220,18 +254,35 @@ impl Engine {
             }
             let i = self.idx;
             self.idx += 1;
-            if let Event::PixelWait { dur, x, y, color, tolerance, timeout_ms, .. } = self.plan.events[i] {
-                // Freeze the playhead at the check and sample right away.
+            let check = match &self.plan.events[i] {
+                &Event::PixelWait { dur, x, y, color, tolerance, timeout_ms, .. } => {
+                    Some((dur, timeout_ms, Check::Pixel { x, y, color, tolerance }))
+                }
+                Event::FindImage { dur, image, click_x, click_y, btn, threshold, timeout_ms, area, .. } => {
+                    let (dx, dy) = self.plan.offset;
+                    Some((
+                        *dur,
+                        *timeout_ms,
+                        Check::Image {
+                            image: Rgb8::decode(&image.0).ok().map(|img| img.gray()),
+                            click: (*click_x, *click_y),
+                            btn: *btn,
+                            threshold: *threshold as f32 / 100.0,
+                            area: area.map(|a| Rect { x: a.x + dx, y: a.y + dy, ..a }),
+                        },
+                    ))
+                }
+                _ => None,
+            };
+            if let Some((dur, timeout_ms, check)) = check {
+                // Freeze the playhead at the check and look right away.
                 let at = self.times[i];
                 self.clock.seek(at, now);
                 self.clock.pause(now);
-                self.waiting = Some(PixelWaiting {
+                self.waiting = Some(Waiting {
                     event: i,
                     resume_at: at + dur as f64,
-                    x,
-                    y,
-                    color,
-                    tolerance,
+                    check,
                     started: now,
                     timeout_ms: timeout_ms as f64,
                     next_poll: now,
@@ -262,12 +313,26 @@ impl Engine {
     }
 
     fn poll_pixel(&mut self, now: f64) -> Option<FinishReason> {
-        let w = self.waiting.as_mut()?;
+        let w = self.waiting.as_ref()?;
         if now < w.next_poll {
             return None;
         }
         let (dx, dy) = self.plan.offset;
-        let matched = (self.pixel)(w.x + dx, w.y + dy).is_some_and(|c| c.within(w.color, w.tolerance));
+        let mut to_click = None;
+        let (matched, poll) = match &w.check {
+            &Check::Pixel { x, y, color, tolerance } => {
+                ((self.pixel)(x + dx, y + dy).is_some_and(|c| c.within(color, tolerance)), PIXEL_POLL_MS)
+            }
+            Check::Image { image, click, btn, threshold, area } => {
+                let found = image.as_ref().and_then(|img| (self.find)(img, *area, *threshold));
+                to_click = found.map(|m| (m, *click, *btn));
+                (found.is_some(), IMAGE_POLL_MS)
+            }
+        };
+        if let Some((m, click, btn)) = to_click {
+            self.click_found(m, click, btn);
+        }
+        let w = self.waiting.as_mut()?;
         if matched {
             let resume_at = w.resume_at;
             self.waiting = None;
@@ -281,8 +346,22 @@ impl Engine {
             self.release_all();
             return Some(FinishReason::PixelTimeout);
         }
-        w.next_poll = now + PIXEL_POLL_MS;
+        // Looked at once more when the timeout ends, so it ends on time.
+        w.next_poll = (now + poll).min(w.started + w.timeout_ms);
         None
+    }
+
+    /// Clicks `btn` at `click` (in the image's pixels, scaled like it) from
+    /// where the image was found.
+    fn click_found(&mut self, m: Match, click: (i32, i32), btn: MouseBtn) {
+        let at = |o: i32, c: i32| o + (c as f32 * m.scale).round() as i32;
+        let r = self.injector.move_to(at(m.x, click.0), at(m.y, click.1)).and_then(|_| self.injector.button(btn, true));
+        self.check(r);
+        self.buttons_down.retain(|b| *b != btn);
+        self.buttons_down.push(btn);
+        let r = self.injector.button(btn, false);
+        self.check(r);
+        self.buttons_down.retain(|b| *b != btn);
     }
 
     pub fn pause(&mut self, now: f64) {
@@ -370,8 +449,8 @@ impl Engine {
                     self.keys_down.push(key);
                 }
             }
-            // Waits only take time; `advance` handles pixel checks before dispatching.
-            Event::Wait { .. } | Event::PixelWait { .. } => {}
+            // Waits only take time; `advance` handles checks before dispatching.
+            Event::Wait { .. } | Event::PixelWait { .. } | Event::FindImage { .. } => {}
         }
     }
 
@@ -473,8 +552,13 @@ pub fn spawn(
             // Created on this thread: the timer also raises this thread's priority.
             let mut timer = make_timer();
             let _ = wake_tx.send(timer.waker());
+            let own_window = plan.own_window;
+            let finder_screen = screen.clone();
             let pixel: PixelReader = Box::new(move |x, y| screen.pixel(x, y));
-            let mut engine = Engine::new(plan, make_injector(), pixel, now_ms());
+            let find: ImageFinder = Box::new(move |image, area, threshold| {
+                crate::finder::find_on_screen(&*finder_screen, image, area, threshold, own_window)
+            });
+            let mut engine = Engine::new(plan, make_injector(), pixel, find, now_ms());
             let mut next_tick = f64::MIN;
             loop {
                 loop {
@@ -508,11 +592,10 @@ pub fn spawn(
                     });
                 }
                 if let Some(reason) = finished {
-                    if reason == FinishReason::PixelTimeout {
-                        let step = engine.timed_out_step.map_or(String::new(), |n| format!(" at step {n}"));
-                        emit.send(EngineMsg::Notice {
-                            message: format!("Pixel check timed out{step}; playback stopped."),
-                        });
+                    if reason == FinishReason::PixelTimeout
+                        && let Some(message) = engine.timeout_notice()
+                    {
+                        emit.send(EngineMsg::Notice { message });
                     }
                     let stats = engine.stats();
                     done.outcome = Some((reason, stats.clone()));
@@ -573,12 +656,23 @@ mod tests {
     fn plan(events: Vec<Event>, repeat: Repeat, speed: f64) -> PlayPlan {
         let steps = relay_core::steps::group_steps(&events, Default::default());
         let duration = relay_core::timeline::duration(&events);
-        PlayPlan { events, steps, duration, repeat, speed, jitter_ms: 0, seed: 0, offset: (0, 0), from: 0 }
+        PlayPlan {
+            events,
+            steps,
+            duration,
+            repeat,
+            speed,
+            jitter_ms: 0,
+            seed: 0,
+            offset: (0, 0),
+            from: 0,
+            own_window: 0,
+        }
     }
 
     fn engine_for(plan: PlayPlan) -> (Engine, Recorder) {
         let rec = Recorder::default();
-        (Engine::new(plan, Box::new(rec.clone()), Box::new(|_, _| None), 0.0), rec)
+        (Engine::new(plan, Box::new(rec.clone()), Box::new(|_, _| None), Box::new(|_, _, _| None), 0.0), rec)
     }
 
     fn engine(events: Vec<Event>, repeat: Repeat, speed: f64) -> (Engine, Recorder) {
@@ -797,7 +891,13 @@ mod tests {
         let calls = Arc::new(Mutex::new(0));
         let events = vec![key(0, "KeyA", true), key(100, "KeyA", false), key(200, "KeyB", true)];
         let injector = Box::new(Failing(calls.clone()));
-        let mut e = Engine::new(plan(events, Repeat::Count(1), 1.0), injector, Box::new(|_, _| None), 0.0);
+        let mut e = Engine::new(
+            plan(events, Repeat::Count(1), 1.0),
+            injector,
+            Box::new(|_, _| None),
+            Box::new(|_, _, _| None),
+            0.0,
+        );
         assert_eq!(e.unreported_error(), None, "nothing failed yet");
         e.advance(0.0);
         assert_eq!(e.unreported_error().as_deref(), Some("blocked #1"));
@@ -842,6 +942,7 @@ mod tests {
             seed: 0,
             offset: (0, 0),
             from: 0,
+            own_window: 0,
         };
         // The fake screen turns red at `turns_red_at` (wall ms), read through a shared clock.
         let now = Arc::new(Mutex::new(0.0));
@@ -850,7 +951,7 @@ mod tests {
             assert_eq!((x, y), (5, 6));
             Some(if *clock.lock().unwrap() >= turns_red_at { Rgb(250, 4, 2) } else { Rgb(255, 255, 255) })
         });
-        (Engine::new(plan, Box::new(rec.clone()), pixel, 0.0), rec, now)
+        (Engine::new(plan, Box::new(rec.clone()), pixel, Box::new(|_, _, _| None), 0.0), rec, now)
     }
 
     /// Advances the engine to `t`, updating the fake screen's clock.
@@ -980,7 +1081,7 @@ mod tests {
             log.lock().unwrap().push((x, y));
             Some(Rgb(255, 0, 0))
         });
-        let mut e = Engine::new(plan, Box::new(rec.clone()), pixel, 0.0);
+        let mut e = Engine::new(plan, Box::new(rec.clone()), pixel, Box::new(|_, _, _| None), 0.0);
         e.advance(100.0);
         assert_eq!(
             rec.take(),
@@ -988,5 +1089,102 @@ mod tests {
         );
         assert_eq!(*reads.lock().unwrap(), [(35, -4)], "the pixel check follows the window too");
         assert!(!e.paused(), "and matched there");
+    }
+
+    fn png() -> relay_core::model::ImagePng {
+        let img = Rgb8 { w: 20, h: 10, px: (0..600).map(|i| (i * 53 % 256) as u8).collect() };
+        relay_core::model::ImagePng(img.encode_png())
+    }
+
+    fn find_image(t: Ms, area: Option<Rect>) -> Event {
+        Event::FindImage {
+            t,
+            dur: 800,
+            image: png(),
+            click_x: 10,
+            click_y: 4,
+            btn: MouseBtn::Right,
+            threshold: 85,
+            timeout_ms: 5000,
+            area,
+            label: String::new(),
+        }
+    }
+
+    /// Where the fake finder is asked to look.
+    type Searches = Arc<Mutex<Vec<(usize, Option<Rect>, f32)>>>;
+
+    /// An engine whose fake screen shows the image (at 1.5 times its size,
+    /// at 300, 200) from `appears_at` (wall ms).
+    fn image_engine(
+        events: Vec<Event>,
+        offset: (i32, i32),
+        appears_at: f64,
+    ) -> (Engine, Recorder, Arc<Mutex<f64>>, Searches) {
+        let rec = Recorder::default();
+        let plan = PlayPlan { offset, ..plan(events, Repeat::Count(1), 1.0) };
+        let now = Arc::new(Mutex::new(0.0));
+        let (clock, searches) = (now.clone(), Searches::default());
+        let log = searches.clone();
+        let find: ImageFinder = Box::new(move |image, area, threshold| {
+            log.lock().unwrap().push((image.w, area, threshold));
+            let m = Match { x: 300, y: 200, w: 30, h: 15, scale: 1.5, score: 0.97 };
+            (*clock.lock().unwrap() >= appears_at).then_some(m)
+        });
+        (Engine::new(plan, Box::new(rec.clone()), Box::new(|_, _| None), find, 0.0), rec, now, searches)
+    }
+
+    #[test]
+    fn find_image_waits_for_the_image_then_clicks_it_and_continues() {
+        let events = vec![find_image(100, None), key(900, "KeyA", true), key(940, "KeyA", false)];
+        let (mut e, rec, now, searches) = image_engine(events, (0, 0), 1100.0);
+        assert_eq!(run_to(&mut e, &now, 100.0), None);
+        assert!(e.paused(), "the playhead freezes at the step");
+        assert_eq!(e.next_deadline(), Some(350.0), "it looks every 250 ms");
+        assert_eq!(run_to(&mut e, &now, 350.0), None);
+        assert_eq!(*searches.lock().unwrap(), [(20, None, 0.85), (20, None, 0.85)], "the decoded image, everywhere");
+        assert!(rec.take().is_empty());
+        // Found at 1100: the click point (10, 4) scales with the image.
+        // The key is due where the step ends, so it follows right away.
+        run_to(&mut e, &now, 1100.0);
+        assert_eq!(rec.take(), ["move 315,206", "Right down", "Right up", "KeyA down"]);
+        assert!(!e.paused());
+        assert_eq!(e.macro_time(1100.0), 900.0, "on from the end of the step");
+    }
+
+    #[test]
+    fn find_image_times_out_with_its_own_notice() {
+        let (mut e, rec, now, _) = image_engine(vec![btn(0, true), find_image(100, None)], (0, 0), f64::INFINITY);
+        run_to(&mut e, &now, 100.0);
+        assert_eq!(rec.take(), ["move 10,20", "Left down"]);
+        assert_eq!(run_to(&mut e, &now, 5050.0), None);
+        assert_eq!(run_to(&mut e, &now, 5100.0), Some(FinishReason::PixelTimeout));
+        assert_eq!(rec.take(), ["Left up"], "what was held is released");
+        assert_eq!(e.timeout_notice().as_deref(), Some("Image not found at step 2; playback stopped."));
+        assert_eq!(e.timed_out_at(), Some(100));
+        let (mut e, _, now) = pixel_engine(f64::INFINITY);
+        run_to(&mut e, &now, 100.0);
+        run_to(&mut e, &now, 5100.0);
+        assert_eq!(e.timeout_notice().as_deref(), Some("Pixel check timed out at step 1; playback stopped."));
+    }
+
+    #[test]
+    fn find_image_looks_in_its_area_moved_with_the_window() {
+        let area = Rect { x: 100, y: 50, w: 400, h: 300 };
+        let (mut e, _, now, searches) = image_engine(vec![find_image(0, Some(area))], (30, -10), 0.0);
+        run_to(&mut e, &now, 0.0);
+        assert_eq!(searches.lock().unwrap()[0].1, Some(Rect { x: 130, y: 40, w: 400, h: 300 }));
+    }
+
+    #[test]
+    fn an_unreadable_image_is_never_found() {
+        let mut ev = find_image(0, None);
+        if let Event::FindImage { image, .. } = &mut ev {
+            image.0.truncate(20);
+        }
+        let (mut e, rec, now, searches) = image_engine(vec![ev], (0, 0), 0.0);
+        assert_eq!(run_to(&mut e, &now, 0.0), None);
+        assert!(searches.lock().unwrap().is_empty() && rec.take().is_empty());
+        assert_eq!(run_to(&mut e, &now, 5000.0), Some(FinishReason::PixelTimeout));
     }
 }
