@@ -179,7 +179,17 @@ pub fn apply(m: &mut Macro, op: EditOp) -> Result<(), EditError> {
 
         EditOp::SetPause { index, dur } => {
             let step = get(index)?;
-            retime(&mut m.events, &[(step.t - step.pause, step.t, dur.min(MAX_DUR))]);
+            if step.pause > 0 {
+                retime(&mut m.events, &[(step.t - step.pause, step.t, dur.min(MAX_DUR))]);
+            } else {
+                // No gap to stretch: the step and what follows it in the list
+                // move, not what ends at that same moment (a move's last sample).
+                let first = step.items[0] as usize;
+                for e in &mut m.events[first..] {
+                    let t = e.t_mut();
+                    *t = t.saturating_add(dur.min(MAX_DUR));
+                }
+            }
         }
 
         EditOp::CapPauses { max } => {
@@ -534,6 +544,18 @@ mod tests {
         assert_eq!(m.events.iter().map(Event::t).collect::<Vec<_>>(), [0, 80, 500, 1000, 1500, 1600, 1680]);
         apply(&mut m, EditOp::SetPause { index: 1, dur: 0 }).unwrap();
         assert_eq!(m.events.iter().map(Event::t).collect::<Vec<_>>(), [0, 80, 80, 580, 1080, 1180, 1260]);
+        check_invariants(&m.events).unwrap();
+    }
+
+    #[test]
+    fn a_pause_added_where_there_was_none_leaves_the_move_before_alone() {
+        // The last sample and the click at the same moment, as recordings have.
+        let mv = |t| Event::Move { t, x: 5, y: t as i32 };
+        let mut m = mac([vec![mv(0), mv(400)], click(400).to_vec()].concat());
+        assert_eq!(steps(&m)[1].pause, 0);
+        apply(&mut m, EditOp::SetPause { index: 1, dur: 300 }).unwrap();
+        assert_eq!(m.events.iter().map(Event::t).collect::<Vec<_>>(), [0, 400, 700, 780]);
+        assert_eq!(steps(&m)[1].pause, 300);
         check_invariants(&m.events).unwrap();
     }
 
