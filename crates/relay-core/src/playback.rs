@@ -3,7 +3,7 @@
 //! Pure: callers pass `now` in milliseconds from any monotonic clock.
 
 use crate::model::{Event, Ms};
-use crate::steps::Step;
+use crate::steps::{Step, StepKind};
 
 /// Macro time advances at `speed` × wall time from an anchor. Every change
 /// (speed, pause, seek) re-anchors, so there is no drift.
@@ -81,8 +81,8 @@ impl PlayClock {
 /// between its presses and releases stay exact. Steps that overlap (a key held
 /// across a click) or touch move together, by the first one's offset. A step
 /// is held back so it starts no earlier than 0 and than the previous step's
-/// (moved) end, so steps never swap. Events outside steps (the cursor path)
-/// follow the step before them, kept between their neighbours.
+/// (moved) end, so steps never swap. The cursor path between steps (MOVE
+/// steps) follows the step before it, kept between its neighbours.
 pub fn plan_times(events: &[Event], steps: &[Step], jitter_ms: u32, seed: u64) -> Vec<f64> {
     struct Group {
         t: Ms,
@@ -93,7 +93,7 @@ pub fn plan_times(events: &[Event], steps: &[Step], jitter_ms: u32, seed: u64) -
     let j = jitter_ms as f64;
     let mut groups: Vec<Group> = Vec::new();
     let mut group_of = vec![None; events.len()];
-    for s in steps {
+    for s in steps.iter().filter(|s| !matches!(s.kind, StepKind::Move { .. })) {
         let o = if jitter_ms > 0 { rng.f64() * 2.0 * j - j } else { 0.0 };
         match groups.last_mut() {
             Some(g) if s.t <= g.end => g.end = g.end.max(s.end),
@@ -159,7 +159,8 @@ mod tests {
     fn assert_plan(ev: &[Event], steps: &[Step], plan: &[f64], seed: u64) {
         assert!(plan.windows(2).all(|w| w[0] <= w[1]), "seed {seed}: not ordered: {plan:?}");
         assert!(plan.iter().all(|&p| p >= 0.0), "seed {seed}: negative");
-        for s in steps {
+        // MOVE steps follow the steps around them instead.
+        for s in steps.iter().filter(|s| !matches!(s.kind, StepKind::Move { .. })) {
             let first = s.items[0] as usize;
             let d = plan[first] - ev[first].t() as f64;
             for &i in &s.items {
@@ -220,7 +221,8 @@ mod tests {
             key(2100, "ControlLeft", false),
         ];
         let steps = group_steps(&ev, GroupOptions::default());
-        assert_eq!(steps.len(), 6, "{steps:#?}");
+        // The move at 32 is a MOVE step; the one at 1120 is the click's.
+        assert_eq!(steps.len(), 7, "{steps:#?}");
         for seed in 0..500 {
             let plan = plan_times(&ev, &steps, 40, seed);
             assert_plan(&ev, &steps, &plan, seed);

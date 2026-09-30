@@ -228,14 +228,19 @@ mod tests {
             StepKind::Type { text, .. } => format!("TYPE {text}"),
             StepKind::Wait { dur, label } => format!("WAIT {dur} {label}"),
             StepKind::PixelWait { label, .. } => format!("IF {label}"),
+            StepKind::Move { .. } => "MOVE".into(),
         }
     }
 
     #[test]
     fn invoice_groups_into_the_designs_twelve_steps() {
         let m = invoice().macro_;
-        let steps: Vec<String> =
+        let all: Vec<String> =
             group_steps(&m.events, (&m.recording).into()).iter().map(|s| describe(&s.kind)).collect();
+        // The cursor moving to each click is a MOVE step before it.
+        let moves = all.iter().enumerate().filter(|(_, s)| *s == "MOVE").map(|(i, _)| i).collect::<Vec<_>>();
+        assert_eq!(moves, [0, 2, 5, 9, 13, 15]);
+        let steps: Vec<_> = all.iter().filter(|s| *s != "MOVE").collect();
         assert_eq!(
             steps,
             [
@@ -283,10 +288,11 @@ mod tests {
             .iter()
             .map(|s| {
                 check_invariants(&s.macro_.events).unwrap();
-                group_steps(&s.macro_.events, (&s.macro_.recording).into()).len()
+                let steps = group_steps(&s.macro_.events, (&s.macro_.recording).into());
+                steps.iter().filter(|s| !matches!(s.kind, crate::steps::StepKind::Move { .. })).count()
             })
             .collect();
         // Timesheet: its "8", Tab, "8"… alternate, so every entry is its own step.
-        assert_eq!(counts, [12, 13, 8, 7]);
+        assert_eq!(counts, [12, 13, 8, 7], "besides the moves");
     }
 }

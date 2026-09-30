@@ -113,7 +113,7 @@ mod tests {
         let wait = Event::Wait { t: 100, dur: 700, label: String::new() };
         let m = Macro::new("v", RecordingMeta::single_1080p(), vec![Event::Move { t: 0, x: 1, y: 1 }, wait]);
         let v = MacroView::of(&m);
-        assert_eq!((v.steps.len(), v.moves.len(), v.duration), (1, 1, 800 + TAIL_MS));
+        assert_eq!((v.steps.len(), v.moves.len(), v.duration), (2, 1, 800 + TAIL_MS), "a MOVE and the wait");
         assert!(!v.can_undo && !v.can_redo);
         let empty = MacroView::of(&Macro::new("e", RecordingMeta::single_1080p(), vec![]));
         assert_eq!((empty.steps.len(), empty.duration), (0, MIN_DURATION_MS));

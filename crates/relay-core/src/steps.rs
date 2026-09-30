@@ -1,6 +1,7 @@
 //! Groups raw events into the editor's steps (CLICK, DRAG, SCROLL, KEYS,
-//! TYPE, WAIT, IF). Every non-move event belongs to at most one step; `items`
-//! lists them so a step can be deleted as a unit.
+//! TYPE, WAIT, IF, MOVE). Every event belongs to at most one step; `items`
+//! lists them so a step can be deleted as a unit. Cursor moves belong to the
+//! press they happen during, or to a MOVE step: the path between two actions.
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -28,13 +29,56 @@ pub struct TypedChar {
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(export)]
 pub enum StepKind {
-    Click { x: i32, y: i32, btn: MouseBtn, count: u8, label: String },
-    Drag { x: i32, y: i32, to_x: i32, to_y: i32, btn: MouseBtn, label: String },
-    Scroll { x: i32, y: i32, delta: i32, horizontal: bool },
-    Keys { combo: Vec<String> },
-    Type { text: String, chars: Vec<TypedChar> },
-    Wait { dur: Ms, label: String },
-    PixelWait { dur: Ms, x: i32, y: i32, color: Rgb, tolerance: u8, timeout_ms: Ms, label: String },
+    Click {
+        x: i32,
+        y: i32,
+        btn: MouseBtn,
+        count: u8,
+        label: String,
+    },
+    Drag {
+        x: i32,
+        y: i32,
+        to_x: i32,
+        to_y: i32,
+        btn: MouseBtn,
+        label: String,
+    },
+    Scroll {
+        x: i32,
+        y: i32,
+        delta: i32,
+        horizontal: bool,
+    },
+    Keys {
+        combo: Vec<String>,
+    },
+    Type {
+        text: String,
+        chars: Vec<TypedChar>,
+    },
+    Wait {
+        dur: Ms,
+        label: String,
+    },
+    PixelWait {
+        dur: Ms,
+        x: i32,
+        y: i32,
+        color: Rgb,
+        tolerance: u8,
+        timeout_ms: Ms,
+        label: String,
+    },
+    /// The cursor going from `x, y` (where it was before) to `to_x, to_y`,
+    /// through `samples` recorded positions.
+    Move {
+        x: i32,
+        y: i32,
+        to_x: i32,
+        to_y: i32,
+        samples: u32,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
@@ -43,7 +87,7 @@ pub struct Step {
     pub t: Ms,
     pub end: Ms,
     /// Idle time before the step: since the previous steps ended (or the
-    /// start), during which only the cursor moves. 0 when steps overlap.
+    /// start), during which nothing happens. 0 when steps overlap.
     pub pause: Ms,
     /// Indices into the macro's events.
     pub items: Vec<u32>,
@@ -140,6 +184,10 @@ pub fn group_steps(events: &[Event], opts: GroupOptions) -> Vec<Step> {
             Event::Move { x, y, .. } => {
                 for p in pending.values_mut() {
                     p.moved |= p.beyond_slop(*x, *y);
+                }
+                // A move while a button is down is part of that press (a drag's path).
+                if let Some(step) = pending.values().map(|p| p.step).min() {
+                    steps[step].items.push(idx);
                 }
             }
 
@@ -372,6 +420,7 @@ pub fn group_steps(events: &[Event], opts: GroupOptions) -> Vec<Step> {
         }
     }
 
+    move_steps(events, &mut steps);
     for s in &mut steps {
         s.items.sort_unstable();
     }
@@ -382,6 +431,58 @@ pub fn group_steps(events: &[Event], opts: GroupOptions) -> Vec<Step> {
         busy_until = busy_until.max(s.end);
     }
     steps
+}
+
+/// Adds a MOVE step for each run of cursor moves no press owns: the moves
+/// between two other events. Moves between the presses of a double click
+/// belong to it. Runs after the rest of the grouping, so MOVE steps never come
+/// between a step and the one it merges with or the modifier that wraps it.
+fn move_steps(events: &[Event], steps: &mut Vec<Step>) {
+    let mut owned = vec![false; events.len()];
+    for s in steps.iter() {
+        for &i in &s.items {
+            owned[i as usize] = true;
+        }
+    }
+    for s in steps.iter_mut() {
+        let StepKind::Click { count: 2.., .. } = s.kind else { continue };
+        let presses = || s.items.iter().copied().filter(|&i| matches!(events[i as usize], Event::Button { .. }));
+        let (Some(first), Some(last)) = (presses().min(), presses().max()) else { continue };
+        for i in first..last {
+            if !owned[i as usize] && matches!(events[i as usize], Event::Move { .. }) {
+                owned[i as usize] = true;
+                s.items.push(i);
+            }
+        }
+    }
+
+    let mut cursor: Option<(i32, i32)> = None;
+    let mut run: Option<(i32, i32, Vec<u32>)> = None;
+    let close = |run: &mut Option<(i32, i32, Vec<u32>)>, steps: &mut Vec<Step>| {
+        let Some((x, y, items)) = run.take() else { return };
+        let (first, last) = (&events[items[0] as usize], &events[*items.last().unwrap() as usize]);
+        let (to_x, to_y) = last.pos().unwrap_or((x, y));
+        steps.push(Step {
+            t: first.t(),
+            end: last.t(),
+            pause: 0,
+            kind: StepKind::Move { x, y, to_x, to_y, samples: items.len() as u32 },
+            items,
+        });
+    };
+    for (i, e) in events.iter().enumerate() {
+        match e {
+            Event::Move { x, y, .. } if !owned[i] => {
+                let (fx, fy) = cursor.unwrap_or((*x, *y));
+                run.get_or_insert_with(|| (fx, fy, Vec::new())).2.push(i as u32);
+            }
+            _ => close(&mut run, steps),
+        }
+        if let Event::Move { x, y, .. } | Event::Button { x, y, .. } | Event::Wheel { x, y, .. } = e {
+            cursor = Some((*x, *y));
+        }
+    }
+    close(&mut run, steps);
 }
 
 #[cfg(test)]
@@ -420,7 +521,7 @@ mod tests {
         let s = group(&lasso);
         assert_eq!(s.len(), 1);
         assert!(matches!(s[0].kind, StepKind::Drag { x: 10, to_x: 10, .. }), "{:?}", s[0].kind);
-        assert_eq!(s[0].items, vec![0, 3]);
+        assert_eq!(s[0].items, vec![0, 1, 2, 3], "the path is the drag's");
         // A wobble within the slop is still a click.
         let wobble = [btn(0, 10, 10, true), mv(50, 14), btn(100, 10, 10, false)];
         assert!(matches!(group(&wobble)[0].kind, StepKind::Click { .. }));
@@ -648,7 +749,7 @@ mod tests {
             let s = group(&ev);
             assert_eq!(s.len(), 1, "{m}: {s:?}");
             assert!(matches!(s[0].kind, StepKind::Drag { x: 10, to_x: 100, .. }));
-            assert_eq!((s[0].t, s[0].end, s[0].items.clone()), (0, 300, vec![0, 1, 3, 4]));
+            assert_eq!((s[0].t, s[0].end, s[0].items.clone()), (0, 300, vec![0, 1, 2, 3, 4]));
         }
         let w = |t| Event::Wheel { t, x: 0, y: 0, delta: 120, horizontal: false };
         let zoom = [key(0, "ControlLeft", true, None), w(50), w(100), key(200, "ControlLeft", false, None)];
@@ -702,6 +803,69 @@ mod tests {
         let s = group(&ev);
         assert_eq!(s.len(), 3);
         assert_eq!(s[1].kind, StepKind::Keys { combo: vec!["[".into()] });
+    }
+
+    fn mv(t: Ms, x: i32) -> Event {
+        Event::Move { t, x, y: 10 }
+    }
+
+    #[test]
+    fn the_cursor_between_actions_is_a_move_step() {
+        let ev = [mv(100, 0), mv(200, 50), btn(400, 50, 10, true), btn(450, 50, 10, false), mv(900, 80), mv(1000, 300)];
+        let s = group(&ev);
+        assert_eq!(s.len(), 3, "{s:#?}");
+        // Before the first click: it starts where the cursor was first seen.
+        assert_eq!(s[0].kind, StepKind::Move { x: 0, y: 10, to_x: 50, to_y: 10, samples: 2 });
+        assert_eq!((s[0].t, s[0].end, s[0].pause, s[0].items.clone()), (100, 200, 100, vec![0, 1]));
+        // The click's pause is the time the cursor stood still.
+        assert_eq!(s[1].pause, 200);
+        // After the last one (the trip to Relay's Stop button): it starts at the click.
+        assert_eq!(s[2].kind, StepKind::Move { x: 50, y: 10, to_x: 300, to_y: 10, samples: 2 });
+        assert_eq!((s[2].t, s[2].end, s[2].pause), (900, 1000, 450));
+    }
+
+    #[test]
+    fn any_other_event_ends_a_move() {
+        let ev =
+            [mv(0, 0), mv(100, 10), key(150, "ShiftLeft", true, None), mv(200, 20), key(250, "ShiftLeft", false, None)];
+        let kinds: Vec<_> =
+            group(&ev).into_iter().map(|s| (s.items, matches!(s.kind, StepKind::Move { .. }))).collect();
+        assert_eq!(kinds, [(vec![0, 1], true), (vec![2, 4], false), (vec![3], true)]);
+        // A still cursor doesn't: a hesitation halfway is part of the move.
+        let s = group(&[mv(0, 0), mv(100, 10), mv(3000, 20)]);
+        assert_eq!(s.len(), 1);
+    }
+
+    #[test]
+    fn a_modifier_around_a_move_and_a_click_is_the_clicks() {
+        let ev = [
+            key(0, "ControlLeft", true, None),
+            mv(50, 20),
+            mv(100, 40),
+            btn(150, 40, 10, true),
+            btn(200, 40, 10, false),
+            key(300, "ControlLeft", false, None),
+        ];
+        let s = group(&ev);
+        assert_eq!(s.len(), 2, "{s:#?}");
+        assert!(matches!(s[0].kind, StepKind::Click { .. }));
+        assert_eq!(s[0].items, vec![0, 3, 4, 5], "Ctrl-click");
+        assert_eq!((s[1].items.clone(), s[1].pause), (vec![1, 2], 0), "the move overlaps it");
+    }
+
+    #[test]
+    fn a_shake_between_the_clicks_of_a_double_click_is_the_clicks() {
+        let ev = [
+            btn(0, 10, 10, true),
+            btn(60, 10, 10, false),
+            mv(100, 11),
+            btn(200, 10, 10, true),
+            btn(260, 10, 10, false),
+        ];
+        let s = group(&ev);
+        assert_eq!(s.len(), 1, "{s:#?}");
+        assert!(matches!(s[0].kind, StepKind::Click { count: 2, .. }));
+        assert_eq!(s[0].items, vec![0, 1, 2, 3, 4]);
     }
 
     #[test]
