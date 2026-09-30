@@ -83,6 +83,9 @@ pub trait WindowQuery: Send + Sync {
     fn input_blocked(&self, pid: u32) -> bool;
     /// False on the lock screen or a UAC prompt, where no input can be sent.
     fn input_desktop_available(&self) -> bool;
+    /// Where window `hwnd` is on screen: its visible frame, or `None` when
+    /// it's hidden, minimized or gone.
+    fn shown_rect(&self, hwnd: isize) -> Option<Rect>;
 }
 
 /// Synthesizes input. Every event carries [`RELAY_MAGIC`] so Relay's own hook

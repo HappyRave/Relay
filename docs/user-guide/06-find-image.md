@@ -27,7 +27,7 @@ Found means **at least as similar as Match %** (85% by default). Relay compares 
 On the timeline, the step is a `FIND` block in the *Logic* lane. Like a [pixel check](05-pixel-checks.md), its length is only there to make it visible and clickable: when the image is already there, the macro doesn't spend that time waiting.
 
 > [!NOTE]
-> Relay never looks inside its own window, so the copy of the image in the step editor is never the one found.
+> Relay never looks inside its own window, so the copy of the image in the step editor is never the one found. Nor does it see what's behind the widget, which a click couldn't reach: keep the widget off the thing to click.
 
 ## Adding one
 
@@ -79,7 +79,7 @@ If the timeout runs out, Relay:
 | --- | --- |
 | The app was slower than the timeout | Raise **Timeout** |
 | It looks different now: hovered, selected, another theme | Snip it again as it looks during playback, or snip a smaller part that doesn't change |
-| It's covered by another window | Make sure nothing is on top of it (Relay's widget doesn't count: it's left out) |
+| It's covered by another window, or by Relay's widget | Make sure nothing is on top of it: move the widget, or switch to the [compact player](README.md#a-tour-of-the-widget) |
 | It's much bigger or smaller than the picture | Snip it again at the size it's shown |
 | Match % is too strict | Press **Test**, and set Match % a little below what it says |
 

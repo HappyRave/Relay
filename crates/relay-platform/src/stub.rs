@@ -60,6 +60,9 @@ impl WindowQuery for Stub {
     fn input_desktop_available(&self) -> bool {
         true
     }
+    fn shown_rect(&self, _: isize) -> Option<Rect> {
+        None
+    }
 }
 
 impl Injector for Stub {

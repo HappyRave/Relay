@@ -108,7 +108,10 @@ The thumbnail shows the image, and the line under the title the match it needs, 
 
 Like the pixel trigger, it fires when the image **appears**: it has to be away twice in a row first, then be seen twice in a row (about a second). An image that stays on screen runs the macro **once**. Changing the image or the match starts over. The image may be anywhere, and from half to twice its size; see [Find image](06-find-image.md#another-size).
 
-Relay looks twice a second, and only while an image trigger is on. It never looks inside its own window.
+Relay looks twice a second, and only while an image trigger is on. It never looks inside its own window (the thumbnail isn't the image appearing), nor behind it.
+
+> [!NOTE]
+> An image that's already on screen when you turn the trigger on doesn't start the macro: it has to go away and come back. To try the trigger, turn it on, then make the image appear.
 
 > [!TIP]
 > The trigger only starts the macro; it doesn't know where to click. To click what appeared, wherever it is, start the macro with a [Find image](06-find-image.md) step for the same image.

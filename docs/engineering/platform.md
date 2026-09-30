@@ -146,7 +146,7 @@ Measured over a 10-minute release-build soak, 12,000 events: median and p99 late
 
 - **Capture** (the screenshot as a recording starts): `StretchBlt` from the screen DC into a top-down 32-bit DIB of the size `snapshot_size` picks (scaled down evenly to at most `max_w`, never up), in `HALFTONE` mode so text stays readable, then BGRA to RGB. Relay's window is left out with `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` (Windows 10 2004 and later; earlier, it shows), set for the capture only, after two `DwmFlush`es so the compositor has applied it, and reset right after, so other screenshot tools still see Relay. The whole desktop at 6400 × 1600 takes about 200 ms, on its own thread. `Snapshot`'s `Debug` prints only its size: its pixels are someone's screen. The stub returns `None`.
 
-  Finding images uses the same call with `max_w` = the area's width, which gives a 1:1 copy. Captures run one at a time (a static lock): otherwise one ending would reset the affinity while another is still capturing, and Relay's window would show in that one.
+  Finding images uses the same call with `max_w` = the area's width, which gives a 1:1 copy, and nothing excluded: the affinity takes effect per monitor, and on a multi-monitor desktop two `DwmFlush`es don't always wait long enough for the monitor Relay is on, so its window (and the picture it shows) could still be in the capture. The app paints Relay's window over instead, from `WindowQuery::shown_rect`. Captures run one at a time (a static lock), so one ending never resets the affinity during another.
 
 ## Clipboard
 

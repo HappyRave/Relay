@@ -2,7 +2,7 @@ use std::ffi::c_void;
 use std::sync::Once;
 use std::sync::atomic::{AtomicIsize, Ordering};
 
-use relay_core::model::WindowInfo;
+use relay_core::model::{Rect, WindowInfo};
 use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND, LPARAM, POINT, RECT};
 use windows::Win32::Graphics::Dwm::{DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute};
 use windows::Win32::Security::{
@@ -231,6 +231,13 @@ impl WindowQuery for WinWindows {
             }
             Err(_) => false,
         }
+    }
+
+    fn shown_rect(&self, hwnd: isize) -> Option<Rect> {
+        let hwnd = HWND(hwnd as *mut c_void);
+        let shown =
+            unsafe { IsWindow(Some(hwnd)).as_bool() && IsWindowVisible(hwnd).as_bool() && !IsIconic(hwnd).as_bool() };
+        shown.then(|| frame_of(hwnd)).flatten().map(rect)
     }
 }
 

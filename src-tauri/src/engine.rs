@@ -77,7 +77,7 @@ pub struct PlayPlan {
     /// Added to every position ("Window" coordinates: where the anchor window moved).
     pub offset: (i32, i32),
     pub from: Ms,
-    /// Relay's window, left out of the screen when looking for an image.
+    /// Relay's window, which image searches never look inside.
     pub own_window: isize,
 }
 
@@ -545,6 +545,7 @@ pub fn spawn(
     let (wake_tx, wake_rx) = crossbeam_channel::bounded(1);
     let (make_timer, make_injector, now_ms) = (platform.timer, platform.injector, platform.now_ms);
     let screen = platform.screen.clone();
+    let platform_windows = platform.windows.clone();
     let thread = std::thread::Builder::new()
         .name("relay-engine".into())
         .spawn(move || {
@@ -553,10 +554,12 @@ pub fn spawn(
             let mut timer = make_timer();
             let _ = wake_tx.send(timer.waker());
             let own_window = plan.own_window;
-            let finder_screen = screen.clone();
+            let (finder_screen, windows) = (screen.clone(), platform_windows);
             let pixel: PixelReader = Box::new(move |x, y| screen.pixel(x, y));
             let find: ImageFinder = Box::new(move |image, area, threshold| {
-                crate::finder::find_on_screen(&*finder_screen, image, area, threshold, own_window)
+                // Where Relay's window is now: it may have moved since playback started.
+                let hide = windows.shown_rect(own_window);
+                crate::finder::find_on_screen(&*finder_screen, image, area, threshold, hide)
             });
             let mut engine = Engine::new(plan, make_injector(), pixel, find, now_ms());
             let mut next_tick = f64::MIN;

@@ -411,10 +411,11 @@ pub async fn test_find_image(
     area: Option<Rect>,
 ) -> Result<Option<FoundImage>> {
     let platform = platform.inner().clone();
-    let exclude = crate::window_ctl::main_hwnd(&app);
+    let own = crate::window_ctl::main_hwnd(&app);
     tauri::async_runtime::spawn_blocking(move || {
         let gray = Rgb8::decode(&image.0).map_err(image_error)?.gray();
-        let m = crate::finder::best_on_screen(&*platform.screen, &gray, area, threshold as f32 / 100.0, exclude);
+        let hide = platform.windows.shown_rect(own);
+        let m = crate::finder::best_on_screen(&*platform.screen, &gray, area, threshold as f32 / 100.0, hide);
         Ok(m.map(|m| FoundImage {
             x: m.x,
             y: m.y,
