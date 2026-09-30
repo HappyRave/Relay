@@ -14,7 +14,7 @@ use tauri::ipc::Channel;
 use ts_rs::TS;
 use uuid::Uuid;
 
-use crate::engine::TimingStats;
+use relay_playback::TimingStats;
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(tag = "type", rename_all = "snake_case")]

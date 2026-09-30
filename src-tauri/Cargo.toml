@@ -17,6 +17,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 relay-core = { workspace = true, features = ["samples"] }
 relay-platform.workspace = true
+relay-playback.workspace = true
 tauri = { version = "2", features = ["tray-icon"] }
 serde.workspace = true
 serde_json.workspace = true
