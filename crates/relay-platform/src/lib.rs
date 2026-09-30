@@ -91,6 +91,9 @@ pub trait WindowQuery: Send + Sync {
     /// Where window `hwnd` is on screen: its visible frame, or `None` when
     /// it's hidden, minimized or gone.
     fn shown_rect(&self, hwnd: isize) -> Option<Rect>;
+    /// The frames of the windows in front of `hwnd` that cover part of it
+    /// (shown ones, not click-through overlays).
+    fn covering(&self, hwnd: isize) -> Vec<Rect>;
 }
 
 /// Synthesizes input. Every event carries [`RELAY_MAGIC`] so Relay's own hook

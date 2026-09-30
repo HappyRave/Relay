@@ -16,10 +16,10 @@ use windows::Win32::System::Threading::{
 };
 use windows::Win32::UI::Accessibility::{HWINEVENTHOOK, SetWinEventHook};
 use windows::Win32::UI::WindowsAndMessaging::{
-    DispatchMessageW, EVENT_SYSTEM_FOREGROUND, EnumWindows, GA_ROOT, GW_HWNDNEXT, GWL_EXSTYLE, GetAncestor,
-    GetClassNameW, GetForegroundWindow, GetMessageW, GetWindow, GetWindowLongPtrW, GetWindowRect, GetWindowTextW,
-    GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, MSG, SetForegroundWindow, TranslateMessage,
-    WINEVENT_OUTOFCONTEXT, WS_EX_TOOLWINDOW, WindowFromPoint,
+    DispatchMessageW, EVENT_SYSTEM_FOREGROUND, EnumWindows, GA_ROOT, GW_HWNDNEXT, GW_HWNDPREV, GWL_EXSTYLE,
+    GetAncestor, GetClassNameW, GetForegroundWindow, GetMessageW, GetWindow, GetWindowLongPtrW, GetWindowRect,
+    GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, MSG, SetForegroundWindow,
+    TranslateMessage, WINEVENT_OUTOFCONTEXT, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WindowFromPoint,
 };
 use windows::core::{BOOL, PWSTR};
 
@@ -238,6 +238,32 @@ impl WindowQuery for WinWindows {
         let shown =
             unsafe { IsWindow(Some(hwnd)).as_bool() && IsWindowVisible(hwnd).as_bool() && !IsIconic(hwnd).as_bool() };
         shown.then(|| frame_of(hwnd)).flatten().map(rect)
+    }
+
+    fn covering(&self, hwnd: isize) -> Vec<Rect> {
+        let own = HWND(hwnd as *mut c_void);
+        let Some(mine) = frame_of(own) else { return Vec::new() };
+        let overlaps =
+            |r: &RECT| r.left < mine.right && r.right > mine.left && r.top < mine.bottom && r.bottom > mine.top;
+        let mut out = Vec::new();
+        let mut h = unsafe { GetWindow(own, GW_HWNDPREV) };
+        while let Ok(w) = h {
+            let shown = unsafe {
+                IsWindowVisible(w).as_bool()
+                    && !IsIconic(w).as_bool()
+                    && GetWindowLongPtrW(w, GWL_EXSTYLE) as u32 & WS_EX_TRANSPARENT.0 == 0
+            };
+            let mut cloaked = 0u32;
+            let _ = unsafe { DwmGetWindowAttribute(w, DWMWA_CLOAKED, &mut cloaked as *mut _ as *mut c_void, 4) };
+            if shown
+                && cloaked == 0
+                && let Some(f) = frame_of(w).filter(overlaps)
+            {
+                out.push(rect(f));
+            }
+            h = unsafe { GetWindow(w, GW_HWNDPREV) };
+        }
+        out
     }
 }
 

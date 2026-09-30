@@ -258,7 +258,7 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 - The sample macros have a MOVE before each click: the invoice sample has 18 steps, 12 of them the design's.
 - A trailing `+` in a hotkey is the plus key ("Ctrl + +"). "Ctrl + + K" is refused. Shift alone with a key that types (Shift + A) is refused. So is a hotkey ending in a modifier.
 - A pixel trigger fires when the pixel matches twice in a row after two non-matching samples, and re-arms only after two non-matches. The image trigger works the same way, a sample being "the image is on screen".
-- Image searches never look inside Relay's own window: its rectangle is painted flat in the capture (`WindowQuery::shown_rect`), so the editor's thumbnail is never found. `WDA_EXCLUDEFROMCAPTURE` isn't enough for this: on multiple monitors it can still be applying when the capture is taken. The E2E tests show their image in a separate PowerShell window for this reason.
+- Image searches never look inside Relay's own window: what shows of it is painted flat in the capture (`shown_rect` minus `covering`: a window in front of Relay is still searched), so the editor's thumbnail is never found. `WDA_EXCLUDEFROMCAPTURE` isn't enough for this: on multiple monitors it can still be applying when the capture is taken. The E2E tests show their image in a separate PowerShell window for this reason.
 - A Find image step that finds its image clicks it: E2E only plays one whose image is absent.
 - `.rly` is written as v2 only when the macro has a `find_image` event, so other macros still open in older Relays.
 - relay-core is built at `opt-level = 3` in dev too: unoptimized, an image search takes seconds instead of ~25 ms.

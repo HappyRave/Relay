@@ -350,9 +350,9 @@ fn image_loop(app: AppHandle, platform: Arc<Platform>) {
             continue;
         }
         looker.round();
-        let hide = platform.windows.shown_rect(crate::window_ctl::main_hwnd(&app));
+        let hide = crate::finder::Hidden::of(&*platform.windows, crate::window_ctl::main_hwnd(&app));
         let found = watch.tick(&triggers, |image, key, area, threshold| {
-            looker.look(&*platform.screen, image, key, area, threshold, hide)
+            looker.look(&*platform.screen, image, key, area, threshold, &hide)
         });
         for id in found {
             fire(&app, id, RunSource::Image);

@@ -10,7 +10,10 @@ import { fileURLToPath } from "node:url";
 import { App, sleep, until, waitingMacro, writeRly } from "./harness.mjs";
 
 const SCRIPT = join(fileURLToPath(new URL(".", import.meta.url)), "image-window.ps1");
-/** Where the window shows the image (physical pixels), clear of Relay's widget. */
+/**
+ * Where the window shows the image (physical pixels): in front of Relay's
+ * widget, which is moved under it, since what's over Relay must be found.
+ */
 const AT = { x: 120, y: 120 };
 
 describe("images", () => {
@@ -45,6 +48,7 @@ describe("images", () => {
 
   before(async () => {
     page = await app.start();
+    await page.invoke("plugin:window|set_position", { label: "main", value: { Physical: { x: AT.x - 60, y: AT.y - 60 } } });
     const png = app.path("pattern.png");
     await new Promise((resolve, reject) => powershell(["-Png", png, "-SaveOnly"]).on("exit", (c) => (c === 0 ? resolve() : reject(new Error(`exit ${c}`)))));
     image = await page.invoke("load_image", { path: png });

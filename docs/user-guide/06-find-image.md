@@ -27,7 +27,7 @@ Found means **at least as similar as Match %** (85% by default). Relay compares 
 On the timeline, the step is a `FIND` block in the *Logic* lane. Like a [pixel check](05-pixel-checks.md), its length is only there to make it visible and clickable: when the image is already there, the macro doesn't spend that time waiting.
 
 > [!NOTE]
-> Relay never looks inside its own window, so the copy of the image in the step editor is never the one found. Nor does it see what's behind the widget, which a click couldn't reach: keep the widget off the thing to click.
+> Relay never looks inside its own window, so the copy of the image in the step editor is never the one found. Nor does it see what's behind the widget, which a click couldn't reach: keep the widget off the thing to click. (A window in front of the widget, like a dialog opening over it, is seen.)
 
 ## Adding one
 

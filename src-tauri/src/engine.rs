@@ -558,8 +558,8 @@ pub fn spawn(
             let pixel: PixelReader = Box::new(move |x, y| screen.pixel(x, y));
             let find: ImageFinder = Box::new(move |image, area, threshold| {
                 // Where Relay's window is now: it may have moved since playback started.
-                let hide = windows.shown_rect(own_window);
-                crate::finder::find_on_screen(&*finder_screen, image, area, threshold, hide)
+                let hide = crate::finder::Hidden::of(&*windows, own_window);
+                crate::finder::find_on_screen(&*finder_screen, image, area, threshold, &hide)
             });
             let mut engine = Engine::new(plan, make_injector(), pixel, find, now_ms());
             let mut next_tick = f64::MIN;

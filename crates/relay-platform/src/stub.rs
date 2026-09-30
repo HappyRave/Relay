@@ -63,6 +63,9 @@ impl WindowQuery for Stub {
     fn shown_rect(&self, _: isize) -> Option<Rect> {
         None
     }
+    fn covering(&self, _: isize) -> Vec<Rect> {
+        Vec::new()
+    }
 }
 
 impl Injector for Stub {
