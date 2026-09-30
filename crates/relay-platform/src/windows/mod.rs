@@ -1,6 +1,7 @@
 //! The Windows backend. Relay is per-monitor DPI aware (v2), so every
 //! coordinate here is a physical pixel on the virtual desktop.
 
+mod clipboard;
 mod hook;
 mod inject;
 mod screen;
@@ -37,6 +38,7 @@ pub fn platform() -> Platform {
         hook: Box::new(hook::LowLevelHook),
         screen: Arc::new(screen::WinScreen),
         windows: Arc::new(window::WinWindows::new()),
+        clipboard: Arc::new(clipboard::WinClipboard),
         translator: || Box::new(text::ToUnicodeTranslator),
         injector: || Box::new(inject::SendInputInjector),
         timer: timer::new,

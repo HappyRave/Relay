@@ -67,6 +67,15 @@ impl Panes {
     }
 }
 
+/// The main window's handle (0 if there's none), to leave it out of screen
+/// captures and recordings.
+pub fn main_hwnd(app: &AppHandle) -> isize {
+    #[cfg(windows)]
+    return app.get_webview_window("main").and_then(|w| w.hwnd().ok()).map_or(0, |h| h.0 as isize);
+    #[cfg(not(windows))]
+    return 0;
+}
+
 /// The editor's size: the one the user chose (never below [`MIN_EXPANDED`]), or the default.
 pub fn expanded_size(prefs: &WindowPrefs) -> (f64, f64) {
     prefs.size.map_or(EXPANDED, |(w, h)| (w.max(MIN_EXPANDED.0), h.max(MIN_EXPANDED.1)))

@@ -486,6 +486,44 @@ impl Rgb8 {
         }
     }
 
+    /// Reads a device-independent bitmap (what Windows puts on the
+    /// clipboard): a BITMAPINFOHEADER (or a later version), then 24- or
+    /// 32-bit pixels. Alpha is ignored: programs rarely fill it in.
+    pub fn from_dib(bytes: &[u8]) -> Result<Rgb8, ImageError> {
+        let u32_at = |i: usize| bytes.get(i..i + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+        let u16_at = |i: usize| bytes.get(i..i + 2).map(|b| u16::from_le_bytes([b[0], b[1]]));
+        let bad = ImageError::Unreadable;
+        let (size, w, h) = (u32_at(0).ok_or(bad)? as usize, u32_at(4).ok_or(bad)? as i32, u32_at(8).ok_or(bad)? as i32);
+        let (bits, compression) = (u16_at(14).ok_or(bad)?, u32_at(16).ok_or(bad)?);
+        const BI_RGB: u32 = 0;
+        const BI_BITFIELDS: u32 = 3;
+        let standard_masks = || [u32_at(40), u32_at(44), u32_at(48)] == [Some(0xFF_0000), Some(0xFF00), Some(0xFF)];
+        let ok = size >= 40
+            && w > 0
+            && h != 0
+            && match (bits, compression) {
+                (24, BI_RGB) | (32, BI_RGB) => true,
+                (32, BI_BITFIELDS) => standard_masks(),
+                _ => false,
+            };
+        if !ok {
+            return Err(bad);
+        }
+        // With a plain BITMAPINFOHEADER, the three masks follow it.
+        let start = size + if compression == BI_BITFIELDS && size == 40 { 12 } else { 0 };
+        let (w, rows, bottom_up) = (w as usize, h.unsigned_abs() as usize, h > 0);
+        let per = bits as usize / 8;
+        let stride = (w * per).div_ceil(4) * 4;
+        let data = bytes.get(start..start + stride * rows).ok_or(bad)?;
+        let mut px = Vec::with_capacity(w * rows * 3);
+        for y in 0..rows {
+            let row = if bottom_up { rows - 1 - y } else { y };
+            let line = &data[row * stride..row * stride + w * per];
+            px.extend(line.chunks_exact(per).flat_map(|p| [p[2], p[1], p[0]]));
+        }
+        Ok(Rgb8 { w, h: rows, px })
+    }
+
     pub fn encode_png(&self) -> Vec<u8> {
         let mut out = Vec::new();
         let mut enc = png::Encoder::new(&mut out, self.w as u32, self.h as u32);
@@ -764,6 +802,43 @@ mod tests {
         let back = Rgb8::decode(&jpg).unwrap();
         assert_eq!((back.w, back.h), (32, 16));
         assert!(back.px.iter().zip(&img.px).all(|(a, b)| a.abs_diff(*b) < 40));
+    }
+
+    /// A BITMAPINFOHEADER for a `w`×`h` image, then `pixels`.
+    fn dib(w: i32, h: i32, bits: u16, compression: u32, extra: &[u8], pixels: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend(40u32.to_le_bytes());
+        out.extend(w.to_le_bytes());
+        out.extend(h.to_le_bytes());
+        out.extend(1u16.to_le_bytes());
+        out.extend(bits.to_le_bytes());
+        out.extend(compression.to_le_bytes());
+        out.extend([0u8; 20]);
+        out.extend(extra);
+        out.extend(pixels);
+        out
+    }
+
+    #[test]
+    fn reads_clipboard_bitmaps() {
+        // 2×2, bottom-up, 24-bit: rows padded to 8 bytes, blue first.
+        let rows = [[1, 2, 3, 4, 5, 6, 0, 0], [7, 8, 9, 10, 11, 12, 0, 0]].concat();
+        let img = Rgb8::from_dib(&dib(2, 2, 24, 0, &[], &rows)).unwrap();
+        assert_eq!((img.w, img.h), (2, 2));
+        assert_eq!(img.px, [9, 8, 7, 12, 11, 10, 3, 2, 1, 6, 5, 4], "the last row is the top one");
+        // Top-down, 32-bit with the standard masks after the header.
+        let masks = [0xFF_0000u32, 0xFF00, 0xFF].iter().flat_map(|m| m.to_le_bytes()).collect::<Vec<_>>();
+        let img = Rgb8::from_dib(&dib(1, -2, 32, 3, &masks, &[1, 2, 3, 0, 4, 5, 6, 255])).unwrap();
+        assert_eq!(img.px, [3, 2, 1, 6, 5, 4]);
+    }
+
+    #[test]
+    fn refuses_bitmaps_it_cant_read() {
+        let bad = Err(ImageError::Unreadable);
+        assert_eq!(Rgb8::from_dib(&dib(2, 2, 8, 0, &[], &[0; 64])), bad, "palette images");
+        assert_eq!(Rgb8::from_dib(&dib(2, 2, 24, 0, &[], &[0; 8])), bad, "too short");
+        assert_eq!(Rgb8::from_dib(&dib(1, 1, 32, 3, &[0; 12], &[0; 4])), bad, "odd masks");
+        assert_eq!(Rgb8::from_dib(&[40, 0, 0]), bad);
     }
 
     #[test]
