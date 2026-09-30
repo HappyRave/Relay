@@ -35,6 +35,9 @@ describe("tauriBackend", () => {
     ["getSettings", () => b.getSettings(), "get_settings", {}],
     ["samplePixel", () => b.samplePixel(-5, 7), "sample_pixel", { x: -5, y: 7 }],
     ["pickPixel", () => b.pickPixel(3000), "pick_pixel", { delayMs: 3000 }],
+    ["snipImage", () => b.snipImage(), "snip_image", {}],
+    ["cancelSnip", () => b.cancelSnip(), "cancel_snip", {}],
+    ["testFindImage", () => b.testFindImage(png(4, 4), 90, null), "test_find_image", { image: png(4, 4), threshold: 90, area: null }],
     ["getTriggers", () => b.getTriggers(id), "get_triggers", { id }],
     ["setTriggersPaused", () => b.setTriggersPaused(true), "set_triggers_paused", { paused: true }],
     ["listProcesses", () => b.listProcesses(), "list_processes", {}],
@@ -221,10 +224,15 @@ describe("browserBackend (npm run dev)", () => {
       bb.deleteMacro(id),
       bb.restoreMacro(id),
       bb.pickPixel(0),
+      bb.pasteImage(),
+      bb.chooseImage(),
+      bb.snipImage(),
+      bb.testFindImage(png(4, 4), 85, null),
     ]) {
       await expect(p).rejects.toMatchObject({ code: "unavailable" });
     }
     expect(await bb.samplePixel(1, 2)).toBeNull();
+    await bb.cancelSnip(); // nothing to cancel
     expect(await bb.getAutostart()).toBe(false);
     expect(await bb.setAutostart(true)).toBe(false);
     expect(await bb.listProcesses()).toContain("excel.exe");
