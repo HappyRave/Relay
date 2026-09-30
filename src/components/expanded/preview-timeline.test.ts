@@ -365,9 +365,20 @@ describe("Timeline", () => {
     expect(ticks).toEqual(["0s", "1s", "2s", "3s", "4s", "5s", "6s", "7s", "8s", "9s", "10s"]);
   });
 
+  test("while recording, the mouse lane follows the live path", async () => {
+    const { container } = render(Timeline);
+    core.emit({ type: "session", mode: "recording", macro_id: null });
+    const desktop = { x: 0, y: 0, w: 1920, h: 1080 };
+    const moves = [0, 16, 32, 600, 616].map((t) => ({ t, x: t, y: 0 }));
+    core.emit({ type: "rec_progress", elapsed_ms: 700, desktop, moves, steps: [] });
+    await settle();
+    expect(container.querySelectorAll(".move")).toHaveLength(2);
+  });
+
   test("lanes for mouse moves, clicks, keys and logic", () => {
     const { container } = render(Timeline);
-    expect(container.querySelectorAll(".move").length).toBeGreaterThan(0);
+    // One bar per MOVE step: the invoice sample has one before each of its six clicks.
+    expect(container.querySelectorAll(".move")).toHaveLength(6);
     expect(container.querySelectorAll(".click")).toHaveLength(6);
     expect([...container.querySelectorAll(".chip")].map((c) => c.getAttribute("title"))).toEqual([
       "Ctrl + A",

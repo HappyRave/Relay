@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- **Mouse moves are steps:** the cursor moving between two steps is now a **MOVE** row in the steps list (*Move 134, 70 → 230, 324 px · 0.63 s*), including the moves before the first step and after the last, like the trip to Relay's Stop button, which you can now delete. Open one to set how long it takes (shorter is faster), **Smooth** a shaky path or **Straighten** it; each shows an Undo. The preview draws the open move's path thicker.
+- **Mouse moves are steps:** the cursor moving between two steps is now a **MOVE** row in the steps list (*Move 134, 70 → 230, 324 px · 0.63 s*), including the moves before the first step and after the last, like the trip to Relay's Stop button, which you can now delete. Open one to set how long it takes (shorter is faster), **Smooth** a shaky path or **Straighten** it; each shows an Undo. The preview draws the open move's path thicker, and the timeline's Mouse lane has one bar per move, so even a short pause between two moves shows as a gap.
 - **Pauses are real pauses:** *Pause before* and the pause markers now count only the time when nothing happened. The time spent moving the mouse is the move's. *Trim pauses* shortens those real pauses; to speed up the mouse, shorten its moves.
 - **Pause before a step right after another:** giving a step a pause where it had none (a click as the mouse arrives) no longer makes the cursor stall and jump before it.
 

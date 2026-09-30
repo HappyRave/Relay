@@ -1,6 +1,6 @@
 <script lang="ts">
   import { relay } from "../../lib/state/relay.svelte";
-  import { keyChips, moveSegments, pct, ruler, startedCount } from "../../lib/timeline/lanes";
+  import { keyChips, moveBars, moveSegments, pct, ruler, startedCount } from "../../lib/timeline/lanes";
   import { seekable } from "../../lib/actions/seekable";
   import type { StepOf } from "../../lib/types";
 
@@ -10,7 +10,7 @@
   // The ruler's width picks its step, so labels never crowd on a narrow timeline.
   let rulerW = $state(0);
   const ticks = $derived(ruler(d, rulerW));
-  const moves = $derived(moveSegments(relay.moves, d));
+  const moves = $derived(relay.mode === "recording" ? moveSegments(relay.moves, d) : moveBars(steps, d));
   const clicks = $derived(steps.filter((s): s is StepOf<"click"> => s.kind === "click"));
   const chips = $derived(keyChips(steps, d));
   // How many of each have been reached: changes only when the playhead passes one.
