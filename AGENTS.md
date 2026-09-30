@@ -252,7 +252,7 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 - PowerShell 5 mangles non-ASCII characters in inline scripts; in JS strings use `\u` escapes.
 - `cargo llvm-cov` runs leave `*.profraw` files; they're git-ignored now (three were once committed by mistake).
 - A coverage-instrumented app exits without writing its profile, so merged unit + E2E coverage isn't possible; report them separately.
-- With Node 25.7, `npm run test:e2e` fails with "Cannot find module …e2e": that Node doesn't take the folder argument. Node 26 is fine; otherwise pass the files: `node --test --test-concurrency=1 --test-timeout=120000 e2e/*.e2e.test.mjs`.
+- With Node 25.7, `npm run test:e2e` fails with "Cannot find module …\e2e": that Node doesn't take the folder argument. Node 26 is fine; otherwise pass the files: `node --test --test-concurrency=1 --test-timeout=120000 e2e/*.e2e.test.mjs`.
 
 **WebView2 and the app**
 - The GitHub runner's WebView2 ignores `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` and its registry override (`HKCU\Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments`). Relay passes the DevTools port itself when `RELAY_DEVTOOLS_PORT` is set (`src-tauri/src/lib.rs`, `context()`), which also keeps wry's default `--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection`.
