@@ -377,8 +377,11 @@ describe("Timeline", () => {
 
   test("lanes for mouse moves, clicks, keys and logic", () => {
     const { container } = render(Timeline);
-    // One bar per MOVE step: the invoice sample has one before each of its six clicks.
-    expect(container.querySelectorAll(".move")).toHaveLength(6);
+    // Each click and the move to it, with no pause between: six bars, the
+    // first from 0 to the click's release at 910 ms (of 10 150).
+    const bars = [...container.querySelectorAll<HTMLElement>(".move")];
+    expect(bars).toHaveLength(6);
+    expect([bars[0].style.left, bars[0].style.width]).toEqual(["0%", `${(910 / 10150) * 100}%`]);
     expect(container.querySelectorAll(".click")).toHaveLength(6);
     expect([...container.querySelectorAll(".chip")].map((c) => c.getAttribute("title"))).toEqual([
       "Ctrl + A",

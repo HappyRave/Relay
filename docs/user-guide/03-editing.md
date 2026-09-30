@@ -152,7 +152,7 @@ The timeline at the bottom shows the whole macro in four lanes:
 
 | Lane | Shows |
 | --- | --- |
-| **Mouse** | A bar for each [move](#moves) and drag. A gap between two bars is a pause, however short. While you record, the bars follow the live path instead. |
+| **Mouse** | When the mouse is at work: [moves](#moves), clicks, drags and scrolls. The bar breaks only where there's a [pause](#pauses), however short. While you record, it follows the live path instead. |
 | **Clicks** | A tick for each click |
 | **Keys** | Key combinations and typed text, with their labels |
 | **Logic** | Waits and pixel checks |
