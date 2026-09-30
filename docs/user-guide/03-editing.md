@@ -152,10 +152,12 @@ The timeline at the bottom shows the whole macro in four lanes:
 
 | Lane | Shows |
 | --- | --- |
-| **Mouse** | When the mouse is at work: [moves](#moves), clicks, drags and scrolls. The bar breaks only where there's a [pause](#pauses), however short. While you record, it follows the live path instead. |
+| **Mouse** | When the mouse moves: a bar for each [move](#moves) and drag |
 | **Clicks** | A tick for each click |
 | **Keys** | Key combinations and typed text, with their labels |
 | **Logic** | Waits and pixel checks |
+
+[Pauses](#pauses), when nothing happens, are striped across all four lanes, however short. While you record, the Mouse lane follows the live cursor path, and pauses show once you stop.
 
 **Click or drag anywhere** on the timeline to move the playhead. The preview, the steps list and the clock all follow. The **◀ ▶** buttons in the transport jump to the previous and next step, moves included.
 

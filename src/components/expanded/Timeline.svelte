@@ -1,6 +1,6 @@
 <script lang="ts">
   import { relay } from "../../lib/state/relay.svelte";
-  import { keyChips, moveBars, moveSegments, pct, ruler, startedCount } from "../../lib/timeline/lanes";
+  import { keyChips, moveBars, moveSegments, pauseSpans, pct, ruler, startedCount } from "../../lib/timeline/lanes";
   import { seekable } from "../../lib/actions/seekable";
   import type { StepOf } from "../../lib/types";
 
@@ -11,6 +11,7 @@
   let rulerW = $state(0);
   const ticks = $derived(ruler(d, rulerW));
   const moves = $derived(relay.mode === "recording" ? moveSegments(relay.moves, d) : moveBars(steps, d));
+  const pauses = $derived(relay.mode === "recording" ? [] : pauseSpans(steps, d));
   const clicks = $derived(steps.filter((s): s is StepOf<"click"> => s.kind === "click"));
   const chips = $derived(keyChips(steps, d));
   // How many of each have been reached: changes only when the playhead passes one.
@@ -29,6 +30,9 @@
   </div>
   <div class="lane-label">Mouse</div>
   <div class="lanes" use:seekable>
+    {#each pauses as p, i (i)}
+      <div class="pause" style:left="{p.l}%" style:width="{p.w}%"></div>
+    {/each}
     <div class="lane" style:border-top-width="2px">
       {#each moves as s, i (i)}
         <div class="move" style:left="{s.l}%" style:width="{s.w}%"></div>
@@ -105,6 +109,14 @@
   .lane {
     position: relative;
     border-top: 1px solid var(--color-divider);
+  }
+  /* Behind all four lanes, striped like the pauses in the steps list. */
+  .pause {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background: repeating-linear-gradient(-45deg, transparent 0 6px, var(--color-neutral-300) 6px 8px);
+    pointer-events: none;
   }
   /* Marks sit in the middle of their lane and grow with it. */
   .move,

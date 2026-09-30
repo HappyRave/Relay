@@ -365,6 +365,20 @@ describe("Timeline", () => {
     expect(ticks).toEqual(["0s", "1s", "2s", "3s", "4s", "5s", "6s", "7s", "8s", "9s", "10s"]);
   });
 
+  test("pauses are striped across the lanes, however short", async () => {
+    const { container } = render(Timeline);
+    const spans = () => [...container.querySelectorAll<HTMLElement>(".pause")];
+    // The invoice sample's pauses: 206, 190, 16, 70, 220, 261, 190, 336, 206 and 210 ms.
+    expect(spans()).toHaveLength(10);
+    expect([spans()[0].style.left, spans()[0].style.width]).toEqual([`${(910 / 10150) * 100}%`, `${(1116 / 10150) * 100 - (910 / 10150) * 100}%`]);
+    await relay.setPause(1, 100); // the first click, which had none
+    await settle();
+    expect(spans()).toHaveLength(11);
+    await relay.setPause(1, 0);
+    await settle();
+    expect(spans()).toHaveLength(10);
+  });
+
   test("while recording, the mouse lane follows the live path", async () => {
     const { container } = render(Timeline);
     core.emit({ type: "session", mode: "recording", macro_id: null });
@@ -373,15 +387,15 @@ describe("Timeline", () => {
     core.emit({ type: "rec_progress", elapsed_ms: 700, desktop, moves, steps: [] });
     await settle();
     expect(container.querySelectorAll(".move")).toHaveLength(2);
+    expect(container.querySelectorAll(".pause")).toHaveLength(0);
   });
 
   test("lanes for mouse moves, clicks, keys and logic", () => {
     const { container } = render(Timeline);
-    // Each click and the move to it, with no pause between: six bars, the
-    // first from 0 to the click's release at 910 ms (of 10 150).
+    // A bar for each of the six moves, the first to the first click at 850 ms (of 10 150).
     const bars = [...container.querySelectorAll<HTMLElement>(".move")];
     expect(bars).toHaveLength(6);
-    expect([bars[0].style.left, bars[0].style.width]).toEqual(["0%", `${(910 / 10150) * 100}%`]);
+    expect([bars[0].style.left, bars[0].style.width]).toEqual(["0%", `${(850 / 10150) * 100}%`]);
     expect(container.querySelectorAll(".click")).toHaveLength(6);
     expect([...container.querySelectorAll(".chip")].map((c) => c.getAttribute("title"))).toEqual([
       "Ctrl + A",

@@ -8,24 +8,18 @@ export interface Span {
   w: number;
 }
 
-/**
- * Bars for the mouse at work: its steps (moves, clicks, drags, scrolls), with
- * those that follow each other without a pause joined into one bar. So a gap
- * is a pause, however short, and no pause is no gap (the press and release of
- * a click between two moves are part of the bar). A lone jump (a move with a
- * single sample) has no bar.
- */
+/** Bars for the mouse moving: one per MOVE or DRAG step. A jump (a move with a single sample) has none. */
 export function moveBars(steps: Step[], duration: number): Span[] {
-  const mouse = steps.filter((s) => s.kind === "move" || s.kind === "click" || s.kind === "drag" || s.kind === "scroll");
-  const bars: { s: number; e: number }[] = [];
-  for (const m of mouse) {
-    const last = bars[bars.length - 1];
-    if (last && m.t <= last.e) last.e = Math.max(last.e, m.end);
-    else bars.push({ s: m.t, e: m.end });
-  }
-  return bars
-    .filter((b) => b.e > b.s)
-    .map((b) => ({ l: pct(b.s, duration), w: Math.max(0.4, pct(b.e, duration) - pct(b.s, duration)) }));
+  return steps
+    .filter((s) => (s.kind === "move" || s.kind === "drag") && s.end > s.t)
+    .map((s) => ({ l: pct(s.t, duration), w: Math.max(0.4, pct(s.end, duration) - pct(s.t, duration)) }));
+}
+
+/** The pauses before steps, when nothing happens, however short. */
+export function pauseSpans(steps: Step[], duration: number): Span[] {
+  return steps
+    .filter((s) => s.pause > 0)
+    .map((s) => ({ l: pct(s.t - s.pause, duration), w: pct(s.t, duration) - pct(s.t - s.pause, duration) }));
 }
 
 /**
