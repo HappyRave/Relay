@@ -309,6 +309,21 @@ describe("triggers", () => {
     for (const source of ["Schedule", "AppLaunch", "Pixel"]) assert.match(log(), new RegExp(`source=${source}`));
   });
 
+  test("the run history records each triggered run, and the one skipped while busy", async () => {
+    const entries = app.json("runs.json").entries.filter((e) => e.macro_id === target);
+    const ran = (source) => entries.filter((e) => e.source === source && e.outcome.type === "finished");
+    for (const source of ["schedule", "app_launch", "pixel"]) {
+      assert.ok(ran(source).length > 0, `a ${source} run`);
+      for (const e of ran(source)) assert.deepEqual(e.outcome, { type: "finished", reason: "completed" }, source);
+    }
+    assert.equal(ran("pixel").length, 2);
+    const skipped = entries.filter((e) => e.outcome.type === "skipped");
+    assert.deepEqual(
+      skipped.map((e) => [e.source, e.outcome.reason, e.macro_name]),
+      [["app_launch", "busy", "Triggered"]],
+    );
+  });
+
   test("quitting writes out the last log lines", async () => {
     await app.quit();
     const files = readdirSync(app.path("logs"));
