@@ -1,0 +1,20 @@
+[package]
+name = "relay-player"
+description = "Relay's standalone player: the program a macro is exported as"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[lib]
+name = "relay_player"
+
+[[bin]]
+name = "relay-player"
+path = "src/main.rs"
+
+[dependencies]
+relay-core.workspace = true
+relay-platform.workspace = true
+relay-playback.workspace = true

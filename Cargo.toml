@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/relay-core", "crates/relay-platform", "crates/relay-playback", "src-tauri"]
+members = ["crates/relay-core", "crates/relay-platform", "crates/relay-playback", "crates/relay-player", "src-tauri"]
 
 [workspace.package]
 version = "1.3.0"
