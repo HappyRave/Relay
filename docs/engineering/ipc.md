@@ -74,7 +74,8 @@ Save and open dialogs are shown by the UI with `@tauri-apps/plugin-dialog`, and 
 | `load_image` | `path` | The same from a PNG or JPEG file; `code: "io"` when it can't be read |
 | `snip_image` | | Opens Windows' snipping overlay and waits (up to a minute) for the snip on the clipboard: the image, or `null` when cancelled |
 | `cancel_snip` | | Stops a `snip_image` waiting, which then returns `null` |
-| `test_find_image` | `image, threshold, area` | `FoundImage { x, y, w, h, score }`: the best match in screen pixels, its score in percent (even below `threshold`), or `null` when nothing came close. Relay's window is left out. |
+| `show_match` | `area, dot_x, dot_y` | Marks a match on the screen for 3 s: a red outline around `area` and a dot, over every window, click-through and out of every capture |
+| `test_find_image` | `image, threshold, area` | `FoundImage { x, y, w, h, score }`: the best match in screen pixels, its score in percent (even below `threshold`), or `null` when nothing came close. Never inside Relay's window. |
 
 ### Triggers
 

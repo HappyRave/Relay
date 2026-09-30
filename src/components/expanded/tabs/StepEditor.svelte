@@ -68,8 +68,8 @@
   const size = $derived(step.kind === "find_image" ? pngSize(step.image) : [0, 0]);
   const test = $derived(
     step.kind === "find_image" && relay.imageTest?.id === relay.view?.id && relay.imageTest?.item === step.items[0]
-      ? relay.imageTest.text
-      : "",
+      ? relay.imageTest
+      : null,
   );
   const snipping = $derived(relay.imaging?.index === index && relay.imaging.source === "snip");
 
@@ -171,7 +171,14 @@
       </label>
       <button class="btn btn-secondary pick" title="Look for it on the screen now" onclick={() => relay.testFindImage(index)}>Test</button>
     </div>
-    {#if test}<div class="test" role="status">{test}</div>{/if}
+    {#if test}
+      <div class="test">
+        <span role="status">{test.text}</span>
+        {#if test.found}
+          <button class="btn btn-secondary tool" title="Mark it on the screen for 3 s, with a dot where it would be clicked" onclick={relay.showImageTest}>Show</button>
+        {/if}
+      </div>
+    {/if}
     <div class="choice">
       <span>Click</span>
       <Segmented label="Button to click" options={BUTTONS} value={step.btn} onchange={(btn) => relay.updateFindImage(index, { btn })} />
@@ -338,6 +345,11 @@
   .test {
     font-size: 12px;
     color: var(--color-neutral-700);
+  }
+  .test {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
   .choice {
     display: flex;

@@ -27,7 +27,7 @@ Found means **at least as similar as Match %** (85% by default). Relay compares 
 On the timeline, the step is a `FIND` block in the *Logic* lane. Like a [pixel check](05-pixel-checks.md), its length is only there to make it visible and clickable: when the image is already there, the macro doesn't spend that time waiting.
 
 > [!NOTE]
-> Relay never looks inside its own window, so the copy of the image in the step editor is never the one found.
+> Relay never looks inside its own window, so the copy of the image in the step editor is never the one found. Nor does it see what's behind the widget, which a click couldn't reach: keep the widget off the thing to click. (A window in front of the widget, like a dialog opening over it, is seen.)
 
 ## Adding one
 
@@ -54,6 +54,7 @@ Click the `FIND` row to open its editor:
 | **Match %** | How similar the screen must be, 50 to 100. Lower finds more, and risks the wrong thing. |
 | **Timeout s** | How long to look before giving up, in steps of 0.5 s |
 | **Test** | Looks for the image once, now: *Found at 812, 440 (97%)*, or how close it came: *Not found: the best match is 61%* |
+| **Show** | After a Test, marks that match on the screen itself for 3 seconds: a red outline around it and a red dot where the step would click. Also for a poor match, to see what Relay took for your image. |
 | **Click** | **Left**, **Right** or **Middle** |
 | **Look on** | With several monitors: **All screens**, or just one. One screen is faster. |
 | **Label** | An optional note, such as *OK button* |
@@ -79,7 +80,7 @@ If the timeout runs out, Relay:
 | --- | --- |
 | The app was slower than the timeout | Raise **Timeout** |
 | It looks different now: hovered, selected, another theme | Snip it again as it looks during playback, or snip a smaller part that doesn't change |
-| It's covered by another window | Make sure nothing is on top of it (Relay's widget doesn't count: it's left out) |
+| It's covered by another window, or by Relay's widget | Make sure nothing is on top of it: move the widget, or switch to the [compact player](README.md#a-tour-of-the-widget) |
 | It's much bigger or smaller than the picture | Snip it again at the size it's shown |
 | Match % is too strict | Press **Test**, and set Match % a little below what it says |
 

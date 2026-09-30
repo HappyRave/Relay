@@ -210,10 +210,22 @@ describe("a Find image step's editor", () => {
     await userEvent.click(test);
     await settle();
     expect(within(e).getByRole("status")).toHaveTextContent("Not found");
+    expect(within(e).queryByRole("button", { name: "Show" })).toBeNull(); // nothing to show
     // A change of settings makes the answer stale.
     await change(within(e).getByLabelText("Match %"), "70");
     await settle();
     expect(within(e).queryByRole("status")).toBeNull();
+  });
+
+  test("Show marks the match on screen, with a dot where the step would click", async () => {
+    const { e } = await open();
+    // Found at 1.5 times its size: the click point (20, 10) scales with it.
+    core.found = { x: 300, y: -200, w: 60, h: 30, score: 64 };
+    await userEvent.click(within(e).getByRole("button", { name: "Test" }));
+    await settle();
+    await userEvent.click(within(e).getByRole("button", { name: "Show" }));
+    await settle();
+    expect(core.argsOf("show_match")).toEqual([{ area: { x: 300, y: -200, w: 60, h: 30 }, dotX: 330, dotY: -185 }]);
   });
 
   test("with several screens, where to look: all of them or one", async () => {

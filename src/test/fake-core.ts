@@ -82,6 +82,7 @@ const INFALLIBLE = new Set([
   "save_panes",
   "reset_layout",
   "cancel_snip",
+  "show_match",
 ]);
 
 const BUSY: IpcError = { code: "busy", message: "Stop the recording or playback first" };
@@ -444,6 +445,11 @@ export class FakeCore {
       case "snip_image":
         return this.snip;
       case "cancel_snip":
+        return null;
+      case "show_match":
+        check("area", a.area, RECT);
+        check("dotX", a.dotX, "i32");
+        check("dotY", a.dotY, "i32");
         return null;
       case "test_find_image":
         check("image", a.image, "png");

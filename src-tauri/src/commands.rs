@@ -411,10 +411,11 @@ pub async fn test_find_image(
     area: Option<Rect>,
 ) -> Result<Option<FoundImage>> {
     let platform = platform.inner().clone();
-    let exclude = crate::window_ctl::main_hwnd(&app);
+    let own = crate::window_ctl::main_hwnd(&app);
     tauri::async_runtime::spawn_blocking(move || {
         let gray = Rgb8::decode(&image.0).map_err(image_error)?.gray();
-        let m = crate::finder::best_on_screen(&*platform.screen, &gray, area, threshold as f32 / 100.0, exclude);
+        let hide = crate::finder::Hidden::of(&*platform.windows, own);
+        let m = crate::finder::best_on_screen(&*platform.screen, &gray, area, threshold as f32 / 100.0, &hide);
         Ok(m.map(|m| FoundImage {
             x: m.x,
             y: m.y,
@@ -425,6 +426,16 @@ pub async fn test_find_image(
     })
     .await
     .unwrap_or(Err(IpcError { code: "unavailable", message: "Couldn't read the screen".into() }))
+}
+
+/// How long "Show" marks a match on screen.
+const MARK_MS: u32 = 3000;
+
+/// Marks where an image was found, on the screen itself: a red outline
+/// around `area` and a dot at (`dot_x`, `dot_y`), where it would be clicked.
+#[tauri::command]
+pub fn show_match(platform: State<'_, Arc<Platform>>, area: Rect, dot_x: i32, dot_y: i32) {
+    platform.screen.mark(area, (dot_x, dot_y), MARK_MS);
 }
 
 // — triggers —

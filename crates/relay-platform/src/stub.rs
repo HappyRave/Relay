@@ -60,6 +60,12 @@ impl WindowQuery for Stub {
     fn input_desktop_available(&self) -> bool {
         true
     }
+    fn shown_rect(&self, _: isize) -> Option<Rect> {
+        None
+    }
+    fn covering(&self, _: isize) -> Vec<Rect> {
+        Vec::new()
+    }
 }
 
 impl Injector for Stub {

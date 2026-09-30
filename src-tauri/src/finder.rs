@@ -1,11 +1,14 @@
 //! Looking for an image on the real screen: a 1:1 capture of the area,
-//! searched by `relay_core::image`.
+//! searched by `relay_core::image`. What shows of Relay's own window is
+//! painted over in the capture first, so the pictures it shows (a step's, the
+//! trigger's) are never found, and nor is anything behind it, which a click
+//! would miss anyway. Windows in front of it (a dialog over the widget) stay.
 
 use std::collections::{HashMap, HashSet};
 
 use relay_core::image::{self, FindOpts, Gray, Match};
 use relay_core::model::Rect;
-use relay_platform::{Screen, Snapshot};
+use relay_platform::{Screen, Snapshot, WindowQuery};
 
 /// The part of `a` inside `b`, if any.
 fn intersect(a: Rect, b: Rect) -> Option<Rect> {
@@ -14,12 +17,39 @@ fn intersect(a: Rect, b: Rect) -> Option<Rect> {
     (r > x && bottom > y).then_some(Rect { x, y, w: r - x, h: bottom - y })
 }
 
+/// What of Relay's window shows: its frame, minus the windows in front of it.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Hidden {
+    pub rect: Option<Rect>,
+    pub except: Vec<Rect>,
+}
+
+impl Hidden {
+    /// Relay's window `hwnd`, as it is on screen now.
+    pub fn of(windows: &dyn WindowQuery, hwnd: isize) -> Hidden {
+        let rect = windows.shown_rect(hwnd);
+        Hidden { rect, except: if rect.is_some() { windows.covering(hwnd) } else { Vec::new() } }
+    }
+}
+
 /// A 1:1 picture of `area` (the whole desktop if `None`, clipped to it),
-/// leaving out the window `exclude`, and where it is.
-fn grab(screen: &dyn Screen, area: Option<Rect>, exclude: isize) -> Option<(Rect, Snapshot)> {
+/// with what shows of Relay's window painted flat gray, and where it is.
+fn grab(screen: &dyn Screen, area: Option<Rect>, hide: &Hidden) -> Option<(Rect, Snapshot)> {
     let desktop = screen.virtual_desktop();
     let area = intersect(area.unwrap_or(desktop), desktop)?;
-    Some((area, screen.capture(area, area.w as u32, exclude)?))
+    let mut snap = screen.capture(area, area.w as u32, 0)?;
+    if let Some(h) = hide.rect.and_then(|h| intersect(h, area)) {
+        for y in h.y..h.y + h.h {
+            let row = (y - area.y) as usize * snap.w as usize;
+            for x in h.x..h.x + h.w {
+                if !hide.except.iter().any(|e| e.contains(x, y)) {
+                    let i = (row + (x - area.x) as usize) * 3;
+                    snap.rgb[i..i + 3].fill(128);
+                }
+            }
+        }
+    }
+    Some((area, snap))
 }
 
 fn gray(snap: &Snapshot) -> Gray {
@@ -27,16 +57,16 @@ fn gray(snap: &Snapshot) -> Gray {
 }
 
 /// The best match for `image` in `area` (the whole desktop if `None`),
-/// leaving out the window `exclude`, in screen pixels. Also returns a match
+/// never where Relay's window shows (`hide`), in screen pixels. Also returns a match
 /// below `threshold`, so callers can say how close it came.
 pub fn best_on_screen(
     screen: &dyn Screen,
     image: &Gray,
     area: Option<Rect>,
     threshold: f32,
-    exclude: isize,
+    hide: &Hidden,
 ) -> Option<Match> {
-    let (area, snap) = grab(screen, area, exclude)?;
+    let (area, snap) = grab(screen, area, hide)?;
     let m = image::find(&gray(&snap), image, FindOpts { threshold })?;
     Some(Match { x: m.x + area.x, y: m.y + area.y, ..m })
 }
@@ -47,9 +77,9 @@ pub fn find_on_screen(
     image: &Gray,
     area: Option<Rect>,
     threshold: f32,
-    exclude: isize,
+    hide: &Hidden,
 ) -> Option<Match> {
-    best_on_screen(screen, image, area, threshold, exclude).filter(|m| m.score >= threshold)
+    best_on_screen(screen, image, area, threshold, hide).filter(|m| m.score >= threshold)
 }
 
 /// Tells frames apart (FNV-1a over 8 bytes at a time: fast, and any change
@@ -98,13 +128,13 @@ impl Looker {
         key: u64,
         area: Option<Rect>,
         threshold: f32,
-        exclude: isize,
+        hide: &Hidden,
     ) -> Option<bool> {
         let frame = self
             .frames
             .entry(area)
             .or_insert_with(|| {
-                grab(screen, area, exclude).map(|(_, snap)| Frame { print: fingerprint(&snap.rgb), snap, gray: None })
+                grab(screen, area, hide).map(|(_, snap)| Frame { print: fingerprint(&snap.rgb), snap, gray: None })
             })
             .as_mut()?;
         let search = (key, area, threshold.to_bits());
@@ -168,7 +198,7 @@ mod tests {
             None
         }
         fn capture(&self, area: Rect, max_w: u32, exclude: isize) -> Option<Snapshot> {
-            assert_eq!((max_w, exclude), (area.w as u32, 7), "1:1, without Relay's window");
+            assert_eq!((max_w, exclude), (area.w as u32, 0), "1:1, nothing left out by the OS");
             self.captures.lock().unwrap().push(area);
             let (p, shown) = (patch(), *self.shown.lock().unwrap());
             let mut rgb = Vec::new();
@@ -191,12 +221,27 @@ mod tests {
     #[test]
     fn finds_an_image_in_screen_pixels() {
         let s = screen(true);
-        let m = find_on_screen(&s, &patch(), None, 0.85, 7).unwrap();
+        let m = find_on_screen(&s, &patch(), None, 0.85, &Hidden::default()).unwrap();
         assert_eq!((m.x, m.y, m.w, m.h), (-40, 40, 16, 16));
-        let m = find_on_screen(&s, &patch(), Some(Rect { x: -50, y: 30, w: 400, h: 40 }), 0.85, 7).unwrap();
+        let m = find_on_screen(&s, &patch(), Some(Rect { x: -50, y: 30, w: 400, h: 40 }), 0.85, &Hidden::default())
+            .unwrap();
         assert_eq!((m.x, m.y), (-40, 40));
         assert_eq!(s.captures.lock().unwrap()[1], Rect { x: -50, y: 30, w: 150, h: 40 }, "clipped to the desktop");
-        assert_eq!(find_on_screen(&screen(false), &patch(), None, 0.85, 7), None);
+        assert_eq!(find_on_screen(&screen(false), &patch(), None, 0.85, &Hidden::default()), None);
+    }
+
+    #[test]
+    fn nothing_is_found_under_relays_window() {
+        let s = screen(true);
+        // Relay's window over part of the patch, and reaching off the desktop.
+        let over = Rect { x: -45, y: 20, w: 500, h: 30 };
+        let hide = Hidden { rect: Some(over), except: Vec::new() };
+        assert!(best_on_screen(&s, &patch(), None, 0.85, &hide).is_none_or(|m| m.score < 0.85));
+        let beside = Hidden { rect: Some(Rect { x: 0, y: 0, w: 100, h: 100 }), except: Vec::new() };
+        assert!(find_on_screen(&s, &patch(), None, 0.85, &beside).is_some(), "only what's under it");
+        // A window in front of Relay's (the patch's) is seen.
+        let in_front = Hidden { rect: Some(over), except: vec![Rect { x: -50, y: 35, w: 30, h: 30 }] };
+        assert!(find_on_screen(&s, &patch(), None, 0.85, &in_front).is_some(), "a window over Relay's");
     }
 
     #[test]
@@ -205,18 +250,26 @@ mod tests {
         let mut looker = Looker::default();
         let left = Some(Rect { x: -100, y: 0, w: 100, h: 100 });
         looker.round();
-        assert_eq!(looker.look(&s, &patch(), 1, None, 0.85, 7), Some(false));
-        assert_eq!(looker.look(&s, &patch(), 2, None, 0.85, 7), Some(false), "another image, same capture");
-        assert_eq!(looker.look(&s, &patch(), 1, left, 0.85, 7), Some(false));
+        assert_eq!(looker.look(&s, &patch(), 1, None, 0.85, &Hidden::default()), Some(false));
+        assert_eq!(
+            looker.look(&s, &patch(), 2, None, 0.85, &Hidden::default()),
+            Some(false),
+            "another image, same capture"
+        );
+        assert_eq!(looker.look(&s, &patch(), 1, left, 0.85, &Hidden::default()), Some(false));
         assert_eq!(s.captures.lock().unwrap().len(), 2, "one per area");
 
         // A new round captures again; the unchanged frame keeps its answer.
         looker.round();
-        assert_eq!(looker.look(&s, &patch(), 1, None, 0.85, 7), Some(false));
+        assert_eq!(looker.look(&s, &patch(), 1, None, 0.85, &Hidden::default()), Some(false));
         *s.shown.lock().unwrap() = true;
         looker.round();
-        assert_eq!(looker.look(&s, &patch(), 1, None, 0.85, 7), Some(true), "the frame changed: searched again");
-        assert_eq!(looker.look(&s, &patch(), 1, left, 0.85, 7), Some(true));
+        assert_eq!(
+            looker.look(&s, &patch(), 1, None, 0.85, &Hidden::default()),
+            Some(true),
+            "the frame changed: searched again"
+        );
+        assert_eq!(looker.look(&s, &patch(), 1, left, 0.85, &Hidden::default()), Some(true));
         assert_eq!(s.captures.lock().unwrap().len(), 5);
     }
 

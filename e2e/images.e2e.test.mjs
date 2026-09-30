@@ -10,7 +10,10 @@ import { fileURLToPath } from "node:url";
 import { App, sleep, until, waitingMacro, writeRly } from "./harness.mjs";
 
 const SCRIPT = join(fileURLToPath(new URL(".", import.meta.url)), "image-window.ps1");
-/** Where the window shows the image (physical pixels), clear of Relay's widget. */
+/**
+ * Where the window shows the image (physical pixels): in front of Relay's
+ * widget, which is moved under it, since what's over Relay must be found.
+ */
 const AT = { x: 120, y: 120 };
 
 describe("images", () => {
@@ -28,6 +31,15 @@ describe("images", () => {
     shown = powershell(["-Png", app.path("shown.png"), "-X", String(AT.x), "-Y", String(AT.y)]);
     await until(async () => (await find())?.score >= 85, { timeout: 20_000, every: 250, what: "the pattern on screen" });
   };
+  /** How many of Relay's on-screen marks (Show) there are. */
+  const markers = () =>
+    new Promise((resolve) => {
+      const script = `Add-Type -Name W -Namespace E2E -MemberDefinition '[DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindowEx(IntPtr p, IntPtr a, string c, string t);'; $n = 0; $h = [IntPtr]::Zero; while (($h = [E2E.W]::FindWindowEx([IntPtr]::Zero, $h, 'RelayMarker', $null)) -ne [IntPtr]::Zero) { $n++ }; $n`;
+      let out = "";
+      const p = spawn("powershell", ["-NoProfile", "-Command", script]);
+      p.stdout.on("data", (d) => (out += d));
+      p.on("exit", () => resolve(Number(out.trim())));
+    });
   const hide = async () => {
     shown?.kill();
     shown = null;
@@ -36,6 +48,7 @@ describe("images", () => {
 
   before(async () => {
     page = await app.start();
+    await page.invoke("plugin:window|set_position", { label: "main", value: { Physical: { x: AT.x - 60, y: AT.y - 60 } } });
     const png = app.path("pattern.png");
     await new Promise((resolve, reject) => powershell(["-Png", png, "-SaveOnly"]).on("exit", (c) => (c === 0 ? resolve() : reject(new Error(`exit ${c}`)))));
     image = await page.invoke("load_image", { path: png });
@@ -67,6 +80,12 @@ describe("images", () => {
     assert.ok(Math.abs(m.x - AT.x) <= 1 && Math.abs(m.y - AT.y) <= 1, `found at ${m.x}, ${m.y}`);
     assert.deepEqual([m.w, m.h], [120, 60]);
     const color = await page.invoke("sample_pixel", { x: AT.x + 7, y: AT.y + 10 });
+
+    // Show: a mark on screen for 3 s, which a search never sees.
+    await page.invoke("show_match", { area: { x: m.x, y: m.y, w: m.w, h: m.h }, dotX: m.x + 60, dotY: m.y + 30 });
+    assert.equal(await markers(), 1, "the mark is shown");
+    assert.ok((await find())?.score >= 85, "and doesn't hide the image from a search");
+    await until(async () => (await markers()) === 0, { timeout: 6000, every: 500, what: "the mark to go" });
     await hide();
 
     // The same picture in Relay's page, 1:1: on screen, but not found.
@@ -86,6 +105,35 @@ describe("images", () => {
     const inRelay = await find();
     assert.ok(!(inRelay?.score >= 85), `found in Relay's window: ${JSON.stringify(inRelay)}`);
     await page.run(() => document.getElementById("e2e-image")?.remove());
+  });
+
+  test("the trigger's own thumbnail is never found, on any monitor", async () => {
+    const { triggers } = await page.invoke("get_triggers", { id: target });
+    await page.run((id) => window.__relay.loadMacro(id), target);
+    await page.invoke("set_triggers", { id: target, triggers: { ...triggers, image: { enabled: false, image, threshold: 85, area: null } } });
+    await page.run(() => window.__relay.loadTriggers());
+    await page.tab("Triggers");
+    const home = await page.invoke("plugin:window|outer_position", { label: "main" });
+    try {
+      for (const m of await page.invoke("plugin:window|available_monitors", {})) {
+        await page.invoke("plugin:window|set_position", { label: "main", value: { Physical: { x: m.position.x + 40, y: m.position.y + 40 } } });
+        // On screen, at a size it would be found at (half its own, or more).
+        await until(
+          () =>
+            page.run(() => {
+              const el = document.querySelector(".thumb");
+              el?.scrollIntoView({ block: "center" });
+              return el && el.complete && el.getBoundingClientRect().width * devicePixelRatio >= 60 ? true : null;
+            }),
+          { what: "the thumbnail shown" },
+        );
+        await sleep(300);
+        const m2 = await find();
+        assert.ok(!(m2?.score >= 85), `the thumbnail was found on the monitor at ${m.position.x}, ${m.position.y}: ${JSON.stringify(m2)}`);
+      }
+    } finally {
+      await page.invoke("plugin:window|set_position", { label: "main", value: { Physical: home } });
+    }
   });
 
   test("the image trigger runs the macro when the image appears, once", async () => {

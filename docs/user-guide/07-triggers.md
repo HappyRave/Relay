@@ -104,11 +104,14 @@ Relay checks the pixel 4 times a second, with a tolerance of 8 per color channel
 1. Press **Snip** and drag a rectangle around the thing to watch for, as it looks when the macro should start. Or **Paste** a picture from the clipboard, or choose a PNG or JPEG **File…**.
 2. The switch turns on by itself with the first image. (Until there's an image, it's off and can't be turned on.)
 
-The thumbnail shows the image, and the line under the title the match it needs, for example *At a 85% match or better*. Set **Match %** (50 to 100) and, with several monitors, which screen to watch. **Test** looks for the image once, now, and says where it found it or how close it came.
+The thumbnail shows the image, and the line under the title the match it needs, for example *At a 85% match or better*. Set **Match %** (50 to 100) and, with several monitors, which screen to watch. **Test** looks for the image once, now, and says where it found it or how close it came; **Show** then marks that spot on the screen for 3 seconds (a red outline, with a dot in the middle).
 
 Like the pixel trigger, it fires when the image **appears**: it has to be away twice in a row first, then be seen twice in a row (about a second). An image that stays on screen runs the macro **once**. Changing the image or the match starts over. The image may be anywhere, and from half to twice its size; see [Find image](06-find-image.md#another-size).
 
-Relay looks twice a second, and only while an image trigger is on. It never looks inside its own window.
+Relay looks twice a second, and only while an image trigger is on. It never looks inside its own window (the thumbnail isn't the image appearing), nor behind it.
+
+> [!NOTE]
+> An image that's already on screen when you turn the trigger on doesn't start the macro: it has to go away and come back. To try the trigger, turn it on, then make the image appear.
 
 > [!TIP]
 > The trigger only starts the macro; it doesn't know where to click. To click what appeared, wherever it is, start the macro with a [Find image](06-find-image.md) step for the same image.

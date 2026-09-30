@@ -37,6 +37,7 @@ describe("tauriBackend", () => {
     ["pickPixel", () => b.pickPixel(3000), "pick_pixel", { delayMs: 3000 }],
     ["snipImage", () => b.snipImage(), "snip_image", {}],
     ["cancelSnip", () => b.cancelSnip(), "cancel_snip", {}],
+    ["showMatch", () => b.showMatch({ x: -10, y: 5, w: 40, h: 20 }, 10, 15), "show_match", { area: { x: -10, y: 5, w: 40, h: 20 }, dotX: 10, dotY: 15 }],
     ["testFindImage", () => b.testFindImage(png(4, 4), 90, null), "test_find_image", { image: png(4, 4), threshold: 90, area: null }],
     ["getTriggers", () => b.getTriggers(id), "get_triggers", { id }],
     ["setTriggersPaused", () => b.setTriggersPaused(true), "set_triggers_paused", { paused: true }],
@@ -233,6 +234,7 @@ describe("browserBackend (npm run dev)", () => {
     }
     expect(await bb.samplePixel(1, 2)).toBeNull();
     await bb.cancelSnip(); // nothing to cancel
+    await bb.showMatch({ x: 0, y: 0, w: 1, h: 1 }, 0, 0); // nothing to show
     expect(await bb.getAutostart()).toBe(false);
     expect(await bb.setAutostart(true)).toBe(false);
     expect(await bb.listProcesses()).toContain("excel.exe");

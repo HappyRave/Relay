@@ -59,6 +59,11 @@ pub trait Screen: Send + Sync {
         let _ = (area, max_w, exclude);
         None
     }
+    /// Marks `area` on screen for `ms`, with a dot at `dot`, over everything
+    /// and out of every capture; returns at once. Nothing where the OS can't.
+    fn mark(&self, area: Rect, dot: (i32, i32), ms: u32) {
+        let _ = (area, dot, ms);
+    }
 }
 
 /// A top-level window, by handle and owning process.
@@ -83,6 +88,12 @@ pub trait WindowQuery: Send + Sync {
     fn input_blocked(&self, pid: u32) -> bool;
     /// False on the lock screen or a UAC prompt, where no input can be sent.
     fn input_desktop_available(&self) -> bool;
+    /// Where window `hwnd` is on screen: its visible frame, or `None` when
+    /// it's hidden, minimized or gone.
+    fn shown_rect(&self, hwnd: isize) -> Option<Rect>;
+    /// The frames of the windows in front of `hwnd` that cover part of it
+    /// (shown ones, not click-through overlays).
+    fn covering(&self, hwnd: isize) -> Vec<Rect>;
 }
 
 /// Synthesizes input. Every event carries [`RELAY_MAGIC`] so Relay's own hook

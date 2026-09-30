@@ -38,7 +38,7 @@ pub fn platform() -> Platform              // the backend for the current OS
 | `InputHook` / `HookSession` | `start(HookConfig, Sender<RawInput>)`; dropping the session removes the hooks | `WH_KEYBOARD_LL` + `WH_MOUSE_LL` on a dedicated thread |
 | `Injector` | `move_to`, `button`, `wheel`, `key` | `SendInput` |
 | `Timer` | `wait_until(deadline)`, `waker()` | High-resolution waitable timer + spin |
-| `Screen` | `monitors`, `virtual_desktop`, `cursor_pos`, `double_click`, `pixel`, `capture` | `EnumDisplayMonitors`, `GetDpiForMonitor`, `GetPixel`, `StretchBlt` |
+| `Screen` | `monitors`, `virtual_desktop`, `cursor_pos`, `double_click`, `pixel`, `capture`, `mark` | `EnumDisplayMonitors`, `GetDpiForMonitor`, `GetPixel`, `StretchBlt`, a layered window |
 | `WindowQuery` | `root_window_at`, `foreground`, `restore_previous`, `find_window`, `input_blocked`, `input_desktop_available` | Win32 windowing, DWM and token APIs |
 | `CharTranslator` | `translate(vk, scan, held)` | `ToUnicodeEx` |
 | `Clipboard` | `sequence`, `image`, `start_snip` | `GetClipboardSequenceNumber`; the registered `PNG` format, else `CF_DIB`; `ShellExecuteW("ms-screenclip:")` |
@@ -146,7 +146,9 @@ Measured over a 10-minute release-build soak, 12,000 events: median and p99 late
 
 - **Capture** (the screenshot as a recording starts): `StretchBlt` from the screen DC into a top-down 32-bit DIB of the size `snapshot_size` picks (scaled down evenly to at most `max_w`, never up), in `HALFTONE` mode so text stays readable, then BGRA to RGB. Relay's window is left out with `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` (Windows 10 2004 and later; earlier, it shows), set for the capture only, after two `DwmFlush`es so the compositor has applied it, and reset right after, so other screenshot tools still see Relay. The whole desktop at 6400 × 1600 takes about 200 ms, on its own thread. `Snapshot`'s `Debug` prints only its size: its pixels are someone's screen. The stub returns `None`.
 
-  Finding images uses the same call with `max_w` = the area's width, which gives a 1:1 copy. Captures run one at a time (a static lock): otherwise one ending would reset the affinity while another is still capturing, and Relay's window would show in that one.
+  Finding images uses the same call with `max_w` = the area's width, which gives a 1:1 copy, and nothing excluded: the affinity takes effect per monitor, and on a multi-monitor desktop two `DwmFlush`es don't always wait long enough for the monitor Relay is on, so its window (and the picture it shows) could still be in the capture. The app paints over what shows of Relay's window instead: its frame (`WindowQuery::shown_rect`) minus the windows in front of it (`WindowQuery::covering`: shown, not click-through), so a dialog over the widget is still found.
+
+- **Mark** ([`windows/marker.rs`](../../crates/relay-platform/src/windows/marker.rs), for *Show*): a popup window over the match, on a thread of its own for its message loop: layered with a color key (so only the outline and the dot are drawn), `WS_EX_TRANSPARENT` (clicks go through), `WS_EX_NOACTIVATE` (no focus), topmost, and excluded from capture **before** it's shown, so no search ever sees it. A timer destroys it after 3 s. Captures run one at a time (a static lock), so one ending never resets the affinity during another.
 
 ## Clipboard
 
