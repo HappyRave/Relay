@@ -477,6 +477,10 @@ describe("Triggers tab", () => {
       await settle();
       expect(core.lastArgs("test_find_image")).toEqual({ image: IMAGE, threshold: 50, area: null });
       expect(screen.getByRole("status")).toHaveTextContent("Found at -300, 20 (72%)");
+      // The trigger doesn't click: the dot marks the middle.
+      await userEvent.click(screen.getByRole("button", { name: "Show" }));
+      await settle();
+      expect(core.argsOf("show_match")).toEqual([{ area: { x: -300, y: 20, w: 40, h: 20 }, dotX: -280, dotY: 30 }]);
     });
 
     test("a snip can be cancelled, and changes nothing", async () => {

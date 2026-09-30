@@ -21,7 +21,7 @@
   const monitors = $derived(relay.view?.recording.monitors ?? []);
   const areas = $derived(areaChoice(monitors, t?.image.area ?? null));
   const snipping = $derived(relay.imaging?.index === TRIGGER && relay.imaging.source === "snip");
-  const test = $derived(relay.imageTest?.id === relay.view?.id && relay.imageTest?.item === TRIGGER ? relay.imageTest.text : "");
+  const test = $derived(relay.imageTest?.id === relay.view?.id && relay.imageTest?.item === TRIGGER ? relay.imageTest : null);
 
   // Suggestions for "When app launches".
   onMount(relay.loadProcesses);
@@ -236,7 +236,14 @@
         />
         <button class="btn btn-secondary pick" disabled={!t.image.image || !relay.editable} title="Look for it on the screen now" onclick={relay.testTriggerImage}>Test</button>
       </div>
-      {#if test}<div class="sub" role="status">{test}</div>{/if}
+      {#if test}
+        <div class="line">
+          <span class="sub" role="status">{test.text}</span>
+          {#if test.found}
+            <button class="btn btn-secondary pick" title="Mark it on the screen for 3 s" onclick={relay.showImageTest}>Show</button>
+          {/if}
+        </div>
+      {/if}
       {#if monitors.length > 1}
         <Segmented
           label="Where to look"

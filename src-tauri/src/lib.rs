@@ -91,6 +91,7 @@ pub fn run() {
             commands::snip_image,
             commands::cancel_snip,
             commands::test_find_image,
+            commands::show_match,
             commands::get_settings,
             commands::update_settings,
             commands::get_triggers,

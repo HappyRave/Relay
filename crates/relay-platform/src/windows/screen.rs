@@ -92,6 +92,10 @@ impl Screen for WinScreen {
         }
     }
 
+    fn mark(&self, area: Rect, dot: (i32, i32), ms: u32) {
+        super::marker::mark(area, dot, ms);
+    }
+
     /// Leaves `exclude` out with `WDA_EXCLUDEFROMCAPTURE` (Windows 10 2004
     /// and later; on older versions the window shows in the picture) for the
     /// moment of the capture only, so other screenshot tools still see it.

@@ -54,6 +54,7 @@ Click the `FIND` row to open its editor:
 | **Match %** | How similar the screen must be, 50 to 100. Lower finds more, and risks the wrong thing. |
 | **Timeout s** | How long to look before giving up, in steps of 0.5 s |
 | **Test** | Looks for the image once, now: *Found at 812, 440 (97%)*, or how close it came: *Not found: the best match is 61%* |
+| **Show** | After a Test, marks that match on the screen itself for 3 seconds: a red outline around it and a red dot where the step would click. Also for a poor match, to see what Relay took for your image. |
 | **Click** | **Left**, **Right** or **Middle** |
 | **Look on** | With several monitors: **All screens**, or just one. One screen is faster. |
 | **Label** | An optional note, such as *OK button* |

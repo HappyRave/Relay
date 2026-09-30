@@ -59,6 +59,11 @@ pub trait Screen: Send + Sync {
         let _ = (area, max_w, exclude);
         None
     }
+    /// Marks `area` on screen for `ms`, with a dot at `dot`, over everything
+    /// and out of every capture; returns at once. Nothing where the OS can't.
+    fn mark(&self, area: Rect, dot: (i32, i32), ms: u32) {
+        let _ = (area, dot, ms);
+    }
 }
 
 /// A top-level window, by handle and owning process.

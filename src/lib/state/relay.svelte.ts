@@ -25,6 +25,7 @@ import type {
 } from "../types";
 import type { EngineMsg } from "../ipc/bindings/EngineMsg";
 import type { PickedPixel } from "../ipc/bindings/PickedPixel";
+import type { FoundImage } from "../ipc/bindings/FoundImage";
 import type { TimingStats } from "../ipc/bindings/TimingStats";
 import type { FinishReason } from "../ipc/bindings/FinishReason";
 import { backend as defaultBackend, type Backend, type IpcError } from "../ipc/backend";
@@ -123,8 +124,13 @@ export class RelayStore {
    * what for: a Find image step's index, INSERTING one, or the TRIGGER.
    */
   imaging = $state.raw<{ source: ImageSource; index: number } | null>(null);
-  /** What "Test" last said, and about what: the macro, and a step's first event or TRIGGER. */
-  imageTest = $state.raw<{ id: string; item: number; text: string } | null>(null);
+  /**
+   * What "Test" last said, and about what (the macro, and a step's first
+   * event or TRIGGER), with the best match and where it would be clicked.
+   */
+  imageTest = $state.raw<{ id: string; item: number; text: string; found?: FoundImage | null; dot?: [number, number] } | null>(
+    null,
+  );
   /** The row whose step editor is open, or -1. It follows its step across edits (see selection.ts). */
   selected = $state(-1);
 
@@ -794,24 +800,47 @@ export class RelayStore {
   /** Looks for Find image step `index`'s image on screen once, and says what it found. */
   testFindImage = (index: number) => {
     const s = this.steps[index];
-    if (s?.kind === "find_image") return this.testImage(s.items[0], s.image, s.threshold, s.area);
+    if (s?.kind !== "find_image") return;
+    // Where the step would click: its point, scaled like the match.
+    const [w, h] = pngSize(s.image);
+    const click = (m: FoundImage): [number, number] => [
+      m.x + Math.round((s.click_x * m.w) / (w || m.w)),
+      m.y + Math.round((s.click_y * m.h) / (h || m.h)),
+    ];
+    return this.testImage(s.items[0], s.image, s.threshold, s.area, click);
   };
 
   /** Looks for the image trigger's image on screen once, and says what it found. */
   testTriggerImage = () => {
     const t = this.triggers?.image;
-    if (t?.image) return this.testImage(TRIGGER, t.image, t.threshold, t.area);
+    // The trigger doesn't click: the dot marks the middle.
+    const middle = (m: FoundImage): [number, number] => [m.x + Math.floor(m.w / 2), m.y + Math.floor(m.h / 2)];
+    if (t?.image) return this.testImage(TRIGGER, t.image, t.threshold, t.area, middle);
   };
 
-  private async testImage(item: number, image: string, threshold: number, area: Rect | null) {
+  private async testImage(
+    item: number,
+    image: string,
+    threshold: number,
+    area: Rect | null,
+    click: (m: FoundImage) => [number, number],
+  ) {
     const id = this.view?.id;
     if (!id) return;
     const test = { id, item };
     this.imageTest = { ...test, text: "Looking…" };
     const m = await this.run(this.backend.testFindImage(image, threshold, area));
     if (this.imageTest?.id !== test.id || this.imageTest.item !== test.item) return;
-    this.imageTest = m === undefined ? null : { ...test, text: testResult(m, threshold) };
+    this.imageTest = m === undefined ? null : { ...test, text: testResult(m, threshold), found: m, dot: m ? click(m) : undefined };
   }
+
+  /** Marks the last Test's best match on the screen, with a dot where it would be clicked. */
+  showImageTest = () => {
+    const t = this.imageTest;
+    if (!t?.found || !t.dot) return;
+    const { x, y, w, h } = t.found;
+    return this.run(this.backend.showMatch({ x, y, w, h }, ...t.dot));
+  };
 
   /** Watches for an image from `source`; the trigger turns on with its first image. */
   setTriggerImage = async (source: ImageSource) => {

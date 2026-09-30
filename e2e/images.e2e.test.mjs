@@ -28,6 +28,15 @@ describe("images", () => {
     shown = powershell(["-Png", app.path("shown.png"), "-X", String(AT.x), "-Y", String(AT.y)]);
     await until(async () => (await find())?.score >= 85, { timeout: 20_000, every: 250, what: "the pattern on screen" });
   };
+  /** How many of Relay's on-screen marks (Show) there are. */
+  const markers = () =>
+    new Promise((resolve) => {
+      const script = `Add-Type -Name W -Namespace E2E -MemberDefinition '[DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindowEx(IntPtr p, IntPtr a, string c, string t);'; $n = 0; $h = [IntPtr]::Zero; while (($h = [E2E.W]::FindWindowEx([IntPtr]::Zero, $h, 'RelayMarker', $null)) -ne [IntPtr]::Zero) { $n++ }; $n`;
+      let out = "";
+      const p = spawn("powershell", ["-NoProfile", "-Command", script]);
+      p.stdout.on("data", (d) => (out += d));
+      p.on("exit", () => resolve(Number(out.trim())));
+    });
   const hide = async () => {
     shown?.kill();
     shown = null;
@@ -67,6 +76,12 @@ describe("images", () => {
     assert.ok(Math.abs(m.x - AT.x) <= 1 && Math.abs(m.y - AT.y) <= 1, `found at ${m.x}, ${m.y}`);
     assert.deepEqual([m.w, m.h], [120, 60]);
     const color = await page.invoke("sample_pixel", { x: AT.x + 7, y: AT.y + 10 });
+
+    // Show: a mark on screen for 3 s, which a search never sees.
+    await page.invoke("show_match", { area: { x: m.x, y: m.y, w: m.w, h: m.h }, dotX: m.x + 60, dotY: m.y + 30 });
+    assert.equal(await markers(), 1, "the mark is shown");
+    assert.ok((await find())?.score >= 85, "and doesn't hide the image from a search");
+    await until(async () => (await markers()) === 0, { timeout: 6000, every: 500, what: "the mark to go" });
     await hide();
 
     // The same picture in Relay's page, 1:1: on screen, but not found.
