@@ -42,6 +42,8 @@ npm test                   # Vitest
 npm run test:coverage      # Vitest with coverage (coverage/index.html)
 npm run check              # svelte-check (types and accessibility)
 npm run test:e2e           # the real app, end to end (build it first, see below)
+npm run verify             # what CI checks: fmt, clippy, the tests, the debug build and E2E
+npm run verify:quick       # the same without the build and E2E
 cargo llvm-cov --workspace --summary-only   # Rust coverage, with cargo-llvm-cov
 ```
 
@@ -208,7 +210,7 @@ What automated tests can't cover well:
 
 ## CI
 
-[`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs on pushes to `main`, milestone and fix branches, and on pull requests:
+[`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs on pushes to `main` and on pull requests. On milestone and fix branches it runs only for a push whose last commit has `[ci]` in its message, the check before merging; other pushes skip its jobs, so they cost no CI minutes, and are checked locally with `npm run verify`. It can also be started by hand (**Actions → CI → Run workflow**). A newer `[ci]` push to a branch cancels the run in progress there.
 
 | Job | Steps |
 | --- | --- |

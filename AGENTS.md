@@ -130,6 +130,8 @@ Design/                      the original prototype and design system (reference
 | `npx tauri build --debug --no-bundle` | `target/debug/relay.exe` **with the UI built in**, for the end-to-end tests |
 | `npm run test:e2e` | The end-to-end suites against `target/debug/relay.exe` (or `RELAY_EXE`). Takes about 3 minutes. |
 | `npx tauri build` | Release exe `target/release/relay.exe` and installer `target/release/bundle/nsis/Relay_X.Y.Z_x64-setup.exe` |
+| `npm run verify` | What CI checks, locally: fmt, clippy, `cargo test`, `npm run check`, `npm test`, then the debug build and E2E (quit Relay first). About 10 minutes. |
+| `npm run verify:quick` | The same without the build and E2E |
 | `npm run tauri dev` | The app with hot reload (uses port 1420) |
 | `npm run dev` | The UI alone in a browser (port 1420), with the samples and a simulated session. Read-only: edits say they need the app. |
 | `cargo llvm-cov --workspace --summary-only` | Rust unit-test coverage |
@@ -141,11 +143,11 @@ Plain `cargo build -p relay` makes a debug exe that loads the UI from the dev se
 For any change:
 
 1. Tests for the new behavior, at the lowest layer that can express it (see [Testing](#testing)). New UI controls get a component test that checks the exact command sent.
-2. `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` (and commit regenerated bindings/fixture), `npm test`, `npm run check`.
-3. If the app, the UI or IPC changed: rebuild with `npx tauri build --debug --no-bundle` and run `npm run test:e2e` (quit any running Relay first).
+2. `npm run verify:quick` passes (fmt, clippy, `cargo test`, `npm run check`, `npm test`); commit the bindings and fixture `cargo test` regenerates.
+3. If the app, the UI or IPC changed: `npm run verify` instead, which also builds the debug exe and runs E2E (quit any running Relay first).
 4. If the fake core's counterpart changed in Rust (commands, library, edits, history, hotkey rules, settings), update `src/test/fake-core.ts` / `fake-edit.ts` to match, and `fake-core.test.ts`.
 5. Docs: update the user guide page for any behavior change and the engineering page for any design change; add a `CHANGELOG.md` entry under *Unreleased* for anything users notice.
-6. Commit on a branch (Conventional Commits), push, and check CI (see [Git, CI and GitHub](#git-ci-and-github)).
+6. Commit on a branch (Conventional Commits) and push. CI runs only when asked for: the last push before a merge carries `[ci]`, then check it (see [Git, CI and GitHub](#git-ci-and-github)).
 
 ## Rules the code follows
 
@@ -214,12 +216,13 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 - **Commits:** small, [Conventional Commits](https://www.conventionalcommits.org/) (`feat(recorder): …`, `fix(engine): …`, `test(e2e): …`, `docs: …`, `ci: …`, `chore: …`), with a body explaining why when it isn't obvious.
 - **Merging:** `git merge --no-ff` into `main` ("Merge mN-…: <summary>"), then push. Milestones used to be tagged `v0.N.0-mN`; since 1.0, versions are tagged only at release.
 - **Pushing to `HappyRave/Relay` is authorized** for this workflow (branches and `main`).
-- **CI** (`.github/workflows/ci.yml`) runs on pushes to `main`, `m*-*` and `fix-*` branches, and on PRs. It does **not** run on `docs-*` or `release-*` branches: run the checks locally there, and watch the CI run on `main` after merging. The jobs:
+- **CI minutes cost money: spend them on merges.** Everyday commits are checked locally with `npm run verify` (or `verify:quick`), and pushing them doesn't run CI.
+- **CI** (`.github/workflows/ci.yml`) runs on every push to `main`, on PRs, and on a push to an `m*-*` or `fix-*` branch **only when the pushed branch's last commit has `[ci]` in its message**. Other pushes start the workflow but skip its jobs, which costs nothing. Before merging a branch, run `npm run verify`, then push with `[ci]` (in the last commit, or an empty one: `git commit --allow-empty -m "ci: check before merging [ci]"`) and wait for it to pass. A newer `[ci]` push cancels the branch's run in progress. CI never runs on `docs-*` or `release-*` branches; watch the run on `main` after merging. It can also be started by hand (Actions → CI → Run workflow). The jobs:
   - **windows:** `npm ci`, `cargo test`, generated files up to date, fmt, clippy, `npm run check`, `npm test`, `npx tauri build`, upload the installer, then the E2E suites against the release build. If E2E fails, `e2e/ci-diagnose.mjs` reports WebView2 details as annotations.
   - **linux:** tests and clippy for `relay-core` and `relay-platform` (they must stay portable).
   - **msrv:** `cargo check` with Rust 1.95.
 - **Reading CI without signing in:** the job logs need a GitHub login, but the public API doesn't. Poll `https://api.github.com/repos/HappyRave/Relay/actions/runs?head_sha=<sha>`, then `/actions/runs/<id>/jobs` for failed steps, then `/check-runs/<job id>/annotations`. `e2e/github-reporter.mjs` turns each E2E failure (and each suite that failed to start) into an annotation with its message.
-- CI takes about 15–20 minutes (the Windows job builds the release and runs E2E). Poll about once a minute in the background.
+- CI takes about 15–20 minutes (the Windows job builds the release and runs E2E). Poll about once a minute in the background. A run whose jobs all show `skipped` is a push without `[ci]`, not a check.
 
 ## Releasing
 

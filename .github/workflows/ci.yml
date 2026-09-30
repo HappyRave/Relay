@@ -1,12 +1,24 @@
 name: CI
 
+# CI minutes are spent on what matters: pull requests, every push to main, and
+# a push to a milestone or fix branch only when its last commit says [ci] in its
+# message (the check before merging). Other pushes start the workflow, but its jobs
+# are skipped and cost nothing. Everyday checks run locally: npm run verify.
 on:
   push:
     branches: [main, "m*-*", "fix-*"]
   pull_request:
+  workflow_dispatch:
+
+# A newer checked push to the same branch cancels the run in progress (never
+# on main). Skipped runs are in their own group, so they cancel nothing.
+concurrency:
+  group: ci-${{ github.ref }}-${{ github.event_name != 'push' || github.ref == 'refs/heads/main' || contains(github.event.head_commit.message, '[ci]') }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   windows:
+    if: github.event_name != 'push' || github.ref == 'refs/heads/main' || contains(github.event.head_commit.message, '[ci]')
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -54,6 +66,7 @@ jobs:
   # The core and platform crates must stay portable (the platform crate's
   # stub backend stands in for Windows here).
   linux:
+    if: github.event_name != 'push' || github.ref == 'refs/heads/main' || contains(github.event.head_commit.message, '[ci]')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -67,6 +80,7 @@ jobs:
   # Builds everything with the oldest Rust that Cargo.toml's rust-version
   # promises, so that promise stays true.
   msrv:
+    if: github.event_name != 'push' || github.ref == 'refs/heads/main' || contains(github.event.head_commit.message, '[ci]')
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
