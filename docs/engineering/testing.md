@@ -210,13 +210,15 @@ What automated tests can't cover well:
 
 ## CI
 
-[`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs on pushes to `main` and on pull requests. On milestone and fix branches it runs only for a push whose last commit has `[ci]` in its message, the check before merging; other pushes skip its jobs, so they cost no CI minutes, and are checked locally with `npm run verify`. It can also be started by hand (**Actions → CI → Run workflow**). A newer `[ci]` push to a branch cancels the run in progress there.
+[`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs on pull requests to `main`, the only way changes reach it (a repository ruleset requires the three checks below). CI minutes are limited, so the expensive jobs run once a PR is ready, and everyday checks run locally with `npm run verify`. It can also be started by hand on any branch (**Actions → CI → Run workflow**). A newer push to a PR cancels its run in progress.
 
 | Job | Steps |
 | --- | --- |
-| **windows** | `npm ci` → `cargo test --workspace` → **generated files are up to date** (`git diff --exit-code` on the bindings and the browser fixture) → `cargo fmt --check` → `cargo clippy -D warnings` → `npm run check` → `npm test` → `npx tauri build` → upload the installer as an artifact → `npm run test:e2e` against the release build |
-| **linux** | `cargo test` and `clippy -D warnings` for `relay-core` and `relay-platform`, which keeps them portable |
-| **msrv** | `cargo check --workspace` with Rust 1.95, the `rust-version` in `Cargo.toml` (the highest any dependency needs, from `sysinfo`) |
+| **quick** | Every push to a PR, drafts included, on Linux: `cargo fmt --check`, `cargo test` and `clippy -D warnings` for `relay-core` and `relay-platform` (which keeps them portable), `npm run check`, `npm test`. Also decides whether the PR changes more than docs (`docs/**`, `*.md`). |
+| **windows** | Ready PRs that change code, after `quick`: `npm ci` → `cargo test --workspace` → **generated files are up to date** (`git diff --exit-code` on the bindings and the browser fixture) → `cargo clippy -D warnings` → `npx tauri build` → upload the installer as an artifact → the E2E suites against the release build |
+| **msrv** | Same condition: `cargo check --workspace` with Rust 1.95, the `rust-version` in `Cargo.toml` (the highest any dependency needs, from `sysinfo`) |
+
+A skipped job counts as a passed check, so a docs-only PR merges after `quick`.
 
 ## Releases
 

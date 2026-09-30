@@ -95,9 +95,10 @@ A rule of thumb: if it can be a pure function, it goes in `relay-core`, takes ti
 
 ## Git workflow
 
-- **Branches**: work happens on a branch, never directly on `main`. Milestones use `mN-short-name`, fixes `fix-short-name`, docs `docs-short-name`.
+- **Branches**: work happens on a short-lived branch; `main` only changes through pull requests. Milestones use `mN-short-name`, fixes `fix-short-name`, docs `docs-short-name`.
 - **Commits**: small and focused, in [Conventional Commits](https://www.conventionalcommits.org/) style: `feat(recorder): …`, `fix(engine): …`, `docs: …`, `test: …`, `ci: …`, `chore: …`.
-- **Merging**: `git merge --no-ff` into `main`, so each branch stays visible in history. Milestones are tagged `v0.N.0-mN`.
+- **Pull requests**: open one as a draft early, with the plan in its description. Drafts run only the quick CI checks (Linux). When it's done, run `npm run verify` and mark it ready: that runs the full checks (the Windows build and the end-to-end tests), which must pass to merge. Pushes to a ready PR rerun them, so batch your fixes.
+- **Merging**: PRs are merged with a merge commit (squash and rebase are off), so each branch stays visible in history.
 - **Releases**: a `vX.Y.Z` tag builds a draft release (see [Releases](docs/engineering/testing.md#releases)).
 
 ## Pull request checklist

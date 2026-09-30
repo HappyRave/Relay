@@ -1,30 +1,66 @@
 name: CI
 
-# CI minutes are spent on what matters: pull requests, every push to main, and
-# a push to a milestone or fix branch only when its last commit says [ci] in its
-# message (the check before merging). Other pushes start the workflow, but its jobs
-# are skipped and cost nothing. Everyday checks run locally: npm run verify.
+# Changes reach main only through pull requests, and CI runs on those.
+# - quick (Linux, a few minutes): every push to a PR, drafts included.
+# - windows and msrv (the expensive part): once the PR is ready for review, and
+#   only if it changes more than docs. Skipped jobs count as passed checks.
+# Run it on any branch by hand from Actions → CI → Run workflow. Everyday checks
+# run locally: npm run verify.
 on:
-  push:
-    branches: [main, "m*-*", "fix-*"]
   pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
-# A newer checked push to the same branch cancels the run in progress (never
-# on main). Skipped runs are in their own group, so they cancel nothing.
+# A newer push to a PR cancels its run in progress.
 concurrency:
-  group: ci-${{ github.ref }}-${{ github.event_name != 'push' || github.ref == 'refs/heads/main' || contains(github.event.head_commit.message, '[ci]') }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  # What runs anywhere: the portable crates (the platform crate's stub backend
+  # stands in for Windows here), formatting, and the whole frontend.
+  quick:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.changes.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Does it change more than docs?
+        id: changes
+        run: |
+          if [ "${{ github.event_name }}" = pull_request ] &&
+             ! git diff --name-only "${{ github.event.pull_request.base.sha }}" HEAD | grep -qvE '^docs/|\.md$'; then
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+      - run: cargo fmt --all -- --check
+      - run: cargo test -p relay-core -p relay-platform
+      - run: cargo clippy -p relay-core -p relay-platform --all-targets -- -D warnings
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+
   windows:
-    if: github.event_name != 'push' || github.ref == 'refs/heads/main' || contains(github.event.head_commit.message, '[ci]')
+    needs: quick
+    if: needs.quick.outputs.code == 'true' && !github.event.pull_request.draft
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy, rustfmt
+          components: clippy
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v7
         with:
@@ -35,10 +71,7 @@ jobs:
         run: cargo test --workspace
       - name: Generated files are up to date
         run: git diff --exit-code -- src/lib/ipc/bindings src/lib/dev/sample-views.json
-      - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: npm run check
-      - run: npm test
       - name: Build the installer
         run: npx tauri build
       - uses: actions/upload-artifact@v7
@@ -63,24 +96,11 @@ jobs:
         env:
           RELAY_EXE: target/release/relay.exe
 
-  # The core and platform crates must stay portable (the platform crate's
-  # stub backend stands in for Windows here).
-  linux:
-    if: github.event_name != 'push' || github.ref == 'refs/heads/main' || contains(github.event.head_commit.message, '[ci]')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo test -p relay-core -p relay-platform
-      - run: cargo clippy -p relay-core -p relay-platform --all-targets -- -D warnings
-
   # Builds everything with the oldest Rust that Cargo.toml's rust-version
   # promises, so that promise stays true.
   msrv:
-    if: github.event_name != 'push' || github.ref == 'refs/heads/main' || contains(github.event.head_commit.message, '[ci]')
+    needs: quick
+    if: needs.quick.outputs.code == 'true' && !github.event.pull_request.draft
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7

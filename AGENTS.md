@@ -44,7 +44,7 @@ Relay is a **Windows desktop macro recorder**: it records mouse and keyboard inp
 - **Next, per the [roadmap](README.md#roadmap):** AutoHotkey v2 and standalone `.exe` export (the Export dialog already shows them as "Coming later"), code signing (needs a certificate; free options for open source: SignPath Foundation, Certum's open-source certificate, Azure Trusted Signing), remapping macros to a different monitor layout, macOS and Linux backends.
 - **Also open:** see [Known limitations and open items](#known-limitations-and-open-items).
 
-Before starting work, check `git log --oneline -15`, `git status`, the README roadmap and the *Unreleased* section of `CHANGELOG.md`.
+Before starting work, check the open pull requests (`gh pr list`, and the description of the one you're continuing), `git log --oneline -15`, `git status`, the README roadmap and the *Unreleased* section of `CHANGELOG.md`.
 
 ## Setting up on a new machine
 
@@ -65,7 +65,7 @@ cargo test --workspace      # first build takes a few minutes
 npm test
 ```
 
-`gh` (the GitHub CLI) was **not** installed on the previous machine. Everything below works without it; if it's available, use it.
+Install `gh` (the GitHub CLI: `winget install GitHub.cli`) and sign in with `gh auth login`: pull requests are how changes reach `main`. A shell opened before installing it may need `C:\Program Files\GitHub CLI` added to its `PATH`.
 
 **Never develop against your real data.** Set `RELAY_DATA_DIR` to a scratch folder (`$env:RELAY_DATA_DIR = "$env:TEMP\relay-dev"` in PowerShell) before `npm run tauri dev`. A fresh folder seeds the four sample macros.
 
@@ -147,7 +147,7 @@ For any change:
 3. If the app, the UI or IPC changed: `npm run verify` instead, which also builds the debug exe and runs E2E (quit any running Relay first).
 4. If the fake core's counterpart changed in Rust (commands, library, edits, history, hotkey rules, settings), update `src/test/fake-core.ts` / `fake-edit.ts` to match, and `fake-core.test.ts`.
 5. Docs: update the user guide page for any behavior change and the engineering page for any design change; add a `CHANGELOG.md` entry under *Unreleased* for anything users notice.
-6. Commit on a branch (Conventional Commits) and push. CI runs only when asked for: the last push before a merge carries `[ci]`, then check it (see [Git, CI and GitHub](#git-ci-and-github)).
+6. Commit on a branch (Conventional Commits) and push, update the draft PR's description, then mark it ready and get its checks green (see [Git, CI and GitHub](#git-ci-and-github)).
 
 ## Rules the code follows
 
@@ -212,27 +212,33 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 
 ## Git, CI and GitHub
 
-- **Branches:** never commit directly to `main`. Milestones `mN-short-name` (next is `m18-…`), fixes `fix-…`, docs `docs-…`, releases `release-X.Y.Z`.
-- **Commits:** small, [Conventional Commits](https://www.conventionalcommits.org/) (`feat(recorder): …`, `fix(engine): …`, `test(e2e): …`, `docs: …`, `ci: …`, `chore: …`), with a body explaining why when it isn't obvious.
-- **Merging:** `git merge --no-ff` into `main` ("Merge mN-…: <summary>"), then push. Milestones used to be tagged `v0.N.0-mN`; since 1.0, versions are tagged only at release.
-- **Pushing to `HappyRave/Relay` is authorized** for this workflow (branches and `main`).
-- **CI minutes cost money: spend them on merges.** Everyday commits are checked locally with `npm run verify` (or `verify:quick`), and pushing them doesn't run CI.
-- **CI** (`.github/workflows/ci.yml`) runs on every push to `main`, on PRs, and on a push to an `m*-*` or `fix-*` branch **only when the pushed branch's last commit has `[ci]` in its message**. Other pushes start the workflow but skip its jobs, which costs nothing. Before merging a branch, run `npm run verify`, then push with `[ci]` (in the last commit, or an empty one: `git commit --allow-empty -m "ci: check before merging [ci]"`) and wait for it to pass. A newer `[ci]` push cancels the branch's run in progress. CI never runs on `docs-*` or `release-*` branches; watch the run on `main` after merging. It can also be started by hand (Actions → CI → Run workflow). The jobs:
-  - **windows:** `npm ci`, `cargo test`, generated files up to date, fmt, clippy, `npm run check`, `npm test`, `npx tauri build`, upload the installer, then the E2E suites against the release build. If E2E fails, `e2e/ci-diagnose.mjs` reports WebView2 details as annotations.
-  - **linux:** tests and clippy for `relay-core` and `relay-platform` (they must stay portable).
-  - **msrv:** `cargo check` with Rust 1.95.
-- **Reading CI without signing in:** the job logs need a GitHub login, but the public API doesn't. Poll `https://api.github.com/repos/HappyRave/Relay/actions/runs?head_sha=<sha>`, then `/actions/runs/<id>/jobs` for failed steps, then `/check-runs/<job id>/annotations`. `e2e/github-reporter.mjs` turns each E2E failure (and each suite that failed to start) into an annotation with its message.
-- CI takes about 15–20 minutes (the Windows job builds the release and runs E2E). Poll about once a minute in the background. A run whose jobs all show `skipped` is a push without `[ci]`, not a check.
+`main` only changes through pull requests that pass CI. CI minutes are limited (2,000 a month, and Windows minutes count double), so everyday checking happens locally and the expensive CI job runs once per PR, when it's ready.
+
+- **Branches:** short-lived, off `main`. Milestones `mN-short-name` (next is `m18-…`), fixes `fix-…`, docs `docs-…`, CI and tooling `ci-…`, releases `release-X.Y.Z`.
+- **Commits:** small, [Conventional Commits](https://www.conventionalcommits.org/) (`feat(recorder): …`, `fix(engine): …`, `test(e2e): …`, `docs: …`, `ci: …`, `chore: …`), with a body explaining why when it isn't obvious. Push as often as you like: pushing a branch runs nothing.
+- **The pull request is the milestone's workspace.** Open it as a **draft** when the branch starts (`gh pr create --draft --base main`), with the plan and progress in its description, kept up to date. That's where the next session (or contributor) picks up. Drafts only run the quick CI job.
+- **Ready means checked:** run `npm run verify` locally, then `gh pr ready`. That runs the full CI once; every later push to a ready PR runs it again, so push fixes in one go. Put a PR back to draft (`gh pr ready --undo`) to keep working on it.
+- **Merging:** only merge commits (squash and rebase are off), so history keeps each branch as a `--no-ff` merge: `gh pr merge <n> --merge --subject "Merge mN-…: <summary>"`. Merge when the checks are green, but **wait for the maintainer's go** when they're checking something by hand. Since 1.0, versions are tagged only at release.
+- **`main` is protected** by a repository ruleset (*Settings → Rules*): a PR is required, and so are the `quick`, `windows` and `msrv` checks; no force-push or deletion; nobody bypasses it. No approving review is required while there's one maintainer.
+- **Authorized:** pushing branches to `HappyRave/Relay`, and opening, updating, marking ready and merging PRs (following the rule above). Never push to `main` directly; the ruleset refuses it anyway.
+- **CI** (`.github/workflows/ci.yml`), on pull requests to `main`:
+  - **quick** (Linux, every push, drafts too): fmt, tests and clippy for `relay-core` and `relay-platform` (they must stay portable), `npm run check`, `npm test`. It also decides whether the PR changes more than docs (`docs/**`, `*.md`).
+  - **windows** (ready PRs that change code, after `quick` passes): `cargo test`, generated files up to date, clippy, `npx tauri build`, upload the installer, then the E2E suites against the release build. If E2E fails, `e2e/ci-diagnose.mjs` reports WebView2 details as annotations.
+  - **msrv** (same condition): `cargo check` with Rust 1.95.
+  - A skipped job counts as a passed check, so docs-only PRs merge after `quick`. A newer push cancels the PR's run in progress. *Actions → CI → Run workflow* runs everything on any branch by hand.
+- **Reading CI:** `gh pr checks <n>`, and `gh run view <run id> --log-failed` for a failure. `e2e/github-reporter.mjs` turns each E2E failure (and each suite that failed to start) into an annotation with its message. Without `gh`, the public API works too: `https://api.github.com/repos/HappyRave/Relay/actions/runs?head_sha=<sha>`, then `/actions/runs/<id>/jobs`, then `/check-runs/<job id>/annotations`.
+- A full run takes about 20–25 minutes (`quick` first, then the Windows job builds the release and runs E2E). Its Rust cache starts cold for each PR, since nothing runs on `main` to share one.
+- **When contributors join:** require 1 approving review and add a `CODEOWNERS`; set *Settings → Actions → Fork pull request workflows* to require approval for all outside collaborators; and turn on *Require branches to be up to date before merging* in the ruleset, so `main` is tested with each PR on top of the latest code (merge queues need an organization-owned repo).
 
 ## Releasing
 
 1. On a `release-X.Y.Z` branch: bump the version in **`Cargo.toml`** (workspace), **`package.json`** and **`src-tauri/tauri.conf.json`**; run `npm install --package-lock-only` and `cargo check` to refresh the lockfiles; rename *Unreleased* in `CHANGELOG.md` to `## vX.Y.Z: <title>`; tick the roadmap line in `README.md` if relevant.
-2. Run the tests, commit (`chore(release): X.Y.Z`), `git merge --no-ff` into `main`, tag `git tag -a vX.Y.Z -m "Relay X.Y.Z"`, push `main` and the tag.
+2. Run `npm run verify`, commit (`chore(release): X.Y.Z`), and open a PR, ready (`gh pr create --base main`). Once green, merge it (`--subject "Release X.Y.Z"`), then `git checkout main && git pull`, tag `git tag -a vX.Y.Z -m "Relay X.Y.Z"` and push the tag.
 3. `release.yml` runs on the tag: tests, builds with tauri-action, and creates a **draft** release with `Relay_X.Y.Z_x64-setup.exe` and `Relay_X.Y.Z_x64-portable.exe` (the portable file is `target/release/relay.exe`, attached by a separate step).
-4. Publishing is done in the GitHub web UI (no `gh`), in the browser pane, **where the maintainer must be signed in** (ask them; never enter credentials).
-   - **Open the draft from the Releases list.** Its edit URL is `/releases/edit/untagged-…`. **Don't use `/releases/edit/vX.Y.Z`**: for a tag without a published release, that's a *new release* form, and publishing it creates a second, empty release. That happened with v1.2.0 and needed a manual delete.
-   - Write the notes in the style of the previous releases: *What's new* bullets, a link to the changelog and user guide, then *Downloads* (both files) and the SmartScreen note, since the builds aren't code-signed. Title: `Relay vX.Y.Z`. Label: Latest.
-   - After publishing, verify with the public API: `/releases/tags/vX.Y.Z` must list both assets, and `/releases/latest` must be the new tag. Also check both download URLs respond.
+4. Publish with `gh`: `gh release edit vX.Y.Z --draft=false --latest --title "Relay vX.Y.Z" --notes-file <notes.md>` (`gh release view vX.Y.Z` shows the draft first).
+   - Write the notes in the style of the previous releases (`gh release view v1.3.0`): *What's new* bullets, a link to the changelog and user guide, then *Downloads* (both files) and the SmartScreen note, since the builds aren't code-signed.
+   - After publishing, check that `gh release view vX.Y.Z` lists both assets, that `gh release list` marks it Latest, and that both download URLs respond.
+   - In the web UI instead: open the draft from the Releases list (`/releases/edit/untagged-…`). **Don't use `/releases/edit/vX.Y.Z`**: for a tag without a published release, that's a *new release* form, and publishing it creates a second, empty release (that happened with v1.2.0).
    - Deleting a release has to be done by the maintainer.
 5. `release.yml` also has a manual `workflow_dispatch` with a `tag` input that rebuilds a tag and (re)attaches its portable exe.
 
