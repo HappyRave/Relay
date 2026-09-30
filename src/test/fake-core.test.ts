@@ -312,6 +312,29 @@ describe("the library, like library.rs", () => {
   });
 });
 
+describe("the run history, like run_history.rs", () => {
+  test("starts empty, lists what runs.json holds, newest first, and can't fail", async () => {
+    expect(await b.listRuns()).toEqual([]);
+    const run = {
+      at: "2026-09-24T09:12:00Z",
+      macro_id: A,
+      macro_name: "Export invoice to PDF",
+      source: "hotkey" as const,
+      outcome: { type: "finished" as const, reason: "completed" as const },
+      duration_ms: 1200,
+      from_ms: 0,
+      loops: 1,
+      speed: 1,
+      humanize: false,
+      checks: [],
+      checks_dropped: 0,
+    };
+    core.runLog = [run, { ...run, at: "2026-09-24T08:00:00Z" }];
+    expect((await b.listRuns()).map((r) => r.at)).toEqual(["2026-09-24T09:12:00Z", "2026-09-24T08:00:00Z"]);
+    expect(() => core.fail("list_runs")).toThrow("can't fail");
+  });
+});
+
 describe("the window, like window_ctl.rs", () => {
   test("dividers are saved sanitized, as Panes::sanitized does, and a reset clears them", async () => {
     await invoke("save_panes", { panes: { preview_w: -5, transport_h: 90, timeline_h: 1e9 } });

@@ -25,6 +25,7 @@ describe("tauriBackend", () => {
     ["stop", () => b.stop(), "stop_session", {}],
     ["seek", () => b.seek(50.5), "seek", { t: 50.5 }],
     ["listMacros", () => b.listMacros(), "list_macros", {}],
+    ["listRuns", () => b.listRuns(), "list_runs", {}],
     ["loadMacro", () => b.loadMacro(id), "load_macro", { id }],
     ["screenshot", () => b.screenshot(id), "screenshot", { id }],
     ["editMacro", () => b.editMacro(id, { op: "rename", name: "N" }), "edit_macro", { id, op: { op: "rename", name: "N" } }],
@@ -201,6 +202,43 @@ describe("browserBackend (npm run dev)", () => {
     expect((await bb.listMacros())[0].hotkey).toBe("Ctrl + Alt + 1");
     await bb.setTriggers(id, { ...status.triggers, hotkey: { enabled: false, combo: "Ctrl + Alt + 1" } });
     expect((await bb.listMacros())[0].hotkey).toBeNull();
+  });
+
+  test("has a sample run history, newest first, dated relative to now", async () => {
+    const bb = await ready();
+    const runs = await bb.listRuns();
+    expect(runs.map((r) => [r.macro_name, r.source, r.outcome])).toEqual([
+      ["Export invoice to PDF", "hotkey", { type: "finished", reason: "completed" }],
+      ["Open standup tools", "schedule", { type: "finished", reason: "completed" }],
+      ["Open standup tools", "schedule", { type: "skipped", reason: "busy" }],
+      ["Batch rename photos", "manual", { type: "finished", reason: "pixel_timeout" }],
+      ["Open standup tools", "schedule", { type: "skipped", reason: "missed" }],
+      ["Fill weekly timesheet", "manual", { type: "finished", reason: "stopped" }],
+    ]);
+    expect(Date.now() - new Date(runs[0].at).getTime()).toBe(3 * 3600_000);
+    expect(runs[0].checks.map((c) => c.loop_idx)).toEqual([0, 1, 2]);
+    expect(runs[3].checks).toEqual([{ step: 7, loop_idx: 0, image: false, after_ms: 5000, outcome: { type: "timed_out" } }]);
+  });
+
+  test("a simulated playback goes into the run history", async () => {
+    const bb = await ready();
+    await bb.loadMacro(id);
+    await bb.togglePlay(500);
+    await vi.advanceTimersByTimeAsync(1000);
+    await bb.stop();
+    expect(got.slice(-3).map((m) => m.type)).toEqual(["runs_changed", "finished", "session"]);
+    const [run] = await bb.listRuns();
+    expect(run).toMatchObject({
+      macro_id: id,
+      macro_name: "Export invoice to PDF",
+      source: "manual",
+      outcome: { type: "finished", reason: "stopped" },
+      from_ms: 500,
+      loops: 1,
+      checks: [],
+    });
+    expect(run.duration_ms).toBeGreaterThanOrEqual(1000);
+    expect(await bb.listRuns()).toHaveLength(7);
   });
 
   test("loads a macro, and rejects unknown ones", async () => {
