@@ -363,9 +363,11 @@ fn check_op(op: &EditOp, before: &[Event], steps: &[Step], after: &[Event]) -> R
             if step.end > step.t && !saturates(before, *dur) {
                 prop_assert_eq!(after[last].t(), step.t + (*dur).min(MAX_DUR));
             }
+            // Events that saturated at `Ms::MAX` are normalized after the edit: moved
+            // back, they may land inside a wait and go to its end.
             let delta = after[last].t() as i64 - before[last].t() as i64;
             for i in last + 1..before.len() {
-                if before[i].t() > step.end {
+                if before[i].t() > step.end && !saturates(before, 0) {
                     prop_assert_eq!(after[i].t() as i64, (before[i].t() as i64 + delta).min(Ms::MAX as i64));
                 }
             }
