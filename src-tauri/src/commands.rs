@@ -452,6 +452,15 @@ pub fn show_match(platform: State<'_, Arc<Platform>>, area: Rect, dot_x: i32, do
     platform.screen.mark(area, (dot_x, dot_y), MARK_MS);
 }
 
+/// What a Text step's `text` would type now, on the first repeat, or why
+/// it can't be typed.
+#[tauri::command(async)]
+pub fn preview_text(platform: State<'_, Arc<Platform>>, text: String) -> Result<String> {
+    relay_core::text::validate(&text).map_err(|e| IpcError { code: "invalid_text", message: e.to_string() })?;
+    let now = chrono::Local::now().naive_local();
+    Ok(relay_core::text::fill(&text, 1, now, || platform.clipboard.text()))
+}
+
 // — triggers —
 
 #[derive(Debug, Serialize, TS)]
