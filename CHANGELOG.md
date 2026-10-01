@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Text steps:** a new step that types text filled in each time it plays: `{date}`, `{time}`, `{clipboard}` (the text you copied) and `{n}` (which repeat this is), as in *Invoice {date} #{n}*. Press **+ Text** to insert one, or open a typed text and press **Make editable** to turn it into one. Its editor has buttons for the placeholders and says what it types right now, or what's wrong with it. It types characters, whatever the keyboard layout, and a long clipboard pushes what follows back instead of overlapping it. Macros with a Text step need this version of Relay to open; others still open in older versions. See [Text that changes each run](docs/user-guide/03-editing.md#text-that-changes-each-run).
+
 ## v1.4.0: Find image, mouse moves as steps, run history and standalone programs
 
 - **Find image:** a new step that waits for a picture to appear anywhere on screen, then clicks it: a button, an icon, a link, wherever it is this time. Press **+ Find image** and snip it from the screen (Windows' snipping overlay), or paste a screenshot or pick a PNG or JPEG. It's found from half to twice the picture's size (another display scaling, a zoomed screenshot), and a little lighter or darker (hovered). Click the picture to choose where to click; set the match, the timeout, the button and, with several monitors, the screen to look on; **Test** says where it's found, or how close it came, and **Show** marks that spot on the screen with a red outline and a dot where it would be clicked. If it isn't found in time, playback stops with *Image not found at step N*. Relay never looks inside its own window. See [Find image](docs/user-guide/06-find-image.md).

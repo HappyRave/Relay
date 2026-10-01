@@ -33,6 +33,7 @@
 | ▶️ **Play back** | <kbd>F10</kbd> replays it at 0.5× to 4×, once, N times or forever, with optional *Humanize* timing. Accurate to about a millisecond. |
 | 🎯 **Pixel checks** | Wait until something appears on screen before continuing, instead of guessing how long to wait. |
 | 🔍 **Find image** | Wait for a button or icon to appear anywhere on screen, even at another size, then click it. Snip it, paste it or pick a file. |
+| 🔤 **Text that changes** | Type today's date, the time, what you copied or the repeat number: *"Invoice {date} #{n}"*. It types the same on any keyboard layout. |
 | ⏰ **Triggers** | Run a macro on a hotkey, on a weekly schedule, when an app starts, when a pixel changes color, or when an image appears. |
 | 🛑 **Safe** | <kbd>Esc</kbd>, any key, or the <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd> kill switch stops everything. Nothing is ever left pressed. |
 | 📦 **Portable** | Macros are plain JSON `.rly` files. Export, import, back up, keep them in Git. Or export one as a small `.exe` that plays it on any PC, without Relay. |
@@ -142,6 +143,7 @@ Relay is a Rust workspace (`relay-core` for the pure logic, `relay-platform` for
 - [x] **1.2**: two reviews of the whole code base and of every test, with dozens of bug fixes, *Keep on top* options, a test suite that drives the real app, MIT license
 - [x] **1.3**: a redesigned control bar, screenshots under the preview, a zoomable whole-screen preview, a resizable editor
 - [x] **1.4**: mouse moves as steps (retime, smooth or straighten them), Find image (click a button or icon wherever it appears, and run a macro when one appears), a run history, standalone `.exe` export
+- [ ] **1.5**: Text steps that fill in the date, the time, the clipboard or the repeat number; data files that drive repeats
 - [ ] AutoHotkey v2 export
 - [ ] Code signing
 - [ ] Remapping macros to a different monitor layout

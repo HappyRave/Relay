@@ -8,6 +8,7 @@
 - [Step grouping](#step-grouping)
 - [Edits and invariants](#edits-and-invariants)
 - [Reshaping a move](#reshaping-a-move)
+- [Text templates](#text-templates)
 - [Finding an image](#finding-an-image)
 - [The file format](#the-file-format)
 - [Playback timing](#playback-timing)
@@ -25,6 +26,7 @@
 | [`steps`](../../crates/relay-core/src/steps.rs) | `group_steps`: raw events → `Step`s |
 | [`edit`](../../crates/relay-core/src/edit.rs) | `EditOp`, `apply`, `normalize`, `check_invariants` |
 | [`path`](../../crates/relay-core/src/path.rs) | `smooth`, `straighten`, `simplify`: reshaping a MOVE step's path |
+| [`text`](../../crates/relay-core/src/text.rs) | A Text step's template: `parse`, `validate`, `fill`, `typing_ms`, `escape` |
 | [`image`](../../crates/relay-core/src/image.rs) | `find`: an image on a screen capture, at any scale from 0.5 to 2. `Rgb8`: reading PNG, JPEG and clipboard bitmaps, `prepare`/`check` |
 | [`format`](../../crates/relay-core/src/format.rs) | `.rly` serialization, the JSON export, loading and migrations |
 | [`playback`](../../crates/relay-core/src/playback.rs) | `PlayClock`, `plan_times` (humanize) |
@@ -61,6 +63,7 @@ pub enum Event {
     Key       { t, down, key: KeyStroke, ch },         // ch: the character it typed, if any
     Wait      { t, dur, label },
     PixelWait { t, dur, x, y, color, tolerance, timeout_ms, label },
+    Text      { t, dur, text },                        // text: a template, see Text templates
 }
 ```
 
@@ -92,7 +95,7 @@ pub struct KeyStroke { pub code: String, pub vk: u16, pub scan: u16, pub ext: bo
 | `Scroll { delta }` | Wheel events in the same direction and axis less than **`SCROLL_GAP_MS` = 300** apart merge, summing `delta` |
 | `Type { text, chars }` | A key down that produced a printable character, **without** Ctrl, Alt or Win held (AltGr, which is Right Alt together with Left Ctrl, counts as typing, not as Ctrl + Alt; Right Alt alone is Alt), joins the previous `Type` step if its last character was less than **`TYPE_GAP_MS` = 500** earlier |
 | `Keys { combo }` | Any other key down: the held modifiers (always in the order Ctrl, Alt, Shift, Win), then the key's label, e.g. `["Ctrl", "Shift", "S"]` |
-| `Wait`, `PixelWait` | One step per event |
+| `Wait`, `PixelWait`, `Text` | One step per event |
 | `Move { x, y, to_x, to_y, samples }` | A run of cursor moves that no press owns, between two other events (any other event ends it; a still cursor doesn't). `x, y` is where the cursor was before (the last move, press or wheel event), or the first sample for a macro that starts with one. Added by a pass after the others. |
 
 Details that matter:
@@ -112,10 +115,13 @@ The UI edits macros only through `EditOp`, applied by `edit::apply(&mut Macro, o
 | Op | Effect |
 | --- | --- |
 | `Rename { name }` | Sets the name (the UI debounces typing) |
-| `DeleteStep { index }` | Removes the step's items. For a wait or pixel check, shifts everything after it earlier by its duration. Then `normalize`. |
+| `DeleteStep { index }` | Removes the step's items. For a wait, a pixel check or a Text step, shifts everything after it earlier by its duration. Then `normalize`. |
 | `InsertWait { at, dur, label }` | Snaps `at` past any step with `t ≤ at ≤ end` (to its `end + 1`), shifts every event at or after `at` later by `dur`, inserts. Since clicking a step seeks to its `t`, this means "insert after the selected step", and a step is never split. |
 | `InsertPixelWait { … }` | The same, with a `PixelWait` |
-| `SetWaitDuration { index, dur }` | Shifts everything after the wait by the difference |
+| `SetWaitDuration { index, dur }` | Shifts everything after the wait by the difference. A Text step's is at least `typing_ms` of its text. |
+| `InsertText { at, text }` | Like `InsertWait`, with a `Text` lasting `typing_ms(text)`. A text that doesn't parse is refused (`EditError::Text`, with the parser's message). |
+| `UpdateText { index, text }` | Replaces the template, refusing one that doesn't parse. The step lasts longer if `typing_ms` of the new text is more than its duration, shifting what follows; it never gets shorter. |
+| `MakeEditable { index }` | On a `Type` step: removes its items and puts a `Text` at its `t`, typing its text `escape`d, lasting from its `t` to its `end` (or `typing_ms`, if that's longer: what follows shifts). Then `normalize`, which moves what happened during the typing (the cursor moving) to the step's end. |
 | `UpdatePixelWait { index, x, y, color, tolerance, timeout_ms }` | Replaces the check's parameters. Its time and duration don't change. |
 | `SetLabel { index, label }` | On a click or drag (stored on the button-down event), a wait or a pixel check |
 | `SetPause { index, dur }` | Retimes the pause before the step, from `t − pause` to `t`: events inside it (a shared modifier's release) are scaled linearly to fit the new length, events at or after `t` shift by the difference. The mapping is monotone, so order and balance are kept. With no pause (0), the step and everything after it **in the list** shift by `dur`, not the events before it at the same time: a click often comes the same millisecond as the last sample of the move to it. |
@@ -130,7 +136,7 @@ Times are `u32` milliseconds, and the arithmetic saturates rather than overflowi
 **`normalize`** is the safety net that runs after deletions, after loading any file and at the end of every recording:
 
 1. sort events by time (stable),
-2. move anything listed after a wait or pixel check but before its end to its end (a hand-edited file can have an event inside a wait),
+2. move anything listed after a wait, a pixel check, a Find image or a Text step but before its end to its end (a hand-edited file can have an event inside a wait),
 3. drop a release whose press is missing (it happened before recording started),
 4. drop a second button-down without an up (keys may repeat, buttons may not),
 5. release anything still held at the end, newest first, at the time of the last event, where the cursor last was (pixel checks don't move the cursor).
@@ -152,6 +158,14 @@ Playback replays every recorded sample at its time and doesn't interpolate, so d
 3. **Resampling** puts each sample on the target at the same share of the length it had along the original path. The hand's speed curve (speeding up, then slowing onto the target) survives, and the samples stay in order.
 
 Distances use `sqrt` rather than `hypot`, since `sqrt` is exactly rounded everywhere: the UI tests' copy (`src/test/fake-path.ts`) must land on the same pixels, and `path.rs` writes `src/test/path-cases.json` for them to check.
+
+## Text templates
+
+A Text step's `text` is a template ([`text.rs`](../../crates/relay-core/src/text.rs)): literal text with the placeholders `{date}`, `{time}`, `{clipboard}` and `{n}`. `{{` and `}}` are literal braces. `parse` splits it into `Part`s, and refuses anything else with a `TemplateError` whose message says what to do: an unknown name (names are lowercase), a `{` that isn't closed, a `}` that wasn't opened. Edits validate; playback doesn't, so a hand-edited file with a mistake types its text as it is.
+
+`fill(template, n, now, clipboard)` takes everything that changes as arguments: the repeat number (from 1), the local time (`%Y-%m-%d`, `%H:%M:%S`) and a closure that reads the clipboard, called at most once and only when the template has `{clipboard}`. The engine passes `chrono::Local::now()` and `Clipboard::text`; the app's `preview_text` does the same with `n = 1`.
+
+`typing_ms` is how long a Text step lasts at least: `CHAR_MS` (10 ms) per character it's known to type, with `{date}` as 10, `{time}` as 8, `{n}` as 1 and the clipboard as 0. `escape` turns typed text into a template that types it (for Make editable).
 
 ## Finding an image
 
