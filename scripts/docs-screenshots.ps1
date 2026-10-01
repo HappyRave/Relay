@@ -6,7 +6,7 @@
 #
 # Usage: powershell -ExecutionPolicy Bypass -File scripts\docs-screenshots.ps1
 $root = Split-Path $PSScriptRoot -Parent
-$s = Join-Path $env:TEMP "relay-docs-shots"
+$s = Join-Path $root "target\docs-shots"
 $outDir = Join-Path $root "docs\images"
 $data = Join-Path $s "data"
 if (Test-Path $s) { Remove-Item -Recurse -Force $s -Confirm:$false }
@@ -131,18 +131,23 @@ Js 'window.__relay.expanded = true; return true' | Out-Null
 Start-Sleep -Milliseconds 700
 
 # 10. An exported program playing. Its macro is the first sample's, with its
-# events replaced by one 20 s wait, so it sends nothing to the desktop.
+# events replaced by one 8 s wait played once, so it sends nothing to the
+# desktop and closes by itself. It's written outside %TEMP%: antivirus
+# behavior checks are stricter about programs started from there.
 $sample = (Join-Path $s "sample.rly") -replace '\\', '/'
 Js "await window.__TAURI_INTERNALS__.invoke('export_macro', { id: window.__relay.library[0].id, format: 'rly', path: '$sample' }); return true" | Out-Null
 $doc = Get-Content -Raw $sample | ConvertFrom-Json
 $doc.id = [guid]::NewGuid().ToString()
-$doc.events = @(@{ type = "wait"; t = 0; dur = 20000; label = "" })
+$doc.events = @(@{ type = "wait"; t = 0; dur = 8000; label = "" })
+$doc.playback.repeat = @{ count = 1 }
 $doc | ConvertTo-Json -Depth 20 | Out-File -Encoding ascii $sample
-$program = (Join-Path $s "export-invoice-to-pdf.exe") -replace '\\', '/'
+$programDir = Join-Path $s "program"
+New-Item -ItemType Directory -Force $programDir | Out-Null
+$program = (Join-Path $programDir "export-invoice-to-pdf.exe") -replace '\\', '/'
 Js "const inv = window.__TAURI_INTERNALS__.invoke; const r = await inv('import_macros', { paths: ['$sample'] }); await inv('export_macro', { id: r.imported[0], format: 'exe', path: '$program' }); return true" | Out-Null
 $player = Start-Process $program -PassThru
 Start-Sleep -Milliseconds 4500
-Shot "player.png" ([D1]::FindWindow("RelayPlayer", $null))
-Stop-Process -Id $player.Id -Confirm:$false
+Shot "player.png" ([D1]::FindWindow("RelayPlayer", [NullString]::Value))
+$player.WaitForExit(15000) | Out-Null
 
 Stop-Process -Id $relay.Id -Confirm:$false
