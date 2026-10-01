@@ -71,7 +71,10 @@ jobs:
       - name: Rust tests (also regenerates the TS bindings and browser fixture)
         run: cargo test --workspace
       - name: Generated files are up to date
-        run: git diff --exit-code -- src/lib/ipc/bindings src/lib/dev/sample-views.json
+        shell: bash
+        run: |
+          changed=$(git status --porcelain -- src/lib/ipc/bindings src/lib/dev src/test/path-cases.json)
+          [ -z "$changed" ] || { echo "$changed"; echo "::error::cargo test changed generated files: commit them"; exit 1; }
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Build the installer
         run: npx tauri build
@@ -83,6 +86,7 @@ jobs:
             target/release/relay.exe
             target/player/release/relay-player.exe
           if-no-files-found: error
+          retention-days: 14
       - name: The player's size (embedded in every exported program)
         shell: bash
         run: |

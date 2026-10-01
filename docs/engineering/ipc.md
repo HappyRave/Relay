@@ -193,9 +193,9 @@ sequenceDiagram
 
 Every Rust type that crosses the boundary derives `ts_rs::TS` with `#[ts(export)]`. Running `cargo test` writes one `.ts` file per type into [`src/lib/ipc/bindings/`](../../src/lib/ipc/bindings), set by `TS_RS_EXPORT_DIR` in [`.cargo/config.toml`](../../.cargo/config.toml). `src/lib/types.ts` re-exports them with a few UI-side helpers.
 
-The same `cargo test` run also regenerates `src/lib/dev/sample-views.json`, the sample macros as `MacroView`s, for the browser preview.
+The same `cargo test` run also regenerates three fixtures: `src/lib/dev/sample-views.json` and `sample-runs.json` (the sample macros as `MacroView`s, and their run history, for the browser preview), and `src/test/path-cases.json` (Rust's path reshaping answers, which the fake core is checked against).
 
-Both are committed. CI runs `cargo test` and then `git diff --exit-code` on them, so **a Rust type change without regenerated bindings fails the build**.
+All of them are committed. CI runs `cargo test` and then fails if any of them changed or a new one appeared, so **a Rust type change without regenerated bindings fails the build**.
 
 ## Adding a command
 
