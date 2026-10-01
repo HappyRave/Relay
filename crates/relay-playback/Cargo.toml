@@ -12,4 +12,5 @@ relay-core.workspace = true
 relay-platform.workspace = true
 serde.workspace = true
 crossbeam-channel = "0.5.17"
+chrono = { version = "0.4.45", default-features = false, features = ["std", "clock"] }
 ts-rs = { version = "12", features = ["no-serde-warnings"] }

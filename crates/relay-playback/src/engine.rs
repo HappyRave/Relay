@@ -16,6 +16,7 @@ use relay_core::playback::{PlayClock, plan_times};
 use relay_core::runlog::{CheckLog, CheckOutcome, CheckResult};
 use relay_core::session::FinishReason;
 use relay_core::steps::{Step, StepKind};
+use relay_core::text::CHAR_MS;
 use relay_platform::{Injector, Platform};
 use serde::Serialize;
 use ts_rs::TS;
@@ -31,6 +32,8 @@ pub type PixelReader = Box<dyn FnMut(i32, i32) -> Option<Rgb> + Send>;
 /// Looks for an image in an area of the screen (or all of it), and returns
 /// the best match at or above a score, in screen pixels.
 pub type ImageFinder = Box<dyn FnMut(&Gray, Option<Rect>, f32) -> Option<Match> + Send>;
+/// What a Text step's template types on repeat `n` (from 1), now.
+pub type TextFiller = Box<dyn FnMut(&str, u32) -> String + Send>;
 
 /// What a check waits for.
 enum Check {
@@ -60,6 +63,18 @@ struct Waiting {
     started: f64,
     timeout_ms: f64,
     next_poll: f64,
+}
+
+/// A Text step being typed: the clock is frozen at its start while the
+/// characters go out one at a time.
+struct Typing {
+    chars: Vec<char>,
+    typed: usize,
+    /// Where the step starts and ends, in macro time.
+    at: f64,
+    end: f64,
+    /// Wall time of the next character, or of the end once all are typed.
+    next: f64,
 }
 
 /// Everything the engine needs to play one macro.
@@ -157,7 +172,9 @@ pub struct Engine {
     injector: Box<dyn Injector>,
     pixel: PixelReader,
     find: ImageFinder,
+    fill: TextFiller,
     waiting: Option<Waiting>,
+    typing: Option<Typing>,
     /// Paused by the user (as opposed to frozen by a pixel check).
     user_paused: Option<f64>,
     /// The 1-based step whose pixel check or Find image step timed out.
@@ -176,7 +193,14 @@ pub struct Engine {
 }
 
 impl Engine {
-    pub fn new(plan: PlayPlan, injector: Box<dyn Injector>, pixel: PixelReader, find: ImageFinder, now: f64) -> Self {
+    pub fn new(
+        plan: PlayPlan,
+        injector: Box<dyn Injector>,
+        pixel: PixelReader,
+        find: ImageFinder,
+        fill: TextFiller,
+        now: f64,
+    ) -> Self {
         let from = if plan.from.saturating_add(1) >= plan.duration { 0 } else { plan.from };
         let times = plan_times(&plan.events, &plan.steps, plan.jitter_ms, plan.seed);
         let idx = start_index(&plan.events, from as f64);
@@ -186,7 +210,9 @@ impl Engine {
             injector,
             pixel,
             find,
+            fill,
             waiting: None,
+            typing: None,
             user_paused: None,
             timed_out_step: None,
             times,
@@ -236,13 +262,16 @@ impl Engine {
         self.clock.speed()
     }
 
-    /// Wall time of the next event, pixel sample or loop end; `None` while paused.
+    /// Wall time of the next event, character, pixel sample or loop end; `None` while paused.
     pub fn next_deadline(&self) -> Option<f64> {
         if self.user_paused.is_some() {
             return None;
         }
         if let Some(w) = &self.waiting {
             return Some(w.next_poll);
+        }
+        if let Some(ty) = &self.typing {
+            return Some(ty.next);
         }
         let target = self.times.get(self.idx).copied().unwrap_or(self.plan.duration as f64);
         self.clock.deadline(target)
@@ -256,6 +285,9 @@ impl Engine {
         if self.waiting.is_some() {
             return self.poll_pixel(now);
         }
+        if self.typing.is_some() {
+            return self.type_due(now);
+        }
         let t = self.clock.at(now);
         while self.idx < self.times.len() && self.times[self.idx] <= t {
             if let Some(deadline) = self.clock.deadline(self.times[self.idx]) {
@@ -263,6 +295,14 @@ impl Engine {
             }
             let i = self.idx;
             self.idx += 1;
+            if let Event::Text { dur, text, .. } = &self.plan.events[i] {
+                let (at, dur) = (self.times[i], *dur as f64);
+                let chars = (self.fill)(text, self.loop_idx + 1).chars().collect();
+                self.clock.seek(at, now);
+                self.clock.pause(now);
+                self.typing = Some(Typing { chars, typed: 0, at, end: at + dur, next: now });
+                return self.type_due(now);
+            }
             let check = match &self.plan.events[i] {
                 &Event::PixelWait { dur, x, y, color, tolerance, timeout_ms, .. } => {
                     Some((dur, timeout_ms, Check::Pixel { x, y, color, tolerance }))
@@ -369,6 +409,29 @@ impl Engine {
         None
     }
 
+    /// Types the characters that are due, then goes on from where typing
+    /// got to in the step, or from its end when the text ran over it.
+    fn type_due(&mut self, now: f64) -> Option<FinishReason> {
+        loop {
+            let pace = CHAR_MS as f64 / self.clock.speed();
+            let ty = self.typing.as_mut()?;
+            if ty.next > now {
+                return None;
+            }
+            let Some(&c) = ty.chars.get(ty.typed) else {
+                let resume_at = (ty.at + ty.chars.len() as f64 * CHAR_MS as f64).min(ty.end);
+                self.typing = None;
+                self.clock.seek(resume_at, now);
+                self.clock.resume(now);
+                return self.advance(now);
+            };
+            ty.typed += 1;
+            ty.next += pace;
+            let r = self.injector.text(c.encode_utf8(&mut [0; 4]));
+            self.check(r);
+        }
+    }
+
     /// The 1-based step that event `event` belongs to.
     fn step_of(&self, event: usize) -> Option<usize> {
         self.plan.steps.iter().position(|s| s.items.contains(&(event as u32))).map(|i| i + 1)
@@ -418,13 +481,14 @@ impl Engine {
 
     pub fn resume(&mut self, now: f64) {
         let Some(since) = self.user_paused.take() else { return };
-        match &mut self.waiting {
+        match (&mut self.waiting, &mut self.typing) {
             // Time spent paused doesn't count toward the check's timeout.
-            Some(w) => {
+            (Some(w), _) => {
                 w.started += now - since;
                 w.next_poll = now;
             }
-            None => self.clock.resume(now),
+            (_, Some(ty)) => ty.next += now - since,
+            (None, None) => self.clock.resume(now),
         }
     }
 
@@ -436,8 +500,9 @@ impl Engine {
     pub fn seek(&mut self, t: f64, now: f64) {
         self.release_all();
         let t = t.clamp(0.0, self.plan.duration as f64);
-        if self.waiting.take().is_some() && self.user_paused.is_none() {
-            // The pixel check had frozen the clock; the jump leaves the check.
+        let frozen = self.waiting.take().is_some() | self.typing.take().is_some();
+        if frozen && self.user_paused.is_none() {
+            // The check or the typing had frozen the clock; the jump leaves it.
             self.clock.resume(now);
         }
         self.clock.seek(t, now);
@@ -494,8 +559,8 @@ impl Engine {
                     self.keys_down.push(key);
                 }
             }
-            // Waits only take time; `advance` handles checks before dispatching.
-            Event::Wait { .. } | Event::PixelWait { .. } | Event::FindImage { .. } => {}
+            // Waits only take time; `advance` handles checks and text before dispatching.
+            Event::Wait { .. } | Event::PixelWait { .. } | Event::FindImage { .. } | Event::Text { .. } => {}
         }
     }
 
@@ -602,6 +667,7 @@ pub fn spawn<S: PlaybackSink>(plan: PlayPlan, platform: &Platform, sink: S) -> E
     let (make_timer, make_injector, now_ms) = (platform.timer, platform.injector, platform.now_ms);
     let screen = platform.screen.clone();
     let platform_windows = platform.windows.clone();
+    let clipboard = platform.clipboard.clone();
     let thread = std::thread::Builder::new()
         .name("relay-engine".into())
         .spawn(move || {
@@ -617,7 +683,10 @@ pub fn spawn<S: PlaybackSink>(plan: PlayPlan, platform: &Platform, sink: S) -> E
                 let hide = crate::finder::Hidden::of(&*windows, own_window);
                 crate::finder::find_on_screen(&*finder_screen, image, area, threshold, &hide)
             });
-            let mut engine = Engine::new(plan, make_injector(), pixel, find, now_ms());
+            let fill: TextFiller = Box::new(move |template, n| {
+                relay_core::text::fill(template, n, chrono::Local::now().naive_local(), || clipboard.text())
+            });
+            let mut engine = Engine::new(plan, make_injector(), pixel, find, fill, now_ms());
             let mut next_tick = f64::MIN;
             loop {
                 loop {
@@ -696,6 +765,10 @@ mod tests {
             self.0.lock().unwrap().push(format!("{} {}", key.code, if down { "down" } else { "up" }));
             Ok(())
         }
+        fn text(&mut self, text: &str) -> relay_platform::Result<()> {
+            self.0.lock().unwrap().push(format!("type {text}"));
+            Ok(())
+        }
     }
 
     impl Recorder {
@@ -709,6 +782,11 @@ mod tests {
     }
     fn btn(t: Ms, down: bool) -> Event {
         Event::Button { t, x: 10, y: 20, btn: MouseBtn::Left, down, label: String::new() }
+    }
+
+    /// Fills in `{n}` only: enough to see which repeat typed what.
+    fn filler() -> TextFiller {
+        Box::new(|template, n| template.replace("{n}", &n.to_string()))
     }
 
     fn plan(events: Vec<Event>, repeat: Repeat, speed: f64) -> PlayPlan {
@@ -730,7 +808,7 @@ mod tests {
 
     fn engine_for(plan: PlayPlan) -> (Engine, Recorder) {
         let rec = Recorder::default();
-        (Engine::new(plan, Box::new(rec.clone()), Box::new(|_, _| None), Box::new(|_, _, _| None), 0.0), rec)
+        (Engine::new(plan, Box::new(rec.clone()), Box::new(|_, _| None), Box::new(|_, _, _| None), filler(), 0.0), rec)
     }
 
     fn engine(events: Vec<Event>, repeat: Repeat, speed: f64) -> (Engine, Recorder) {
@@ -942,6 +1020,9 @@ mod tests {
         fn key(&mut self, _: &KeyStroke, _: bool, _: Option<&str>) -> relay_platform::Result<()> {
             self.fail()
         }
+        fn text(&mut self, _: &str) -> relay_platform::Result<()> {
+            self.fail()
+        }
     }
 
     #[test]
@@ -954,6 +1035,7 @@ mod tests {
             injector,
             Box::new(|_, _| None),
             Box::new(|_, _, _| None),
+            filler(),
             0.0,
         );
         assert_eq!(e.unreported_error(), None, "nothing failed yet");
@@ -1009,7 +1091,7 @@ mod tests {
             assert_eq!((x, y), (5, 6));
             Some(if *clock.lock().unwrap() >= turns_red_at { Rgb(250, 4, 2) } else { Rgb(255, 255, 255) })
         });
-        (Engine::new(plan, Box::new(rec.clone()), pixel, Box::new(|_, _, _| None), 0.0), rec, now)
+        (Engine::new(plan, Box::new(rec.clone()), pixel, Box::new(|_, _, _| None), filler(), 0.0), rec, now)
     }
 
     /// Advances the engine to `t`, updating the fake screen's clock.
@@ -1139,7 +1221,7 @@ mod tests {
             log.lock().unwrap().push((x, y));
             Some(Rgb(255, 0, 0))
         });
-        let mut e = Engine::new(plan, Box::new(rec.clone()), pixel, Box::new(|_, _, _| None), 0.0);
+        let mut e = Engine::new(plan, Box::new(rec.clone()), pixel, Box::new(|_, _, _| None), filler(), 0.0);
         e.advance(100.0);
         assert_eq!(
             rec.take(),
@@ -1189,7 +1271,7 @@ mod tests {
             let m = Match { x: 300, y: 200, w: 30, h: 15, scale: 1.5, score: 0.97 };
             (*clock.lock().unwrap() >= appears_at).then_some(m)
         });
-        (Engine::new(plan, Box::new(rec.clone()), Box::new(|_, _| None), find, 0.0), rec, now, searches)
+        (Engine::new(plan, Box::new(rec.clone()), Box::new(|_, _| None), find, filler(), 0.0), rec, now, searches)
     }
 
     #[test]
@@ -1303,6 +1385,7 @@ mod tests {
             Box::new(rec),
             pixel,
             Box::new(|_, _, _| None),
+            filler(),
             0.0,
         );
         let mut t = 0.0;
@@ -1314,5 +1397,83 @@ mod tests {
         let loops: Vec<u32> = outcomes(&report).iter().map(|c| c.1).collect();
         assert_eq!(loops, [0, 1]);
         assert_eq!(report.loops, 2);
+    }
+
+    fn text(t: Ms, dur: Ms, text: &str) -> Event {
+        Event::Text { t, dur, text: text.into() }
+    }
+
+    #[test]
+    fn a_text_is_typed_a_character_at_a_time_then_playback_goes_on() {
+        let (mut e, rec) = engine(vec![text(100, 500, "ab{n}"), key(600, "KeyA", true)], Repeat::Count(1), 1.0);
+        assert_eq!(e.advance(100.0), None);
+        assert_eq!(rec.take(), ["type a"]);
+        assert!(e.paused(), "the playhead waits at the step while it types");
+        assert_eq!(e.next_deadline(), Some(110.0));
+        e.advance(115.0);
+        assert_eq!(rec.take(), ["type b"]);
+        e.advance(120.0);
+        assert_eq!(rec.take(), ["type 1"]);
+        // Typed by 130: the step goes on from 30 ms in, so what follows keeps its time.
+        e.advance(130.0);
+        assert!(!e.paused());
+        assert_eq!(e.macro_time(130.0), 130.0);
+        assert_eq!(e.next_deadline(), Some(600.0));
+        e.advance(600.0);
+        assert_eq!(rec.take(), ["KeyA down"]);
+    }
+
+    #[test]
+    fn a_text_longer_than_its_step_pushes_what_follows_back() {
+        let (mut e, rec) = engine(vec![text(0, 20, "abcde"), key(20, "KeyA", true)], Repeat::Count(1), 1.0);
+        for t in [0.0, 10.0, 20.0, 30.0, 40.0] {
+            e.advance(t);
+        }
+        assert_eq!(rec.take(), ["type a", "type b", "type c", "type d", "type e"]);
+        e.advance(50.0);
+        assert_eq!(rec.take(), ["KeyA down"], "right after the text, from the step's end");
+        assert_eq!(e.macro_time(50.0), 20.0);
+    }
+
+    #[test]
+    fn each_repeat_fills_in_its_own_number() {
+        let (mut e, rec) = engine(vec![text(0, 100, "#{n}")], Repeat::Count(2), 1.0);
+        let typed: Vec<_> = run_out(&mut e, &rec, 0.0).into_iter().filter(|a| a.starts_with("type")).collect();
+        assert_eq!(typed, ["type #", "type 1", "type #", "type 2"]);
+    }
+
+    #[test]
+    fn typing_follows_the_speed_and_stops_while_paused() {
+        let (mut e, rec) = engine(vec![text(0, 100, "abc")], Repeat::Count(1), 2.0);
+        e.advance(0.0);
+        assert_eq!(e.next_deadline(), Some(5.0), "twice as fast");
+        e.pause(3.0);
+        assert_eq!(e.next_deadline(), None);
+        assert_eq!(e.advance(500.0), None);
+        assert_eq!(rec.take(), ["type a"]);
+        e.resume(1000.0);
+        assert_eq!(e.next_deadline(), Some(1002.0), "the pause doesn't count");
+        e.advance(1002.0);
+        assert_eq!(rec.take(), ["type b"]);
+    }
+
+    #[test]
+    fn seeking_leaves_the_text_untyped() {
+        let (mut e, rec) = engine(vec![text(0, 100, "abc"), key(500, "KeyA", true)], Repeat::Count(1), 1.0);
+        e.advance(0.0);
+        e.seek(400.0, 5.0);
+        assert!(!e.paused());
+        e.advance(105.0);
+        assert_eq!(rec.take(), ["type a", "KeyA down"]);
+    }
+
+    #[test]
+    fn an_empty_text_types_nothing() {
+        let (mut e, rec) = engine(vec![text(0, 100, ""), key(100, "KeyA", true)], Repeat::Count(1), 1.0);
+        e.advance(0.0);
+        assert!(rec.take().is_empty());
+        assert!(!e.paused());
+        e.advance(100.0);
+        assert_eq!(rec.take(), ["KeyA down"]);
     }
 }
