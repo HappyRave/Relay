@@ -29,6 +29,7 @@ flowchart BT
 - [End-to-end testing](#end-to-end-testing)
 - [Manual checks before a release](#manual-checks-before-a-release)
 - [CI](#ci)
+  - [A few E2E tests](#a-few-e2e-tests)
 - [Releases](#releases)
 
 ## Running the tests
@@ -217,11 +218,21 @@ What automated tests can't cover well:
 
 | Job | Steps |
 | --- | --- |
-| **quick** | Every push to a PR, drafts included, on Linux: `cargo fmt --check`, `cargo test` and `clippy -D warnings` for `relay-core` and `relay-platform` (which keeps them portable), `npm run check`, `npm test`. Also decides whether the PR changes more than docs (`docs/**`, `*.md`). |
-| **windows** | Ready PRs that change code, after `quick`: `npm ci` → `cargo test --workspace` → **generated files are up to date** (`git diff --exit-code` on the bindings and the browser fixture) → `cargo clippy -D warnings` → `npx tauri build` → upload the installer as an artifact → the E2E suites against the release build |
+| **quick** | Every push to a PR, drafts included, on Linux: `cargo fmt --check`, `cargo test` and `clippy -D warnings` for `relay-core`, `relay-platform`, `relay-playback` and `relay-player` (which keeps them portable), `npm run check`, `npm test`. Also decides whether the PR changes more than docs (`docs/**`, `*.md`). |
+| **windows** | Ready PRs that change code, after `quick`: `npm ci` → `cargo test --workspace` → **generated files are up to date** (nothing `cargo test` regenerates changed or appeared) → `cargo clippy -D warnings` → `npx tauri build` → upload the installer as an artifact → the E2E suites against the release build |
 | **msrv** | Same condition: `cargo check --workspace` with Rust 1.95, the `rust-version` in `Cargo.toml` (the highest any dependency needs, from `sysinfo`) |
 
 A skipped job counts as a passed check, so a docs-only PR merges after `quick`.
+
+### A few E2E tests
+
+[`.github/workflows/e2e.yml`](../../.github/workflows/e2e.yml) builds the release app on any branch and runs only the E2E suites and tests asked for, so a fix for a failed test is checked in about ten minutes rather than twenty-five. It only runs by hand, and it isn't a required check: a PR still needs the full CI to merge.
+
+```bash
+gh workflow run e2e.yml --ref <branch> -f suites="triggers editing" -f tests="pixel"
+```
+
+`suites` are file names without `.e2e.test.mjs` (empty: all of them); `tests` is a regular expression on test names (`node --test-name-pattern`; empty: every test in those suites). From the web: **Actions → E2E → Run workflow**. `gh run watch` follows the run, and failures show as annotations, as in CI.
 
 ## Releases
 

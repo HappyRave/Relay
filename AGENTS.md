@@ -124,7 +124,7 @@ e2e/                         end-to-end suites (*.e2e.test.mjs), harness.mjs, im
 scripts/                     cdp.mjs (run JS in a running Relay), docs-screenshots.ps1 (regenerates docs/images)
 docs/                        user-guide/, engineering/, images/
 Design/                      the original prototype and design system (reference only)
-.github/workflows/           ci.yml, release.yml
+.github/workflows/           ci.yml, e2e.yml, release.yml
 ```
 
 ## Commands
@@ -238,6 +238,7 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
   - **windows** (ready PRs that change code, after `quick` passes): `cargo test`, generated files up to date, clippy, `npx tauri build`, upload the installer, then the E2E suites against the release build. If E2E fails, `e2e/ci-diagnose.mjs` reports WebView2 details as annotations.
   - **msrv** (same condition): `cargo check` with Rust 1.95.
   - A skipped job counts as a passed check, so docs-only PRs merge after `quick`. A newer push cancels the PR's run in progress. *Actions → CI → Run workflow* runs everything on any branch by hand.
+- **Checking an E2E fix:** `.github/workflows/e2e.yml` builds the release app and runs only some E2E tests, in about ten minutes: `gh workflow run e2e.yml --ref <branch> -f suites="triggers" -f tests="<name regex>"`, then `gh run watch`. It runs on what the branch has on GitHub, so push the fix first: to a draft PR (`gh pr ready --undo`), where a push runs only `quick`. Once it passes, `gh pr ready` runs the full CI, which merging still needs. It's never a required check.
 - **Reading CI:** `gh pr checks <n>`, and `gh run view <run id> --log-failed` for a failure. `e2e/github-reporter.mjs` turns each E2E failure (and each suite that failed to start) into an annotation with its message. Without `gh`, the public API works too: `https://api.github.com/repos/HappyRave/Relay/actions/runs?head_sha=<sha>`, then `/actions/runs/<id>/jobs`, then `/check-runs/<job id>/annotations`.
 - A full run takes about 20–25 minutes (`quick` first, then the Windows job builds the release and runs E2E). Its Rust cache starts cold for each PR, since nothing runs on `main` to share one.
 - **When contributors join:** require 1 approving review and add a `CODEOWNERS`; set *Settings → Actions → Fork pull request workflows* to require approval for all outside collaborators; and turn on *Require branches to be up to date before merging* in the ruleset, so `main` is tested with each PR on top of the latest code (merge queues need an organization-owned repo).
