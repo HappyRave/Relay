@@ -4,9 +4,8 @@
 // narrower, the settings on its right compact instead of wrapping.
 import type { Repeat } from "./types";
 
-/** The bar at scale 1 (16 + a 14 px label + 8 + a 48 px control + 16), and its controls: every control is this tall. */
+/** The bar at scale 1: 16 + a 14 px label + 8 + a 48 px control + 16. */
 export const BAR_H = 102;
-export const CONTROL_H = 48;
 
 /**
  * Labels sit above the controls at every width.

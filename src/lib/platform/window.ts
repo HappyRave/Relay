@@ -4,6 +4,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Panes } from "../ipc/bindings/Panes";
+import type { WindowPrefsView } from "../ipc/bindings/WindowPrefsView";
 import { NO_PANES } from "../layout";
 
 export const isTauri = (): boolean => "__TAURI_INTERNALS__" in window;
@@ -21,9 +22,9 @@ export async function fitWindow(width: number, height: number, expanded: boolean
 export const fitEditor = () => fitWindow(0, 0, true);
 
 /** Whether the widget was expanded last time (defaults to expanded), and where the editor's dividers were. */
-export async function savedWindow(): Promise<{ expanded: boolean; panes: Panes }> {
+export async function savedWindow(): Promise<WindowPrefsView> {
   if (!isTauri()) return { expanded: true, panes: NO_PANES };
-  return invoke<{ expanded: boolean; panes: Panes }>("window_prefs");
+  return invoke<WindowPrefsView>("window_prefs");
 }
 
 /** Saves where the user put the editor's dividers (window.json). */

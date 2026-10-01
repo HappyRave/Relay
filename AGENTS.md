@@ -77,6 +77,7 @@ crates/relay-core/src/       pure logic, heavily tested
   runlog.rs                  the run history: RunEntry, RunLog (newest 200), CheckLog
   steps.rs                   raw events → editor steps (click/drag/scroll/keys/type/wait/pixel_wait)
   edit.rs                    EditOp, apply, normalize, check_invariants
+  path.rs  view.rs           smoothing/straightening a MOVE path; MacroView, what the UI receives
   format.rs                  .rly / JSON export, migrations (v0 → v1)
   playback.rs  timeline.rs   PlayClock, plan_times (humanize); durations
   session.rs                 the session state machine: Mode × Input → effects
@@ -87,7 +88,7 @@ crates/relay-platform/src/
   lib.rs  types.rs           the OS traits (InputHook, Screen, WindowQuery, Injector, Timer…), RawInput, HookConfig
   recorder.rs  keymap.rs     RawInput → Events; scan code ↔ W3C code
   processes.rs               running programs (sysinfo)
-  windows/                   the Win32 backend: clipboard (and the snip), hook, inject, screen, text, timer, window
+  windows/                   the Win32 backend: clipboard (and the snip), hook, inject, marker, screen, text, timer, window
   stub.rs                    placeholder backend for non-Windows builds
 crates/relay-playback/src/
   engine.rs                  the playback engine (pure Engine + thread), reporting through a PlaybackSink
@@ -107,6 +108,7 @@ src-tauri/src/
   commands.rs  ipc.rs        Tauri commands; the EngineMsg stream (queues errors until the UI subscribes)
   library.rs  history.rs     macros on disk + trash + import; undo/redo (in memory)
   run_history.rs             runs.json, the run history
+  screens.rs                 the screenshot drawn under the preview (screens\<id>.jpg, machine-local)
   settings.rs  storage.rs    settings.json (field by field); data dir, atomic writes
   triggers.rs  hotkeys.rs    schedule/app-launch/pixel watchers; global hotkeys (RegisterHotKey)
   window_ctl.rs  tray.rs     placement (anchor, choose_monitor, layout), zoom, frame; tray menu
@@ -116,10 +118,13 @@ src/                         the Svelte UI
   lib/state/selection.ts     the step editor's selection following its step across edits
   lib/ipc/backend.ts         Backend interface: tauriBackend and the read-only browserBackend
   lib/ipc/bindings/          GENERATED from Rust by ts-rs (never edit by hand)
-  lib/dev/sample-views.json  GENERATED browser fixture (by relay-core's tests)
-  lib/fields.ts  format.ts  hotkeys.ts  image.ts  timeline/  preview/  platform/window.ts
+  lib/dev/sample-*.json      GENERATED browser fixtures (by relay-core's tests); devDesktop.svelte.ts, the demo desktop
+  lib/types.ts  defaults.ts  types shared by the UI (re-exporting the bindings); defaults matching Rust's
+  lib/layout.ts              the editor's three dividers
+  lib/transport.ts           the control bar: its widths and how it compacts
+  lib/fields.ts  format.ts  hotkeys.ts  image.ts  runs.ts  state/display.ts  actions/seekable.ts  timeline/  preview/  platform/window.ts
   components/                Widget, CompactBar, ExportDialog, expanded/{Header,Preview,SidePanel,Transport,Timeline,tabs/*}, ui/*, shared/*
-  test/                      fake-core.ts (+ fake-edit.ts, fake-core.test.ts), app.ts, setup.ts
+  test/                      fake-core.ts (+ fake-edit.ts, fake-path.ts, fake-core.test.ts), path-cases.json (GENERATED), app.ts, setup.ts
 e2e/                         end-to-end suites (*.e2e.test.mjs), harness.mjs, image-window.ps1, github-reporter.mjs, ci-diagnose.mjs
 scripts/                     cdp.mjs (run JS in a running Relay), docs-screenshots.ps1 (regenerates docs/images)
 docs/                        user-guide/, engineering/, images/
@@ -131,7 +136,7 @@ Design/                      the original prototype and design system (reference
 
 | Command | What it does |
 | --- | --- |
-| `cargo test --workspace` | Every Rust test. **Also regenerates** `src/lib/ipc/bindings/*` and `src/lib/dev/sample-views.json`: commit them if they change (CI fails otherwise). |
+| `cargo test --workspace` | Every Rust test. **Also regenerates** `src/lib/ipc/bindings/*`, `src/lib/dev/sample-*.json` and `src/test/path-cases.json`: commit them if they change (CI fails otherwise). |
 | `cargo test -p relay-core` | The core only, in seconds |
 | `cargo test -p relay-player` | The exported program's logic (options, exit codes, status text, placement) |
 | `cargo fmt --all` / `cargo fmt --all -- --check` | 120 columns (`rustfmt.toml`); CI checks it |
