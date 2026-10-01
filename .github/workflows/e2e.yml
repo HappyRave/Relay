@@ -1,0 +1,69 @@
+name: E2E
+
+# A few end-to-end tests on any branch, to check a fix in about ten minutes
+# instead of the full CI's twenty-five: it builds the release app and runs only
+# the suites (and tests) asked for. It's never a required check, so a PR still
+# needs the full CI to merge.
+#   gh workflow run e2e.yml --ref <branch> -f suites="triggers editing" -f tests="pixel"
+on:
+  workflow_dispatch:
+    inputs:
+      suites:
+        description: "Suites to run, by name (e.g. triggers editing). Empty: all of them."
+        required: false
+        default: ""
+      tests:
+        description: "Only the tests whose name matches this regular expression (node --test-name-pattern). Empty: every test in those suites."
+        required: false
+        default: ""
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+      - run: npm ci
+      - name: Which suites
+        id: pick
+        shell: bash
+        env:
+          SUITES: ${{ inputs.suites }}
+        run: |
+          files=""
+          for s in $SUITES; do
+            f="e2e/${s%.e2e.test.mjs}.e2e.test.mjs"
+            [ -f "$f" ] || { echo "::error::No suite $f. There are: $(cd e2e && ls *.e2e.test.mjs | sed 's/\.e2e\.test\.mjs//' | xargs)"; exit 1; }
+            files="$files $f"
+          done
+          echo "files=${files:-e2e/}" >> "$GITHUB_OUTPUT"
+      - name: Build the app
+        run: npx tauri build --no-bundle
+      - name: End-to-end tests
+        id: e2e
+        shell: bash
+        env:
+          RELAY_EXE: target/release/relay.exe
+          FILES: ${{ steps.pick.outputs.files }}
+          TESTS: ${{ inputs.tests }}
+        run: |
+          pattern=()
+          [ -z "$TESTS" ] || pattern=(--test-name-pattern="$TESTS")
+          node --test --test-concurrency=1 --test-timeout=120000 "${pattern[@]}" \
+            --test-reporter=spec --test-reporter-destination=stdout \
+            --test-reporter=./e2e/github-reporter.mjs --test-reporter-destination=stdout \
+            $FILES
+      - name: Diagnose a failed end-to-end run
+        if: failure() && steps.e2e.outcome == 'failure'
+        run: node e2e/ci-diagnose.mjs
+        env:
+          RELAY_EXE: target/release/relay.exe
