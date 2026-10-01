@@ -185,6 +185,8 @@ flowchart LR
     D --> N["normalize(events)"]
 ```
 
+An [exported program](file-formats.md#exported-programs) carries a `.rly`: `format::bundle(stub, macro)` appends it and a trailer to the player's exe, `unbundle` finds it again, and `from_file` reads any of the three kinds of file (a program starts with `MZ`).
+
 Migrations work on `serde_json::Value`, so old shapes never need Rust types. `migrate_v0` converts the M0 prototype's high-level events (`click`, `key` combos like `"Ctrl + A"`, `char`, `wait`, `cond`) into v1 presses and releases, with a single 1080p `RecordingMeta`. Snapshot tests pin both the v1 output and the migration result. See [File formats](file-formats.md) for the full schema.
 
 ## Playback timing

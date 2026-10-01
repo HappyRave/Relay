@@ -124,6 +124,13 @@ describe("tauriBackend", () => {
       expect(core.lastArgs("export_macro")).toMatchObject({ format: "json" });
     });
 
+    test("programs get the program filter", async () => {
+      core.dialog.save = "C:\\x.exe";
+      await b.exportMacro(id, "exe", "x.exe");
+      expect(core.calls[0].args.options).toMatchObject({ filters: [{ name: "Program", extensions: ["exe"] }] });
+      expect(core.lastArgs("export_macro")).toMatchObject({ format: "exe" });
+    });
+
     test("cancelling the dialog writes nothing", async () => {
       core.dialog.save = null;
       expect(await b.exportMacro(id, "rly", "a.rly")).toBeNull();
@@ -132,13 +139,13 @@ describe("tauriBackend", () => {
   });
 
   describe("import", () => {
-    test("asks for several .rly or .json files, then imports them", async () => {
+    test("asks for several .rly, .json or .exe files, then imports them", async () => {
       core.dialog.open = ["C:\\a.rly", "C:\\b.json"];
       const result = await b.importMacros();
       expect(core.calls[0].cmd).toBe("plugin:dialog|open");
       expect(core.calls[0].args.options).toMatchObject({
         multiple: true,
-        filters: [{ name: "Relay macros", extensions: ["rly", "json"] }],
+        filters: [{ name: "Relay macros and programs", extensions: ["rly", "json", "exe"] }],
       });
       expect(core.calls[1]).toEqual({ cmd: "import_macros", args: { paths: ["C:\\a.rly", "C:\\b.json"] } });
       expect(result?.imported).toHaveLength(2);

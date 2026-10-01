@@ -20,6 +20,7 @@ Everything Relay stores is JSON (and one JPEG per recorded macro) in the data di
 
 - [The .rly macro file](#the-rly-macro-file)
 - [The JSON export](#the-json-export)
+- [Exported programs](#exported-programs)
 - [Versioning and migrations](#versioning-and-migrations)
 - [library.json](#libraryjson)
 - [runs.json](#runsjson)
@@ -147,6 +148,20 @@ A step looks like:
 ```
 
 `items` are indices into `events`, and `pause` is the idle time before the step. Importing a `.json` export ignores `steps` and rebuilds them from the events.
+
+## Exported programs
+
+A macro exported as a **Standalone program** is the player's exe with the macro appended:
+
+| Bytes | Content |
+| --- | --- |
+| … | The player (`crates/relay-player`), a normal Windows program |
+| *n* | The macro as a compact `.rly` (UTF-8), exactly as a `.rly` export would write it (v2 with a `find_image` event) |
+| 8 | *n*, as a little-endian u64 |
+| 4 | The bundle version, 1, as a little-endian u32 |
+| 8 | `RELAYRLY` |
+
+Windows loads the program's image and ignores what follows it, so the player runs as it is, and reads the macro from its own file. Import recognizes a program by its `MZ` header: without the trailer it's *not a program exported by Relay*, with a newer bundle version it's *saved by a newer Relay*. The player isn't signed, and appending the macro would invalidate a signature anyway, so an exported program can never carry Relay's.
 
 ## Versioning and migrations
 

@@ -210,7 +210,7 @@ describe("Export dialog", () => {
     relay.exportOpen = true;
   });
 
-  test("is a modal with the formats, two of them for later", () => {
+  test("is a modal with the formats, AutoHotkey for later", () => {
     render(ExportDialog);
     const dialog = screen.getByRole("dialog", { name: "Export macro" });
     expect(dialog).toHaveAttribute("open");
@@ -218,10 +218,10 @@ describe("Export dialog", () => {
     expect(formats.map((f) => f.querySelector(".label")!.textContent)).toEqual([
       "Relay macro",
       "JSON events",
+      "Standalone program",
       "AutoHotkey v2Coming later",
-      "Standalone .exeComing later",
     ]);
-    expect(formats.map((f) => f.disabled)).toEqual([false, false, true, true]);
+    expect(formats.map((f) => f.disabled)).toEqual([false, false, false, true]);
     expect(formats[0]).toHaveClass("selected");
     expect(screen.getByText("export-invoice-to-pdf.rly")).toBeInTheDocument();
   });
@@ -231,6 +231,20 @@ describe("Export dialog", () => {
     await userEvent.click(screen.getByText("JSON events"));
     expect(relay.exportFmt).toBe("json");
     expect(screen.getByText("export-invoice-to-pdf.json")).toBeInTheDocument();
+  });
+
+  test("a standalone program is an .exe, and says how it plays", async () => {
+    render(ExportDialog);
+    expect(screen.queryByText(/saved options/)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByText("Standalone program"));
+    expect(relay.exportFmt).toBe("exe");
+    expect(screen.getByText("export-invoice-to-pdf.exe")).toBeInTheDocument();
+    expect(screen.getByText("Plays with this macro's saved options. It isn't signed, so Windows may warn on another PC.")).toBeInTheDocument();
+    core.dialog.save = "C:\\Users\\me\\invoice.exe";
+    await userEvent.click(screen.getByRole("button", { name: "Save…" }));
+    await settle();
+    expect(core.lastArgs("export_macro")).toEqual({ id: A, format: "exe", path: "C:\\Users\\me\\invoice.exe" });
+    expect(relay.toast?.message).toBe("Saved invoice.exe");
   });
 
   test("a format for later can't be chosen", async () => {

@@ -306,6 +306,20 @@ describe("the library, like library.rs", () => {
     expect(list.slice(0, 2).map((m) => m.id)).toEqual(result.imported);
   });
 
+  test("an exported program imports like a macro file", async () => {
+    core.files.set("C:\\ping.exe", "not a program exported by Relay");
+    const result = await invoke<{ imported: string[]; problems: string[] }>("import_macros", {
+      paths: ["C:\\Weekly report.exe", "C:\\ping.exe"],
+    });
+    expect(result.problems).toEqual(["ping.exe: not a program exported by Relay"]);
+    expect(core.view(result.imported[0]).name).toBe("Weekly report");
+  });
+
+  test("exports take the formats Rust knows", async () => {
+    for (const format of ["rly", "json", "exe"]) await invoke("export_macro", { id: A, format, path: "C:\\x" });
+    await expect(invoke("export_macro", { id: A, format: "ahk", path: "C:\\x" })).rejects.toMatch(/unknown variant "ahk"/);
+  });
+
   test("a file the test didn't fill in holds the first sample, named after the file", async () => {
     const [id] = (await invoke<{ imported: string[] }>("import_macros", { paths: ["C:\\macros\\Weekly report.rly"] })).imported;
     expect(core.view(id)).toMatchObject({ name: "Weekly report", duration: 10150 });

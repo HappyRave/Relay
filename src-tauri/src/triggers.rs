@@ -354,7 +354,7 @@ fn pixel_loop(app: AppHandle, platform: Arc<Platform>) {
 
 fn image_loop(app: AppHandle, platform: Arc<Platform>) {
     let mut watch = ImageWatch::default();
-    let mut looker = crate::finder::Looker::default();
+    let mut looker = relay_playback::finder::Looker::default();
     loop {
         std::thread::sleep(IMAGE_POLL);
         let triggers = snapshot(&app);
@@ -363,7 +363,7 @@ fn image_loop(app: AppHandle, platform: Arc<Platform>) {
             continue;
         }
         looker.round();
-        let hide = crate::finder::Hidden::of(&*platform.windows, crate::window_ctl::main_hwnd(&app));
+        let hide = relay_playback::finder::Hidden::of(&*platform.windows, crate::window_ctl::main_hwnd(&app));
         let found = watch.tick(&triggers, |image, key, area, threshold| {
             looker.look(&*platform.screen, image, key, area, threshold, &hide)
         });

@@ -167,6 +167,26 @@ The installer isn't code-signed yet, so SmartScreen doesn't recognize it. Click 
 
 </details>
 
+<details>
+<summary><b>"Windows protected your PC" when running an exported program</b></summary>
+
+[Exported programs](08-library.md#exported-programs) aren't code-signed, so SmartScreen warns about one that was downloaded or received from another PC. Click **More info → Run anyway**. A program you exported on this PC runs without the warning.
+
+</details>
+
+<details>
+<summary><b>My antivirus quarantined an exported program</b></summary>
+
+A program that presses keys and moves the mouse by itself can look suspicious to an antivirus. If you trust where it came from, restore it from quarantine and allow it, or export the macro again. Or share the `.rly` instead, for someone who has Relay.
+
+Some antivirus programs also watch what a program does while it runs, such as Bitdefender's *Advanced Threat Defense*. They're most wary of a program that a script starts from a temporary folder. If one stops an exported program:
+
+- Keep the program in a folder of its own, such as `Documents\Macros`, rather than in a temporary or download folder.
+- Add that folder as an exception in the antivirus.
+- Check the quarantine for `relay.exe` too: when the antivirus cleans up, it may remove the program that wrote the file as well. Restore Relay from there, or reinstall it.
+
+</details>
+
 ## FAQ
 
 <details>
@@ -205,9 +225,16 @@ Yes. `.rly` files are JSON, described in [File formats](../engineering/file-form
 </details>
 
 <details>
-<summary><b>Can I export to AutoHotkey or a standalone .exe?</b></summary>
+<summary><b>Can I run a macro on a PC without Relay?</b></summary>
 
-Not in v1. Both are planned, and are shown as *Coming later* in the Export dialog.
+Yes: export it as a **Standalone program**, a small `.exe` that plays it. See [Exported programs](08-library.md#exported-programs).
+
+</details>
+
+<details>
+<summary><b>Can I export to AutoHotkey?</b></summary>
+
+Not yet. It's planned, and shown as *Coming later* in the Export dialog.
 
 </details>
 

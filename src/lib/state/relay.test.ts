@@ -1322,6 +1322,14 @@ describe("export", () => {
     expect(relay.exportName).toBe("macro.json");
   });
 
+  test("a program is never named relay.exe", () => {
+    relay.view = { ...relay.view!, name: "Relay" };
+    relay.exportFmt = "exe";
+    expect(relay.exportName).toBe("relay-macro.exe");
+    relay.exportFmt = "rly";
+    expect(relay.exportName).toBe("relay.rly");
+  });
+
   test("Save closes the dialog and says where it went", async () => {
     relay.exportOpen = true;
     core.dialog.save = "C:\\Users\\me\\Desktop\\invoice.rly";

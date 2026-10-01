@@ -32,7 +32,7 @@ The deeper references are in the repo, and this file links to them rather than r
 Relay is a **Windows desktop macro recorder**: it records mouse and keyboard input, shows it as editable steps (*Click · Save*, *Ctrl + S*, *"invoice_2026"*), and plays it back with the original timing, faster, looped or slightly randomized. Macros can be triggered by a hotkey, a weekly schedule, a program starting, or a pixel changing color. It's a small floating widget (a 600×64 compact player, or a ~944×612 editor) that stays on top of other windows.
 
 - **Stack:** Rust (edition 2024) + [Tauri 2](https://tauri.app/) + a [Svelte 5](https://svelte.dev/) (runes) and TypeScript UI built with Vite. WebView2 on Windows.
-- **Three crates:** `crates/relay-core` (pure logic, no OS, builds anywhere), `crates/relay-platform` (OS traits plus the Windows backend and a stub for other OSes), `src-tauri` (the app: threads, commands, storage, window, tray).
+- **Five crates:** `crates/relay-core` (pure logic, no OS, builds anywhere), `crates/relay-platform` (OS traits plus the Windows backend and a stub for other OSes), `crates/relay-playback` (the engine, shared by the app and the player), `crates/relay-player` (the program a macro is exported as), `src-tauri` (the app: threads, commands, storage, window, tray).
 - **Design:** built from the prototype in `Design/Macro Recorder.dc.html` (the *Modernist* design system in `Design/_ds/`): Archivo font, red accent `#EC3013`, square corners, 2 px rules. The demo "desktop" drawn around the widget in the prototype is only the browser preview's backdrop.
 - **License:** MIT. Repository: https://github.com/HappyRave/Relay (public).
 
@@ -41,7 +41,7 @@ Relay is a **Windows desktop macro recorder**: it records mouse and keyboard inp
 - **Latest release: v1.3.0** (2026-09-29), from `main`. Releases so far: v1.0.0, v1.1.0, v1.2.0, v1.3.0. Each has an NSIS installer and a portable exe.
 - **Milestone history:** M0–M8 built v1.0. Then: m9 editor polish (v1.1.0), m10 Keep on top, m11 dependency upgrades, m12 a four-reviewer architecture refactor, m13 the three-layer test suite, m14 a four-reviewer audit of every test against the user guide (about 90 findings fixed), then v1.2.0. Then fix-multi-monitor-scale and m15 the control bar, preview bar, screenshots and resizable editor (v1.3.0). Since then, unreleased: m16 mouse moves as steps, m17 Find image (with fix-find-image-own-window), m18 the run history. `git log --first-parent main` shows them as merges.
 - **Tests at v1.3.0:** about 290 Rust (unit, property, snapshot), about 570 Vitest (store, backend contract, fake core, every component), about 85 end-to-end tests against the built app. Rust unit coverage is about 76% of lines; the coordinator, commands, tray and Windows backend are exercised end to end instead. The frontend is at about 99.8% of lines.
-- **Next, per the [roadmap](README.md#roadmap):** AutoHotkey v2 and standalone `.exe` export (the Export dialog already shows them as "Coming later"), code signing (needs a certificate; free options for open source: SignPath Foundation, Certum's open-source certificate, Azure Trusted Signing), remapping macros to a different monitor layout, macOS and Linux backends.
+- **Next, per the [roadmap](README.md#roadmap):** AutoHotkey v2 export (the Export dialog already shows it as "Coming later"), code signing (needs a certificate; free options for open source: SignPath Foundation, Certum's open-source certificate, Azure Trusted Signing), remapping macros to a different monitor layout, macOS and Linux backends.
 - **Also open:** see [Known limitations and open items](#known-limitations-and-open-items).
 
 Before starting work, check the open pull requests (`gh pr list`, and the description of the one you're continuing), `git log --oneline -15`, `git status`, the README roadmap and the *Unreleased* section of `CHANGELOG.md`.
@@ -89,11 +89,20 @@ crates/relay-platform/src/
   processes.rs               running programs (sysinfo)
   windows/                   the Win32 backend: clipboard (and the snip), hook, inject, screen, text, timer, window
   stub.rs                    placeholder backend for non-Windows builds
+crates/relay-playback/src/
+  engine.rs                  the playback engine (pure Engine + thread), reporting through a PlaybackSink
+  finder.rs                  an image on the real screen (1:1 capture, Relay's window painted over); the trigger's Looker
+  plan.rs                    PlayPlan::for_macro, window_offset, clicks_inside
+crates/relay-player/
+  src/args.rs  exit.rs       the exported program's options and exit codes
+  src/status.rs  place.rs    what its window says; its layout and corner
+  src/win.rs  main.rs        the Win32 shell: window, hotkey, hook, playback
+  build.rs  player.manifest  icon, DPI-aware manifest, version info
+src-tauri/build.rs           Tauri's build, and the release player that relay.exe embeds (target/player)
 src-tauri/src/
   lib.rs                     app setup, plugins, commands list, RELAY_DEVTOOLS_PORT, shutdown
   coordinator.rs             owns the session: commands in, effects out; F10 playhead; trigger admission
-  engine.rs                  the playback engine (pure Engine + thread)
-  finder.rs                  an image on the real screen (1:1 capture, Relay's window painted over); the trigger's Looker
+  engine.rs                  the app's PlaybackSink: ticks and notices to the UI, the end to the coordinator
   rec_thread.rs              recorder thread and hook watchdog
   commands.rs  ipc.rs        Tauri commands; the EngineMsg stream (queues errors until the UI subscribes)
   library.rs  history.rs     macros on disk + trash + import; undo/redo (in memory)
@@ -124,6 +133,7 @@ Design/                      the original prototype and design system (reference
 | --- | --- |
 | `cargo test --workspace` | Every Rust test. **Also regenerates** `src/lib/ipc/bindings/*` and `src/lib/dev/sample-views.json`: commit them if they change (CI fails otherwise). |
 | `cargo test -p relay-core` | The core only, in seconds |
+| `cargo test -p relay-player` | The exported program's logic (options, exit codes, status text, placement) |
 | `cargo fmt --all` / `cargo fmt --all -- --check` | 120 columns (`rustfmt.toml`); CI checks it |
 | `cargo clippy --workspace --all-targets -- -D warnings` | Zero warnings, as in CI |
 | `npm test` | Vitest (store, backend, fake core, components) |
@@ -253,6 +263,8 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 - `cargo llvm-cov` runs leave `*.profraw` files; they're git-ignored now (three were once committed by mistake).
 - A coverage-instrumented app exits without writing its profile, so merged unit + E2E coverage isn't possible; report them separately.
 - With Node 25.7, `npm run test:e2e` fails with "Cannot find module …\e2e": that Node doesn't take the folder argument. Node 26 is fine; otherwise pass the files: `node --test --test-concurrency=1 --test-timeout=120000 e2e/*.e2e.test.mjs`.
+- Bitdefender's Advanced Threat Defense blocked an exported program that PowerShell started from `%TEMP%` (a double-click from `Documents` was fine). Its cleanup also removed `target\release\relay.exe` and the screenshot script, and afterwards silently refused to recreate those paths ("Permission denied", nothing in the quarantine). That's why the screenshot script keeps its files in `target\docs-shots`.
+- `src-tauri/build.rs` builds the player in release in `target/player` (a folder of its own: a nested cargo in the same one deadlocks on its lock). The first build of the app takes a minute or two longer. `RELAY_PLAYER_EXE=<path>` skips it with a prebuilt player.
 
 **WebView2 and the app**
 - The GitHub runner's WebView2 ignores `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` and its registry override (`HKCU\Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments`). Relay passes the DevTools port itself when `RELAY_DEVTOOLS_PORT` is set (`src-tauri/src/lib.rs`, `context()`), which also keeps wry's default `--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection`.
@@ -288,7 +300,8 @@ Not fixed yet; each is a candidate task:
 - **Zoom margin:** `zoom_for_work_area` keeps one 16 px margin vertically, so on a short work area the expanded widget sits 8 px from the top and bottom.
 - **Real-input paths** are on the manual checklist only (see [Testing](#testing)).
 - **Dead keys:** a dead key alone records as a KEYS step, and the following letter records unaccented ("e", not "ê"). It's display only, and pinned by a test.
-- **Roadmap:** AHK and `.exe` export, code signing, monitor remapping, other OS backends.
+- **Exported programs aren't signed**, and can't be: appending the macro to the player would break a signature. SmartScreen warns on a downloaded one, and an antivirus may flag it.
+- **Roadmap:** AHK export, code signing, monitor remapping, other OS backends.
 
 ## Working with the maintainer
 

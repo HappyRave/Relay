@@ -35,7 +35,7 @@
 | 🔍 **Find image** | Wait for a button or icon to appear anywhere on screen, even at another size, then click it. Snip it, paste it or pick a file. |
 | ⏰ **Triggers** | Run a macro on a hotkey, on a weekly schedule, when an app starts, when a pixel changes color, or when an image appears. |
 | 🛑 **Safe** | <kbd>Esc</kbd>, any key, or the <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd> kill switch stops everything. Nothing is ever left pressed. |
-| 📦 **Portable** | Macros are plain JSON `.rly` files. Export, import, back up, keep them in Git. |
+| 📦 **Portable** | Macros are plain JSON `.rly` files. Export, import, back up, keep them in Git. Or export one as a small `.exe` that plays it on any PC, without Relay. |
 | 🔒 **Private** | Everything stays on your PC. Relay never connects to the internet. |
 
 <table>
@@ -143,7 +143,8 @@ Relay is a Rust workspace (`relay-core` for the pure logic, `relay-platform` for
 - [x] **1.3**: a redesigned control bar, screenshots under the preview, a zoomable whole-screen preview, a resizable editor
 - [ ] Mouse moves as steps: retime, smooth or straighten them, delete the trip to the Stop button
 - [ ] Find image: click a button or icon wherever it appears, at any size, and run a macro when an image appears
-- [ ] AutoHotkey v2 and standalone `.exe` export
+- [ ] Standalone `.exe` export: a macro as a small program that plays it without Relay
+- [ ] AutoHotkey v2 export
 - [ ] Code signing
 - [ ] Remapping macros to a different monitor layout
 - [ ] macOS and Linux backends

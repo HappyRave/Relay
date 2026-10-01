@@ -12,11 +12,10 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, unbounded};
 use parking_lot::{Mutex, RwLock};
-use relay_core::model::{CoordMode, Event, Macro, Ms, RecordingMeta, Rect};
+use relay_core::model::{Macro, Ms, RecordingMeta, Rect};
 use relay_core::runlog::{RunEntry, RunOutcome, SkipReason};
 use relay_core::session::{self, Effect, FinishReason, HotkeySet, Input, Mode, RunSource, SessionConfig};
-use relay_core::steps::{GroupOptions, group_steps};
-use relay_core::timeline;
+use relay_core::steps::GroupOptions;
 use relay_platform::recorder::{Recorder, RecorderConfig, is_meaningful};
 use relay_platform::types::MousePulse;
 use relay_platform::{HookConfig, HookMode, HookSession, Platform, RawInput, RawKind};
@@ -601,19 +600,6 @@ impl Coordinator {
         let hook = self.watch_for_stop_keys(&m);
 
         self.generation += 1;
-        let duration = timeline::duration(&m.events);
-        let plan = PlayPlan {
-            duration,
-            repeat: m.playback.repeat,
-            speed: m.playback.speed as f64,
-            jitter_ms: if m.playback.humanize { m.playback.jitter_ms } else { 0 },
-            seed: (self.platform.now_ms)().to_bits() ^ (m.id.as_u128() as u64),
-            offset,
-            from,
-            own_window,
-            steps: group_steps(&m.events, (&m.recording).into()),
-            events: m.events,
-        };
         let run = RunStart {
             at: Utc::now(),
             started: (self.platform.now_ms)(),
@@ -624,6 +610,9 @@ impl Coordinator {
             speed: m.playback.speed,
             humanize: m.playback.humanize,
         };
+        let seed = (self.platform.now_ms)().to_bits() ^ (m.id.as_u128() as u64);
+        let plan = PlayPlan::for_macro(m, from, seed, offset, own_window);
+        let duration = plan.duration;
         let engine = engine::spawn(plan, &self.platform, self.emit.clone(), self.tx.clone(), self.generation);
         self.playback =
             Some(Playback { engine, generation: self.generation, duration, _hook: hook, click_through, run });
@@ -649,14 +638,18 @@ impl Coordinator {
 
     /// Clicks and scrolling under the always-on-top widget must reach the app beneath it.
     fn click_through_if_needed(&self, m: &Macro, own_rect: Option<Rect>, offset: (i32, i32)) -> bool {
-        own_rect.is_some_and(|r| clicks_inside(m, r, offset))
+        own_rect.is_some_and(|r| relay_playback::plan::clicks_inside(m, r, offset))
             && self.app.get_webview_window("main").is_some_and(|w| w.set_ignore_cursor_events(true).is_ok())
     }
 
     /// Watches for Esc and, if the macro wants it, any other key.
     fn watch_for_stop_keys(&self, m: &Macro) -> Option<Box<dyn HookSession>> {
         let cfg = HookConfig {
-            mode: HookMode::Watch { stop_on_key: m.playback.stop_on_key, pass_vks: vec![VK_F10] },
+            mode: HookMode::Watch {
+                stop_on_key: m.playback.stop_on_key,
+                pass_vks: vec![VK_F10],
+                report_kill_switch: false,
+            },
             ignore_injected: self.settings().ignore_injected,
             mouse_pulse: None,
         };
@@ -688,33 +681,13 @@ impl Coordinator {
 
     /// For "Window" coordinates: how far the anchor window moved since recording.
     fn window_offset(&self, m: &Macro) -> (i32, i32) {
-        if m.playback.coord_mode != CoordMode::Window {
-            return (0, 0);
+        let windows = &self.platform.windows;
+        let (offset, notice) = relay_playback::plan::window_offset(m, |exe, class| windows.find_window(exe, class));
+        if let Some(message) = notice {
+            self.emit.send(EngineMsg::Notice { message });
         }
-        let Some(anchor) = &m.recording.anchor_window else {
-            self.emit.send(EngineMsg::Notice {
-                message: "This macro has no anchor window; playing at screen coordinates.".into(),
-            });
-            return (0, 0);
-        };
-        match self.platform.windows.find_window(&anchor.exe, &anchor.class) {
-            Some(now) => (now.rect.x - anchor.rect.x, now.rect.y - anchor.rect.y),
-            None => {
-                self.emit.send(EngineMsg::Notice {
-                    message: format!("Couldn't find {}; playing at screen coordinates.", anchor.exe),
-                });
-                (0, 0)
-            }
-        }
+        offset
     }
-}
-
-/// Whether the macro clicks or scrolls inside `r` when played `offset` away
-/// from where it was recorded.
-fn clicks_inside(m: &Macro, r: Rect, offset: (i32, i32)) -> bool {
-    m.events.iter().any(|e| {
-        matches!(e, Event::Button { x, y, .. } | Event::Wheel { x, y, .. } if r.contains(x + offset.0, y + offset.1))
-    })
 }
 
 /// What a trigger's request to run a macro gets.
@@ -820,43 +793,6 @@ mod screenshot_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use relay_core::model::{MouseBtn, RecordingMeta};
-
-    fn clicking_at(x: i32, y: i32) -> Macro {
-        let mut events = vec![Event::Move { t: 0, x: 500, y: 500 }];
-        events.push(Event::Button { t: 10, x, y, btn: MouseBtn::Left, down: true, label: String::new() });
-        events.push(Event::Button { t: 20, x, y, btn: MouseBtn::Left, down: false, label: String::new() });
-        Macro::new("m", RecordingMeta::single_1080p(), events)
-    }
-
-    #[test]
-    fn clicks_under_the_widget_are_found() {
-        let widget = Rect { x: 488, y: 444, w: 944, h: 612 };
-        assert!(clicks_inside(&clicking_at(900, 700), widget, (0, 0)));
-        assert!(!clicks_inside(&clicking_at(100, 100), widget, (0, 0)));
-        // Moves don't count: only a click needs to reach the app beneath.
-        assert!(!clicks_inside(&clicking_at(100, 100), Rect { x: 490, y: 490, w: 20, h: 20 }, (0, 0)));
-    }
-
-    #[test]
-    fn the_window_offset_moves_the_clicks() {
-        let widget = Rect { x: 488, y: 444, w: 944, h: 612 };
-        // Recorded at (100, 100); the anchor window moved by (500, 400).
-        assert!(clicks_inside(&clicking_at(100, 100), widget, (500, 400)));
-        assert!(!clicks_inside(&clicking_at(900, 700), widget, (-800, 0)));
-    }
-
-    #[test]
-    fn scrolling_under_the_widget_counts_too() {
-        let widget = Rect { x: 488, y: 444, w: 944, h: 612 };
-        let scrolling = |x, y| {
-            let events = vec![Event::Wheel { t: 10, x, y, delta: -120, horizontal: false }];
-            Macro::new("m", RecordingMeta::single_1080p(), events)
-        };
-        assert!(clicks_inside(&scrolling(900, 700), widget, (0, 0)));
-        assert!(!clicks_inside(&scrolling(100, 100), widget, (0, 0)));
-        assert!(clicks_inside(&scrolling(100, 100), widget, (500, 400)), "moved with the window");
-    }
 
     #[test]
     fn trigger_admission() {

@@ -3006,6 +3006,7 @@ dependencies = [
  "parking_lot",
  "relay-core",
  "relay-platform",
+ "relay-playback",
  "serde",
  "serde_json",
  "tauri",
@@ -3052,6 +3053,29 @@ dependencies = [
  "relay-core",
  "sysinfo",
  "thiserror 2.0.21",
+ "windows 0.62.2",
+]
+
+[[package]]
+name = "relay-playback"
+version = "1.3.0"
+dependencies = [
+ "crossbeam-channel",
+ "relay-core",
+ "relay-platform",
+ "serde",
+ "ts-rs",
+]
+
+[[package]]
+name = "relay-player"
+version = "1.3.0"
+dependencies = [
+ "crossbeam-channel",
+ "embed-resource",
+ "relay-core",
+ "relay-platform",
+ "relay-playback",
  "windows 0.62.2",
 ]
 

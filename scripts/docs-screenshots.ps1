@@ -6,7 +6,7 @@
 #
 # Usage: powershell -ExecutionPolicy Bypass -File scripts\docs-screenshots.ps1
 $root = Split-Path $PSScriptRoot -Parent
-$s = Join-Path $env:TEMP "relay-docs-shots"
+$s = Join-Path $root "target\docs-shots"
 $outDir = Join-Path $root "docs\images"
 $data = Join-Path $s "data"
 if (Test-Path $s) { Remove-Item -Recurse -Force $s -Confirm:$false }
@@ -25,12 +25,12 @@ public class D1 { [StructLayout(LayoutKind.Sequential)] public struct R { public
 function Js($code) { $code | Out-File -Encoding utf8 "$s\snippet.js"; node (Join-Path $PSScriptRoot "cdp.mjs") 9333 "$s\snippet.js" }
 # The tray icon also owns a window titled "Relay"; the widget's class is "Tauri Window".
 function Hwnd() { [D1]::FindWindow("Tauri Window", "Relay") }
-function Shot($name) {
+function Shot($name, $h = (Hwnd)) {
   # An error from an earlier step would stay on screen.
   Js 'if (window.__relay.toast) window.__relay.dismissToast(); return true' | Out-Null
   Start-Sleep -Milliseconds 350
   # The visible frame (DWMWA_EXTENDED_FRAME_BOUNDS), without the invisible borders.
-  $h = Hwnd; $r = New-Object D1+R; [D1]::DwmGetWindowAttribute($h, 9, [ref]$r, 16) | Out-Null
+  $r = New-Object D1+R; [D1]::DwmGetWindowAttribute($h, 9, [ref]$r, 16) | Out-Null
   $bmp = New-Object System.Drawing.Bitmap ($r.Ri - $r.L), ($r.B - $r.T)
   $g = [System.Drawing.Graphics]::FromImage($bmp); $g.CopyFromScreen($r.L, $r.T, 0, 0, $bmp.Size)
   $bmp.Save((Join-Path $outDir $name), [System.Drawing.Imaging.ImageFormat]::Png); $g.Dispose(); $bmp.Dispose()
@@ -129,5 +129,25 @@ Js 'window.__relay.expanded = false; window.__relay.seek(4200); await new Promis
 Shot "compact.png"
 Js 'window.__relay.expanded = true; return true' | Out-Null
 Start-Sleep -Milliseconds 700
+
+# 10. An exported program playing. Its macro is the first sample's, with its
+# events replaced by one 8 s wait played once, so it sends nothing to the
+# desktop and closes by itself. It's written outside %TEMP%: antivirus
+# behavior checks are stricter about programs started from there.
+$sample = (Join-Path $s "sample.rly") -replace '\\', '/'
+Js "await window.__TAURI_INTERNALS__.invoke('export_macro', { id: window.__relay.library[0].id, format: 'rly', path: '$sample' }); return true" | Out-Null
+$doc = Get-Content -Raw $sample | ConvertFrom-Json
+$doc.id = [guid]::NewGuid().ToString()
+$doc.events = @(@{ type = "wait"; t = 0; dur = 8000; label = "" })
+$doc.playback.repeat = @{ count = 1 }
+$doc | ConvertTo-Json -Depth 20 | Out-File -Encoding ascii $sample
+$programDir = Join-Path $s "program"
+New-Item -ItemType Directory -Force $programDir | Out-Null
+$program = (Join-Path $programDir "export-invoice-to-pdf.exe") -replace '\\', '/'
+Js "const inv = window.__TAURI_INTERNALS__.invoke; const r = await inv('import_macros', { paths: ['$sample'] }); await inv('export_macro', { id: r.imported[0], format: 'exe', path: '$program' }); return true" | Out-Null
+$player = Start-Process $program -PassThru
+Start-Sleep -Milliseconds 4500
+Shot "player.png" ([D1]::FindWindow("RelayPlayer", [NullString]::Value))
+$player.WaitForExit(15000) | Out-Null
 
 Stop-Process -Id $relay.Id -Confirm:$false

@@ -41,6 +41,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 npm test                   # Vitest
 npm run test:coverage      # Vitest with coverage (coverage/index.html)
 npm run check              # svelte-check (types and accessibility)
+cargo test -p relay-player # the player's logic: options, exit codes, status text, placement
 npm run test:e2e           # the real app, end to end (build it first, see below)
 npm run verify             # what CI checks: fmt, clippy, the tests, the debug build and E2E
 npm run verify:quick       # the same without the build and E2E
@@ -156,6 +157,7 @@ The tests never send input to the desktop. Macros that get played contain only w
 | `playback` | Playing to the end, with the run counted; loops; speed; pause and resume; stop; playing from the playhead; seeking and changing speed mid-playback; a pixel check timing out; the busy guard; recording's countdown, and cancelling it |
 | `triggers` | Hotkeys registered, and refused for Relay's own, another macro's or an unusable combo; the schedule saved with its next run, then firing at the minute; the app-launch trigger firing, skipped while busy, and not firing while paused; the pixel trigger firing once per change; the log recording each run; everything after a restart |
 | `images` | An image file read, and a plain or missing one refused; *Test* finding the pattern in another window at its exact position, and not the same picture drawn in Relay's own window, nor the trigger's thumbnail with Relay on each monitor; the image trigger firing when the window appears, and once; a Find image step whose image never shows stopping playback with *Image not found at step 2* |
+| `player` | Macros that only wait, exported as programs and run: exit code 0 and the time taken, with and without the window; the countdown; the saved repeat, and `--repeat` and `--speed` over it; a pixel check timing out (5); bad options (2, with the message); `--help`; Import reading the macro back, and refusing another program |
 
 Anything that needs real input isn't covered end to end: recording actual clicks and keys, Esc, stop on key press, pressing a macro's hotkey, the kill switch, and the tray menu. Nor is anything that clicks what it finds (a Find image step that finds its image), or that changes the user's clipboard or opens the snipping overlay (Paste and Snip). The engine's injection, including a Find image step's click, is covered by its unit tests with a recording injector, and clipboard bitmaps by relay-core's. The rest is in the manual checks below.
 
@@ -203,6 +205,7 @@ What automated tests can't cover well:
 - [ ] Play from the play button: input goes to the previous app, not Relay
 - [ ] An elevated target shows the warning
 - [ ] Each trigger type fires once, and is skipped while busy or locked
+- [ ] An exported program: the window never takes the focus, avoids the corners the macro clicks in, and follows a move to a 150% monitor; the countdown, Stop, Esc, stop on key press and Ctrl+Alt+End (with Relay closed, with Relay running, and with an elevated window in front) all stop it with nothing left pressed; Find image never finds its window; exit codes through `start /wait` and `Start-Process -Wait -PassThru`; a scheduled run on a locked screen exits with 6; SmartScreen on a downloaded copy, and a Windows Defender scan
 - [ ] Find image: **+ Find image** snips (Esc, then Cancel, inserts nothing); Paste a screenshot copied from another app and one from a browser; a Find image step clicks a real button at 100% and 150% scaling, and on a second monitor; *Test* agrees; the image trigger fires when a dialog opens; CPU in Task Manager stays low while a step or trigger waits
 - [ ] Close to tray, Start with Windows (sign out and in), single instance
 - [ ] A 10-minute soak: memory stays flat, timing stats in the log stay under 2 ms p99

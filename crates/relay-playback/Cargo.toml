@@ -1,0 +1,15 @@
+[package]
+name = "relay-playback"
+description = "Relay playback: the engine, finding images on screen, and planning a macro's playback"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+relay-core.workspace = true
+relay-platform.workspace = true
+serde.workspace = true
+crossbeam-channel = "0.5.17"
+ts-rs = { version = "12", features = ["no-serde-warnings"] }

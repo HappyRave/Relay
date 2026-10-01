@@ -80,6 +80,9 @@ export interface IpcError {
   message: string;
 }
 
+/** The file type the save dialog names for each export format. */
+const FILE_TYPES: Record<ExportFormat, string> = { rly: "Relay macro", json: "JSON events", exe: "Program" };
+
 export const tauriBackend: Backend = {
   editable: true,
   subscribe: async (onMessage) => {
@@ -101,14 +104,17 @@ export const tauriBackend: Backend = {
   exportMacro: async (id, format, defaultName) => {
     const path = await save({
       defaultPath: defaultName,
-      filters: [{ name: format === "rly" ? "Relay macro" : "JSON events", extensions: [format] }],
+      filters: [{ name: FILE_TYPES[format], extensions: [format] }],
     });
     if (!path) return null;
     await invoke("export_macro", { id, format, path });
     return path;
   },
   importMacros: async () => {
-    const picked = await open({ multiple: true, filters: [{ name: "Relay macros", extensions: ["rly", "json"] }] });
+    const picked = await open({
+      multiple: true,
+      filters: [{ name: "Relay macros and programs", extensions: ["rly", "json", "exe"] }],
+    });
     if (!picked) return null;
     return invoke("import_macros", { paths: Array.isArray(picked) ? picked : [picked] });
   },

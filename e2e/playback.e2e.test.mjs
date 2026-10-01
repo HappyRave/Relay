@@ -36,7 +36,7 @@ describe("playback and recording", () => {
   test("Play runs the macro to the end and counts the run", async () => {
     await open(ids.short);
     const run = await page.playTimed();
-    assert.ok(run.ms > 700 && run.ms < 1500, `an 0.8 s macro took ${run.ms} ms`);
+    assert.ok(run.ms > 700 && run.ms < 1500, `an 0.8 s macro took ${run.ms} ms (${run.timing})`);
     assert.equal(run.finish, "completed");
     assert.equal(await page.store("cur"), await page.store("duration"), "stays at the end");
     await until(() => runs(ids.short) === 1, { what: "the run count on disk" });
@@ -48,7 +48,7 @@ describe("playback and recording", () => {
     assert.equal(await page.store("cur"), await page.store("duration"));
     const run = await page.playTimed();
     assert.ok(run.from < 100, `started at ${run.from}`);
-    assert.ok(run.ms > 650 && run.ms < 2000, `took ${run.ms} ms`);
+    assert.ok(run.ms > 650 && run.ms < 2000, `took ${run.ms} ms (${run.timing})`);
   });
 
   test("repeats: every loop runs", async () => {
@@ -70,7 +70,7 @@ describe("playback and recording", () => {
   test("the macro's speed applies (a 2 s macro at 4× takes about half a second)", async () => {
     await open(ids.fast);
     const run = await page.playTimed();
-    assert.ok(run.ms > 350 && run.ms < 1200, `took ${run.ms} ms`);
+    assert.ok(run.ms > 350 && run.ms < 1200, `took ${run.ms} ms (${run.timing})`);
     assert.equal(run.finish, "completed");
   });
 
@@ -108,7 +108,7 @@ describe("playback and recording", () => {
     await until(async () => (await page.store("cur")) === 3200, { what: "the playhead" });
     const run = await page.playTimed();
     assert.ok(Math.abs(run.from - 3200) < 100, `started at ${run.from}`);
-    assert.ok(run.ms > 600 && run.ms < 1600, `only the last 0.8 s played (${run.ms} ms)`);
+    assert.ok(run.ms > 600 && run.ms < 1600, `only the last 0.8 s played (${run.ms} ms; ${run.timing})`);
   });
 
   test("seeking while playing jumps the engine there", async () => {

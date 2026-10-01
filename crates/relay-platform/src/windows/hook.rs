@@ -184,13 +184,16 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
             }
             let vk = info.vkCode as u16;
             let down = matches!(wparam.0 as u32, WM_KEYDOWN | WM_SYSKEYDOWN);
-            // Ctrl + Alt + End is the kill switch: it must always reach its hotkey.
-            if vk == VK_END.0 && is_down(VK_CONTROL.0) && is_down(VK_MENU.0) {
-                return None;
-            }
             let report = |ctx: &Ctx, kind: RawKind| {
                 let _ = ctx.tx.try_send(RawInput { time, kind });
             };
+            // Ctrl + Alt + End is the kill switch: it must always reach its hotkey.
+            if vk == VK_END.0 && is_down(VK_CONTROL.0) && is_down(VK_MENU.0) {
+                if down && matches!(ctx.cfg.mode, HookMode::Watch { report_kill_switch: true, .. }) {
+                    report(ctx, RawKind::KillSwitch);
+                }
+                return None;
+            }
             // A release goes the way its press went; one whose press came
             // before the hook started is let through unrecorded.
             if !down {
@@ -230,7 +233,7 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
                     report(ctx, RawKind::Key { vk, scan: info.scanCode as u16, ext, down: true });
                     None
                 }
-                HookMode::Watch { stop_on_key, pass_vks } => {
+                HookMode::Watch { stop_on_key, pass_vks, .. } => {
                     let kind = if vk == VK_ESCAPE.0 {
                         RawKind::Escape
                     } else if *stop_on_key && !pass_vks.contains(&vk) && !is_modifier_vk(vk) {

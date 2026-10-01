@@ -414,6 +414,7 @@ export class FakeCore {
         return null;
       }
       case "export_macro":
+        check("format", a.format, oneOf("rly", "json", "exe"));
         this.entry(id);
         return null;
       case "import_macros":
@@ -541,7 +542,7 @@ export class FakeCore {
     const problems: string[] = [];
     for (const path of paths) {
       const file = path.split(/[\\/]/).pop()!;
-      const held = this.files.get(path) ?? { ...structuredClone(SAMPLES[0].view), name: file.replace(/\.(rly|json)$/, "") };
+      const held = this.files.get(path) ?? { ...structuredClone(SAMPLES[0].view), name: file.replace(/\.(rly|json|exe)$/, "") };
       if (typeof held === "string") {
         problems.push(`${file}: ${held}`);
         continue;

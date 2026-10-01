@@ -19,7 +19,7 @@
 | --- | ---: | --- |
 | [`lib.rs`](../../src-tauri/src/lib.rs) | 126 | Plugins, managed state, setup, window events |
 | [`coordinator.rs`](../../src-tauri/src/coordinator.rs) | 583 | The session thread |
-| [`engine.rs`](../../src-tauri/src/engine.rs) | 775 | Playback, with its tests |
+| [`engine.rs`](../../src-tauri/src/engine.rs) | 52 | The app's side of playback: the engine (in `relay-playback`) reports to the UI and the coordinator |
 | [`rec_thread.rs`](../../src-tauri/src/rec_thread.rs) | 166 | The recorder thread and the hook watchdog |
 | [`hotkeys.rs`](../../src-tauri/src/hotkeys.rs) | 247 | Global and macro hotkeys |
 | [`triggers.rs`](../../src-tauri/src/triggers.rs) | 165 | Schedule, app-launch and pixel threads |
@@ -138,10 +138,11 @@ Runs are counted (`runs += 1`, `last_run = now`) only when the engine reports `C
 
 ## The playback engine
 
-[`engine.rs`](../../src-tauri/src/engine.rs) separates the **decision** from the **thread**:
+The engine lives in [`relay-playback`](../../crates/relay-playback/src/engine.rs), shared with the [exported player](architecture.md#the-exported-player). It separates the **decision** from the **thread**:
 
 - `Engine` is plain logic. `advance(now)` injects everything due at `now` and returns `Some(reason)` when done. It takes wall times as arguments and gets its injector, pixel reader and image finder as boxed traits, so tests drive it with a fake clock, a recording injector and a fake screen.
-- `spawn` runs it on the `relay-engine` thread with the platform timer. The thread returns the timing stats when it ends; when it ends on its own (or panics) a guard sends `EngineDone`, with `Error` for a panic, so the session never stays stuck in *Playing*. Dropping the `EngineHandle` stops the thread.
+- `spawn` runs it on the `relay-engine` thread with the platform timer, reporting ticks, notices and its end to a `PlaybackSink`. The thread returns the run report when it ends; when it ends on its own (or panics) a guard calls `done`, with `Error` for a panic. Dropping the `EngineHandle` stops the thread.
+- The app's sink, in [`src-tauri/src/engine.rs`](../../src-tauri/src/engine.rs), turns ticks and notices into `EngineMsg`s and the end into `EngineDone` for the coordinator, with the playback's generation, so the session never stays stuck in *Playing*.
 
 ```mermaid
 flowchart TD
@@ -164,7 +165,7 @@ What `advance` does:
 - **Key**: inject by scan code, virtual key, code or text (see [Injection](platform.md#injection)).
 - **Tracks held input**: `keys_down` and `buttons_down`. `release_all` releases them newest first, and is called on stop, seek, loop end, pixel timeout and in `Drop`.
 - **PixelWait**: seeks the clock to the check and **pauses** it, then polls the pixel every 30 ms. On a match, it seeks to the end of the `IF` block and resumes. After `timeout_ms`, it finishes with `PixelTimeout` and remembers the step number for the notice. Time paused by the user doesn't count toward the timeout.
-- **FindImage**: the same, looking for the image every 250 ms with [`finder::find_on_screen`](../../src-tauri/src/finder.rs) (a 1:1 capture of its area, moved by the window offset, or of the whole desktop, with what shows of Relay's window at that moment painted over: not the windows in front of it). When found, it moves to the match plus the click point times the match's scale, presses and releases the button, and resumes at the end of the `FIND` block. The last poll is at the timeout, so it ends on time. A timeout finishes with `PixelTimeout` too (the playhead rule is the same); `timeout_notice` says *Image not found at step N* instead.
+- **FindImage**: the same, looking for the image every 250 ms with [`finder::find_on_screen`](../../crates/relay-playback/src/finder.rs) (a 1:1 capture of its area, moved by the window offset, or of the whole desktop, with what shows of Relay's window at that moment painted over: not the windows in front of it). When found, it moves to the match plus the click point times the match's scale, presses and releases the button, and resumes at the end of the `FIND` block. The last poll is at the timeout, so it ends on time. A timeout finishes with `PixelTimeout` too (the playhead rule is the same); `timeout_notice` says *Image not found at step N* instead.
 - **End of the macro**: release everything, then either finish (`Completed`) or start the next loop with a fresh humanize seed, carrying the overshoot into it.
 
 `TimingStats { events, p50_ms, p99_ms, max_ms }` is logged and sent with `Finished`. Lateness goes into a fixed histogram (10 µs buckets up to 20 ms, plus the exact maximum), so an endless loop measures in constant memory.
@@ -220,7 +221,7 @@ On an alarm, the coordinator stops the old hook and starts a new one with the **
 | `relay-schedule` | 5 s | For each enabled schedule, compute `next_run` from the **previous tick's time**. If it's ≤ now, fire it, unless it's more than 2 minutes late (the PC slept), in which case log and skip. Comparing wall-clock times each tick survives sleep and clock changes. |
 | `relay-app-launch` | 2 s | One `ProcessWatcher`. A `ProcessLaunchEdge` per (macro, exe). On a launch edge, a short-lived thread sleeps `delay_ms`, then fires. |
 | `relay-pixel-trigger` | 250 ms | A `PixelEdge` per macro, reset when the watched position changes. Samples `Screen::pixel` and fires on the edge. A read that fails (locked screen, UAC) is no sample at all, so it can't re-arm the edge. |
-| `relay-image-trigger` | 500 ms | Only while an image trigger is on. An `ImageWatch` keeps a `PixelEdge` and the decoded picture per macro, reset when the image (by hash), match or area changes. A [`finder::Looker`](../../src-tauri/src/finder.rs) captures each area once per round, however many triggers look there, and remembers each search's answer with the frame's fingerprint, so an unchanged screen isn't searched again. A capture that fails is no sample. |
+| `relay-image-trigger` | 500 ms | Only while an image trigger is on. An `ImageWatch` keeps a `PixelEdge` and the decoded picture per macro, reset when the image (by hash), match or area changes. A [`finder::Looker`](../../crates/relay-playback/src/finder.rs) captures each area once per round, however many triggers look there, and remembers each search's answer with the frame's fingerprint, so an unchanged screen isn't searched again. A capture that fails is no sample. |
 
 `fire()` sends `Cmd::RunMacro`; the coordinator decides. It:
 
@@ -282,6 +283,10 @@ Playback options and triggers aren't edits and bypass the history.
 ## The tray
 
 [`tray.rs`](../../src-tauri/src/tray.rs): left-click toggles the window. The menu has *Show / hide Relay*, *Record*, *Stop*, the *Triggers active* check item, *Open macros folder* and *Quit Relay*. The tooltip follows the session mode (*Relay — recording (F9 to stop)*).
+
+## The embedded player
+
+[`build.rs`](../../src-tauri/build.rs) builds the [player](architecture.md#the-exported-player) (`cargo build -p relay-player --release`) into `target/player` and copies it to `OUT_DIR`; `commands.rs` embeds it with `include_bytes!` as `PLAYER`, and `export_macro` with `format: "exe"` writes `format::bundle(PLAYER, macro)`. The first build takes a minute or two longer; later ones rebuild the player only when a crate it uses changes. Set `RELAY_PLAYER_EXE` to a prebuilt player to skip the nested build.
 
 ## Logging and panics
 

@@ -3,11 +3,11 @@
   import { onMount } from "svelte";
   import type { ExportFormat } from "../lib/types";
 
-  const FORMATS: { id: ExportFormat | "ahk" | "exe"; label: string; sub: string; later?: boolean }[] = [
+  const FORMATS: { id: ExportFormat | "ahk"; label: string; sub: string; later?: boolean }[] = [
     { id: "rly", label: "Relay macro", sub: ".rly — editable, keeps timing" },
     { id: "json", label: "JSON events", sub: ".json — raw event stream for devs" },
+    { id: "exe", label: "Standalone program", sub: ".exe — plays on any Windows PC, no install" },
     { id: "ahk", label: "AutoHotkey v2", sub: ".ahk script — runs without Relay", later: true },
-    { id: "exe", label: "Standalone .exe", sub: "Portable runner", later: true },
   ];
 
   let el: HTMLDialogElement | undefined = $state();
@@ -48,6 +48,9 @@
     {/each}
   </div>
   <div class="file">{relay.exportName}</div>
+  {#if relay.exportFmt === "exe"}
+    <p class="about">Plays with this macro's saved options. It isn't signed, so Windows may warn on another PC.</p>
+  {/if}
   <div class="dialog-actions">
     {#if !relay.editable}<span class="note">Exporting needs the Relay app</span>{/if}
     <button class="btn btn-primary save" disabled={!relay.editable || !relay.view} onclick={relay.doExport}>Save…</button>
@@ -133,6 +136,11 @@
     font-size: 12px;
     color: var(--color-neutral-700);
     font-variant-numeric: tabular-nums;
+  }
+  .about {
+    margin: 0;
+    font-size: 12px;
+    color: var(--color-neutral-700);
   }
   .dialog-actions {
     justify-content: flex-start;

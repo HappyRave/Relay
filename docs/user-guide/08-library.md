@@ -7,6 +7,7 @@ Every recording is saved automatically to your **Library**. From there you can o
 - [Duplicate](#duplicate)
 - [Delete and undo](#delete-and-undo)
 - [Export](#export)
+- [Exported programs](#exported-programs)
 - [Import](#import)
 - [Where your macros are stored](#where-your-macros-are-stored)
 - [Backing up and moving to another PC](#backing-up-and-moving-to-another-pc)
@@ -75,26 +76,77 @@ If you deleted the macro that was open, Relay opens the next one in the list.
    | --- | --- | --- |
    | **Relay macro** | `.rly` | Share or back up a macro. It can be imported back into Relay with all its steps, timing and playback options. |
    | **JSON events** | `.json` | Read or process the macro in your own tools. It's the same data, pretty-printed, plus the list of steps. Relay can import it too. |
+   | **Standalone program** | `.exe` | Play the macro on any Windows PC, even without Relay. See [Exported programs](#exported-programs). |
    | AutoHotkey v2 | `.ahk` | *Coming later* |
-   | Standalone .exe | `.exe` | *Coming later* |
 
-3. Press **Save…** and choose where. The name defaults to the macro's name, like `export-invoice-to-pdf.rly`.
+3. Press **Save…** and choose where. The name defaults to the macro's name, like `export-invoice-to-pdf.rly`. (A program is never named `relay.exe`: a macro named *Relay* is exported as `relay-macro.exe`.)
 
 An export contains the macro's events, its playback options and a little about the PC it was recorded on (monitor layout, the window it was anchored to). It includes the pictures its [Find image](06-find-image.md) steps look for. It doesn't contain its triggers, run count or last run: those stay on your PC.
 
 > [!WARNING]
-> A macro contains everything you typed while recording it. Check the `TYPE` steps before sharing a macro file.
+> A macro contains everything you typed while recording it, and so does a program exported from it. Check the `TYPE` steps before sharing a macro file or a program.
+
+## Exported programs
+
+A macro exported as a **Standalone program** is an `.exe` that plays it on any Windows 10 or 11 PC, without Relay. Nothing to install: copy it, double-click it.
+
+<p align="center"><img src="../images/player.png" alt="An exported program playing, in the bottom-right corner of the screen" width="400"></p>
+
+1. A small window opens in a corner of the screen (one the macro doesn't click in) and counts down **3, 2, 1**. Use those seconds to click into the app the macro works in: the window never takes the focus.
+2. The macro plays with the playback options saved with it: speed, repeats, *Humanize*, *Stop on key press* and *Window* coordinates. The window shows the time, the loop and a progress bar.
+3. When it's done, the window says *Done* and closes by itself.
+
+Stop it with the window's **Stop** button, <kbd>Esc</kbd>, or the <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd> kill switch (or any key, if the macro stops on a key press). Anything it was holding is released. Drag the window by its text to move it.
+
+If something goes wrong, the window stays open and says what: *Pixel check timed out at step 7*, *Image not found at step 5*, a locked screen, or an app running as administrator, which Windows won't let the program send input to (run the program as administrator to automate it). Press **Close** when you've read it.
+
+> [!NOTE]
+> If the macro clicks in every corner of the screen, the window lets clicks go through it to the app below, so its **Stop** button can't be clicked: use <kbd>Esc</kbd> instead.
+
+### Options
+
+Run it from a command line, a shortcut or a scheduled task to change how it plays:
+
+| Option | Does |
+| --- | --- |
+| `--repeat N` or `--repeat forever` | Plays it *N* times, or until stopped, instead of the saved repeat |
+| `--speed X` | Plays *X* times faster (`0.5` is half speed), from 0.01 to 100 |
+| `--no-countdown` | Starts right away |
+| `--quiet` | Shows no window at all. Stop it with <kbd>Esc</kbd> or the kill switch. |
+| `--help` | Lists the options |
+
+For example: `export-invoice.exe --repeat 3 --no-countdown`.
+
+### Exit codes
+
+The program's exit code says how it ended, for scripts and Task Scheduler (*Last Run Result*):
+
+| Code | Meaning |
+| --- | --- |
+| 0 | Completed |
+| 1 | Error: the macro couldn't be read, or playback failed |
+| 2 | Bad options (the message says which) |
+| 3 | Stopped: the **Stop** button, <kbd>Esc</kbd>, or a key press |
+| 4 | Stopped by the kill switch |
+| 5 | A pixel check or Find image step timed out |
+| 6 | The screen was locked, so nothing was played |
+
+In a script, wait for it to end: `start /wait export-invoice.exe --quiet` in `cmd` (then `%ERRORLEVEL%`), or `(Start-Process .\export-invoice.exe -ArgumentList '--quiet' -Wait -PassThru).ExitCode` in PowerShell.
+
+> [!IMPORTANT]
+> Exported programs aren't code-signed. On a PC that downloaded or received one, Windows SmartScreen may say *Windows protected your PC*: choose **More info → Run anyway**. An antivirus may be wary of it too, since it presses keys and clicks like a person would. See [Troubleshooting](10-troubleshooting.md#installing).
 
 ## Import
 
 1. Open the **Library** tab and press **Import…** at the bottom (it's off while recording or playing).
-2. Pick one or more `.rly` or `.json` files. Relay can read files from any version of Relay up to its own. (A macro with Find image steps needs Relay 1.4 or later; older versions say it was saved by a newer Relay.)
+2. Pick one or more `.rly` or `.json` files, or programs exported by Relay (`.exe`: Relay reads the macro back out of them). Relay can read files from any version of Relay up to its own. (A macro with Find image steps needs Relay 1.4 or later; older versions say it was saved by a newer Relay.)
 
 Imported macros go to the top of the Library, and the first one opens. Relay then tells you *Imported 3 macros*, or what went wrong with each file that didn't work:
 
 | Message | Meaning |
 | --- | --- |
 | *not a Relay macro* | The file isn't a Relay export |
+| *not a program exported by Relay* | The `.exe` is another program |
 | *this macro was saved by a newer Relay (format version 2)* | Update Relay to open it |
 | *invalid macro file: …* | The file is damaged or was edited by hand incorrectly |
 
