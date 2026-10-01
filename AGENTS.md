@@ -263,6 +263,7 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 - `cargo llvm-cov` runs leave `*.profraw` files; they're git-ignored now (three were once committed by mistake).
 - A coverage-instrumented app exits without writing its profile, so merged unit + E2E coverage isn't possible; report them separately.
 - With Node 25.7, `npm run test:e2e` fails with "Cannot find module …\e2e": that Node doesn't take the folder argument. Node 26 is fine; otherwise pass the files: `node --test --test-concurrency=1 --test-timeout=120000 e2e/*.e2e.test.mjs`.
+- Bitdefender's Advanced Threat Defense blocked an exported program that PowerShell started from `%TEMP%` (a double-click from `Documents` was fine). Its cleanup also removed `target\release\relay.exe` and the screenshot script, and afterwards silently refused to recreate those paths ("Permission denied", nothing in the quarantine). That's why the screenshot script keeps its files in `target\docs-shots`.
 - `src-tauri/build.rs` builds the player in release in `target/player` (a folder of its own: a nested cargo in the same one deadlocks on its lock). The first build of the app takes a minute or two longer. `RELAY_PLAYER_EXE=<path>` skips it with a prebuilt player.
 
 **WebView2 and the app**

@@ -179,6 +179,12 @@ The installer isn't code-signed yet, so SmartScreen doesn't recognize it. Click 
 
 A program that presses keys and moves the mouse by itself can look suspicious to an antivirus. If you trust where it came from, restore it from quarantine and allow it, or export the macro again. Or share the `.rly` instead, for someone who has Relay.
 
+Some antivirus programs also watch what a program does while it runs, such as Bitdefender's *Advanced Threat Defense*. They're most wary of a program that a script starts from a temporary folder. If one stops an exported program:
+
+- Keep the program in a folder of its own, such as `Documents\Macros`, rather than in a temporary or download folder.
+- Add that folder as an exception in the antivirus.
+- Check the quarantine for `relay.exe` too: when the antivirus cleans up, it may remove the program that wrote the file as well. Restore Relay from there, or reinstall it.
+
 </details>
 
 ## FAQ
