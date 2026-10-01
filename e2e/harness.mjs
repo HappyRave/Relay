@@ -171,26 +171,32 @@ class Page {
   /**
    * Clicks Play and times the run inside the page (no round trips in the
    * measurement): `ms` from playing to idle, and `from`, the playhead when
-   * playing began.
+   * playing began. `timing` says where the time went, for failure messages.
    */
   playTimed({ timeout = 20_000 } = {}) {
     return this.run(async (timeout) => {
       const r = window.__relay;
+      let moved = 0;
+      let last = r.cur;
       const until = async (ok) => {
         const end = performance.now() + timeout;
         while (!ok()) {
           if (performance.now() > end) throw new Error(`still ${r.mode}`);
           await new Promise((res) => setTimeout(res, 2));
+          if (r.cur !== last) [last, moved] = [r.cur, performance.now()];
         }
         return performance.now();
       };
       const play = [...document.querySelectorAll("button")].find((b) => b.getAttribute("aria-label") === "Play");
       if (!play || play.disabled) throw new Error("no Play button to click");
+      const clicked = performance.now();
       play.click();
       const started = await until(() => r.mode === "playing");
       const from = r.cur;
       const ended = await until(() => r.mode === "idle");
-      return { ms: ended - started, from, finish: r.lastFinish };
+      const at = (t) => Math.round(Math.max(t, started) - started);
+      const timing = `playing after ${Math.round(started - clicked)} ms; playhead last moved at ${at(moved)} ms; idle at ${at(ended)} ms`;
+      return { ms: ended - started, from, finish: r.lastFinish, timing };
     }, timeout);
   }
 
