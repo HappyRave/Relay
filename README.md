@@ -141,9 +141,7 @@ Relay is a Rust workspace (`relay-core` for the pure logic, `relay-platform` for
 - [x] **1.1**: undo and redo, editing and trimming pauses, waits inserted after the selected step, recording Esc
 - [x] **1.2**: two reviews of the whole code base and of every test, with dozens of bug fixes, *Keep on top* options, a test suite that drives the real app, MIT license
 - [x] **1.3**: a redesigned control bar, screenshots under the preview, a zoomable whole-screen preview, a resizable editor
-- [ ] Mouse moves as steps: retime, smooth or straighten them, delete the trip to the Stop button
-- [ ] Find image: click a button or icon wherever it appears, at any size, and run a macro when an image appears
-- [ ] Standalone `.exe` export: a macro as a small program that plays it without Relay
+- [x] **1.4**: mouse moves as steps (retime, smooth or straighten them), Find image (click a button or icon wherever it appears, and run a macro when one appears), a run history, standalone `.exe` export
 - [ ] AutoHotkey v2 export
 - [ ] Code signing
 - [ ] Remapping macros to a different monitor layout
