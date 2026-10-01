@@ -8,7 +8,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     KEYEVENTF_SCANCODE, KEYEVENTF_UNICODE, MOUSE_EVENT_FLAGS, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_HWHEEL,
     MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE,
     MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL, MOUSEEVENTF_XDOWN,
-    MOUSEEVENTF_XUP, MOUSEINPUT, SendInput, VIRTUAL_KEY,
+    MOUSEEVENTF_XUP, MOUSEINPUT, SendInput, VIRTUAL_KEY, VK_RETURN, VK_TAB,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
@@ -124,16 +124,33 @@ impl Injector for SendInputInjector {
         }
         // Nothing but the character is known: type it as Unicode.
         match (down, ch) {
-            (true, Some(text)) => {
-                let inputs: Vec<INPUT> = text
-                    .encode_utf16()
-                    .flat_map(|u| {
-                        [keyboard(0, u, KEYEVENTF_UNICODE), keyboard(0, u, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP)]
-                    })
-                    .collect();
-                send(&inputs)
-            }
+            (true, Some(text)) => send(&unicode(text)),
             _ => Ok(()),
         }
     }
+
+    fn text(&mut self, text: &str) -> Result<()> {
+        let mut inputs = Vec::new();
+        for c in text.chars() {
+            // Apps take a Unicode line feed or tab as a character, not as the key.
+            let vk = match c {
+                '\n' => VK_RETURN,
+                '\t' => VK_TAB,
+                '\r' => continue,
+                _ => {
+                    inputs.extend(unicode(c.encode_utf8(&mut [0; 4])));
+                    continue;
+                }
+            };
+            inputs.extend([keyboard(vk.0, 0, KEYBD_EVENT_FLAGS(0)), keyboard(vk.0, 0, KEYEVENTF_KEYUP)]);
+        }
+        send(&inputs)
+    }
+}
+
+/// A press and a release of each UTF-16 unit of `text`, typed as Unicode.
+fn unicode(text: &str) -> Vec<INPUT> {
+    text.encode_utf16()
+        .flat_map(|u| [keyboard(0, u, KEYEVENTF_UNICODE), keyboard(0, u, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP)])
+        .collect()
 }

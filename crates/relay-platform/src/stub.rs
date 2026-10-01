@@ -81,6 +81,9 @@ impl Injector for Stub {
     fn key(&mut self, _: &KeyStroke, _: bool, _: Option<&str>) -> Result<()> {
         Err(PlatformError::Unsupported)
     }
+    fn text(&mut self, _: &str) -> Result<()> {
+        Err(PlatformError::Unsupported)
+    }
 }
 
 /// A timer that waits on a condition variable (wakeable, not precise).
@@ -116,6 +119,9 @@ impl Clipboard for Stub {
         0
     }
     fn image(&self) -> Option<ClipImage> {
+        None
+    }
+    fn text(&self) -> Option<String> {
         None
     }
     fn start_snip(&self) -> Result<()> {
