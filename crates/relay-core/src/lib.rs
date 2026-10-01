@@ -12,6 +12,7 @@ pub mod keys;
 pub mod model;
 pub mod path;
 pub mod playback;
+pub mod runlog;
 pub mod schedule;
 pub mod session;
 pub mod steps;

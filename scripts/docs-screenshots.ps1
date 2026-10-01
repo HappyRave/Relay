@@ -44,6 +44,12 @@ function Hover($selector) {
 function Tab($name) { Js "[...document.querySelectorAll('.tabs button')].find(b => b.textContent.includes('$name')).click(); return true" | Out-Null }
 function Park() { [D1]::SetCursorPos(20, 20) | Out-Null }
 
+# The run history, from the browser preview's fixture, dated back from now.
+$runs = Get-Content -Raw (Join-Path $root "src\lib\dev\sample-runs.json") | ConvertFrom-Json
+$now = [DateTime]::UtcNow
+$entries = @($runs | Sort-Object { -$_.ago_ms } | ForEach-Object { $_.entry.at = $now.AddMilliseconds(-$_.ago_ms).ToString("yyyy-MM-ddTHH:mm:ssZ"); $_.entry })
+@{ version = 1; entries = $entries } | ConvertTo-Json -Depth 10 | Out-File -Encoding ascii (Join-Path $data "runs.json")
+
 $env:RELAY_DATA_DIR = $data
 $env:RELAY_DEVTOOLS_PORT = "9333"
 $relay = Start-Process (Join-Path $root "target\release\relay.exe") -PassThru
@@ -89,6 +95,11 @@ Tab "Library"
 Hover ".item:nth-child(2)"
 Shot "library.png"
 Park
+
+# 4b. The run history, its first run with checks opened.
+Js 'await window.__relay.showRuns(true); await new Promise(r => setTimeout(r, 300)); const i = window.__relay.shownRuns.findIndex(r => r.checks.length > 0); document.querySelectorAll(".run .head")[i].click(); document.querySelectorAll(".run")[i].scrollIntoView({ block: "start" }); return i' | Out-Null
+Shot "run-history.png"
+Js 'await window.__relay.showRuns(false); return true' | Out-Null
 
 # 5. Triggers, with a hotkey and a schedule set (turned off again afterwards).
 Js 'await window.__relay.loadMacro(window.__relay.library[0].id); return true' | Out-Null

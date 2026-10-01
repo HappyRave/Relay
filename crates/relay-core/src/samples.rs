@@ -9,6 +9,9 @@ use uuid::Uuid;
 
 use crate::format::from_rly;
 use crate::model::{Macro, Rect, Repeat, WindowInfo};
+use crate::runlog::{CheckOutcome, CheckResult, RunEntry, RunOutcome, SkipReason};
+use crate::session::{FinishReason, RunSource};
+use crate::steps::{StepKind, group_steps};
 
 pub struct Sample {
     pub macro_: Macro,
@@ -213,6 +216,70 @@ pub fn all() -> Vec<Sample> {
     ]
 }
 
+/// A run history for the samples, newest first: how long before "now" each
+/// entry happened, and the entry (its `at` is filled in from that).
+pub fn runs() -> Vec<(TimeDelta, RunEntry)> {
+    let samples = all();
+    let placeholder = Utc.with_ymd_and_hms(2026, 9, 1, 9, 0, 0).unwrap();
+    let entry = |i: usize, source, outcome, duration_ms, loops, checks: Vec<CheckResult>| {
+        let m = &samples[i].macro_;
+        RunEntry {
+            at: placeholder,
+            macro_id: m.id,
+            macro_name: m.name.clone(),
+            source,
+            outcome,
+            duration_ms,
+            from_ms: 0,
+            loops,
+            speed: m.playback.speed,
+            humanize: m.playback.humanize,
+            checks,
+            checks_dropped: 0,
+        }
+    };
+    // The 1-based step of a sample's pixel check.
+    let pixel_step = |i: usize| {
+        let m = &samples[i].macro_;
+        let steps = group_steps(&m.events, (&m.recording).into());
+        steps.iter().position(|s| matches!(s.kind, StepKind::PixelWait { .. })).expect("a pixel check") as u32 + 1
+    };
+    let check =
+        |i, loop_idx, after_ms, outcome| CheckResult { step: pixel_step(i), loop_idx, image: false, after_ms, outcome };
+    let done = RunOutcome::Finished(FinishReason::Completed);
+    vec![
+        (
+            TimeDelta::hours(3),
+            entry(
+                0,
+                RunSource::Hotkey,
+                done,
+                31_840,
+                3,
+                (0..3).map(|l| check(0, l, [640, 910, 420][l as usize], CheckOutcome::Matched)).collect(),
+            ),
+        ),
+        (TimeDelta::hours(4), entry(3, RunSource::Schedule, done, 20_310, 3, vec![])),
+        (TimeDelta::hours(27), entry(3, RunSource::Schedule, RunOutcome::Skipped(SkipReason::Busy), 0, 0, vec![])),
+        (
+            TimeDelta::hours(30),
+            entry(
+                2,
+                RunSource::Manual,
+                RunOutcome::Finished(FinishReason::PixelTimeout),
+                9_120,
+                1,
+                vec![check(2, 0, 5000, CheckOutcome::TimedOut)],
+            ),
+        ),
+        (TimeDelta::hours(52), entry(3, RunSource::Schedule, RunOutcome::Skipped(SkipReason::Missed), 0, 0, vec![])),
+        (
+            TimeDelta::hours(6 * 24 + 16),
+            entry(1, RunSource::Manual, RunOutcome::Finished(FinishReason::Stopped), 4_730, 1, vec![]),
+        ),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -277,7 +344,21 @@ mod tests {
             })
             .collect();
         let body = serde_json::to_string_pretty(&items).unwrap() + "\n";
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src/lib/dev/sample-views.json");
+        write_fixture("sample-views.json", body);
+        let runs: Vec<_> = runs()
+            .into_iter()
+            .map(|(ago, entry)| json!({ "ago_ms": ago.num_milliseconds(), "entry": entry }))
+            .collect();
+        write_fixture(
+            "sample-runs.json",
+            serde_json::to_string_pretty(&runs).unwrap()
+                + "
+",
+        );
+    }
+
+    fn write_fixture(name: &str, body: String) {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src/lib/dev").join(name);
         if std::fs::read_to_string(&path).ok().as_deref() != Some(body.as_str()) {
             std::fs::write(&path, body).unwrap();
         }

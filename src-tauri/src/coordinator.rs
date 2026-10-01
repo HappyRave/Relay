@@ -9,9 +9,11 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 use std::time::Duration;
 
+use chrono::{DateTime, Utc};
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, unbounded};
 use parking_lot::{Mutex, RwLock};
 use relay_core::model::{CoordMode, Event, Macro, Ms, RecordingMeta, Rect};
+use relay_core::runlog::{RunEntry, RunOutcome, SkipReason};
 use relay_core::session::{self, Effect, FinishReason, HotkeySet, Input, Mode, RunSource, SessionConfig};
 use relay_core::steps::{GroupOptions, group_steps};
 use relay_core::timeline;
@@ -21,11 +23,12 @@ use relay_platform::{HookConfig, HookMode, HookSession, Platform, RawInput, RawK
 use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
-use crate::engine::{self, EngineCmd, EngineHandle, PlayPlan, TimingStats};
+use crate::engine::{self, EngineCmd, EngineHandle, PlayPlan, RunReport, TimingStats};
 use crate::hotkeys;
 use crate::ipc::{Emitter, EngineMsg};
 use crate::library::Library;
 use crate::rec_thread::{RecContext, RecThread};
+use crate::run_history::RunHistory;
 use crate::settings::{Settings, SettingsStore};
 use crate::triggers::TriggerState;
 
@@ -49,7 +52,6 @@ pub enum Cmd {
     EngineDone {
         generation: u64,
         reason: FinishReason,
-        timing: Option<TimingStats>,
         /// With `PixelTimeout`: the recorded time of the check's step.
         timed_out_at: Option<Ms>,
     },
@@ -65,6 +67,12 @@ pub enum Cmd {
     RunMacro {
         id: Uuid,
         source: RunSource,
+    },
+    /// A trigger that won't run, for the run history (a missed schedule).
+    LogSkip {
+        id: Uuid,
+        source: RunSource,
+        reason: SkipReason,
     },
     /// From the tray or the Triggers tab.
     SetTriggersPaused(bool),
@@ -144,6 +152,21 @@ struct Playback {
     _hook: Option<Box<dyn HookSession>>,
     /// Whether the window was made click-through for this playback.
     click_through: bool,
+    run: RunStart,
+}
+
+/// How a playback started, for its run history entry.
+#[derive(Debug, Clone, PartialEq)]
+struct RunStart {
+    at: DateTime<Utc>,
+    /// In `now_ms` time.
+    started: f64,
+    macro_id: Uuid,
+    macro_name: String,
+    source: RunSource,
+    from: Ms,
+    speed: f32,
+    humanize: bool,
 }
 
 struct Coordinator {
@@ -159,6 +182,10 @@ struct Coordinator {
     recording: Option<Recording>,
     playback: Option<Playback>,
     generation: u64,
+    /// What starts the next playback: a trigger's source, else `Manual`.
+    pending_source: RunSource,
+    /// Whether the user was told the run history couldn't be saved (once, until it saves again).
+    history_unsaved_told: bool,
 }
 
 pub fn spawn(app: AppHandle, platform: Arc<Platform>, emit: Arc<Emitter>) -> CoordinatorHandle {
@@ -175,6 +202,8 @@ pub fn spawn(app: AppHandle, platform: Arc<Platform>, emit: Arc<Emitter>) -> Coo
         recording: None,
         playback: None,
         generation: 0,
+        pending_source: RunSource::Manual,
+        history_unsaved_told: false,
     };
     std::thread::Builder::new().name("relay-coordinator".into()).spawn(move || c.run(rx)).expect("spawn coordinator");
     CoordinatorHandle(tx)
@@ -228,13 +257,13 @@ impl Coordinator {
             Cmd::HotkeyPlay => self.input(Input::TogglePlay { from: self.idle_playhead.round() as u32 }),
             Cmd::Escape => self.input(Input::Stop(FinishReason::Stopped)),
             Cmd::StopKey => self.input(Input::Stop(FinishReason::KeyPressed)),
-            Cmd::EngineDone { generation, reason, timing, timed_out_at } => {
+            Cmd::EngineDone { generation, reason, timed_out_at } => {
                 // A late message from a playback that was already stopped.
                 if !is_current(self.playback.as_ref().map(|p| p.generation), generation) {
                     return;
                 }
                 let duration = self.playback.as_ref().map_or(0, |p| p.duration);
-                self.end_playback();
+                let timing = self.finish_playback(reason);
                 self.idle_playhead = playhead_after(reason, duration, timed_out_at);
                 if counts_as_run(reason) {
                     self.count_run();
@@ -259,6 +288,12 @@ impl Coordinator {
                 }
             }
             Cmd::RunMacro { id, source } => self.run_triggered(id, source),
+            Cmd::LogSkip { id, source, reason } => {
+                let name = self.app.state::<Mutex<Library>>().lock().get(id).map(|e| e.macro_.name.clone());
+                if let Some(name) = name {
+                    self.record_run(skip_entry(id, name, source, reason, Utc::now()));
+                }
+            }
             Cmd::SetTriggersPaused(paused) => self.set_triggers_paused(paused),
             Cmd::HookLost => self.reinstall_hook(),
             Cmd::Shutdown(_) => unreachable!("handled in run"),
@@ -300,7 +335,7 @@ impl Coordinator {
             Effect::PausePlayback => self.engine_cmd(EngineCmd::Pause),
             Effect::ResumePlayback => self.engine_cmd(EngineCmd::Resume),
             Effect::StopPlayback(reason) => {
-                let timing = self.end_playback();
+                let timing = self.finish_playback(reason);
                 self.idle_playhead = playhead_after(reason, 0, None);
                 self.emit.send(EngineMsg::Finished { reason, timing });
             }
@@ -339,22 +374,28 @@ impl Coordinator {
         let paused = self.app.state::<TriggerState>().paused();
         let name = self.app.state::<Mutex<Library>>().lock().get(id).map(|e| e.macro_.name.clone());
         let windows = &self.platform.windows;
-        match admit(paused, name.as_deref(), self.mode, || windows.input_desktop_available()) {
-            Admission::Run => {}
+        let skipped = match admit(paused, name.as_deref(), self.mode, || windows.input_desktop_available()) {
+            Admission::Run => None,
             Admission::Ignore => return,
             Admission::Busy(message) => {
                 self.emit.send(EngineMsg::Notice { message });
-                return;
+                Some(SkipReason::Busy)
             }
             Admission::NoDesktop => {
                 tracing::info!(%id, ?source, "trigger skipped: the input desktop isn't available (locked?)");
-                return;
+                Some(SkipReason::Locked)
             }
+        };
+        if let (Some(reason), Some(name)) = (skipped, name) {
+            self.record_run(skip_entry(id, name, source, reason, Utc::now()));
+            return;
         }
         tracing::info!(%id, ?source, "running a triggered macro");
         self.current = Some(id);
         self.idle_playhead = 0.0;
+        self.pending_source = source;
         self.input(Input::Trigger(source));
+        self.pending_source = RunSource::Manual;
     }
 
     fn set_triggers_paused(&mut self, paused: bool) {
@@ -370,16 +411,41 @@ impl Coordinator {
     }
 
     /// Undoes what playback set up (engine, watching hook, click-through)
-    /// and returns the timing of the run.
-    fn end_playback(&mut self) -> Option<TimingStats> {
+    /// and returns how it started and what it did.
+    fn end_playback(&mut self) -> Option<(RunStart, Option<RunReport>)> {
         let p = self.playback.take()?;
-        let timing = p.engine.stop();
+        let report = p.engine.stop();
         if p.click_through
             && let Some(w) = self.app.get_webview_window("main")
         {
             let _ = w.set_ignore_cursor_events(false);
         }
+        Some((p.run, report))
+    }
+
+    /// Ends the playback, adds it to the run history and returns its timing.
+    fn finish_playback(&mut self, reason: FinishReason) -> Option<TimingStats> {
+        let (start, report) = self.end_playback()?;
+        let report = report.unwrap_or_default();
+        let timing = report.timing.clone();
+        let entry = run_entry(start, reason, report, (self.platform.now_ms)());
+        self.record_run(entry);
         timing
+    }
+
+    fn record_run(&mut self, entry: RunEntry) {
+        let saved = self.app.state::<Mutex<RunHistory>>().lock().add(entry);
+        match saved {
+            Ok(()) => self.history_unsaved_told = false,
+            Err(e) => {
+                tracing::warn!("couldn't save the run history: {e}");
+                if !self.history_unsaved_told {
+                    self.history_unsaved_told = true;
+                    self.emit.error(format!("Couldn't save the run history: {e}. New runs are kept until you quit."));
+                }
+            }
+        }
+        self.emit.send(EngineMsg::RunsChanged);
     }
 
     fn count_run(&mut self) {
@@ -548,8 +614,19 @@ impl Coordinator {
             steps: group_steps(&m.events, (&m.recording).into()),
             events: m.events,
         };
+        let run = RunStart {
+            at: Utc::now(),
+            started: (self.platform.now_ms)(),
+            macro_id: m.id,
+            macro_name: m.name.clone(),
+            source: self.pending_source,
+            from,
+            speed: m.playback.speed,
+            humanize: m.playback.humanize,
+        };
         let engine = engine::spawn(plan, &self.platform, self.emit.clone(), self.tx.clone(), self.generation);
-        self.playback = Some(Playback { engine, generation: self.generation, duration, _hook: hook, click_through });
+        self.playback =
+            Some(Playback { engine, generation: self.generation, duration, _hook: hook, click_through, run });
     }
 
     /// Started from Relay's own button: give the keyboard back to the app the
@@ -669,6 +746,43 @@ fn admit(paused: bool, name: Option<&str>, mode: Mode, desktop_available: impl F
 /// running now (`playing`), not a late one from a playback already stopped.
 fn is_current(playing: Option<u64>, generation: u64) -> bool {
     playing == Some(generation)
+}
+
+/// The run history entry of a playback that ended at `now` (`now_ms` time).
+fn run_entry(start: RunStart, reason: FinishReason, report: RunReport, now: f64) -> RunEntry {
+    let (checks, checks_dropped) = report.checks.into_parts();
+    RunEntry {
+        at: start.at,
+        macro_id: start.macro_id,
+        macro_name: start.macro_name,
+        source: start.source,
+        outcome: RunOutcome::Finished(reason),
+        duration_ms: (now - start.started).max(0.0).round() as Ms,
+        from_ms: start.from,
+        loops: report.loops.max(1),
+        speed: start.speed,
+        humanize: start.humanize,
+        checks,
+        checks_dropped,
+    }
+}
+
+/// The run history entry of a trigger that fired but didn't run its macro.
+fn skip_entry(id: Uuid, name: String, source: RunSource, reason: SkipReason, at: DateTime<Utc>) -> RunEntry {
+    RunEntry {
+        at,
+        macro_id: id,
+        macro_name: name,
+        source,
+        outcome: RunOutcome::Skipped(reason),
+        duration_ms: 0,
+        from_ms: 0,
+        loops: 0,
+        speed: 1.0,
+        humanize: false,
+        checks: Vec::new(),
+        checks_dropped: 0,
+    }
 }
 
 /// A run counts (runs, last run) only when the macro played to the end.
@@ -797,5 +911,46 @@ mod tests {
         assert_eq!(playhead_after(FinishReason::Completed, 5000, None), 5000.0, "stays at the end");
         assert_eq!(playhead_after(FinishReason::PixelTimeout, 5000, Some(1200)), 1200.0, "stays on the check");
         assert_eq!(playhead_after(FinishReason::PixelTimeout, 5000, None), 0.0);
+    }
+
+    fn started() -> RunStart {
+        RunStart {
+            at: DateTime::from_timestamp(1_790_000_000, 0).unwrap(),
+            started: 10_000.0,
+            macro_id: Uuid::from_u128(4),
+            macro_name: "Export invoice".into(),
+            source: RunSource::AppLaunch,
+            from: 1500,
+            speed: 2.0,
+            humanize: true,
+        }
+    }
+
+    #[test]
+    fn a_finished_run_is_logged_with_how_it_started_and_what_it_did() {
+        use relay_core::runlog::{CheckOutcome, CheckResult};
+        let mut report = RunReport { loops: 3, ..Default::default() };
+        let check = CheckResult { step: 2, loop_idx: 2, image: false, after_ms: 40, outcome: CheckOutcome::TimedOut };
+        report.checks.push(check);
+        let e = run_entry(started(), FinishReason::PixelTimeout, report, 12_345.6);
+        assert_eq!(e.at, started().at);
+        assert_eq!((e.macro_id, e.macro_name.as_str()), (Uuid::from_u128(4), "Export invoice"));
+        assert_eq!(e.source, RunSource::AppLaunch);
+        assert_eq!(e.outcome, RunOutcome::Finished(FinishReason::PixelTimeout));
+        assert_eq!((e.duration_ms, e.from_ms, e.loops), (2346, 1500, 3));
+        assert_eq!((e.speed, e.humanize), (2.0, true));
+        assert_eq!((e.checks, e.checks_dropped), (vec![check], 0));
+        // An engine that panicked reports nothing: still one loop, no checks.
+        let e = run_entry(started(), FinishReason::Error, RunReport::default(), 10_000.0);
+        assert_eq!((e.loops, e.duration_ms, e.checks.len()), (1, 0, 0));
+    }
+
+    #[test]
+    fn a_skipped_trigger_is_logged_with_why() {
+        let at = DateTime::from_timestamp(1_790_000_000, 0).unwrap();
+        let e = skip_entry(Uuid::from_u128(4), "Backup".into(), RunSource::Schedule, SkipReason::Missed, at);
+        assert_eq!(e.outcome, RunOutcome::Skipped(SkipReason::Missed));
+        assert_eq!((e.at, e.source, e.macro_name.as_str()), (at, RunSource::Schedule, "Backup"));
+        assert_eq!((e.duration_ms, e.loops, e.checks.len()), (0, 0, 0));
     }
 }

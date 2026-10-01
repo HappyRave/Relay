@@ -67,6 +67,8 @@ If the timeout runs out, Relay:
 - shows *"Pixel check timed out at step 7; playback stopped."*,
 - leaves the playhead **on that step** so you can see it highlighted.
 
+The [run history](08-library.md#run-history) shows how long each check waited in the runs before, which helps pick a timeout.
+
 A macro that times out has usually hit one of these:
 
 | Cause | Fix |

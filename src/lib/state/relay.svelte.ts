@@ -28,6 +28,7 @@ import type { PickedPixel } from "../ipc/bindings/PickedPixel";
 import type { FoundImage } from "../ipc/bindings/FoundImage";
 import type { TimingStats } from "../ipc/bindings/TimingStats";
 import type { FinishReason } from "../ipc/bindings/FinishReason";
+import type { RunEntry } from "../ipc/bindings/RunEntry";
 import { backend as defaultBackend, type Backend, type IpcError } from "../ipc/backend";
 import { DEFAULT_PLAYBACK, DEFAULT_SETTINGS } from "../defaults";
 import { isTauri, resetLayout, savePanes, savedWindow } from "../platform/window";
@@ -105,6 +106,8 @@ export class RelayStore {
   autostart = $state(false);
   /** Running programs, for the "When app launches" suggestions. */
   processes = $state.raw<string[]>([]);
+  /** The run history, newest first (loaded while the Library tab shows it). */
+  runs = $state.raw<RunEntry[]>([]);
 
   // — UI —
   /** False until the saved window mode is known (so the widget never flashes the wrong size). */
@@ -113,6 +116,10 @@ export class RelayStore {
   /** Where the user put the editor's dividers (null: the default); the layout keeps them inside the window. */
   panes = $state.raw<Panes>(NO_PANES);
   tab = $state<Tab>("steps");
+  /** The Library tab shows the run history instead of the macros. */
+  runsOpen = $state(false);
+  /** The run history shows only this macro's runs (null: every macro's). */
+  runsFilter = $state<string | null>(null);
   exportOpen = $state(false);
   exportFmt = $state<ExportFormat>("rly");
   /** A short message, optionally with an action (Undo). */
@@ -146,6 +153,7 @@ export class RelayStore {
   private listening = false;
   /** Bumped by every request that replaces the view, so older responses are dropped. */
   private viewSeq = 0;
+  private runsSeq = 0;
   /** A name being typed, not saved yet (no timer when it's blank: it won't be). */
   private rename_: { id: string; name: string; timer: ReturnType<typeof setTimeout> | undefined } | null = null;
   /** The open macro's name as Rust has it, for when a blank one is abandoned. */
@@ -202,6 +210,7 @@ export class RelayStore {
   /** Pauses "Trim pauses" would shorten. */
   longPauses = $derived(this.steps.filter((s) => s.pause > TRIM_PAUSE_MS).length);
   error = $derived(this.toast?.kind === "error" ? this.toast.message : null);
+  shownRuns = $derived(this.runsFilter ? this.runs.filter((r) => r.macro_id === this.runsFilter) : this.runs);
   exportName = $derived((slug(this.name) || "macro") + "." + this.exportFmt);
 
   // — lifecycle —
@@ -333,6 +342,9 @@ export class RelayStore {
         break;
       case "library_changed":
         this.refreshLibrary();
+        break;
+      case "runs_changed":
+        if (this.runsOpen) this.refreshRuns();
         break;
       case "triggers_paused":
         this.triggersPaused = this.pauseSaves.saved = msg.paused;
@@ -486,6 +498,18 @@ export class RelayStore {
 
   async refreshLibrary() {
     this.library = (await this.run(this.backend.listMacros())) ?? this.library;
+  }
+
+  /** Library → Runs, and back to the macros. */
+  showRuns = async (open: boolean) => {
+    this.runsOpen = open;
+    if (open) await this.refreshRuns();
+  };
+
+  async refreshRuns() {
+    const seq = ++this.runsSeq;
+    const runs = await this.run(this.backend.listRuns());
+    if (runs && seq === this.runsSeq) this.runs = runs;
   }
 
   loadMacro = async (id: string) => {

@@ -39,7 +39,7 @@ Relay is a **Windows desktop macro recorder**: it records mouse and keyboard inp
 ## Where things stand
 
 - **Latest release: v1.3.0** (2026-09-29), from `main`. Releases so far: v1.0.0, v1.1.0, v1.2.0, v1.3.0. Each has an NSIS installer and a portable exe.
-- **Milestone history:** M0–M8 built v1.0. Then: m9 editor polish (v1.1.0), m10 Keep on top, m11 dependency upgrades, m12 a four-reviewer architecture refactor, m13 the three-layer test suite, m14 a four-reviewer audit of every test against the user guide (about 90 findings fixed), then v1.2.0. Then fix-multi-monitor-scale and m15 the control bar, preview bar, screenshots and resizable editor (v1.3.0). `git log --first-parent main` shows them as merges.
+- **Milestone history:** M0–M8 built v1.0. Then: m9 editor polish (v1.1.0), m10 Keep on top, m11 dependency upgrades, m12 a four-reviewer architecture refactor, m13 the three-layer test suite, m14 a four-reviewer audit of every test against the user guide (about 90 findings fixed), then v1.2.0. Then fix-multi-monitor-scale and m15 the control bar, preview bar, screenshots and resizable editor (v1.3.0). Since then, unreleased: m16 mouse moves as steps, m17 Find image (with fix-find-image-own-window), m18 the run history. `git log --first-parent main` shows them as merges.
 - **Tests at v1.3.0:** about 290 Rust (unit, property, snapshot), about 570 Vitest (store, backend contract, fake core, every component), about 85 end-to-end tests against the built app. Rust unit coverage is about 76% of lines; the coordinator, commands, tray and Windows backend are exercised end to end instead. The frontend is at about 99.8% of lines.
 - **Next, per the [roadmap](README.md#roadmap):** AutoHotkey v2 and standalone `.exe` export (the Export dialog already shows them as "Coming later"), code signing (needs a certificate; free options for open source: SignPath Foundation, Certum's open-source certificate, Azure Trusted Signing), remapping macros to a different monitor layout, macOS and Linux backends.
 - **Also open:** see [Known limitations and open items](#known-limitations-and-open-items).
@@ -74,6 +74,7 @@ Install `gh` (the GitHub CLI: `winget install GitHub.cli`) and sign in with `gh 
 ```text
 crates/relay-core/src/       pure logic, heavily tested
   model.rs  keys.rs          Event, Macro, Rect/Rgb; key labels, split_combo, key_for_char
+  runlog.rs                  the run history: RunEntry, RunLog (newest 200), CheckLog
   steps.rs                   raw events → editor steps (click/drag/scroll/keys/type/wait/pixel_wait)
   edit.rs                    EditOp, apply, normalize, check_invariants
   format.rs                  .rly / JSON export, migrations (v0 → v1)
@@ -96,6 +97,7 @@ src-tauri/src/
   rec_thread.rs              recorder thread and hook watchdog
   commands.rs  ipc.rs        Tauri commands; the EngineMsg stream (queues errors until the UI subscribes)
   library.rs  history.rs     macros on disk + trash + import; undo/redo (in memory)
+  run_history.rs             runs.json, the run history
   settings.rs  storage.rs    settings.json (field by field); data dir, atomic writes
   triggers.rs  hotkeys.rs    schedule/app-launch/pixel watchers; global hotkeys (RegisterHotKey)
   window_ctl.rs  tray.rs     placement (anchor, choose_monitor, layout), zoom, frame; tray menu
@@ -214,7 +216,7 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 
 `main` only changes through pull requests that pass CI. CI minutes are limited (2,000 a month, and Windows minutes count double), so everyday checking happens locally and the expensive CI job runs once per PR, when it's ready.
 
-- **Branches:** short-lived, off `main`. Milestones `mN-short-name` (next is `m18-…`), fixes `fix-…`, docs `docs-…`, CI and tooling `ci-…`, releases `release-X.Y.Z`.
+- **Branches:** short-lived, off `main`. Milestones `mN-short-name` (next is `m19-…`), fixes `fix-…`, docs `docs-…`, CI and tooling `ci-…`, releases `release-X.Y.Z`.
 - **Commits:** small, [Conventional Commits](https://www.conventionalcommits.org/) (`feat(recorder): …`, `fix(engine): …`, `test(e2e): …`, `docs: …`, `ci: …`, `chore: …`), with a body explaining why when it isn't obvious. Push as often as you like: pushing a branch runs nothing.
 - **The pull request is the milestone's workspace.** Open it as a **draft** when the branch starts (`gh pr create --draft --base main`), with the plan and progress in its description, kept up to date. That's where the next session (or contributor) picks up. Drafts only run the quick CI job.
 - **Ready means checked:** run `npm run verify` locally, then `gh pr ready`. That runs the full CI once; every later push to a ready PR runs it again, so push fixes in one go. Put a PR back to draft (`gh pr ready --undo`) to keep working on it.
@@ -250,6 +252,7 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 - PowerShell 5 mangles non-ASCII characters in inline scripts; in JS strings use `\u` escapes.
 - `cargo llvm-cov` runs leave `*.profraw` files; they're git-ignored now (three were once committed by mistake).
 - A coverage-instrumented app exits without writing its profile, so merged unit + E2E coverage isn't possible; report them separately.
+- With Node 25.7, `npm run test:e2e` fails with "Cannot find module …\e2e": that Node doesn't take the folder argument. Node 26 is fine; otherwise pass the files: `node --test --test-concurrency=1 --test-timeout=120000 e2e/*.e2e.test.mjs`.
 
 **WebView2 and the app**
 - The GitHub runner's WebView2 ignores `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` and its registry override (`HKCU\Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments`). Relay passes the DevTools port itself when `RELAY_DEVTOOLS_PORT` is set (`src-tauri/src/lib.rs`, `context()`), which also keeps wry's default `--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection`.

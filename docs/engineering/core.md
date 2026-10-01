@@ -31,6 +31,7 @@
 | [`session`](../../crates/relay-core/src/session.rs) | `Mode`, `Input`, `Effect`, `step` |
 | [`schedule`](../../crates/relay-core/src/schedule.rs) | `WeeklySchedule`, `next_run` |
 | [`triggers`](../../crates/relay-core/src/triggers.rs) | `MacroTriggers` (including `ImageTrigger`), `PixelEdge`, `ProcessLaunchEdge` |
+| [`runlog`](../../crates/relay-core/src/runlog.rs) | `RunEntry`, `RunOutcome`, `SkipReason`, `CheckResult`; `RunLog` (the newest 200) and `CheckLog` (a run's last 50 checks) |
 | [`timeline`](../../crates/relay-core/src/timeline.rs) | `duration`, shared by the editor and the engine |
 | [`view`](../../crates/relay-core/src/view.rs) | `MacroView` and `MacroListItem`, what the UI receives |
 | [`samples`](../../crates/relay-core/src/samples.rs) | The four sample macros from the design |

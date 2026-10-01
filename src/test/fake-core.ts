@@ -18,6 +18,7 @@ import type { EngineMsg } from "../lib/ipc/bindings/EngineMsg";
 import type { Panes } from "../lib/ipc/bindings/Panes";
 import type { FoundImage } from "../lib/ipc/bindings/FoundImage";
 import type { IpcError } from "../lib/ipc/backend";
+import type { RunEntry } from "../lib/ipc/bindings/RunEntry";
 import { applyEdit, History } from "./fake-edit";
 
 export interface Call {
@@ -70,6 +71,7 @@ const INFALLIBLE = new Set([
   "stop_session",
   "seek",
   "list_macros",
+  "list_runs",
   "import_macros",
   "get_settings",
   "list_processes",
@@ -96,6 +98,8 @@ export class FakeCore {
   /** Why a macro's hotkey didn't register (e.g. another app owns it), as the hotkey thread would report. */
   hotkeyErrors = new Map<string, string>();
   triggersPaused = false;
+  /** runs.json, newest first (Rust starts with none; tests add what they need). */
+  runLog: RunEntry[] = [];
   autostart = false;
   processes = ["chrome.exe", "EXCEL.EXE", "notepad.exe"];
   /**
@@ -151,6 +155,7 @@ export class FakeCore {
       history: new History(),
     }));
     this.trash = [];
+    this.runLog = [];
     this.settings = { ...DEFAULT_SETTINGS };
     this.triggers = new Map();
     // Like library.rs seed_samples: the design's hotkeys are shown but off.
@@ -323,6 +328,8 @@ export class FakeCore {
         // window_ctl::fit remembers the mode, for the next start.
         this.window.expanded = a.expanded as boolean;
         return null;
+      case "list_runs":
+        return structuredClone(this.runLog);
       case "window_prefs":
         return structuredClone(this.window);
       case "save_panes": {

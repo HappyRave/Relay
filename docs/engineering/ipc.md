@@ -60,6 +60,7 @@ Session commands only send a `Cmd` to the coordinator and return right away. The
 | `delete_macro` | `id` | Refused with `busy` while a session runs |
 | `restore_macro` | `id` | Sends a `notice` if its hotkey now belongs to another macro (it comes back with the hotkey off) |
 | `export_macro` | `id, format, path` | Writes the file |
+| `list_runs` | | `RunEntry[]`, the [run history](file-formats.md#runsjson), newest first |
 | `import_macros` | `paths: string[]` | `ImportResult { imported: id[], problems: string[] }`. If writing one fails, the ones before it are kept and the rest are listed in `problems`. |
 
 Save and open dialogs are shown by the UI with `@tauri-apps/plugin-dialog`, and the chosen paths are passed to `export_macro` and `import_macros`.
@@ -112,6 +113,7 @@ Save and open dialogs are shown by the UI with `@tauri-apps/plugin-dialog`, and 
 | `finished` | Coordinator | Playback ended, once per playback | `reason`, `timing` (p50, p99, max lateness) |
 | `saved` | Coordinator | A recording was saved | `id` |
 | `library_changed` | Coordinator | A run was counted, a recording saved | |
+| `runs_changed` | Coordinator | A run or a skipped trigger was added to the history | |
 | `toggle_compact` | Hotkey handler | Ctrl+Shift+M | |
 | `triggers_paused` | Coordinator | Paused or resumed | `paused` |
 | `notice` | Anyone | Information: elevated target, busy skip, hook restarted, pixel timeout | `message` |

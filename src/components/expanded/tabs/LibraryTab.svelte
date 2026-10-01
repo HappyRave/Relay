@@ -3,62 +3,68 @@
   import Icon from "../../ui/Icon.svelte";
   import { relay } from "../../../lib/state/relay.svelte";
   import { fmtLastRun, plural } from "../../../lib/format";
+  import RunHistory from "./RunHistory.svelte";
 </script>
 
-<div class="list">
-  {#each relay.library as e (e.id)}
-    <div
-      class="item"
-      class:active={e.id === relay.view?.id}
-      role="button"
-      tabindex="0"
-      onclick={() => relay.loadMacro(e.id)}
-      onkeydown={(ev) => {
-        // Only the row itself; Enter on Duplicate or Delete does that instead.
-        if (ev.target !== ev.currentTarget || (ev.key !== "Enter" && ev.key !== " ")) return;
-        ev.preventDefault();
-        relay.loadMacro(e.id);
-      }}
-    >
-      <div class="top">
-        <span class="name">{e.id === relay.view?.id ? relay.name : e.name}</span>
-        {#if relay.editable && relay.mode === "idle"}
-          <span class="actions">
-            <button
-              title="Duplicate"
-              aria-label="Duplicate {e.name}"
-              onclick={(ev) => {
-                ev.stopPropagation();
-                relay.duplicateMacro(e.id);
-              }}><Icon name="copy" size={13} /></button
-            >
-            <button
-              title="Delete"
-              aria-label="Delete {e.name}"
-              onclick={(ev) => {
-                ev.stopPropagation();
-                relay.deleteMacro(e.id);
-              }}><Icon name="trash" size={13} /></button
-            >
-          </span>
-        {/if}
-        <Kbd combo={e.hotkey ?? "—"} muted />
+{#if relay.runsOpen}
+  <RunHistory />
+{:else}
+  <div class="list">
+    {#each relay.library as e (e.id)}
+      <div
+        class="item"
+        class:active={e.id === relay.view?.id}
+        role="button"
+        tabindex="0"
+        onclick={() => relay.loadMacro(e.id)}
+        onkeydown={(ev) => {
+          // Only the row itself; Enter on Duplicate or Delete does that instead.
+          if (ev.target !== ev.currentTarget || (ev.key !== "Enter" && ev.key !== " ")) return;
+          ev.preventDefault();
+          relay.loadMacro(e.id);
+        }}
+      >
+        <div class="top">
+          <span class="name">{e.id === relay.view?.id ? relay.name : e.name}</span>
+          {#if relay.editable && relay.mode === "idle"}
+            <span class="actions">
+              <button
+                title="Duplicate"
+                aria-label="Duplicate {e.name}"
+                onclick={(ev) => {
+                  ev.stopPropagation();
+                  relay.duplicateMacro(e.id);
+                }}><Icon name="copy" size={13} /></button
+              >
+              <button
+                title="Delete"
+                aria-label="Delete {e.name}"
+                onclick={(ev) => {
+                  ev.stopPropagation();
+                  relay.deleteMacro(e.id);
+                }}><Icon name="trash" size={13} /></button
+              >
+            </span>
+          {/if}
+          <Kbd combo={e.hotkey ?? "—"} muted />
+        </div>
+        <div class="meta">
+          <span>{(e.duration / 1000).toFixed(1)} s · {plural(e.step_count, "step")} · {plural(e.runs, "run")}</span>
+          <span>{fmtLastRun(e.last_run)}</span>
+        </div>
       </div>
-      <div class="meta">
-        <span>{(e.duration / 1000).toFixed(1)} s · {plural(e.step_count, "step")} · {plural(e.runs, "run")}</span>
-        <span>{fmtLastRun(e.last_run)}</span>
-      </div>
+    {:else}
+      <div class="empty">No macros yet — press Record (F9) to make one.</div>
+    {/each}
+    <div class="footer">
+      <span class="note">New recordings are saved here automatically.</span>
+      <button class="btn btn-ghost import" onclick={() => relay.showRuns(true)}>Runs<Icon name="history" size={13} /></button>
+      {#if relay.editable}
+        <button class="btn btn-ghost import" disabled={relay.mode !== "idle"} onclick={relay.importMacros}>Import…<Icon name="import" size={13} /></button>
+      {/if}
     </div>
-  {:else}
-    <div class="empty">No macros yet — press Record (F9) to make one.</div>
-  {/each}
-  <div class="footer">
-    <span class="note">New recordings are saved here automatically.</span>
-    {#if relay.editable}
-      <button class="btn btn-ghost import" disabled={relay.mode !== "idle"} onclick={relay.importMacros}>Import…<Icon name="import" size={13} /></button>
-    {/if}
   </div>
-</div>
+{/if}
 
 <style>
   .list {

@@ -129,6 +129,8 @@ A trigger doesn't run the macro when:
 | Triggers are paused | Nothing happens |
 | Relay isn't running | Nothing happens. See [Keep Relay running](#keep-relay-running). |
 
+The [run history](08-library.md#run-history) lists each triggered run, and each skipped one, with the trigger that fired it.
+
 You can stop a triggered macro like any other: <kbd>Esc</kbd>, any key (with *Stop on key press*), or the [kill switch](04-playback.md#the-kill-switch).
 
 ## Pausing triggers

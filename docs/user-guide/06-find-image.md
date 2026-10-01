@@ -76,6 +76,8 @@ If the timeout runs out, Relay:
 - shows *"Image not found at step 5; playback stopped."*,
 - leaves the playhead **on that step** so you can see it highlighted.
 
+The [run history](08-library.md#run-history) shows where and how quickly the image was found in the runs before.
+
 | Cause | Fix |
 | --- | --- |
 | The app was slower than the timeout | Raise **Timeout** |

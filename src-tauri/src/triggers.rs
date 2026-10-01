@@ -18,6 +18,7 @@ use crossbeam_channel::{Receiver, Sender, bounded, unbounded};
 use parking_lot::Mutex;
 use relay_core::image::{Gray, Rgb8};
 use relay_core::model::{ImagePng, Rect, Rgb};
+use relay_core::runlog::SkipReason;
 use relay_core::schedule::next_run;
 use relay_core::session::RunSource;
 use relay_core::triggers::{MacroTriggers, PixelEdge, ProcessLaunchEdge};
@@ -92,11 +93,13 @@ pub struct ScheduleWatch<Tz: TimeZone> {
     /// The latest time seen: a clock set back (a resync after wake) doesn't
     /// move it back, so a run already made isn't due again.
     last: DateTime<Tz>,
+    /// Runs skipped as missed since [`ScheduleWatch::take_missed`].
+    missed: Vec<Uuid>,
 }
 
 impl<Tz: TimeZone> ScheduleWatch<Tz> {
     pub fn new(now: DateTime<Tz>) -> Self {
-        ScheduleWatch { last: now }
+        ScheduleWatch { last: now, missed: Vec::new() }
     }
 
     /// The macros due since the last tick. A run more than two minutes late
@@ -110,6 +113,7 @@ impl<Tz: TimeZone> ScheduleWatch<Tz> {
                     due.push(*id);
                 } else {
                     tracing::info!(%id, "skipped a missed scheduled run");
+                    self.missed.push(*id);
                 }
             }
         }
@@ -117,6 +121,11 @@ impl<Tz: TimeZone> ScheduleWatch<Tz> {
             self.last = now;
         }
         due
+    }
+
+    /// The macros whose scheduled run was skipped as missed since the last call.
+    pub fn take_missed(&mut self) -> Vec<Uuid> {
+        std::mem::take(&mut self.missed)
     }
 }
 
@@ -297,6 +306,10 @@ fn schedule_loop(app: AppHandle) {
         for id in watch.tick(Local::now(), &snapshot(&app)) {
             fire(&app, id, RunSource::Schedule);
         }
+        for id in watch.take_missed() {
+            let (source, reason) = (RunSource::Schedule, SkipReason::Missed);
+            app.state::<CoordinatorHandle>().send(Cmd::LogSkip { id, source, reason });
+        }
     }
 }
 
@@ -440,6 +453,8 @@ mod tests {
         // The PC slept from 08:59 to 09:30: the run is skipped, not made up.
         let mut w = ScheduleWatch::new(at(25, 8, 59, 0));
         assert!(w.tick(at(25, 9, 30, 0), &triggers).is_empty());
+        assert_eq!(w.take_missed(), [id(1)], "for the run history");
+        assert!(w.take_missed().is_empty());
         // Up to two minutes late is still run.
         let mut w = ScheduleWatch::new(at(25, 8, 59, 0));
         assert_eq!(w.tick(at(25, 9, 2, 0), &triggers), [id(1)]);
