@@ -1,4 +1,4 @@
-// Text steps: inserting one with + Type text, turning typing into one with
+// Text steps: inserting one with + Text, turning typing into one with
 // Make editable, and editing its text (placeholders, the preview of what it
 // types, mistakes) and duration; how the list, the timeline and the preview show it.
 import { beforeEach, describe, expect, test } from "vitest";
@@ -37,11 +37,11 @@ async function typeText(text: string) {
   await settle();
 }
 
-describe("+ Type text", () => {
+describe("+ Text", () => {
   test("inserts an empty Text step at the playhead and opens its editor", async () => {
     render(StepsTab);
     relay.seek(1000);
-    await userEvent.click(screen.getByRole("button", { name: "+ Type text" }));
+    await userEvent.click(screen.getByRole("button", { name: "+ Text" }));
     await settle();
     expect(ops()).toEqual([{ op: "insert_text", at: 1000, text: "" }]);
     const row = stepRows()[2]; // in the pause after the first click
@@ -56,7 +56,7 @@ describe("+ Type text", () => {
     render(StepsTab);
     core.emit({ type: "session", mode: "playing", macro_id: relay.view!.id });
     await settle();
-    expect(screen.getByRole("button", { name: "+ Type text" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "+ Text" })).toBeDisabled();
   });
 });
 

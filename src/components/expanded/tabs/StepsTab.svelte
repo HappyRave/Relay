@@ -96,7 +96,7 @@
     class="btn btn-ghost"
     disabled={!relay.canEdit}
     title="Type a text that can change each run: the date, the time, the clipboard"
-    onclick={relay.insertText}>+ Type text</button
+    onclick={relay.insertText}>+ Text</button
   >
   <button
     class="btn btn-ghost"
