@@ -87,18 +87,18 @@ export function startedCount(items: { t: number }[], cur: number): number {
   return lo;
 }
 
-/** Chips on the Keys lane; a TYPE chip spans its characters, a KEYS chip grows up to the next chip. */
+/** Chips on the Keys lane; a TYPE or TEXT chip spans its step, a KEYS chip grows up to the next chip. */
 export function keyChips(steps: Step[], duration: number): KeyChip[] {
-  const ks = steps.filter((x) => x.kind === "keys" || x.kind === "type");
+  const ks = steps.filter((x) => x.kind === "keys" || x.kind === "type" || x.kind === "text");
   return ks.map((x, i) => {
     const nx = ks[i + 1];
     const gap = nx ? pct(nx.t, duration) - pct(x.t, duration) - 0.3 : 100 - pct(x.t, duration);
-    const w = x.kind === "type" ? pct(x.end, duration) - pct(x.t, duration) : Math.min(gap, 9);
+    const w = x.kind === "keys" ? Math.min(gap, 9) : pct(x.end, duration) - pct(x.t, duration);
     return {
       l: pct(x.t, duration),
       w: Math.max(0.8, w),
       t: x.t,
-      label: x.kind === "type" ? x.text : x.combo.join(" + "),
+      label: x.kind === "keys" ? x.combo.join(" + ") : x.text,
     };
   });
 }

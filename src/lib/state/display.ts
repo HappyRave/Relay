@@ -34,6 +34,7 @@ export function stepTitle(s: Step): string {
     case "keys":
       return s.combo.join(" + ");
     case "type":
+    case "text":
       return "“" + s.text + "”";
     case "pixel_wait":
       return `Wait for pixel ${s.x}, ${s.y} = ${s.color}`;
