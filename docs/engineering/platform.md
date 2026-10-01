@@ -36,12 +36,12 @@ pub fn platform() -> Platform              // the backend for the current OS
 | Trait | Methods | Windows implementation |
 | --- | --- | --- |
 | `InputHook` / `HookSession` | `start(HookConfig, Sender<RawInput>)`; dropping the session removes the hooks | `WH_KEYBOARD_LL` + `WH_MOUSE_LL` on a dedicated thread |
-| `Injector` | `move_to`, `button`, `wheel`, `key` | `SendInput` |
+| `Injector` | `move_to`, `button`, `wheel`, `key`, `text` | `SendInput` |
 | `Timer` | `wait_until(deadline)`, `waker()` | High-resolution waitable timer + spin |
 | `Screen` | `monitors`, `virtual_desktop`, `cursor_pos`, `double_click`, `pixel`, `capture`, `mark` | `EnumDisplayMonitors`, `GetDpiForMonitor`, `GetPixel`, `StretchBlt`, a layered window |
 | `WindowQuery` | `root_window_at`, `foreground`, `restore_previous`, `find_window`, `input_blocked`, `input_desktop_available` | Win32 windowing, DWM and token APIs |
 | `CharTranslator` | `translate(vk, scan, held)` | `ToUnicodeEx` |
-| `Clipboard` | `sequence`, `image`, `start_snip` | `GetClipboardSequenceNumber`; the registered `PNG` format, else `CF_DIB`; `ShellExecuteW("ms-screenclip:")` |
+| `Clipboard` | `sequence`, `image`, `text`, `start_snip` | `GetClipboardSequenceNumber`; the registered `PNG` format, else `CF_DIB`; `CF_UNICODETEXT`; `ShellExecuteW("ms-screenclip:")` |
 
 Injectors, translators and timers are created by factory functions (`fn() -> Box<dyn …>`) so each thread that uses one owns its own. For the timer it also matters where it's created: it raises the calling thread's priority, and opts the process out of power throttling until it's dropped.
 
@@ -120,6 +120,8 @@ Every `INPUT` carries `RELAY_MAGIC` in `dwExtraInfo`.
 | `code` only | `keymap::scan_for_code` | Hand-written or migrated macros |
 | `ch` only | `KEYEVENTF_UNICODE`, per UTF-16 unit | Last resort: types the text |
 
+- **`text(text)`**, for Text steps, types characters as `KEYEVENTF_UNICODE` (a press and a release per UTF-16 unit), whatever the keyboard layout. A line feed and a tab are sent as the virtual keys `VK_RETURN` and `VK_TAB` instead, since apps take the Unicode ones as characters, and a carriage return is skipped (a copied `\r\n` is one Enter).
+
 `SendInput` returns how many events it inserted. Fewer than requested almost always means **UIPI**: the target runs at a higher integrity level (as administrator). The error says so, and the engine reports it once per playback.
 
 ## The precision timer
@@ -153,9 +155,10 @@ Measured over a 10-minute release-build soak, 12,000 events: median and p99 late
 
 ## Clipboard
 
-[`windows/clipboard.rs`](../../crates/relay-platform/src/windows/clipboard.rs), for the images of Find image steps and the image trigger:
+[`windows/clipboard.rs`](../../crates/relay-platform/src/windows/clipboard.rs), for the images of Find image steps and the image trigger, and the `{clipboard}` of Text steps:
 
 - **Image**: opens the clipboard (retrying a few times: another program may hold it for a moment) and copies out the registered `PNG` format if a program offered it (the Snipping Tool and browsers do), else `CF_DIB`. relay-core reads either (`Rgb8::decode`, `Rgb8::from_dib`).
+- **Text**: `CF_UNICODETEXT`, up to its NUL, with the same retries.
 - **Snip**: `ShellExecuteW` on `ms-screenclip:` opens Windows' snipping overlay (<kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd>), which puts its snip on the clipboard. The app's `snip_image` notes `sequence()` before, then polls it until it changes and an image is there.
 
 The stub has no clipboard: no image, and `start_snip` is `Unsupported`.

@@ -13,6 +13,7 @@
     scroll: "SCROLL",
     keys: "KEYS",
     type: "TYPE",
+    text: "TEXT",
     wait: "WAIT",
     pixel_wait: "IF",
     find_image: "FIND",
@@ -52,6 +53,8 @@
         return [stepTitle(s), "Key combination"];
       case "type":
         return [stepTitle(s), plural(s.text.length, "character")];
+      case "text":
+        return [stepTitle(s), "Filled in when it plays"];
       case "pixel_wait":
         return [stepTitle(s), (s.label ? s.label + " · " : "") + `timeout ${s.timeout_ms / 1000} s, else stop`];
       case "find_image":
@@ -89,6 +92,12 @@
 <div class="bar">
   <span class="count">{plural(steps.length, "step")}</span>
   <button class="btn btn-ghost" disabled={!relay.canEdit} onclick={relay.insertWait}>+ Wait</button>
+  <button
+    class="btn btn-ghost"
+    disabled={!relay.canEdit}
+    title="Type a text that can change each run: the date, the time, the clipboard"
+    onclick={relay.insertText}>+ Text</button
+  >
   <button
     class="btn btn-ghost"
     disabled={!relay.canEdit}

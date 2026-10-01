@@ -3060,6 +3060,7 @@ dependencies = [
 name = "relay-playback"
 version = "1.4.0"
 dependencies = [
+ "chrono",
  "crossbeam-channel",
  "relay-core",
  "relay-platform",

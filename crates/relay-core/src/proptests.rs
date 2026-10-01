@@ -12,6 +12,7 @@ use crate::keys::KeyStroke;
 use crate::model::{Event, ImagePng, Macro, MouseBtn, Ms, RecordingMeta, Rgb};
 use crate::playback::plan_times;
 use crate::steps::{GroupOptions, Step, StepKind, group_steps};
+use crate::text;
 use crate::timeline::duration;
 
 #[derive(Debug, Clone)]
@@ -63,6 +64,10 @@ enum Action {
     Wait {
         dur: u32,
     },
+    /// A Text step, as Make editable or + Type text leave one.
+    Text {
+        dur: u32,
+    },
     /// Skips ahead to a huge time, so the arithmetic near `Ms::MAX` is exercised.
     Jump {
         to: Ms,
@@ -100,6 +105,7 @@ fn action() -> impl Strategy<Value = Action> {
             .prop_map(|(delta, horizontal)| Action::Wheel { delta, horizontal }),
         2 => prop::collection::vec(pos, 1..8).prop_map(|path| Action::Move { path }),
         1 => (0..2000u32).prop_map(|dur| Action::Wait { dur }),
+        1 => (0..2000u32).prop_map(|dur| Action::Text { dur }),
         1 => prop_oneof![Just(1 << 31), (Ms::MAX - 20_000)..Ms::MAX].prop_map(|to| Action::Jump { to }),
     ]
 }
@@ -168,6 +174,10 @@ fn record(actions: &[(Action, u32)]) -> Vec<Event> {
                 ev.push(Event::Wait { t, dur: *dur, label: String::new() });
                 t = at(*dur);
             }
+            Action::Text { dur } => {
+                ev.push(Event::Text { t, dur: *dur, text: "No. {n}".into() });
+                t = at(*dur);
+            }
             Action::Jump { to } => t = t.max(*to),
         }
         t = t.saturating_add(250 + gap);
@@ -203,7 +213,7 @@ fn edit(steps: usize, dur: u32) -> impl Strategy<Value = EditOp> {
             timeout_ms: 100,
             area: None
         }),
-        (at, 1..3000u32).prop_map(|(at, dur)| EditOp::InsertPixelWait {
+        (at.clone(), 1..3000u32).prop_map(|(at, dur)| EditOp::InsertPixelWait {
             at,
             dur,
             x: 1,
@@ -228,7 +238,12 @@ fn edit(steps: usize, dur: u32) -> impl Strategy<Value = EditOp> {
         (0..1500u32).prop_map(|max| EditOp::CapPauses { max }),
         (idx.clone(), 0..3000u32).prop_map(|(index, dur)| EditOp::SetMoveDuration { index, dur }),
         idx.clone().prop_map(|index| EditOp::SmoothMove { index }),
-        idx.prop_map(|index| EditOp::StraightenMove { index }),
+        idx.clone().prop_map(|index| EditOp::StraightenMove { index }),
+        (at.clone(), prop::sample::select(vec!["", "{date} {{x}}", "bad {"]))
+            .prop_map(|(at, text)| EditOp::InsertText { at, text: text.into() }),
+        (idx.clone(), prop::sample::select(vec!["short", "a much longer text {time} than before", "}"]))
+            .prop_map(|(index, text)| EditOp::UpdateText { index, text: text.into() }),
+        idx.prop_map(|index| EditOp::MakeEditable { index }),
         Just(EditOp::Rename { name: "renamed".into() }),
     ]
 }
@@ -248,22 +263,32 @@ fn expected(op: &EditOp, steps: &[Step]) -> Result<(), EditError> {
     let only = |index: u32, ok: fn(&StepKind) -> bool| {
         if ok(kind(index)?) { Ok(()) } else { Err(EditError::WrongKind(index)) }
     };
-    match *op {
+    let template = |t: &str| text::validate(t).map_err(EditError::Text);
+    match op {
+        EditOp::InsertText { text, .. } => template(text),
+        EditOp::UpdateText { index, text } => {
+            only(*index, |k| matches!(k, StepKind::Text { .. }))?;
+            template(text)
+        }
+        EditOp::MakeEditable { index } => only(*index, |k| matches!(k, StepKind::Type { .. })),
         EditOp::Rename { .. }
         | EditOp::InsertWait { .. }
         | EditOp::InsertPixelWait { .. }
         | EditOp::InsertFindImage { .. }
         | EditOp::CapPauses { .. } => Ok(()),
-        EditOp::DeleteStep { index } | EditOp::SetPause { index, .. } => kind(index).map(|_| ()),
-        EditOp::SetWaitDuration { index, .. } => only(index, |k| {
-            matches!(k, StepKind::Wait { .. } | StepKind::PixelWait { .. } | StepKind::FindImage { .. })
+        EditOp::DeleteStep { index } | EditOp::SetPause { index, .. } => kind(*index).map(|_| ()),
+        EditOp::SetWaitDuration { index, .. } => only(*index, |k| {
+            matches!(
+                k,
+                StepKind::Wait { .. } | StepKind::PixelWait { .. } | StepKind::FindImage { .. } | StepKind::Text { .. }
+            )
         }),
-        EditOp::UpdatePixelWait { index, .. } => only(index, |k| matches!(k, StepKind::PixelWait { .. })),
-        EditOp::UpdateFindImage { index, .. } => only(index, |k| matches!(k, StepKind::FindImage { .. })),
+        EditOp::UpdatePixelWait { index, .. } => only(*index, |k| matches!(k, StepKind::PixelWait { .. })),
+        EditOp::UpdateFindImage { index, .. } => only(*index, |k| matches!(k, StepKind::FindImage { .. })),
         EditOp::SetMoveDuration { index, .. } | EditOp::SmoothMove { index } | EditOp::StraightenMove { index } => {
-            only(index, |k| matches!(k, StepKind::Move { .. }))
+            only(*index, |k| matches!(k, StepKind::Move { .. }))
         }
-        EditOp::SetLabel { index, .. } => only(index, |k| {
+        EditOp::SetLabel { index, .. } => only(*index, |k| {
             matches!(
                 k,
                 StepKind::Click { .. }
@@ -295,7 +320,10 @@ fn check_op(op: &EditOp, before: &[Event], steps: &[Step], after: &[Event]) -> R
     match op {
         EditOp::DeleteStep { index } => {
             let step = &steps[*index as usize];
-            if matches!(step.kind, StepKind::Wait { .. } | StepKind::PixelWait { .. } | StepKind::FindImage { .. }) {
+            if matches!(
+                step.kind,
+                StepKind::Wait { .. } | StepKind::PixelWait { .. } | StepKind::FindImage { .. } | StepKind::Text { .. }
+            ) {
                 return Ok(());
             }
             // Exactly its events go; the others keep their times.
@@ -341,6 +369,40 @@ fn check_op(op: &EditOp, before: &[Event], steps: &[Step], after: &[Event]) -> R
                 let moved: Vec<u32> = b.items.iter().map(|&i| if i >= p { i + 1 } else { i }).collect();
                 prop_assert_eq!(&a.items, &moved);
             }
+        }
+        EditOp::InsertText { text, .. } => {
+            let dur = text::typing_ms(text);
+            if saturates(before, dur) {
+                return Ok(());
+            }
+            let p = after.iter().position(|e| matches!(e, Event::Text { text: t, .. } if t == text));
+            let p = p.expect("the inserted text") as u32;
+            let new = after_steps.iter().find(|s| s.items == [p]).expect("the inserted text's step");
+            prop_assert_eq!(&new.kind, &StepKind::Text { dur, text: text.clone() });
+            prop_assert_eq!(after_steps.len(), steps.len() + 1);
+        }
+        EditOp::UpdateText { index, text } => {
+            let step = &steps[*index as usize];
+            let StepKind::Text { dur, .. } = step.kind else { unreachable!() };
+            let i = step.items[0] as usize;
+            let want = dur.max(text::typing_ms(text));
+            prop_assert_eq!(&after[i], &Event::Text { t: before[i].t(), dur: want, text: text.clone() });
+        }
+        EditOp::MakeEditable { index } => {
+            let step = &steps[*index as usize];
+            let StepKind::Type { text: typed, .. } = &step.kind else { unreachable!() };
+            if saturates(before, step.end - step.t) {
+                return Ok(());
+            }
+            // One Text step in its place, typing the same, from when it started.
+            let made = after_steps.iter().find(|s| s.t == step.t && matches!(s.kind, StepKind::Text { .. }));
+            let made = made.expect("the Text step");
+            let StepKind::Text { dur, text: template } = &made.kind else { unreachable!() };
+            prop_assert_eq!(&text::fill(template, 1, chrono::NaiveDateTime::default(), || None), typed);
+            prop_assert!(*dur >= step.end - step.t);
+            let typing = after_steps.iter().filter(|s| matches!(s.kind, StepKind::Type { .. })).count();
+            let typing_before = steps.iter().filter(|s| matches!(s.kind, StepKind::Type { .. })).count();
+            prop_assert!(typing < typing_before);
         }
         EditOp::SetPause { index, dur } => {
             let i = *index as usize;
@@ -440,6 +502,11 @@ proptest! {
             | EditOp::InsertFindImage { label, .. } = &mut op
             {
                 *label = format!("inserted {n}");
+            }
+            if let EditOp::InsertText { text, .. } = &mut op
+                && text != "bad {"
+            {
+                *text = format!("inserted {n} {text}");
             }
             let before = m.events.clone();
             let steps = group_steps(&before, (&m.recording).into());

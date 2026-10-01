@@ -1,8 +1,8 @@
 <script lang="ts">
   // Inline editor under the selected step: the pause before it, labels, wait
   // and move durations, smoothing a move, the pixel check's position, color,
-  // tolerance and timeout, and the Find image step's image, click point,
-  // button, match, timeout and search area.
+  // tolerance and timeout, the Find image step's image, click point,
+  // button, match, timeout and search area, and the Text step's text.
   // Number fields commit on change and then show what's saved: rounded to
   // what Rust stores (whole ms and pixels), clamped, or put back if refused.
   import Segmented from "../../ui/Segmented.svelte";
@@ -95,6 +95,58 @@
   function setArea(i: number) {
     if (i === -2) return;
     relay.updateFindImage(index, { area: i < 0 ? null : monitors[i].rect });
+  }
+
+  /** Placeholders a Text step can use, with what they type. */
+  const PLACEHOLDERS: [string, string][] = [
+    ["{date}", "Today's date: 2026-10-01"],
+    ["{time}", "The time: 14:05:09"],
+    ["{clipboard}", "The text on the clipboard"],
+    ["{n}", "The repeat number: 1, 2, 3…"],
+  ];
+  let textField: HTMLTextAreaElement | undefined = $state();
+  /** What the text in the field would type now, or what's wrong with it. */
+  let typed: { text: string } | { error: string } | null = $state(null);
+  let previews = 0;
+
+  async function preview(text: string) {
+    const mine = ++previews;
+    const result = await relay.previewText(text);
+    if (mine === previews) typed = result;
+    return result;
+  }
+
+  // The saved text, again after each edit (or undo) of it.
+  $effect(() => {
+    if (step.kind === "text") void preview(step.text);
+  });
+
+  /** Saves the text in the field, unless it has a mistake (shown under it). */
+  async function setText() {
+    if (step.kind !== "text" || !textField) return;
+    const text = textField.value;
+    const result = await preview(text);
+    if ("text" in result && step.kind === "text" && text !== step.text) await relay.updateText(index, text);
+  }
+
+  /** Puts a placeholder where the caret is, and saves. */
+  function addPlaceholder(p: string) {
+    if (!textField) return;
+    const { selectionStart: a, selectionEnd: b, value } = textField;
+    textField.value = value.slice(0, a) + p + value.slice(b);
+    textField.focus();
+    textField.setSelectionRange(a + p.length, a + p.length);
+    void setText();
+  }
+
+  async function setTextDuration(e: Event) {
+    if (step.kind !== "text") return;
+    const input = field(e);
+    const dur = commitNumber(input, step.dur, positiveMs, seconds);
+    if (dur == null) return;
+    await relay.edit({ op: "set_wait_duration", index, dur });
+    // It can't be shorter than the typing: Rust may have kept more.
+    if (step.kind === "text") input.value = seconds(step.dur);
   }
 
   function setWait(e: Event) {
@@ -215,6 +267,43 @@
         title="Make the path a straight line"
         disabled={step.samples < 2}
         onclick={() => relay.straightenMove(index)}>Straighten</button
+      >
+    </div>
+  {:else if step.kind === "text"}
+    <label class="label">
+      Text
+      <textarea
+        class="input text"
+        rows="2"
+        spellcheck="false"
+        value={step.text}
+        bind:this={textField}
+        oninput={() => textField && preview(textField.value)}
+        onchange={setText}
+      ></textarea>
+    </label>
+    <div class="sources">
+      {#each PLACEHOLDERS as [p, title] (p)}
+        <button class="btn btn-secondary tool" {title} onclick={() => addPlaceholder(p)}>{p}</button>
+      {/each}
+    </div>
+    {#if typed}
+      <div class="test" class:wrong={"error" in typed} role="status">
+        {"error" in typed ? typed.error : typed.text ? `Types now: “${typed.text}”` : "Types nothing yet"}
+      </div>
+    {/if}
+    <div class="grid">
+      <label title="How long the step lasts: what follows waits for the typing">
+        Duration s
+        <input class="input" type="number" min="0" step="0.1" value={step.dur / 1000} onchange={setTextDuration} />
+      </label>
+    </div>
+  {:else if step.kind === "type"}
+    <div class="grid">
+      <button
+        class="btn btn-secondary tool"
+        title="Turn it into a Text step you can change, with the date, the time or the clipboard"
+        onclick={() => relay.makeEditable(index)}>Make editable</button
       >
     </div>
   {:else if step.kind === "wait"}
@@ -345,6 +434,14 @@
   .test {
     font-size: 12px;
     color: var(--color-neutral-700);
+  }
+  .test.wrong {
+    color: var(--color-accent-700);
+  }
+  textarea.text {
+    resize: vertical;
+    font-family: inherit;
+    white-space: pre-wrap;
   }
   .test {
     display: flex;

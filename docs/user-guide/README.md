@@ -14,7 +14,7 @@ Relay lives in a small window that stays on top of your other windows (you can [
 | --- | --- |
 | **Header** | Drag the dotted grip to move the widget. Click the name to rename the macro. **Undo** and **Redo** step back and forward through your edits, **Export** saves the macro as a file, and **×** hides Relay to the tray. |
 | **Preview** | The mouse path over your whole screen, as it was when you recorded (or a sketch of it). Scroll to zoom in. Numbered squares are clicks, and the part already played turns red. The bar above it says what's happening: the mode, keys and typed text as they happen, the step under the playhead and the cursor's position. |
-| **Steps** | The macro as a list: clicks, key combinations, typed text, waits, pixel checks and Find image steps. Click a step to jump to it and edit it. |
+| **Steps** | The macro as a list: clicks, key combinations, typed text, Text steps, waits, pixel checks and Find image steps. Click a step to jump to it and edit it. |
 | **Library** | All your macros. New recordings are saved here automatically. **Runs** shows the run history: what ran, when, what started it and how it ended. |
 | **Triggers** | Run the macro on a hotkey, on a schedule, when an app starts, when a pixel changes or when an image appears. |
 | **Settings** | Playback, recording, preview and window options. |

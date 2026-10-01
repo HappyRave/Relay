@@ -6,9 +6,10 @@
 // insertion or a deletion renumbers the steps after it; inserts snap past the
 // step under the playhead and push what follows back; deleting a wait closes
 // its gap; pauses and moves retime what follows; smoothing a move reshapes its
-// samples (fake-path.ts). What regrouping would do (two clicks merging into a
-// double click once the step between them is deleted, two moves into one)
-// isn't modelled: that's tested in Rust.
+// samples (fake-path.ts); Text steps' templates follow relay-core's text.rs.
+// What regrouping would do (two clicks merging into a double click once the
+// step between them is deleted, two moves into one, the cursor moving while
+// typing that a Text step pushes to its end) isn't modelled: that's tested in Rust.
 import type { EditOp, MacroView, MovePoint, Step, StepOf } from "../lib/types";
 import type { IpcError } from "../lib/ipc/backend";
 import { smooth, straighten, type Point } from "./fake-path";
@@ -23,6 +24,65 @@ const MIN_DURATION_MS = 2000;
 
 const rejected = (message: string): IpcError => ({ code: "edit_rejected", message });
 const clampMs = (t: number) => Math.max(0, t);
+
+// — text.rs —
+
+/** How long typing one character takes. */
+const CHAR_MS = 10;
+const NAMES = ["date", "time", "clipboard", "n"];
+
+type Part = { literal: string } | { name: string };
+
+/** A template's text and placeholders, or the message relay-core refuses it with. */
+export function parseTemplate(template: string): { parts: Part[] } | { error: string } {
+  const parts: Part[] = [];
+  let literal = "";
+  const chars = [...template];
+  for (let i = 0; i < chars.length; i++) {
+    const c = chars[i];
+    if ((c === "{" || c === "}") && chars[i + 1] === c) {
+      literal += c;
+      i++;
+    } else if (c === "}") {
+      return { error: "A } has no { before it: type }} for a brace." };
+    } else if (c === "{") {
+      const close = chars.findIndex((d, j) => j > i && (d === "}" || d === "{"));
+      if (close < 0 || chars[close] === "{") return { error: "A { isn't closed: type {{ for a brace." };
+      const name = chars.slice(i + 1, close).join("");
+      if (!NAMES.includes(name)) return { error: `{${name}} isn't a placeholder: use {date}, {time}, {clipboard} or {n}.` };
+      if (literal) parts.push({ literal });
+      literal = "";
+      parts.push({ name });
+      i = close;
+    } else {
+      literal += c;
+    }
+  }
+  if (literal) parts.push({ literal });
+  return { parts };
+}
+
+/** What `template` types on repeat `n` at local time `now` ("2026-10-01T09:05:07"). */
+export function fillTemplate(template: string, n: number, now: string, clipboard: string | null): string {
+  const parsed = parseTemplate(template);
+  if ("error" in parsed) return template;
+  const [date, time] = now.split("T");
+  const value: Record<string, string> = { date, time, clipboard: clipboard ?? "", n: String(n) };
+  return parsed.parts.map((p) => ("literal" in p ? p.literal : value[p.name])).join("");
+}
+
+/** About how long typing `template` takes (the clipboard counts as empty). */
+function typingMs(template: string): number {
+  const parsed = parseTemplate(template);
+  if ("error" in parsed) return [...template].length * CHAR_MS;
+  const length: Record<string, number> = { date: 10, time: 8, clipboard: 0, n: 1 };
+  return parsed.parts.reduce((n, p) => n + ("literal" in p ? [...p.literal].length : length[p.name]), 0) * CHAR_MS;
+}
+
+function validate(template: string) {
+  const parsed = parseTemplate(template);
+  if ("error" in parsed) throw rejected(parsed.error);
+}
 
 function shiftStep(s: Step, delta: number) {
   s.t = clampMs(s.t + delta);
@@ -86,7 +146,8 @@ function retimePauses(v: MacroView, pauses: [number, number, number][]) {
   if (!pauses.length) return;
   for (const s of v.steps) {
     const t = retime(s.t, pauses);
-    s.end = s.kind === "wait" || s.kind === "pixel_wait" || s.kind === "find_image" ? t + s.dur : retime(s.end, pauses);
+    const timed = s.kind === "wait" || s.kind === "pixel_wait" || s.kind === "find_image" || s.kind === "text";
+    s.end = timed ? t + s.dur : retime(s.end, pauses);
     s.t = t;
     if (s.kind === "type") for (const c of s.chars) c.t = retime(c.t, pauses);
   }
@@ -135,6 +196,17 @@ function reshape(v: MacroView, s: StepOf<"move">, f: (p: Point[]) => Point[]) {
   samples.forEach((m, i) => ([m.x, m.y] = out[i + 1]));
 }
 
+/** Makes wait-like step `s` last `dur`; what follows it in the list moves. */
+function setDuration(v: MacroView, s: Step & { dur: number }, dur: number) {
+  const delta = dur - s.dur;
+  // Nothing happens during a wait, so what comes after it in the list is
+  // exactly what starts at or after its end.
+  for (const o of v.steps) if (o !== s && o.items[0] > s.items[0]) shiftStep(o, delta);
+  for (const m of v.moves) if (s.dur > 0 ? m.t >= s.end : m.t > s.t) m.t = clampMs(m.t + delta);
+  s.dur = dur;
+  s.end = s.t + dur;
+}
+
 /** Applies `op` to `v` like `relay_core::edit::apply`, or throws its error. */
 export function applyEdit(v: MacroView, op: EditOp) {
   const get = (index: number): Step => {
@@ -156,7 +228,7 @@ export function applyEdit(v: MacroView, op: EditOp) {
       dropMoves(v, s);
       mergeMoves(v);
       // Deleting a wait closes the gap it left.
-      if (s.kind === "wait" || s.kind === "pixel_wait" || s.kind === "find_image") shiftFrom(v, s.end, -s.dur);
+      if (s.kind === "wait" || s.kind === "pixel_wait" || s.kind === "find_image" || s.kind === "text") shiftFrom(v, s.end, -s.dur);
       break;
     }
 
@@ -212,15 +284,48 @@ export function applyEdit(v: MacroView, op: EditOp) {
 
     case "set_wait_duration": {
       const s = get(op.index);
-      if (s.kind !== "wait" && s.kind !== "pixel_wait" && s.kind !== "find_image") throw wrongKind(op.index);
-      const dur = Math.min(op.dur, MAX_DUR);
-      const delta = dur - s.dur;
-      // Nothing happens during a wait, so what comes after it in the list is
-      // exactly what starts at or after its end.
-      for (const o of v.steps) if (o !== s && o.items[0] > s.items[0]) shiftStep(o, delta);
-      for (const m of v.moves) if (s.dur > 0 ? m.t >= s.end : m.t > s.t) m.t = clampMs(m.t + delta);
-      s.dur = dur;
-      s.end = s.t + dur;
+      if (s.kind !== "wait" && s.kind !== "pixel_wait" && s.kind !== "find_image" && s.kind !== "text") throw wrongKind(op.index);
+      // A Text step lasts at least as long as typing it.
+      const least = s.kind === "text" ? Math.min(typingMs(s.text), MAX_DUR) : 0;
+      setDuration(v, s, Math.min(Math.max(op.dur, least), MAX_DUR));
+      break;
+    }
+
+    case "insert_text": {
+      validate(op.text);
+      const dur = Math.min(typingMs(op.text), MAX_DUR);
+      insertTimed(v, op.at, dur, (t, item) => ({ kind: "text", t, end: t + dur, pause: 0, items: [item], dur, text: op.text }));
+      break;
+    }
+
+    case "update_text": {
+      const s = get(op.index);
+      if (s.kind !== "text") throw wrongKind(op.index);
+      validate(op.text);
+      setDuration(v, s, Math.max(s.dur, Math.min(typingMs(op.text), MAX_DUR)));
+      s.text = op.text;
+      break;
+    }
+
+    case "make_editable": {
+      const s = get(op.index);
+      if (s.kind !== "type") throw wrongKind(op.index);
+      const text = s.text.replaceAll("{", "{{").replaceAll("}", "}}");
+      const span = s.end - s.t;
+      const dur = Math.max(span, Math.min(typingMs(text), MAX_DUR));
+      // Its events become one, where the first was.
+      const at = s.items[0];
+      for (const o of v.steps) {
+        if (o === s) continue;
+        o.items = o.items.map((i) => {
+          const kept = i - s.items.filter((g) => g < i).length;
+          return kept >= at ? kept + 1 : kept;
+        });
+      }
+      // Typing faster than a Text step can pushes what follows back.
+      for (const o of v.steps) if (o !== s && o.t > s.end) shiftStep(o, dur - span);
+      for (const m of v.moves) if (m.t > s.end) m.t += dur - span;
+      v.steps[op.index] = { kind: "text", t: s.t, end: s.t + dur, pause: s.pause, items: [at], dur, text };
       break;
     }
 

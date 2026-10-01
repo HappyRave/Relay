@@ -176,6 +176,79 @@ describe("editing", () => {
     assert.deepEqual([check.x, check.y, check.color, check.tolerance, check.timeout_ms], [1200, 600, "#AABBCC", 20, 2500]);
   });
 
+  describe("text steps", () => {
+    /** Types `text` into the Text step's field and leaves it. */
+    const setText = (text) =>
+      page.run((text) => {
+        const field = document.querySelector(".editor textarea");
+        field.value = text;
+        field.dispatchEvent(new Event("input", { bubbles: true }));
+        field.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+      }, text);
+    const status = () => page.run(() => document.querySelector(".editor [role=status]")?.textContent.trim() ?? null);
+
+    test("+ Text inserts a Text step at the playhead and saves what's typed in it, as a v3 file", async () => {
+      const before = disk();
+      assert.equal(before.version, 1);
+      await page.run(() => window.__relay.seek(1000));
+      await until(async () => (await page.store("cur")) === 1000, { what: "the playhead" });
+      await page.click("+ Text");
+      const inserted = await saved(before, "the insert");
+      // After the step under the playhead (earlier tests added some here).
+      const empty = inserted.events.find((e) => e.type === "text");
+      assert.ok(empty.t >= 1000, `at ${empty.t}`);
+      assert.deepEqual(empty, { type: "text", t: empty.t, dur: 0, text: "" });
+      assert.equal(inserted.version, 3);
+      // Its editor opened; it shows what the text types now, filled in by Rust.
+      await until(async () => (await status()) === "Types nothing yet", { what: "the empty preview" });
+      await setText("No. {n} on {date}");
+      const after = await saved(inserted, "the text");
+      const text = after.events.find((e) => e.type === "text");
+      // 19 characters to type, 10 ms each.
+      assert.deepEqual(text, { type: "text", t: empty.t, dur: 190, text: "No. {n} on {date}" });
+      const shown = await until(async () => /^Types now: “No/.test((await status()) ?? "") && status(), { what: "the preview" });
+      assert.match(shown, /^Types now: “No\. 1 on \d{4}-\d{2}-\d{2}”$/);
+      // What follows moved back by the step's length.
+      const later = (evs) => evs.filter((e) => e.type === "button" && e.t > empty.t).map((e) => e.t);
+      assert.deepEqual(later(after.events), later(inserted.events).map((t) => t + 190));
+    });
+
+    test("a text with a mistake says what's wrong and isn't saved", async () => {
+      const i = (await steps()).findIndex((s) => s.kind === "text");
+      assert.ok(i >= 0, "the Text step from the test before");
+      const before = disk();
+      await openStep(i);
+      await setText("Hello {name}");
+      await until(async () => (await status())?.includes("{name} isn't a placeholder"), { what: "the mistake" });
+      assert.equal(await status(), "{name} isn't a placeholder: use {date}, {time}, {clipboard} or {n}.");
+      await page.idle(500);
+      assert.deepEqual(disk(), before);
+    });
+
+    test("Make editable turns typing into a Text step over the same time", async () => {
+      const before = disk();
+      const i = (await steps()).findIndex((s) => s.kind === "type");
+      const typed = (await steps())[i];
+      await openStep(i);
+      await page.click("Make editable");
+      const after = await saved(before);
+      const made = (await steps())[i];
+      assert.deepEqual([made.kind, made.t, made.end, made.text], ["text", typed.t, typed.end, typed.text]);
+      assert.deepEqual(after.events.find((e) => e.type === "text" && e.t === typed.t), {
+        type: "text",
+        t: typed.t,
+        dur: typed.end - typed.t,
+        text: typed.text,
+      });
+      // Its key presses are gone; the rest keep their times.
+      const keys = (m) => m.events.filter((e) => e.type === "key" && e.t >= typed.t && e.t <= typed.end);
+      assert.equal(keys(after).length, 0);
+      const outside = (m) => m.events.filter((e) => e.type !== "key" && e.type !== "text").map((e) => e.t);
+      assert.deepEqual(outside(after), outside(before));
+    });
+  });
+
   test("Trim pauses shortens exactly the pauses over a second, to a second, with an Undo", async () => {
     const pausesBefore = (await steps()).map((s) => s.pause);
     const long = pausesBefore.filter((p) => p > 1000).length;

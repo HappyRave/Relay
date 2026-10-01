@@ -106,6 +106,9 @@ pub trait Injector: Send {
     /// Presses or releases a key: by scan code when known, else by virtual
     /// key, else types `ch` as Unicode.
     fn key(&mut self, key: &KeyStroke, down: bool, ch: Option<&str>) -> Result<()>;
+    /// Types `text` as characters, whatever the keyboard layout: a new line
+    /// presses Enter and a tab Tab.
+    fn text(&mut self, text: &str) -> Result<()>;
 }
 
 /// Sleeps with sub-millisecond precision and can be woken early.
@@ -134,12 +137,14 @@ impl std::fmt::Debug for ClipImage {
     }
 }
 
-/// Pictures on the clipboard, and the OS's screen snip.
+/// Pictures and text on the clipboard, and the OS's screen snip.
 pub trait Clipboard: Send + Sync {
     /// A number that changes whenever something is copied.
     fn sequence(&self) -> u32;
     /// The picture on the clipboard, if there is one.
     fn image(&self) -> Option<ClipImage>;
+    /// The text on the clipboard, if there is some.
+    fn text(&self) -> Option<String>;
     /// Opens the OS's overlay for snipping part of the screen, which puts
     /// the snip on the clipboard.
     fn start_snip(&self) -> Result<()>;

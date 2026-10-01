@@ -38,7 +38,7 @@ Some games and anti-cheat software ignore simulated input entirely. Relay can't 
 <details>
 <summary><b>The macro types the wrong characters</b></summary>
 
-Relay replays **physical keys**, like your fingers would. If the keyboard layout is different from when you recorded (AZERTY versus QWERTY, or another input language selected in the taskbar), the same keys type different characters. Switch back to the layout you recorded with, or record the macro again.
+Relay replays **physical keys**, like your fingers would. If the keyboard layout is different from when you recorded (AZERTY versus QWERTY, or another input language selected in the taskbar), the same keys type different characters. Switch back to the layout you recorded with, or record the macro again. Or open the typed text and press **Make editable**: a [Text step](03-editing.md#text-that-changes-each-run) types characters, whatever the layout.
 
 </details>
 

@@ -160,6 +160,13 @@ pub enum Event {
         #[serde(default, skip_serializing_if = "String::is_empty")]
         label: String,
     },
+    /// Types `text` (a template, see [`crate::text`]) during the `dur` it
+    /// lasts; a text that takes longer pushes what follows back.
+    Text {
+        t: Ms,
+        dur: Ms,
+        text: String,
+    },
 }
 
 impl Event {
@@ -171,7 +178,8 @@ impl Event {
             | Event::Key { t, .. }
             | Event::Wait { t, .. }
             | Event::PixelWait { t, .. }
-            | Event::FindImage { t, .. } => *t,
+            | Event::FindImage { t, .. }
+            | Event::Text { t, .. } => *t,
         }
     }
 
@@ -183,16 +191,18 @@ impl Event {
             | Event::Key { t, .. }
             | Event::Wait { t, .. }
             | Event::PixelWait { t, .. }
-            | Event::FindImage { t, .. } => t,
+            | Event::FindImage { t, .. }
+            | Event::Text { t, .. } => t,
         }
     }
 
     /// When the event is over: `t` for instant events, `t + dur` for waits.
     pub fn end(&self) -> Ms {
         match self {
-            Event::Wait { t, dur, .. } | Event::PixelWait { t, dur, .. } | Event::FindImage { t, dur, .. } => {
-                t.saturating_add(*dur)
-            }
+            Event::Wait { t, dur, .. }
+            | Event::PixelWait { t, dur, .. }
+            | Event::FindImage { t, dur, .. }
+            | Event::Text { t, dur, .. } => t.saturating_add(*dur),
             e => e.t(),
         }
     }

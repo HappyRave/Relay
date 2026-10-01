@@ -19,7 +19,7 @@ import type { Panes } from "../lib/ipc/bindings/Panes";
 import type { FoundImage } from "../lib/ipc/bindings/FoundImage";
 import type { IpcError } from "../lib/ipc/backend";
 import type { RunEntry } from "../lib/ipc/bindings/RunEntry";
-import { applyEdit, History } from "./fake-edit";
+import { applyEdit, fillTemplate, History, parseTemplate } from "./fake-edit";
 
 export interface Call {
   cmd: string;
@@ -124,6 +124,10 @@ export class FakeCore {
   picked = { x: 640, y: 360, color: "#00FF00" };
   /** The picture on the clipboard (a base64 PNG, as `paste_image` makes it), or null. */
   clipboard: string | null = null;
+  /** The text on the clipboard, for `{clipboard}`, or null. */
+  clipboardText: string | null = null;
+  /** The local time `preview_text` fills in. */
+  localNow = "2026-10-01T09:05:07";
   /** What `snip_image` returns: the snip, or null when the user cancelled. */
   snip: string | null = null;
   /** Image files for `load_image`, by path: the image, or why it can't be used. */
@@ -174,6 +178,8 @@ export class FakeCore {
     this.pixel = "#123456";
     this.picked = { x: 640, y: 360, color: "#00FF00" };
     this.clipboard = null;
+    this.clipboardText = null;
+    this.localNow = "2026-10-01T09:05:07";
     this.snip = null;
     this.images = new Map();
     this.found = null;
@@ -459,6 +465,12 @@ export class FakeCore {
         check("dotX", a.dotX, "i32");
         check("dotY", a.dotY, "i32");
         return null;
+      case "preview_text": {
+        check("text", a.text, "string");
+        const parsed = parseTemplate(a.text as string);
+        if ("error" in parsed) throw { code: "invalid_text", message: parsed.error } satisfies IpcError;
+        return fillTemplate(a.text as string, 1, this.localNow, this.clipboardText);
+      }
       case "test_find_image":
         check("image", a.image, "png");
         check("threshold", a.threshold, "u8");
@@ -823,6 +835,9 @@ const EDIT_OPS: Record<string, Spec> = {
   set_move_duration: { index: "u32", dur: "u32" },
   smooth_move: { index: "u32" },
   straighten_move: { index: "u32" },
+  insert_text: { at: "u32", text: "string" },
+  update_text: { index: "u32", text: "string" },
+  make_editable: { index: "u32" },
 };
 
 const PANES: Spec = {

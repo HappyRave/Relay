@@ -1,5 +1,5 @@
 //! Groups raw events into the editor's steps (CLICK, DRAG, SCROLL, KEYS,
-//! TYPE, WAIT, IF, MOVE). Every event belongs to at most one step; `items`
+//! TYPE, TEXT, WAIT, IF, MOVE). Every event belongs to at most one step; `items`
 //! lists them so a step can be deleted as a unit. Cursor moves belong to the
 //! press they happen during, or to a MOVE step: the path between two actions.
 
@@ -80,6 +80,11 @@ pub enum StepKind {
         timeout_ms: Ms,
         area: Option<Rect>,
         label: String,
+    },
+    /// Text typed from a template, filled in at play time.
+    Text {
+        dur: Ms,
+        text: String,
     },
     /// The cursor going from `x, y` (where it was before) to `to_x, to_y`,
     /// through `samples` recorded positions.
@@ -418,6 +423,11 @@ pub fn group_steps(events: &[Event], opts: GroupOptions) -> Vec<Step> {
                         label: label.clone(),
                     },
                 );
+                steps[s].end = t.saturating_add(*dur);
+            }
+
+            Event::Text { t, dur, text } => {
+                let s = push(&mut steps, *t, i, StepKind::Text { dur: *dur, text: text.clone() });
                 steps[s].end = t.saturating_add(*dur);
             }
         }

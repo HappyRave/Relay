@@ -112,7 +112,8 @@
   const TYPED_SHOWN = 16;
   const keyOverlay = $derived.by(() => {
     const s = lastStep;
-    if (!s || (s.kind !== "keys" && s.kind !== "type") || cur - s.end >= 900) return null;
+    if (!s || (s.kind !== "keys" && s.kind !== "type" && s.kind !== "text") || cur - s.end >= 900) return null;
+    if (s.kind === "text") return { kind: "Typing", parts: [tail(s.text, TYPED_SHOWN)] };
     if (s.kind === "type") {
       const typed = s.chars.filter((c) => c.t <= cur).map((c) => c.ch).join("");
       // The end of long text: the bar has room for about this much.

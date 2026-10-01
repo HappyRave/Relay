@@ -208,6 +208,7 @@ What automated tests can't cover well:
 - [ ] Each trigger type fires once, and is skipped while busy or locked
 - [ ] An exported program: the window never takes the focus, avoids the corners the macro clicks in, and follows a move to a 150% monitor; the countdown, Stop, Esc, stop on key press and Ctrl+Alt+End (with Relay closed, with Relay running, and with an elevated window in front) all stop it with nothing left pressed; Find image never finds its window; exit codes through `start /wait` and `Start-Process -Wait -PassThru`; a scheduled run on a locked screen exits with 6; SmartScreen on a downloaded copy, and a Windows Defender scan
 - [ ] Find image: **+ Find image** snips (Esc, then Cancel, inserts nothing); Paste a screenshot copied from another app and one from a browser; a Find image step clicks a real button at 100% and 150% scaling, and on a second monitor; *Test* agrees; the image trigger fires when a dialog opens; CPU in Task Manager stays low while a step or trigger waits
+- [ ] Text steps: one with `{date}`, `{time}`, `{n}` and a new line types into Notepad, a browser and an Office app, on an AZERTY layout too; `{clipboard}` types what was copied (several lines, accents, emoji); a long clipboard pushes the next click back; an exported program types them too
 - [ ] Close to tray, Start with Windows (sign out and in), single instance
 - [ ] A 10-minute soak: memory stays flat, timing stats in the log stay under 2 ms p99
 - [ ] The installer installs, upgrades and uninstalls cleanly on a fresh Windows 10 and 11

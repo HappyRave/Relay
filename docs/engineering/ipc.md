@@ -76,6 +76,7 @@ Save and open dialogs are shown by the UI with `@tauri-apps/plugin-dialog`, and 
 | `snip_image` | | Opens Windows' snipping overlay and waits (up to a minute) for the snip on the clipboard: the image, or `null` when cancelled |
 | `cancel_snip` | | Stops a `snip_image` waiting, which then returns `null` |
 | `show_match` | `area, dot_x, dot_y` | Marks a match on the screen for 3 s: a red outline around `area` and a dot, over every window, click-through and out of every capture |
+| `preview_text` | `text` | What a Text step's text would type now, as the first repeat (the local time and the clipboard filled in), or `code: "invalid_text"` with what's wrong |
 | `test_find_image` | `image, threshold, area` | `FoundImage { x, y, w, h, score }`: the best match in screen pixels, its score in percent (even below `threshold`), or `null` when nothing came close. Never inside Relay's window. |
 
 ### Triggers

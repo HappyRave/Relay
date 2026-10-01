@@ -190,6 +190,67 @@ describe("edits, like edit.rs", () => {
     expect(v.steps.find((s) => s.kind === "find_image")).toMatchObject({ area: null });
   });
 
+  test("a Text step lasts as long as its typing: inserted, lengthened by a longer text, retimed and deleted", async () => {
+    const before = core.view(A);
+    let v = await edit({ op: "insert_text", at: 850, text: "No. {n}" });
+    expect(v.steps[2]).toEqual({ kind: "text", t: 911, end: 961, pause: 1, items: [56], dur: 50, text: "No. {n}" });
+    expect(v.steps[3]).toMatchObject({ kind: "move", t: 1166, end: 1800, pause: 205, items: [57, ...v.steps[3].items.slice(1)] });
+    expect(v.steps[18]).toMatchObject({ t: 9660, end: 9700, items: [338, 339] });
+    expect(v.duration).toBe(10200);
+    v = await edit({ op: "update_text", index: 2, text: "x".repeat(70) });
+    expect(v.steps[2]).toMatchObject({ t: 911, end: 1611, dur: 700 });
+    expect(times(v).slice(3, 5)).toEqual([
+      [1816, 2450],
+      [2450, 2510],
+    ]);
+    expect(v.duration).toBe(10850);
+    v = await edit({ op: "update_text", index: 2, text: "{date}" });
+    expect(v.steps[2]).toMatchObject({ dur: 700, text: "{date}" });
+    v = await edit({ op: "set_wait_duration", index: 2, dur: 0 });
+    expect(v.steps[2]).toMatchObject({ dur: 100, end: 1011 });
+    v = await edit({ op: "delete_step", index: 2 });
+    expect(v.steps).toEqual(before.steps);
+    expect(v.duration).toBe(before.duration);
+  });
+
+  test("a Text step with a mistake is refused with Rust's message", async () => {
+    const refused = (text: string, message: string) =>
+      expect(edit({ op: "insert_text", at: 0, text })).rejects.toEqual({ code: "edit_rejected", message });
+    await refused("{name}", "{name} isn't a placeholder: use {date}, {time}, {clipboard} or {n}.");
+    await refused("{Date}", "{Date} isn't a placeholder: use {date}, {time}, {clipboard} or {n}.");
+    await refused("a {date", "A { isn't closed: type {{ for a brace.");
+    await refused("{da{te}", "A { isn't closed: type {{ for a brace.");
+    await refused("a } b", "A } has no { before it: type }} for a brace.");
+    await edit({ op: "insert_text", at: 0, text: "{{n}}" }); // after the first move and click: step 2
+    await expect(edit({ op: "update_text", index: 2, text: "}" })).rejects.toMatchObject({
+      message: "A } has no { before it: type }} for a brace.",
+    });
+    await expect(edit({ op: "update_text", index: 1, text: "x" })).rejects.toMatchObject({ message: "step 1 can't be edited this way" });
+    await expect(edit({ op: "make_editable", index: 1 })).rejects.toMatchObject({ message: "step 1 can't be edited this way" });
+  });
+
+  test("Make editable turns the typing into a Text step over the same time", async () => {
+    const before = core.view(A);
+    const v = await edit({ op: "make_editable", index: 8 }); // “invoice_0924”, 26 key events
+    expect(v.steps[8]).toEqual({ kind: "text", t: 4050, end: 5025, pause: 220, items: [158], dur: 975, text: "invoice_0924" });
+    expect(times(v)).toEqual(times(before));
+    expect(v.steps[9].items.slice(0, 3)).toEqual([159, 160, 161]);
+    expect(v.steps[10].items).toEqual([206, 207]);
+    expect(v.steps[17].items).toEqual([312, 313]);
+    expect(v.duration).toBe(10150);
+  });
+
+  test("preview_text fills in the placeholders as the first repeat would, now", async () => {
+    core.clipboardText = "ACME";
+    expect(await b.previewText("{date} {time} #{n} {clipboard} {{x}}")).toBe("2026-10-01 09:05:07 #1 ACME {x}");
+    core.clipboardText = null;
+    expect(await b.previewText("[{clipboard}]")).toBe("[]");
+    await expect(b.previewText("{when}")).rejects.toEqual({
+      code: "invalid_text",
+      message: "{when} isn't a placeholder: use {date}, {time}, {clipboard} or {n}.",
+    });
+  });
+
   test("arguments Rust can't deserialize are refused", async () => {
     const bad: [EditOp, string][] = [
       [{ op: "set_pause", index: 1, dur: 1.5 }, "invalid type: floating point `1.5`, expected u32"],

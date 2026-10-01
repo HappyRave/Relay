@@ -7,6 +7,7 @@ Relay doesn't show you a thousand raw mouse events. It groups them into **steps*
 - [The step editor](#the-step-editor)
 - [Moves](#moves)
 - [Waits](#waits)
+- [Text that changes each run](#text-that-changes-each-run)
 - [Pauses](#pauses)
 - [Deleting steps](#deleting-steps)
 - [Undo and redo](#undo-and-redo)
@@ -23,6 +24,7 @@ Relay doesn't show you a thousand raw mouse events. It groups them into **steps*
 | `SCROLL` | **Scroll up / down / left / right**, *N notches* | Wheel notches in the same direction, less than 300 ms apart. |
 | `KEYS` | A key combination such as **Ctrl + S**, **Alt + Tab**, **Enter**, **F5** | A key pressed with <kbd>Ctrl</kbd>, <kbd>Alt</kbd> or <kbd>Win</kbd>, or a key that doesn't type a character (arrows, <kbd>Enter</kbd>, <kbd>Tab</kbd>, function keys…). |
 | `TYPE` | Typed text, such as **"invoice_2026"** | Characters typed less than 500 ms apart. Shifted characters and <kbd>AltGr</kbd> characters (like `@` or `€` on many European layouts) are part of the text. |
+| `TEXT` | Text filled in when it plays, such as **"Invoice {date}"** | A [Text step](#text-that-changes-each-run) you inserted, or typed text you made editable. |
 | `WAIT` | **Wait 0.5 s** | A pause you inserted. |
 | `IF` | **Wait for pixel 1248, 680 = #EC3013** | A [pixel check](05-pixel-checks.md) you inserted. |
 | `FIND` | **Find image · OK button** | A [Find image](06-find-image.md) step you inserted: it waits for a picture, then clicks it. |
@@ -42,7 +44,7 @@ Each row shows the **time** the step starts, its **type** tag, what it does and 
 - The row under the playhead is **highlighted**, and rows not yet reached are dimmed. During playback, the list scrolls to follow along.
 - **Click a row** to move the playhead there and open the step editor. Click the row again to close it.
 - A striped line such as **1.4 s pause** above a row marks a long [pause](#pauses) before that step.
-- The bar above the list shows the step count, with **+ Wait**, **+ Pixel check**, **+ Find image** and **Trim pauses**.
+- The bar above the list shows the step count, with **+ Wait**, **+ Text**, **+ Pixel check**, **+ Find image** and **Trim pauses**.
 
 You can only edit while nothing is recording or playing: the buttons are off during a session. The open step editor stays on its step when you insert or delete other steps, or undo.
 
@@ -55,6 +57,8 @@ You can only edit while nothing is recording or playing: the buttons are off dur
 | Every step | **Pause before**: the idle time before the step, in seconds. See [Pauses](#pauses). |
 | Click, drag | **Label**, for example *Save button*. Labels appear in the list and, if **Click labels** is on, in the preview. |
 | Move | **Duration** in seconds, **Smooth** and **Straighten**. See [Moves](#moves). |
+| Typed text | **Make editable**, which turns it into a Text step. |
+| Text | The **Text**, buttons for its placeholders, what it types now, and its **Duration** in seconds. See [Text that changes each run](#text-that-changes-each-run). |
 | Wait | **Duration** in seconds, and a **label**. |
 | Pixel check | **X**, **Y**, **Color**, **Tolerance**, **Timeout** and a **label**, or **Pick** a pixel on screen. See [Pixel checks](05-pixel-checks.md). |
 | Find image | The image (click it where it should be clicked), **Snip**, **Paste** or **File…** to replace it, **Match %**, **Timeout**, **Test**, the button to **Click**, where to **Look** with several monitors, and a **label**. See [Find image](06-find-image.md). |
@@ -87,6 +91,33 @@ Then open the wait to set its length. Making a wait longer or shorter moves ever
 > [!TIP]
 > A wait is fine when an app always takes about the same time. When the delay varies (a page loading, a file exporting), use a [pixel check](05-pixel-checks.md) instead: it waits exactly as long as needed.
 
+## Text that changes each run
+
+A **Text** step types text that's filled in when the macro plays: an invoice number, today's date, what you copied. Make one in either of two ways:
+
+- **+ Text** inserts an empty Text step after the step under the playhead, like **+ Wait**, and opens it.
+- **Make editable**, in the editor of a typed text (`TYPE`), turns it into a Text step that types the same text, over the same time.
+
+Type the text in the **Text** field. These placeholders are filled in each time it plays:
+
+| Placeholder | Types | For example |
+| --- | --- | --- |
+| `{date}` | Today's date | `2026-10-01` |
+| `{time}` | The time, to the second | `14:05:09` |
+| `{clipboard}` | The text on the clipboard, or nothing if there's none | `ACME Ltd` |
+| `{n}` | Which repeat this is, from 1 | `3` |
+
+The buttons under the field put a placeholder where the cursor is. To type a brace itself, double it: `{{` types `{` and `}}` types `}`.
+
+The line under the buttons shows what the text would type right now, as the first repeat: *Types now: "Invoice 2026-10-01"*. A mistake, like `{name}` or a `{` that isn't closed, shows there instead, and the text isn't saved until you fix it.
+
+When it plays, the text is typed as characters, one about every 10 ms, rather than as key presses, so it comes out the same whatever the keyboard layout. A new line presses <kbd>Enter</kbd> and a tab presses <kbd>Tab</kbd>.
+
+A Text step lasts at least as long as typing it takes: about 10 ms a character, counting `{date}` as 10 characters, `{time}` as 8 and the clipboard as none. Make it longer with its **Duration**, and everything after it moves later, as with a wait. If the text turns out longer when it plays (a long clipboard), what follows waits until it's typed.
+
+> [!NOTE]
+> A macro with a Text step needs this version of Relay to open. Macros without one still open in older versions.
+
 ## Pauses
 
 A **pause** is the time between two steps when nothing happened while you recorded: you were reading the screen or waiting for a window, with the mouse still. Moving the mouse isn't a pause: that's a [move](#moves). Pauses longer than a second are marked in the steps list, like **1.4 s pause**.
@@ -104,7 +135,7 @@ A pause is different from a [wait](#waits): a wait is a step you added on purpos
 
 Hover a row and click its **×**. The whole step goes: a click's press and release, all the characters of a typed text, the keys of a combination with their modifiers.
 
-- Deleting a **wait**, a **pixel check** or a **Find image** step also removes its time, so the rest of the macro moves earlier.
+- Deleting a **wait**, a **Text** step, a **pixel check** or a **Find image** step also removes its time, so the rest of the macro moves earlier.
 - Deleting any other step leaves the timing of the rest alone. Deleting a **move** makes the cursor jump straight to the next step's position when it plays; the moves on either side of a deleted click join into one.
 - Relay makes sure nothing stays pressed. If you delete a press, its release goes too.
 
@@ -112,7 +143,7 @@ After you delete a step, the message at the bottom of the panel has an **Undo** 
 
 ## Undo and redo
 
-Every change you make to a macro (deleting, inserting, pauses, waits, moves, pixel checks, Find image steps, labels, the name) can be undone:
+Every change you make to a macro (deleting, inserting, pauses, waits, moves, Text steps, pixel checks, Find image steps, labels, the name) can be undone:
 
 | To… | Press |
 | --- | --- |
@@ -129,7 +160,7 @@ Every change you make to a macro (deleting, inserting, pauses, waits, moves, pix
 The left side of the editor draws the macro over your whole screen: all your monitors, whatever the size of the pane. **Scroll** over it to zoom in on a part, **drag** to move around, and **double-click** (or click **Fit** in the bar) to see it all again. Nothing is written over the drawing: a **bar above it** shows, from left to right:
 
 - The **mode**: *Preview*, *Get ready*, *● Rec*, *Playing* or *Paused*, and while playing, the loop and speed (*Loop 1 / 3 · 1×*).
-- **Keys** or **Typing**: the key combination or the text being typed at that moment (the end of it, for long text).
+- **Keys** or **Typing**: the key combination or the text being typed at that moment (the end of it, for long text). For a Text step, its text as you wrote it, placeholders included.
 - The **step under the playhead**, named as in the steps list (*Step 4 · Double click · Filename field*), *Waiting for pixel X, Y* while a pixel check waits, or *Looking for the image* while a Find image step does.
 - **Fit**, while zoomed in, with the zoom (*250% · Fit*): shows the whole screen again.
 - **Screen | Sketch**: what the macro is drawn over (see below).
@@ -156,7 +187,7 @@ The timeline at the bottom shows the whole macro in four lanes:
 | --- | --- |
 | **Mouse** | When the mouse moves: a bar for each [move](#moves) and drag |
 | **Clicks** | A tick for each click |
-| **Keys** | Key combinations and typed text, with their labels |
+| **Keys** | Key combinations, typed text and Text steps, with their labels |
 | **Logic** | Waits, pixel checks (`IF`) and Find image steps (`FIND`) |
 
 [Pauses](#pauses), when nothing happens, are striped across all four lanes, however short. While you record, the Mouse lane follows the live cursor path, and pauses show once you stop.

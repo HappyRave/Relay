@@ -64,6 +64,8 @@ export interface Backend {
   testFindImage(image: string, threshold: number, area: Rect | null): Promise<FoundImage | null>;
   /** Marks a match on the screen for a few seconds: an outline around `area`, a dot where it's clicked. */
   showMatch(area: Rect, dotX: number, dotY: number): Promise<void>;
+  /** What a Text step's text would type now; rejects one with a mistake, saying what to do. */
+  previewText(text: string): Promise<string>;
   getTriggers(id: string): Promise<TriggerStatus>;
   /** Rejects a hotkey that clashes with Relay's own or another macro's. */
   setTriggers(id: string, triggers: MacroTriggers): Promise<TriggerStatus>;
@@ -135,6 +137,7 @@ export const tauriBackend: Backend = {
   cancelSnip: () => invoke("cancel_snip"),
   testFindImage: (image, threshold, area) => invoke("test_find_image", { image, threshold, area }),
   showMatch: (area, dotX, dotY) => invoke("show_match", { area, dotX, dotY }),
+  previewText: (text) => invoke("preview_text", { text }),
   getTriggers: (id) => invoke("get_triggers", { id }),
   setTriggers: (id, triggers) => invoke("set_triggers", { id, triggers }),
   setTriggersPaused: (paused) => invoke("set_triggers_paused", { paused }),
@@ -353,6 +356,7 @@ export function browserBackend(): Backend {
     cancelSnip: async () => {},
     testFindImage: async () => unavailable(),
     showMatch: async () => {},
+    previewText: async () => unavailable(),
     // Triggers only live in memory here, so the tab can be tried out.
     getTriggers: async (id) => {
       await ready; // the sample hotkeys come from the fixture

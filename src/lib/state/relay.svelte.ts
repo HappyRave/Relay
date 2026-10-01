@@ -749,6 +749,32 @@ export class RelayStore {
 
   insertWait = () => this.edit({ op: "insert_wait", at: Math.round(this.cur), dur: 500, label: "Inserted" });
 
+  /** Inserts an empty Text step at the playhead and opens its editor. */
+  insertText = async () => {
+    const at = Math.round(this.cur);
+    const before = this.view;
+    await this.edit({ op: "insert_text", at, text: "" });
+    if (!this.view || this.view === before) return;
+    // Inserted just after the step under the playhead: the first empty one from there.
+    const i = this.view.steps.findIndex((s) => s.kind === "text" && s.text === "" && s.t >= at);
+    if (i >= 0) this.selected = i;
+  };
+
+  /** Changes what Text step `index` types. */
+  updateText = (index: number, text: string) => this.edit({ op: "update_text", index, text });
+
+  /** Turns TYPE step `index` into a Text step typing the same. */
+  makeEditable = (index: number) => this.edit({ op: "make_editable", index });
+
+  /** What a Text step's `text` would type now, or why it can't be typed. */
+  previewText = async (text: string): Promise<{ text: string } | { error: string }> => {
+    try {
+      return { text: await this.backend.previewText(text) };
+    } catch (e) {
+      return { error: (e as IpcError)?.message ?? String(e) };
+    }
+  };
+
   /** Inserts a check at the playhead for the pixel under the macro's cursor, in its current color. */
   insertPixelCheck = async () => {
     if (!this.view || this.mode !== "idle") return;

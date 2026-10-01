@@ -84,7 +84,7 @@ If you deleted the macro that was open, Relay opens the next one in the list.
 An export contains the macro's events, its playback options and a little about the PC it was recorded on (monitor layout, the window it was anchored to). It includes the pictures its [Find image](06-find-image.md) steps look for. It doesn't contain its triggers, run count or last run: those stay on your PC.
 
 > [!WARNING]
-> A macro contains everything you typed while recording it, and so does a program exported from it. Check the `TYPE` steps before sharing a macro file or a program.
+> A macro contains everything you typed while recording it, and so does a program exported from it. Check the `TYPE` and `TEXT` steps before sharing a macro file or a program.
 
 ## Exported programs
 
@@ -93,7 +93,7 @@ A macro exported as a **Standalone program** is an `.exe` that plays it on any W
 <p align="center"><img src="../images/player.png" alt="An exported program playing, in the bottom-right corner of the screen" width="400"></p>
 
 1. A small window opens in a corner of the screen (one the macro doesn't click in) and counts down **3, 2, 1**. Use those seconds to click into the app the macro works in: the window never takes the focus.
-2. The macro plays with the playback options saved with it: speed, repeats, *Humanize*, *Stop on key press* and *Window* coordinates. The window shows the time, the loop and a progress bar.
+2. The macro plays with the playback options saved with it: speed, repeats, *Humanize*, *Stop on key press* and *Window* coordinates. The window shows the time, the loop and a progress bar. [Text steps](03-editing.md#text-that-changes-each-run) fill in the date, the time and the clipboard of the PC it plays on.
 3. When it's done, the window says *Done* and closes by itself.
 
 Stop it with the window's **Stop** button, <kbd>Esc</kbd>, or the <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd> kill switch (or any key, if the macro stops on a key press). Anything it was holding is released. Drag the window by its text to move it.
@@ -139,7 +139,7 @@ In a script, wait for it to end: `start /wait export-invoice.exe --quiet` in `cm
 ## Import
 
 1. Open the **Library** tab and press **Import…** at the bottom (it's off while recording or playing).
-2. Pick one or more `.rly` or `.json` files, or programs exported by Relay (`.exe`: Relay reads the macro back out of them). Relay can read files from any version of Relay up to its own. (A macro with Find image steps needs Relay 1.4 or later; older versions say it was saved by a newer Relay.)
+2. Pick one or more `.rly` or `.json` files, or programs exported by Relay (`.exe`: Relay reads the macro back out of them). Relay can read files from any version of Relay up to its own. (A macro with Find image steps needs Relay 1.4 or later, and one with Text steps Relay 1.5 or later; older versions say it was saved by a newer Relay.)
 
 Imported macros go to the top of the Library, and the first one opens. Relay then tells you *Imported 3 macros*, or what went wrong with each file that didn't work:
 
