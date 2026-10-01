@@ -13,6 +13,7 @@ use crate::keys::KeyStroke;
 use crate::model::{Event, ImagePng, Macro, MouseBtn, Ms, Rect, Rgb};
 use crate::path;
 use crate::steps::{Step, StepKind, group_steps};
+use crate::text::{self, TemplateError};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(tag = "op", rename_all = "snake_case")]
@@ -101,6 +102,23 @@ pub enum EditOp {
     StraightenMove {
         index: u32,
     },
+    /// Inserts a Text step typing `text` (a template, see [`text`]), lasting
+    /// as long as typing it takes.
+    InsertText {
+        at: Ms,
+        text: String,
+    },
+    /// Changes what a Text step types; it lasts longer if typing the new
+    /// text takes longer, and what follows moves with it.
+    UpdateText {
+        index: u32,
+        text: String,
+    },
+    /// Turns a TYPE step into a Text step typing the same text, over the
+    /// same time.
+    MakeEditable {
+        index: u32,
+    },
 }
 
 #[derive(Debug, Error, PartialEq)]
@@ -109,6 +127,8 @@ pub enum EditError {
     NoSuchStep(u32),
     #[error("step {0} can't be edited this way")]
     WrongKind(u32),
+    #[error(transparent)]
+    Text(#[from] TemplateError),
 }
 
 pub fn apply(m: &mut Macro, op: EditOp) -> Result<(), EditError> {
@@ -132,8 +152,10 @@ pub fn apply(m: &mut Macro, op: EditOp) -> Result<(), EditError> {
                 keep
             });
             // Deleting a wait closes the gap it left.
-            if let StepKind::Wait { dur, .. } | StepKind::PixelWait { dur, .. } | StepKind::FindImage { dur, .. } =
-                step.kind
+            if let StepKind::Wait { dur, .. }
+            | StepKind::PixelWait { dur, .. }
+            | StepKind::FindImage { dur, .. }
+            | StepKind::Text { dur, .. } = step.kind
             {
                 shift_from(&mut m.events, step.end, -(dur as i64));
             }
@@ -177,26 +199,59 @@ pub fn apply(m: &mut Macro, op: EditOp) -> Result<(), EditError> {
 
         EditOp::SetWaitDuration { index, dur: new } => {
             let step = get(index)?;
-            let item = step.items[0] as usize;
             let (StepKind::Wait { dur: old, .. }
             | StepKind::PixelWait { dur: old, .. }
-            | StepKind::FindImage { dur: old, .. }) = step.kind
+            | StepKind::FindImage { dur: old, .. }
+            | StepKind::Text { dur: old, .. }) = step.kind
             else {
                 return Err(EditError::WrongKind(index));
             };
-            let new = new.min(MAX_DUR);
-            // Everything after the wait in the list moves: nothing happens
-            // during a wait, so those are exactly the events after it in time.
-            let delta = new as i64 - old as i64;
-            for e in &mut m.events[item + 1..] {
-                let t = e.t_mut();
-                *t = (*t as i64 + delta).clamp(0, Ms::MAX as i64) as Ms;
+            let least = match &step.kind {
+                StepKind::Text { text, .. } => text::typing_ms(text),
+                _ => 0,
+            };
+            set_duration(&mut m.events, step.items[0] as usize, old, new.clamp(least.min(MAX_DUR), MAX_DUR));
+        }
+
+        EditOp::InsertText { at, text } => {
+            text::validate(&text)?;
+            let dur = text::typing_ms(&text).min(MAX_DUR);
+            insert_timed(&mut m.events, &steps, at, dur, |t| Event::Text { t, dur, text });
+        }
+
+        EditOp::UpdateText { index, text: new } => {
+            let step = get(index)?;
+            let StepKind::Text { dur, .. } = step.kind else {
+                return Err(EditError::WrongKind(index));
+            };
+            text::validate(&new)?;
+            let item = step.items[0] as usize;
+            set_duration(&mut m.events, item, dur, dur.max(text::typing_ms(&new).min(MAX_DUR)));
+            if let Event::Text { text, .. } = &mut m.events[item] {
+                *text = new;
             }
-            if let Event::Wait { dur, .. } | Event::PixelWait { dur, .. } | Event::FindImage { dur, .. } =
-                &mut m.events[item]
-            {
-                *dur = new;
-            }
+        }
+
+        EditOp::MakeEditable { index } => {
+            let step = get(index)?;
+            let StepKind::Type { text: typed, .. } = &step.kind else {
+                return Err(EditError::WrongKind(index));
+            };
+            let text = text::escape(typed);
+            let span = step.end - step.t;
+            let dur = span.max(text::typing_ms(&text).min(MAX_DUR));
+            let remove: HashSet<u32> = step.items.iter().copied().collect();
+            let mut i = 0u32;
+            m.events.retain(|_| {
+                let keep = !remove.contains(&i);
+                i += 1;
+                keep
+            });
+            shift_from(&mut m.events, step.end.saturating_add(1), (dur - span) as i64);
+            let pos = m.events.partition_point(|e| e.t() <= step.t);
+            m.events.insert(pos, Event::Text { t: step.t, dur, text });
+            // What happened while typing (the cursor moving) waits for the text.
+            normalize(&mut m.events);
         }
 
         EditOp::UpdatePixelWait { index, x: nx, y: ny, color: nc, tolerance: nt, timeout_ms: no } => {
@@ -297,6 +352,24 @@ pub fn apply(m: &mut Macro, op: EditOp) -> Result<(), EditError> {
 /// The longest wait or pause an edit may set (a day), so times stay far
 /// from overflowing.
 pub const MAX_DUR: Ms = 24 * 60 * 60 * 1000;
+
+/// Makes the wait-like event at `item` last `new` instead of `old`.
+/// Everything after it in the list moves: nothing happens during a wait, so
+/// those are exactly the events after it in time.
+fn set_duration(events: &mut [Event], item: usize, old: Ms, new: Ms) {
+    let delta = new as i64 - old as i64;
+    for e in &mut events[item + 1..] {
+        let t = e.t_mut();
+        *t = (*t as i64 + delta).clamp(0, Ms::MAX as i64) as Ms;
+    }
+    if let Event::Wait { dur, .. }
+    | Event::PixelWait { dur, .. }
+    | Event::FindImage { dur, .. }
+    | Event::Text { dur, .. } = &mut events[item]
+    {
+        *dur = new;
+    }
+}
 
 /// Moves a MOVE step's samples onto the path `f` makes of it. The path
 /// starts where the cursor was before the move, which stays put, as does the
@@ -413,7 +486,7 @@ pub fn normalize(events: &mut Vec<Event>) {
         {
             *e.t_mut() = end;
         }
-        if matches!(e, Event::Wait { .. } | Event::PixelWait { .. } | Event::FindImage { .. }) {
+        if matches!(e, Event::Wait { .. } | Event::PixelWait { .. } | Event::FindImage { .. } | Event::Text { .. }) {
             wait_end = Some(e.end());
         }
     }
@@ -471,7 +544,7 @@ pub fn check_invariants(events: &[Event]) -> Result<(), String> {
         {
             return Err(format!("{e:?} happens during the wait at {start}..{end}"));
         }
-        if matches!(e, Event::Wait { .. } | Event::PixelWait { .. } | Event::FindImage { .. }) {
+        if matches!(e, Event::Wait { .. } | Event::PixelWait { .. } | Event::FindImage { .. } | Event::Text { .. }) {
             wait = Some((e.t(), e.end()));
         }
     }
@@ -993,6 +1066,94 @@ mod tests {
         assert_eq!(s.len(), 1);
         assert_eq!(s[0].kind, StepKind::Keys { combo: vec!["Ctrl".into(), "V".into()] });
         assert_eq!(s[0].items, vec![0, 1, 2, 3], "and the Ctrl is now V's alone");
+    }
+
+    /// "Hi" typed with Shift for the H, from 1000 to 1300.
+    fn typed_hi() -> Vec<Event> {
+        let ch = |t, code: &str, c: &str| Event::Key { t, down: true, key: KeyStroke::code(code), ch: Some(c.into()) };
+        vec![
+            key(1000, "ShiftLeft", true),
+            ch(1050, "KeyH", "H"),
+            key(1100, "KeyH", false),
+            key(1120, "ShiftLeft", false),
+            ch(1250, "KeyI", "i"),
+            key(1300, "KeyI", false),
+        ]
+    }
+
+    #[test]
+    fn a_text_step_is_inserted_as_long_as_typing_it_takes() {
+        let mut m = mac([click(0), click(1000)].concat());
+        apply(&mut m, EditOp::InsertText { at: 0, text: "No. {n}".into() }).unwrap();
+        let s = steps(&m);
+        assert_eq!(s[1].kind, StepKind::Text { dur: 50, text: "No. {n}".into() });
+        assert_eq!((s[1].t, s[1].end), (81, 131));
+        assert_eq!(m.events.iter().map(Event::t).collect::<Vec<_>>(), [0, 80, 81, 1050, 1130]);
+        check_invariants(&m.events).unwrap();
+        apply(&mut m, EditOp::DeleteStep { index: 1 }).unwrap();
+        assert_eq!(m.events, mac([click(0), click(1000)].concat()).events, "deleting it closes the gap");
+    }
+
+    #[test]
+    fn a_text_with_a_mistake_is_refused() {
+        let mut m = mac(click(0).to_vec());
+        let before = m.events.clone();
+        let refused = apply(&mut m, EditOp::InsertText { at: 0, text: "{name}".into() });
+        assert_eq!(refused, Err(EditError::Text(TemplateError::Unknown("name".into()))));
+        assert_eq!(
+            refused.unwrap_err().to_string(),
+            "{name} isn't a placeholder: use {date}, {time}, {clipboard} or {n}."
+        );
+        assert_eq!(m.events, before);
+    }
+
+    #[test]
+    fn updating_a_text_lengthens_its_step_only_when_typing_takes_longer() {
+        let mut m = mac([vec![Event::Text { t: 0, dur: 500, text: "a".into() }], click(500).to_vec()].concat());
+        apply(&mut m, EditOp::UpdateText { index: 0, text: "{date}".into() }).unwrap();
+        assert_eq!(m.events[0], Event::Text { t: 0, dur: 500, text: "{date}".into() });
+        let long = "x".repeat(70);
+        apply(&mut m, EditOp::UpdateText { index: 0, text: long.clone() }).unwrap();
+        assert_eq!(m.events[0], Event::Text { t: 0, dur: 700, text: long });
+        assert_eq!(m.events[1].t(), 700, "what follows moves with it");
+        assert_eq!(
+            apply(&mut m, EditOp::UpdateText { index: 0, text: "}".into() }),
+            Err(EditError::Text(TemplateError::Unopened))
+        );
+        assert_eq!(apply(&mut m, EditOp::UpdateText { index: 1, text: "b".into() }), Err(EditError::WrongKind(1)));
+        // Its duration can be set like a wait's, but not below the typing.
+        apply(&mut m, EditOp::SetWaitDuration { index: 0, dur: 2000 }).unwrap();
+        assert_eq!(m.events[1].t(), 2000);
+        apply(&mut m, EditOp::SetWaitDuration { index: 0, dur: 0 }).unwrap();
+        assert!(matches!(m.events[0], Event::Text { dur: 700, .. }));
+        assert_eq!(m.events[1].t(), 700);
+    }
+
+    #[test]
+    fn make_editable_turns_typing_into_a_text_step_over_the_same_time() {
+        let mut m = mac([click(0).to_vec(), typed_hi(), click(2000).to_vec()].concat());
+        let s = steps(&m);
+        assert!(matches!(&s[1].kind, StepKind::Type { text, .. } if text == "Hi"));
+        apply(&mut m, EditOp::MakeEditable { index: 1 }).unwrap();
+        assert_eq!(m.events[2], Event::Text { t: 1000, dur: 300, text: "Hi".into() });
+        assert_eq!(m.events.iter().map(Event::t).collect::<Vec<_>>(), [0, 80, 1000, 2000, 2080], "nothing else moves");
+        check_invariants(&m.events).unwrap();
+        assert_eq!(apply(&mut m, EditOp::MakeEditable { index: 1 }), Err(EditError::WrongKind(1)));
+    }
+
+    #[test]
+    fn make_editable_keeps_braces_typed_and_makes_room_for_fast_typing() {
+        let ch = |t, c: &str| Event::Key { t, down: true, key: KeyStroke::code("KeyX"), ch: Some(c.into()) };
+        let fast = vec![ch(0, "{"), key(2, "KeyX", false), ch(4, "}"), key(6, "KeyX", false)];
+        let mut m = mac([fast, vec![Event::Move { t: 3, x: 1, y: 1 }], click(100).to_vec()].concat());
+        normalize(&mut m.events);
+        apply(&mut m, EditOp::MakeEditable { index: 0 }).unwrap();
+        // 6 ms of typing becomes the 20 ms that typing "{}" takes, pushing the click back.
+        assert_eq!(m.events[0], Event::Text { t: 0, dur: 20, text: "{{}}".into() });
+        assert_eq!(crate::text::fill("{{}}", 1, Default::default(), || None), "{}");
+        let ts: Vec<_> = m.events.iter().map(Event::t).collect();
+        assert_eq!(ts, [0, 20, 114, 194], "the cursor moving during the typing waits for it");
+        check_invariants(&m.events).unwrap();
     }
 
     #[test]

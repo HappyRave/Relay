@@ -16,6 +16,7 @@ pub mod runlog;
 pub mod schedule;
 pub mod session;
 pub mod steps;
+pub mod text;
 pub mod timeline;
 pub mod triggers;
 pub mod view;

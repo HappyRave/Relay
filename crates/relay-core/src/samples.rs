@@ -296,6 +296,7 @@ mod tests {
             StepKind::Wait { dur, label } => format!("WAIT {dur} {label}"),
             StepKind::PixelWait { label, .. } => format!("IF {label}"),
             StepKind::FindImage { label, .. } => format!("FIND {label}"),
+            StepKind::Text { text, .. } => format!("TEXT {text}"),
             StepKind::Move { .. } => "MOVE".into(),
         }
     }

@@ -3,8 +3,9 @@
 //! Loading parses into a JSON value first, runs the migration chain up to
 //! [`VERSION`], then deserializes. Files from a newer Relay are rejected.
 //!
-//! v2 only adds the `find_image` event, so a macro without one is still
-//! written as v1, which older Relays read.
+//! v2 only adds the `find_image` event and v3 the `text` event, so a macro
+//! is written with the oldest version that has its events, which older
+//! Relays read.
 //!
 //! An exported program is the player's exe with the `.rly` appended, then a
 //! trailer: its length (u64 LE), [`BUNDLE_VERSION`] (u32 LE) and
@@ -22,7 +23,7 @@ use crate::model::{Event, Macro, PlaybackOptions, RecordingMeta};
 use crate::steps::{Step, group_steps};
 
 pub const FORMAT: &str = "relay-macro";
-pub const VERSION: u64 = 2;
+pub const VERSION: u64 = 3;
 /// The last 8 bytes of an exported program.
 pub const BUNDLE_MAGIC: &[u8; 8] = b"RELAYRLY";
 pub const BUNDLE_VERSION: u32 = 1;
@@ -53,7 +54,14 @@ struct Envelope<'a> {
 
 impl<'a> Envelope<'a> {
     fn new(body: &'a Macro, steps: Option<Vec<Step>>) -> Self {
-        let version = if body.events.iter().any(|e| matches!(e, Event::FindImage { .. })) { VERSION } else { 1 };
+        let has = |f: fn(&Event) -> bool| body.events.iter().any(f);
+        let version = if has(|e| matches!(e, Event::Text { .. })) {
+            3
+        } else if has(|e| matches!(e, Event::FindImage { .. })) {
+            2
+        } else {
+            1
+        };
         Envelope { format: FORMAT, version, body, steps }
     }
 }
@@ -139,8 +147,8 @@ pub fn from_file(bytes: &[u8]) -> Result<Macro, FormatError> {
 fn migrate(from: u64, obj: &mut Map<String, Value>) -> Result<(), FormatError> {
     match from {
         0 => migrate_v0(obj),
-        // v2 added an event type: v1 files are v2 files as they are.
-        1 => Ok(()),
+        // v2 and v3 each added an event type: older files are newer ones as they are.
+        1 | 2 => Ok(()),
         _ => Err(FormatError::Invalid(format!("no migration from version {from}"))),
     }
 }
@@ -369,6 +377,40 @@ mod tests {
         assert!(e.contains("invalid image"), "{e}");
         let old = text.replace(r#""version":2,"#, r#""version":1,"#);
         assert_eq!(from_rly(&old).unwrap(), m, "no migration needed");
+    }
+
+    #[test]
+    fn a_macro_that_types_text_is_v3_and_round_trips() {
+        let mut m = fixed_macro();
+        m.events.push(Event::Text { t: 1500, dur: 400, text: "Invoice {date} {{draft}} #{n}\n".into() });
+        let text = to_rly(&m);
+        assert!(text.contains(r#""version":3,"#), "{text}");
+        assert!(
+            text.contains(r#"{"type":"text","t":1500,"dur":400,"text":"Invoice {date} {{draft}} #{n}\n"}"#),
+            "{text}"
+        );
+        assert_eq!(from_rly(&text).unwrap(), m);
+        assert_eq!(from_rly(&to_export_json(&m)).unwrap(), m);
+        let png = crate::image::Rgb8 { w: 4, h: 4, px: vec![200; 48] }.encode_png();
+        m.events.push(Event::FindImage {
+            t: 2000,
+            dur: 800,
+            image: ImagePng(png),
+            click_x: 2,
+            click_y: 2,
+            btn: MouseBtn::Left,
+            threshold: 85,
+            timeout_ms: 5000,
+            area: None,
+            label: String::new(),
+        });
+        assert!(to_rly(&m).contains(r#""version":3,"#), "the newest event decides");
+        for old in [1, 2] {
+            let older = text.replace(r#""version":3,"#, &format!(r#""version":{old},"#));
+            assert!(from_rly(&older).is_ok(), "no migration needed from v{old}");
+        }
+        let exe = bundle(STUB, &m);
+        assert_eq!(from_file(&exe).unwrap(), m);
     }
 
     /// Something shaped like the player: an MZ header and some bytes.
