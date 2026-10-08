@@ -11,6 +11,7 @@ use crate::edit::{EditError, EditOp, MAX_DUR, apply, check_invariants};
 use crate::keys::KeyStroke;
 use crate::model::{Event, ImagePng, Macro, MouseBtn, Ms, RecordingMeta, Rgb};
 use crate::playback::plan_times;
+use crate::splice::Splice;
 use crate::steps::{GroupOptions, Step, StepKind, group_steps};
 use crate::text;
 use crate::timeline::duration;
@@ -518,6 +519,29 @@ proptest! {
             } else {
                 prop_assert_eq!(&m.events, &before, "a failed edit changes nothing");
             }
+        }
+    }
+
+    #[test]
+    fn every_edit_undoes_and_redoes_from_its_splice((events, ops) in macro_and_edits()) {
+        let mut m = Macro::new("p", RecordingMeta::single_1080p(), events);
+        let mut history = Vec::new();
+        for op in ops {
+            let before = m.events.clone();
+            if apply(&mut m, op).is_ok() {
+                history.push((Splice::between(&before, &m.events), before, m.events.clone()));
+            }
+        }
+        // Undo all of them, newest first, then redo them all.
+        let mut redo = Vec::new();
+        for (splice, before, after) in history.into_iter().rev() {
+            prop_assert_eq!(&m.events, &after);
+            redo.push((splice.revert(&mut m.events), after));
+            prop_assert_eq!(&m.events, &before);
+        }
+        for (splice, after) in redo.into_iter().rev() {
+            splice.revert(&mut m.events);
+            prop_assert_eq!(&m.events, &after);
         }
     }
 
