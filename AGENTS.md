@@ -244,7 +244,7 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 - **Authorized:** pushing branches to `HappyRave/Relay`, and opening, updating, marking ready and merging PRs (following the rule above). Never push to `main` directly; the ruleset refuses it anyway.
 - **CI** (`.github/workflows/ci.yml`), on pull requests to `main`:
   - **quick** (Linux, every push, drafts too): fmt, tests and clippy for `relay-core`, `relay-platform`, `relay-playback` and `relay-player` (they must stay portable), `npm run check`, `npm test`. It also decides whether the PR changes more than docs (`docs/**`, `*.md`).
-  - **windows** (ready PRs that change code, after `quick` passes): `cargo test`, generated files up to date, clippy, `npx tauri build`, upload the installer, then the E2E suites against the release build. If E2E fails, `e2e/ci-diagnose.mjs` reports WebView2 details as annotations.
+  - **windows** (ready PRs that change code, after `quick` passes): `cargo test`, the AutoHotkey exports its tests write loaded by a pinned AutoHotkey with `/Validate` (syntax only, never run), generated files up to date, clippy, `npx tauri build`, upload the installer, then the E2E suites against the release build. If E2E fails, `e2e/ci-diagnose.mjs` reports WebView2 details as annotations.
   - **msrv** (same condition): `cargo check` with Rust 1.95.
   - A skipped job counts as a passed check, so docs-only PRs merge after `quick`. A newer push cancels the PR's run in progress. *Actions → CI → Run workflow* runs everything on any branch by hand.
 - **Checking an E2E fix:** `.github/workflows/e2e.yml` builds the release app and runs only some E2E tests, in about ten minutes: `gh workflow run e2e.yml --ref <branch> -f suites="triggers" -f tests="<name regex>"`, then `gh run watch`. It runs on what the branch has on GitHub, so push the fix first: to a draft PR (`gh pr ready --undo`), where a push runs only `quick`. Once it passes, `gh pr ready` runs the full CI, which merging still needs. It's never a required check.
@@ -313,7 +313,7 @@ Not fixed yet; each is a candidate task:
 - **Real-input paths** are on the manual checklist only (see [Testing](#testing)).
 - **Dead keys:** a dead key alone records as a KEYS step, and the following letter records unaccented ("e", not "ê"). It's display only, and pinned by a test.
 - **Exported programs aren't signed**, and can't be: appending the macro to the player would break a signature. SmartScreen warns on a downloaded one, and an antivirus may flag it.
-- **AutoHotkey scripts aren't run by any test** (AutoHotkey isn't on the CI runner): the generator is pinned by a snapshot, and the scripts need a try by hand.
+- **AutoHotkey scripts aren't run by any test** (they'd click on the desktop): CI only checks their syntax (`/Validate`), so what they do needs a try by hand. The AutoHotkey version CI downloads is pinned with its SHA-256 in `ci.yml`; update both together.
 - **Roadmap:** code signing, monitor remapping, other OS backends.
 
 ## Working with the maintainer

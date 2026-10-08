@@ -70,6 +70,32 @@ jobs:
       - run: npm ci
       - name: Rust tests (also regenerates the TS bindings and browser fixture)
         run: cargo test --workspace
+        env:
+          # The AutoHotkey export's tests write their scripts here, for the next step.
+          RELAY_AHK_DIR: ${{ github.workspace }}/target/ahk
+      - name: AutoHotkey exports load without errors (checked, never run)
+        shell: pwsh
+        run: |
+          $zip = "$env:RUNNER_TEMP\ahk.zip"
+          Invoke-WebRequest https://github.com/AutoHotkey/AutoHotkey/releases/download/v2.0.28/AutoHotkey_2.0.28.zip -OutFile $zip
+          $sha = "b63be7548792b4ad0dfe424d91cc69376694ed2f758245b7a75a0c77d693b478"
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne $sha) { Write-Output "::error::AutoHotkey's download isn't the expected file"; exit 1 }
+          Expand-Archive $zip "$env:RUNNER_TEMP\ahk"
+          $scripts = @(Get-ChildItem target/ahk/*.ahk)
+          if ($scripts.Count -eq 0) { Write-Output "::error::The tests wrote no scripts to check"; exit 1 }
+          $failed = 0
+          foreach ($f in $scripts) {
+            $log = "$env:RUNNER_TEMP\$($f.BaseName).log"
+            # /Validate loads the script and exits without running it.
+            $p = Start-Process "$env:RUNNER_TEMP\ahk\AutoHotkey64.exe" -ArgumentList "/ErrorStdOut", "/Validate", "`"$($f.FullName)`"" -Wait -PassThru -NoNewWindow -RedirectStandardOutput $log
+            if ($p.ExitCode -ne 0) {
+              $failed++
+              Write-Output "::error title=AutoHotkey export::$($f.Name): $((Get-Content $log -Raw) -replace '\r?\n', ' ')"
+            } else {
+              Write-Output "$($f.Name): OK"
+            }
+          }
+          if ($failed) { exit 1 }
       - name: Generated files are up to date
         shell: bash
         run: |

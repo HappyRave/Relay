@@ -164,7 +164,7 @@ Play(N) {
 - **Find image** steps carry their picture inside the script. AutoHotkey's `ImageSearch` compares pixels rather than shapes: it finds the picture only at the size it was taken, and less forgivingly than Relay. The threshold becomes its color variation (85 % allows 30 levels).
 
 > [!NOTE]
-> Relay doesn't run the scripts it writes in its tests: try one on your own macro before you rely on it.
+> Relay's tests check that AutoHotkey accepts the scripts it writes, but don't run them: try one on your own macro before you rely on it.
 
 ## Import
 

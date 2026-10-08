@@ -461,6 +461,16 @@ mod tests {
         Event::Button { t, x, y, btn: MouseBtn::Left, down, label: String::new() }
     }
 
+    /// Returns `script`, after writing it to `$RELAY_AHK_DIR/<name>.ahk` if
+    /// that's set: CI has AutoHotkey check them for syntax errors.
+    fn written(name: &str, script: String) -> String {
+        if let Ok(dir) = std::env::var("RELAY_AHK_DIR") {
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(std::path::Path::new(&dir).join(format!("{name}.ahk")), &script).unwrap();
+        }
+        script
+    }
+
     fn mac(events: Vec<Event>) -> Macro {
         let mut m = Macro::new("Invoice \"run\"", RecordingMeta::single_1080p(), events);
         m.playback.humanize = false;
@@ -546,7 +556,7 @@ mod tests {
         m.playback.repeat = Repeat::Count(3);
         m.playback.speed = 2.0;
         m.playback.humanize = true;
-        insta::assert_snapshot!(script(&m, None));
+        insta::assert_snapshot!(written("steps", script(&m, None)));
     }
 
     #[test]
@@ -582,7 +592,7 @@ mod tests {
         m.playback.repeat = Repeat::Forever;
         m.playback.stop_on_key = false;
         let data = crate::data::parse("Customer,,Note\nACME,x,\"say \"\"hi\"\"\"\nGlobex".as_bytes()).unwrap();
-        let s = script(&m, Some(&data));
+        let s = written("data-and-images", script(&m, Some(&data)));
         assert!(s.contains("    Row(\"Customer\", \"ACME\", \"Note\", \"say `\"hi`\"\"),\n"), "{s}");
         assert!(s.contains("    Row(\"Customer\", \"Globex\", \"Note\", \"\"),\n"), "{s}");
         assert!(s.contains("Repeat := Rows.Length"));
@@ -596,8 +606,8 @@ mod tests {
 
     #[test]
     fn every_sample_exports() {
-        for sample in crate::samples::all() {
-            let s = script(&sample.macro_, None);
+        for (i, sample) in crate::samples::all().into_iter().enumerate() {
+            let s = written(&format!("sample-{i}"), script(&sample.macro_, None));
             assert!(s.starts_with(&format!("; {}, exported from Relay", sample.macro_.name)));
             let steps = group_steps(&sample.macro_.events, (&sample.macro_.recording).into()).len();
             assert_eq!(s.matches("\n    ; ").count(), steps, "a block per step in {}", sample.macro_.name);

@@ -223,7 +223,7 @@ Migrations work on `serde_json::Value`, so old shapes never need Rust types. `mi
 - **Checks**: `WaitPixel` polls `PixelGetColor` every 30 ms with Relay's per-channel tolerance; `FindImage` runs `ImageSearch` every 250 ms with a color variation of `(100 − threshold) × 2`. Both stop with a message box and exit code 5 on timeout. Pictures are embedded as base64 continuation sections and written to `%TEMP%` at start (`CryptStringToBinary`).
 - The script sets per-monitor DPI awareness, since Relay's coordinates are physical pixels, and only includes the helpers it uses.
 
-The output is pinned by a snapshot, and the app's `export_macro` refuses it, like a program, when the data file can't be played. AutoHotkey isn't installed in CI, so no test runs a script.
+The output is pinned by a snapshot, and the app's `export_macro` refuses it, like a program, when the data file can't be played. No test runs a script (it would click on the desktop), but CI checks them: with `RELAY_AHK_DIR` set, the tests write their scripts there, and the `windows` job has AutoHotkey load each one with `/Validate`, which reports syntax errors without running it.
 
 ## Playback timing
 

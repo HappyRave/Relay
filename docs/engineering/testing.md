@@ -222,7 +222,7 @@ What automated tests can't cover well:
 | Job | Steps |
 | --- | --- |
 | **quick** | Every push to a PR, drafts included, on Linux: `cargo fmt --check`, `cargo test` and `clippy -D warnings` for `relay-core`, `relay-platform`, `relay-playback` and `relay-player` (which keeps them portable), `npm run check`, `npm test`. Also decides whether the PR changes more than docs (`docs/**`, `*.md`). |
-| **windows** | Ready PRs that change code, after `quick`: `npm ci` → `cargo test --workspace` → **generated files are up to date** (nothing `cargo test` regenerates changed or appeared) → `cargo clippy -D warnings` → `npx tauri build` → upload the installer as an artifact → the E2E suites against the release build |
+| **windows** | Ready PRs that change code, after `quick`: `npm ci` → `cargo test --workspace` → **the AutoHotkey exports load** (the scripts the `ahk` tests write to `RELAY_AHK_DIR`, checked by AutoHotkey v2.0.28's `/Validate`, downloaded and verified by its SHA-256; never run) → **generated files are up to date** (nothing `cargo test` regenerates changed or appeared) → `cargo clippy -D warnings` → `npx tauri build` → upload the installer as an artifact → the E2E suites against the release build |
 | **msrv** | Same condition: `cargo check --workspace` with Rust 1.95, the `rust-version` in `Cargo.toml` (the highest any dependency needs, from `sysinfo`) |
 
 A skipped job counts as a passed check, so a docs-only PR merges after `quick`.
