@@ -3,6 +3,7 @@
 ## Unreleased
 
 - **Text steps:** a new step that types text filled in each time it plays: `{date}`, `{time}`, `{clipboard}` (the text you copied) and `{n}` (which repeat this is), as in *Invoice {date} #{n}*. Press **+ Text** to insert one, or open a typed text and press **Make editable** to turn it into one. Its editor has buttons for the placeholders and says what it types right now, or what's wrong with it. It types characters, whatever the keyboard layout, and a long clipboard pushes what follows back instead of overlapping it. Macros with a Text step need this version of Relay to open; others still open in older versions. See [Text that changes each run](docs/user-guide/03-editing.md#text-that-changes-each-run).
+- **Data files:** give a macro a CSV file in **Settings → Playback → Data file**, and it plays **once per row**, its Text steps typing that row's columns with `{col:Customer}` (the step's editor has a button for each). Files saved by Excel work, with commas or semicolons. Relay reads the file each time the macro plays, and says why it won't play when the file is gone or lacks a column. An exported program carries the rows the file had when it was exported. See [A data file: one run per row](docs/user-guide/04-playback.md#a-data-file-one-run-per-row).
 
 ## v1.4.0: Find image, mouse moves as steps, run history and standalone programs
 

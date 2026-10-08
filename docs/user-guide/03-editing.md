@@ -106,14 +106,15 @@ Type the text in the **Text** field. These placeholders are filled in each time 
 | `{time}` | The time, to the second | `14:05:09` |
 | `{clipboard}` | The text on the clipboard, or nothing if there's none | `ACME Ltd` |
 | `{n}` | Which repeat this is, from 1 | `3` |
+| `{col:Customer}` | The *Customer* column of the [data file](04-playback.md#a-data-file-one-run-per-row), in this run's row | `Globex` |
 
-The buttons under the field put a placeholder where the cursor is. To type a brace itself, double it: `{{` types `{` and `}}` types `}`.
+The buttons under the field put a placeholder where the cursor is, with one for each column of the macro's data file. To type a brace itself, double it: `{{` types `{` and `}}` types `}`.
 
-The line under the buttons shows what the text would type right now, as the first repeat: *Types now: "Invoice 2026-10-01"*. A mistake, like `{name}` or a `{` that isn't closed, shows there instead, and the text isn't saved until you fix it.
+The line under the buttons shows what the text would type right now, as the first repeat (with the data file's first row): *Types now: "Invoice 2026-10-01"*. A mistake, like `{name}` or a `{` that isn't closed, shows there instead, and the text isn't saved until you fix it. So does a column the macro has no data file for, or that its file doesn't have, though that text is saved: Relay just won't play it until the file has the column.
 
 When it plays, the text is typed as characters, one about every 10 ms, rather than as key presses, so it comes out the same whatever the keyboard layout. A new line presses <kbd>Enter</kbd> and a tab presses <kbd>Tab</kbd>.
 
-A Text step lasts at least as long as typing it takes: about 10 ms a character, counting `{date}` as 10 characters, `{time}` as 8 and the clipboard as none. Make it longer with its **Duration**, and everything after it moves later, as with a wait. If the text turns out longer when it plays (a long clipboard), what follows waits until it's typed.
+A Text step lasts at least as long as typing it takes: about 10 ms a character, counting `{date}` as 10 characters, `{time}` as 8 and the clipboard and columns as none. Make it longer with its **Duration**, and everything after it moves later, as with a wait. If the text turns out longer when it plays (a long clipboard), what follows waits until it's typed.
 
 > [!NOTE]
 > A macro with a Text step needs this version of Relay to open. Macros without one still open in older versions.

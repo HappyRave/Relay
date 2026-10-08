@@ -76,7 +76,9 @@ Save and open dialogs are shown by the UI with `@tauri-apps/plugin-dialog`, and 
 | `snip_image` | | Opens Windows' snipping overlay and waits (up to a minute) for the snip on the clipboard: the image, or `null` when cancelled |
 | `cancel_snip` | | Stops a `snip_image` waiting, which then returns `null` |
 | `show_match` | `area, dot_x, dot_y` | Marks a match on the screen for 3 s: a red outline around `area` and a dot, over every window, click-through and out of every capture |
-| `preview_text` | `text` | What a Text step's text would type now, as the first repeat (the local time and the clipboard filled in), or `code: "invalid_text"` with what's wrong |
+| `preview_text` | `id, text` | What a Text step's text in macro `id` would type now, as the first repeat (the local time, the clipboard and the data file's first row filled in), or `code: "invalid_text"` with what's wrong, or `code: "data_file"` when it types a column the macro's data file can't give |
+| `get_data_file` | `id` | `DataFileInfo { path, columns, rows, error }`, the file read now (`error`: why the macro can't play with it), or `null` without one |
+| `set_data_file` | `id, path` | Links the CSV at `path` (or unlinks, with `null`) and returns `get_data_file`'s answer. A file that can't be read or parsed is refused with `code: "data_file"`. |
 | `test_find_image` | `image, threshold, area` | `FoundImage { x, y, w, h, score }`: the best match in screen pixels, its score in percent (even below `threshold`), or `null` when nothing came close. Never inside Relay's window. |
 
 ### Triggers
