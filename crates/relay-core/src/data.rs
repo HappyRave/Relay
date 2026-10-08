@@ -242,6 +242,30 @@ mod tests {
     }
 
     #[test]
+    fn files_saved_by_excel_are_read() {
+        let expected = table(
+            &["Client", "Montant", "Note"],
+            &[&["Société Générale", "1 250,00 €", "dit \"oui\"; payé"], &["Zoë", "7,5", ""]],
+        );
+        // "CSV UTF-8" in a French locale: a BOM, semicolons, CRLF, quotes where needed.
+        let utf8 =
+            "\u{FEFF}Client;Montant;Note\r\nSociété Générale;1 250,00 €;\"dit \"\"oui\"\"; payé\"\r\nZoë;7,5;\r\n";
+        assert_eq!(parse(utf8.as_bytes()).unwrap(), expected);
+        // Plain "CSV": the same in Windows-1252.
+        let mut ansi = Vec::new();
+        for c in utf8.trim_start_matches('\u{FEFF}').chars() {
+            ansi.push(match c {
+                '€' => 0x80,
+                c => u8::try_from(u32::from(c)).unwrap(),
+            });
+        }
+        assert_eq!(parse(&ansi).unwrap(), expected);
+        // In an English locale: commas.
+        let comma = "Client,Amount\r\n\"Smith, J.\",\"1,250.00\"\r\n";
+        assert_eq!(parse(comma.as_bytes()).unwrap(), table(&["Client", "Amount"], &[&["Smith, J.", "1,250.00"]]));
+    }
+
+    #[test]
     fn mistakes_are_refused_with_where_they_are() {
         assert_eq!(parse(b""), Err(DataError::Empty));
         assert_eq!(parse(b"\n\n"), Err(DataError::Empty));
