@@ -238,6 +238,8 @@ pub enum ExportFormat {
     Json,
     /// A standalone program: the player with the macro appended.
     Exe,
+    /// An AutoHotkey v2 script.
+    Ahk,
 }
 
 /// The release build of crates/relay-player, put there by build.rs.
@@ -248,11 +250,14 @@ fn export_bytes(lib: &Library, id: Uuid, format: ExportFormat) -> Result<Vec<u8>
     Ok(match format {
         ExportFormat::Rly => format::to_rly(&entry.macro_).into_bytes(),
         ExportFormat::Json => format::to_export_json(&entry.macro_).into_bytes(),
-        ExportFormat::Exe => {
-            // The program carries the rows the file has now.
+        ExportFormat::Exe | ExportFormat::Ahk => {
+            // The program or script carries the rows the file has now.
             let data = crate::data_file::for_playing(&entry.macro_.events, entry.data_file.as_deref())
                 .map_err(|message| IpcError { code: "data_file", message })?;
-            format::bundle(PLAYER, &entry.macro_, data.as_ref())
+            match format {
+                ExportFormat::Exe => format::bundle(PLAYER, &entry.macro_, data.as_ref()),
+                _ => relay_core::ahk::script(&entry.macro_, data.as_ref()).into_bytes(),
+            }
         }
     })
 }
@@ -737,7 +742,8 @@ mod tests {
         assert!(matches!(serde_json::from_str::<ExportFormat>(r#""rly""#), Ok(ExportFormat::Rly)));
         assert!(matches!(serde_json::from_str::<ExportFormat>(r#""json""#), Ok(ExportFormat::Json)));
         assert!(matches!(serde_json::from_str::<ExportFormat>(r#""exe""#), Ok(ExportFormat::Exe)));
-        assert!(serde_json::from_str::<ExportFormat>(r#""ahk""#).is_err());
+        assert!(matches!(serde_json::from_str::<ExportFormat>(r#""ahk""#), Ok(ExportFormat::Ahk)));
+        assert!(serde_json::from_str::<ExportFormat>(r#""zip""#).is_err());
     }
 
     #[test]
@@ -777,6 +783,22 @@ mod tests {
             export_bytes(&lib, id, ExportFormat::Exe).unwrap_err().message,
             "customers.csv has no column “Customer”."
         );
+        assert_eq!(
+            export_bytes(&lib, id, ExportFormat::Ahk).unwrap_err().code,
+            "data_file",
+            "a script carries them too"
+        );
+        std::fs::write(&csv, "Customer\nInitech").unwrap();
+        let script = String::from_utf8(export_bytes(&lib, id, ExportFormat::Ahk).unwrap()).unwrap();
+        assert!(script.contains("    Row(\"Customer\", \"Initech\"),\n"));
+    }
+
+    #[test]
+    fn a_script_is_the_macro_in_autohotkey() {
+        let (_dir, lib) = library();
+        let entry = lib.get(lib.list()[0].id).unwrap();
+        let body = export_bytes(&lib, entry.macro_.id, ExportFormat::Ahk).unwrap();
+        assert_eq!(String::from_utf8(body).unwrap(), relay_core::ahk::script(&entry.macro_, None));
     }
 
     #[test]
