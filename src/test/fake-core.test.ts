@@ -216,8 +216,9 @@ describe("edits, like edit.rs", () => {
   test("a Text step with a mistake is refused with Rust's message", async () => {
     const refused = (text: string, message: string) =>
       expect(edit({ op: "insert_text", at: 0, text })).rejects.toEqual({ code: "edit_rejected", message });
-    await refused("{name}", "{name} isn't a placeholder: use {date}, {time}, {clipboard} or {n}.");
-    await refused("{Date}", "{Date} isn't a placeholder: use {date}, {time}, {clipboard} or {n}.");
+    await refused("{name}", "{name} isn't a placeholder: use {date}, {time}, {clipboard}, {n} or {col:Name}.");
+    await refused("{Date}", "{Date} isn't a placeholder: use {date}, {time}, {clipboard}, {n} or {col:Name}.");
+    await refused("{col: }", "{col:} needs the name of a column, as in {col:Customer}.");
     await refused("a {date", "A { isn't closed: type {{ for a brace.");
     await refused("{da{te}", "A { isn't closed: type {{ for a brace.");
     await refused("a } b", "A } has no { before it: type }} for a brace.");
@@ -242,13 +243,67 @@ describe("edits, like edit.rs", () => {
 
   test("preview_text fills in the placeholders as the first repeat would, now", async () => {
     core.clipboardText = "ACME";
-    expect(await b.previewText("{date} {time} #{n} {clipboard} {{x}}")).toBe("2026-10-01 09:05:07 #1 ACME {x}");
+    expect(await b.previewText(A, "{date} {time} #{n} {clipboard} {{x}}")).toBe("2026-10-01 09:05:07 #1 ACME {x}");
     core.clipboardText = null;
-    expect(await b.previewText("[{clipboard}]")).toBe("[]");
-    await expect(b.previewText("{when}")).rejects.toEqual({
+    expect(await b.previewText(A, "[{clipboard}]")).toBe("[]");
+    await expect(b.previewText(A, "{when}")).rejects.toEqual({
       code: "invalid_text",
-      message: "{when} isn't a placeholder: use {date}, {time}, {clipboard} or {n}.",
+      message: "{when} isn't a placeholder: use {date}, {time}, {clipboard}, {n} or {col:Name}.",
     });
+  });
+
+  test("a data file is read when asked for, and its first row fills the preview", async () => {
+    const csv = "C:\\Data\\customers.csv";
+    core.csv.set(csv, { columns: ["Customer", "Total"], rows: [["ACME", "12"], ["Globex"]] });
+    expect(await b.getDataFile(A)).toBeNull();
+    await expect(b.previewText(A, "{col:Customer}")).rejects.toEqual({
+      code: "data_file",
+      message: "A Text step types {col:Customer}: choose a data file in Settings → Playback.",
+    });
+    core.dialog.open = null;
+    expect(await b.chooseDataFile(A)).toBeNull();
+    expect(core.calls.some((c) => c.cmd === "set_data_file")).toBe(false);
+    core.dialog.open = csv;
+    expect(await b.chooseDataFile(A)).toEqual({ path: csv, columns: ["Customer", "Total"], rows: 2, error: null });
+    expect(core.calls.at(-1)).toEqual({ cmd: "set_data_file", args: { id: A, path: csv } });
+    expect(await b.previewText(A, "{col:customer} owes {col: Total}")).toBe("ACME owes 12");
+    await expect(b.previewText(A, "{col:Due}")).rejects.toEqual({ code: "data_file", message: "customers.csv has no column “Due”." });
+
+    // It's read each time: a change on disk shows.
+    core.csv.set(csv, "customers.csv: Row 2 has 3 values, but there are 2 columns.");
+    expect(await b.getDataFile(A)).toEqual({
+      path: csv,
+      columns: [],
+      rows: 0,
+      error: "customers.csv: Row 2 has 3 values, but there are 2 columns.",
+    });
+    core.csv.delete(csv);
+    expect((await b.getDataFile(A))?.error).toBe("customers.csv isn't there anymore: choose it again in Settings → Playback.");
+    core.dialog.open = "C:\\gone.csv";
+    await expect(b.chooseDataFile(A)).rejects.toEqual({
+      code: "data_file",
+      message: "gone.csv isn't there anymore: choose it again in Settings → Playback.",
+    });
+    expect((await b.getDataFile(A))?.path).toBe(csv);
+    await b.removeDataFile(A);
+    expect(core.calls.at(-1)).toEqual({ cmd: "set_data_file", args: { id: A, path: null } });
+    expect(await b.getDataFile(A)).toBeNull();
+  });
+
+  test("a data file is kept by copies, and checked before a program is exported", async () => {
+    const csv = "C:\\Data\\customers.csv";
+    core.csv.set(csv, { columns: ["Customer"], rows: [] });
+    core.dialog.open = csv;
+    await b.chooseDataFile(A);
+    expect((await b.getDataFile(A))?.error).toBe("customers.csv has no rows to play.");
+    core.dialog.save = "C:\\out.exe";
+    await expect(b.exportMacro(A, "exe", "x.exe")).rejects.toEqual({ code: "data_file", message: "customers.csv has no rows to play." });
+    core.dialog.save = "C:\\out.ahk";
+    await expect(b.exportMacro(A, "ahk", "x.ahk")).rejects.toEqual({ code: "data_file", message: "customers.csv has no rows to play." });
+    core.dialog.save = "C:\\out.rly";
+    expect(await b.exportMacro(A, "rly", "x.rly")).toBe("C:\\out.rly");
+    const copy = await b.duplicateMacro(A);
+    expect((await b.getDataFile(copy))?.path).toBe(csv);
   });
 
   test("arguments Rust can't deserialize are refused", async () => {
@@ -377,8 +432,8 @@ describe("the library, like library.rs", () => {
   });
 
   test("exports take the formats Rust knows", async () => {
-    for (const format of ["rly", "json", "exe"]) await invoke("export_macro", { id: A, format, path: "C:\\x" });
-    await expect(invoke("export_macro", { id: A, format: "ahk", path: "C:\\x" })).rejects.toMatch(/unknown variant "ahk"/);
+    for (const format of ["rly", "json", "exe", "ahk"]) await invoke("export_macro", { id: A, format, path: "C:\\x" });
+    await expect(invoke("export_macro", { id: A, format: "zip", path: "C:\\x" })).rejects.toMatch(/unknown variant "zip"/);
   });
 
   test("a file the test didn't fill in holds the first sample, named after the file", async () => {

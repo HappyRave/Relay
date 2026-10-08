@@ -12,10 +12,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use parking_lot::Mutex;
+use relay_core::data::DataFileInfo;
 use relay_core::image::{self, ImageError, Rgb8};
-use relay_core::model::{ImagePng, PlaybackOptions, Rect, Rgb};
+use relay_core::model::{Event, ImagePng, PlaybackOptions, Rect, Rgb};
 use relay_core::runlog::RunEntry;
 use relay_core::session::{FinishReason, Input};
+use relay_core::text::Part;
 use relay_core::{EditOp, Macro, MacroListItem, MacroView, format};
 use relay_platform::{ClipImage, Platform};
 use serde::{Deserialize, Serialize};
@@ -236,6 +238,8 @@ pub enum ExportFormat {
     Json,
     /// A standalone program: the player with the macro appended.
     Exe,
+    /// An AutoHotkey v2 script.
+    Ahk,
 }
 
 /// The release build of crates/relay-player, put there by build.rs.
@@ -246,7 +250,15 @@ fn export_bytes(lib: &Library, id: Uuid, format: ExportFormat) -> Result<Vec<u8>
     Ok(match format {
         ExportFormat::Rly => format::to_rly(&entry.macro_).into_bytes(),
         ExportFormat::Json => format::to_export_json(&entry.macro_).into_bytes(),
-        ExportFormat::Exe => format::bundle(PLAYER, &entry.macro_),
+        ExportFormat::Exe | ExportFormat::Ahk => {
+            // The program or script carries the rows the file has now.
+            let data = crate::data_file::for_playing(&entry.macro_.events, entry.data_file.as_deref())
+                .map_err(|message| IpcError { code: "data_file", message })?;
+            match format {
+                ExportFormat::Exe => format::bundle(PLAYER, &entry.macro_, data.as_ref()),
+                _ => relay_core::ahk::script(&entry.macro_, data.as_ref()).into_bytes(),
+            }
+        }
     })
 }
 
@@ -452,13 +464,49 @@ pub fn show_match(platform: State<'_, Arc<Platform>>, area: Rect, dot_x: i32, do
     platform.screen.mark(area, (dot_x, dot_y), MARK_MS);
 }
 
-/// What a Text step's `text` would type now, on the first repeat, or why
-/// it can't be typed.
+/// What a Text step's `text` in macro `id` would type now, on the first
+/// repeat (the data file's first row), or why it can't be typed.
 #[tauri::command(async)]
-pub fn preview_text(platform: State<'_, Arc<Platform>>, text: String) -> Result<String> {
+pub fn preview_text(app: AppHandle, platform: State<'_, Arc<Platform>>, id: Uuid, text: String) -> Result<String> {
     relay_core::text::validate(&text).map_err(|e| IpcError { code: "invalid_text", message: e.to_string() })?;
+    let data = if relay_core::text::parse(&text).unwrap_or_default().iter().any(|p| matches!(p, Part::Column(_))) {
+        let path = library(&app).lock().get(id).ok_or(IpcError::not_found(id))?.data_file.clone();
+        let typing = [Event::Text { t: 0, dur: 0, text: text.clone() }];
+        crate::data_file::for_playing(&typing, path.as_deref())
+            .map_err(|message| IpcError { code: "data_file", message })?
+    } else {
+        None
+    };
     let now = chrono::Local::now().naive_local();
-    Ok(relay_core::text::fill(&text, 1, now, || platform.clipboard.text()))
+    let column = |name: &str| data.as_ref()?.value(0, name).map(str::to_string);
+    Ok(relay_core::text::fill(&text, 1, now, || platform.clipboard.text(), column))
+}
+
+// — data file —
+
+/// Macro `id`'s data file, read now; `None` if it has none.
+#[tauri::command(async)]
+pub fn get_data_file(app: AppHandle, id: Uuid) -> Result<Option<DataFileInfo>> {
+    let (m, path) = {
+        let lib = library(&app);
+        let lib = lib.lock();
+        let entry = lib.get(id).ok_or(IpcError::not_found(id))?;
+        (entry.macro_.clone(), entry.data_file.clone())
+    };
+    Ok(path.map(|p| crate::data_file::info(&m, &p)))
+}
+
+/// Links macro `id` to the CSV at `path` (chosen by the user), or unlinks
+/// it (`None`). A file that can't be read as a data file is refused.
+#[tauri::command(async)]
+pub fn set_data_file(app: AppHandle, id: Uuid, path: Option<String>) -> Result<Option<DataFileInfo>> {
+    let path = path.map(std::path::PathBuf::from);
+    if let Some(p) = &path {
+        crate::data_file::read(p).map_err(|message| IpcError { code: "data_file", message })?;
+    }
+    let changed = library(&app).lock().set_data_file(id, path)?;
+    report_unsaved(&app, changed.saved);
+    get_data_file(app, id)
 }
 
 // — triggers —
@@ -694,7 +742,8 @@ mod tests {
         assert!(matches!(serde_json::from_str::<ExportFormat>(r#""rly""#), Ok(ExportFormat::Rly)));
         assert!(matches!(serde_json::from_str::<ExportFormat>(r#""json""#), Ok(ExportFormat::Json)));
         assert!(matches!(serde_json::from_str::<ExportFormat>(r#""exe""#), Ok(ExportFormat::Exe)));
-        assert!(serde_json::from_str::<ExportFormat>(r#""ahk""#).is_err());
+        assert!(matches!(serde_json::from_str::<ExportFormat>(r#""ahk""#), Ok(ExportFormat::Ahk)));
+        assert!(serde_json::from_str::<ExportFormat>(r#""zip""#).is_err());
     }
 
     #[test]
@@ -706,6 +755,50 @@ mod tests {
         let exe = export_bytes(&lib, id, ExportFormat::Exe).unwrap();
         assert!(exe.starts_with(PLAYER));
         assert_eq!(format::unbundle(&exe).unwrap(), format::to_rly(&lib.get(id).unwrap().macro_));
+    }
+
+    #[test]
+    fn a_program_carries_the_rows_its_data_file_has_now() {
+        let (dir, mut lib) = library();
+        let id = lib.list()[0].id;
+        lib.get_mut(id).unwrap().macro_.events.push(relay_core::Event::Text {
+            t: 0,
+            dur: 100,
+            text: "{col:Customer}".into(),
+        });
+        let refused = export_bytes(&lib, id, ExportFormat::Exe).map(|_| ()).unwrap_err();
+        assert_eq!(
+            (refused.code, refused.message.as_str()),
+            ("data_file", "A Text step types {col:Customer}: choose a data file in Settings → Playback.")
+        );
+        assert!(export_bytes(&lib, id, ExportFormat::Rly).is_ok(), "a .rly doesn't need it");
+
+        let csv = dir.path().join("customers.csv");
+        std::fs::write(&csv, "Customer\nACME\nGlobex").unwrap();
+        lib.set_data_file(id, Some(csv.clone())).unwrap();
+        let (_, data) = format::from_program(&export_bytes(&lib, id, ExportFormat::Exe).unwrap()).unwrap();
+        assert_eq!(data.unwrap().rows, [["ACME"], ["Globex"]]);
+        std::fs::write(&csv, "Name\nACME").unwrap();
+        assert_eq!(
+            export_bytes(&lib, id, ExportFormat::Exe).unwrap_err().message,
+            "customers.csv has no column “Customer”."
+        );
+        assert_eq!(
+            export_bytes(&lib, id, ExportFormat::Ahk).unwrap_err().code,
+            "data_file",
+            "a script carries them too"
+        );
+        std::fs::write(&csv, "Customer\nInitech").unwrap();
+        let script = String::from_utf8(export_bytes(&lib, id, ExportFormat::Ahk).unwrap()).unwrap();
+        assert!(script.contains("    Row(\"Customer\", \"Initech\"),\n"));
+    }
+
+    #[test]
+    fn a_script_is_the_macro_in_autohotkey() {
+        let (_dir, lib) = library();
+        let entry = lib.get(lib.list()[0].id).unwrap();
+        let body = export_bytes(&lib, entry.macro_.id, ExportFormat::Ahk).unwrap();
+        assert_eq!(String::from_utf8(body).unwrap(), relay_core::ahk::script(&entry.macro_, None));
     }
 
     #[test]
@@ -721,7 +814,7 @@ mod tests {
         std::fs::write(&broken, "{ this isn't a macro").unwrap();
         let program = files.path().join("program.exe");
         let other = files.path().join("other.exe");
-        std::fs::write(&program, format::bundle(PLAYER, m)).unwrap();
+        std::fs::write(&program, format::bundle(PLAYER, m, None)).unwrap();
         std::fs::write(&other, PLAYER).unwrap();
         let missing = files.path().join("gone.rly");
         let paths: Vec<String> = [&good, &broken, &json, &program, &other, &missing]

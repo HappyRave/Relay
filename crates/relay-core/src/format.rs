@@ -7,7 +7,8 @@
 //! is written with the oldest version that has its events, which older
 //! Relays read.
 //!
-//! An exported program is the player's exe with the `.rly` appended, then a
+//! An exported program is the player's exe with the `.rly` appended (with
+//! the rows of the macro's data file as `data`, if it has one), then a
 //! trailer: its length (u64 LE), [`BUNDLE_VERSION`] (u32 LE) and
 //! [`BUNDLE_MAGIC`]. Windows ignores data after the image it loads.
 
@@ -17,6 +18,7 @@ use serde_json::{Map, Value, json};
 use thiserror::Error;
 use uuid::Uuid;
 
+use crate::data::DataTable;
 use crate::edit::normalize;
 use crate::keys::{code_for_label, key_for_char, split_combo};
 use crate::model::{Event, Macro, PlaybackOptions, RecordingMeta};
@@ -50,6 +52,9 @@ struct Envelope<'a> {
     /// Derived, for developers reading an export; ignored when importing.
     #[serde(skip_serializing_if = "Option::is_none")]
     steps: Option<Vec<Step>>,
+    /// An exported program's data file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    data: Option<&'a DataTable>,
 }
 
 impl<'a> Envelope<'a> {
@@ -62,7 +67,7 @@ impl<'a> Envelope<'a> {
         } else {
             1
         };
-        Envelope { format: FORMAT, version, body, steps }
+        Envelope { format: FORMAT, version, body, steps, data: None }
     }
 }
 
@@ -79,6 +84,10 @@ pub fn to_export_json(m: &Macro) -> String {
 
 /// Parses a `.rly` (or exported `.json`) document of any supported version.
 pub fn from_rly(s: &str) -> Result<Macro, FormatError> {
+    with_data(s).map(|(m, _)| m)
+}
+
+fn with_data(s: &str) -> Result<(Macro, Option<DataTable>), FormatError> {
     let invalid = |e: serde_json::Error| FormatError::Invalid(e.to_string());
     // Not even JSON: say so plainly rather than quoting the parser, unless
     // it's a damaged macro (a truncated file still names its format).
@@ -100,14 +109,16 @@ pub fn from_rly(s: &str) -> Result<Macro, FormatError> {
     obj.remove("format");
     obj.remove("version");
     obj.remove("steps");
+    let data = obj.remove("data").map(serde_json::from_value).transpose().map_err(invalid)?;
     let mut m: Macro = serde_json::from_value(v).map_err(invalid)?;
     normalize(&mut m.events);
-    Ok(m)
+    Ok((m, data))
 }
 
-/// An exported program: the player `stub` playing `m`.
-pub fn bundle(stub: &[u8], m: &Macro) -> Vec<u8> {
-    let rly = to_rly(m);
+/// An exported program: the player `stub` playing `m`, one run per row of
+/// `data` if it has a data file.
+pub fn bundle(stub: &[u8], m: &Macro, data: Option<&DataTable>) -> Vec<u8> {
+    let rly = serde_json::to_string(&Envelope { data, ..Envelope::new(m, None) }).expect("macro serializes");
     let mut out = Vec::with_capacity(stub.len() + rly.len() + TRAILER);
     out.extend_from_slice(stub);
     out.extend_from_slice(rly.as_bytes());
@@ -142,6 +153,11 @@ pub fn from_file(bytes: &[u8]) -> Result<Macro, FormatError> {
         return from_rly(unbundle(bytes)?);
     }
     from_rly(std::str::from_utf8(bytes).map_err(|_| FormatError::NotRelay)?)
+}
+
+/// The macro an exported program plays, and its data file's rows.
+pub fn from_program(bytes: &[u8]) -> Result<(Macro, Option<DataTable>), FormatError> {
+    with_data(unbundle(bytes)?)
 }
 
 fn migrate(from: u64, obj: &mut Map<String, Value>) -> Result<(), FormatError> {
@@ -409,7 +425,7 @@ mod tests {
             let older = text.replace(r#""version":3,"#, &format!(r#""version":{old},"#));
             assert!(from_rly(&older).is_ok(), "no migration needed from v{old}");
         }
-        let exe = bundle(STUB, &m);
+        let exe = bundle(STUB, &m, None);
         assert_eq!(from_file(&exe).unwrap(), m);
     }
 
@@ -420,10 +436,21 @@ mod tests {
     fn a_program_carries_its_macro() {
         let mut m = fixed_macro();
         m.name = "Relevé mensuel ✓".into();
-        let exe = bundle(STUB, &m);
+        let exe = bundle(STUB, &m, None);
         assert!(exe.starts_with(STUB) && exe.ends_with(BUNDLE_MAGIC));
         assert_eq!(unbundle(&exe).unwrap(), to_rly(&m));
         assert_eq!(from_file(&exe).unwrap(), m);
+        assert_eq!(from_program(&exe).unwrap(), (m, None));
+    }
+
+    #[test]
+    fn a_program_carries_its_data_file() {
+        let m = fixed_macro();
+        let data = crate::data::parse("Customer\nACME\nGlobex".as_bytes()).unwrap();
+        let exe = bundle(STUB, &m, Some(&data));
+        assert_eq!(from_program(&exe).unwrap(), (m.clone(), Some(data)));
+        assert_eq!(from_file(&exe).unwrap(), m, "importing it into Relay keeps only the macro");
+        assert_eq!(from_program(to_rly(&m).as_bytes()).ok(), None, "a .rly isn't a program");
     }
 
     #[test]
@@ -442,7 +469,7 @@ mod tests {
             area: None,
             label: String::new(),
         });
-        let exe = bundle(STUB, &m);
+        let exe = bundle(STUB, &m, None);
         assert!(unbundle(&exe).unwrap().contains(r#""version":2,"#));
         assert_eq!(from_file(&exe).unwrap(), m);
     }
@@ -460,7 +487,7 @@ mod tests {
         let program = |tail: &[u8]| [STUB, tail].concat();
         assert_eq!(from_file(b"MZ").unwrap_err().to_string(), "not a program exported by Relay", "too short");
         assert!(matches!(from_file(&program(&[0; 64])), Err(FormatError::NotRelayProgram)), "no trailer");
-        let exe = bundle(STUB, &fixed_macro());
+        let exe = bundle(STUB, &fixed_macro(), None);
         let mut other = exe.clone();
         *other.last_mut().unwrap() = b'X';
         assert!(matches!(from_file(&other), Err(FormatError::NotRelayProgram)), "another magic");
@@ -468,7 +495,7 @@ mod tests {
 
     #[test]
     fn a_damaged_or_newer_program_says_so() {
-        let exe = bundle(STUB, &fixed_macro());
+        let exe = bundle(STUB, &fixed_macro(), None);
         let n = exe.len();
         let mut newer = exe.clone();
         newer[n - 12..n - 8].copy_from_slice(&2u32.to_le_bytes());

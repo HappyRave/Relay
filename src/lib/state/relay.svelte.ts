@@ -29,6 +29,7 @@ import type { FoundImage } from "../ipc/bindings/FoundImage";
 import type { TimingStats } from "../ipc/bindings/TimingStats";
 import type { FinishReason } from "../ipc/bindings/FinishReason";
 import type { RunEntry } from "../ipc/bindings/RunEntry";
+import type { DataFileInfo } from "../ipc/bindings/DataFileInfo";
 import { backend as defaultBackend, type Backend, type IpcError } from "../ipc/backend";
 import { DEFAULT_PLAYBACK, DEFAULT_SETTINGS } from "../defaults";
 import { isTauri, resetLayout, savePanes, savedWindow } from "../platform/window";
@@ -101,6 +102,9 @@ export class RelayStore {
   triggerStatus = $state.raw<TriggerStatus | null>(null);
   /** The open macro's triggers couldn't be loaded (the Triggers tab offers to retry). */
   triggersFailed = $state(false);
+  /** The open macro's data file (its columns and rows, or why it can't be used); null without one. */
+  dataFile = $state.raw<DataFileInfo | null>(null);
+  private dataSeq = 0;
   /** Paused by the kill switch (or from the tray). */
   triggersPaused = $state(false);
   autostart = $state(false);
@@ -534,9 +538,10 @@ export class RelayStore {
     this.savedName = view.name;
     this.selected = -1;
     this.triggerStatus = null; // the old macro's triggers mustn't be edited into this one
+    this.dataFile = null;
     this.cur = 0;
     this.loopIdx = 0;
-    await Promise.all([this.loadScreen(id), this.loadTriggers()]);
+    await Promise.all([this.loadScreen(id), this.loadTriggers(), this.loadDataFile()]);
   }
 
   /** Fetches the open macro's screenshot. Without one (or if reading it fails), the preview shows the sketch. */
@@ -766,12 +771,16 @@ export class RelayStore {
   /** Turns TYPE step `index` into a Text step typing the same. */
   makeEditable = (index: number) => this.edit({ op: "make_editable", index });
 
-  /** What a Text step's `text` would type now, or why it can't be typed. */
-  previewText = async (text: string): Promise<{ text: string } | { error: string }> => {
+  /**
+   * What a Text step's `text` would type now, or why it can't be typed; `saves`:
+   * the text itself is fine (only the data file lacks a column it types).
+   */
+  previewText = async (text: string): Promise<{ text: string } | { error: string; saves: boolean }> => {
+    if (!this.view) return { error: "Open a macro first", saves: false };
     try {
-      return { text: await this.backend.previewText(text) };
+      return { text: await this.backend.previewText(this.view.id, text) };
     } catch (e) {
-      return { error: (e as IpcError)?.message ?? String(e) };
+      return { error: (e as IpcError)?.message ?? String(e), saves: (e as IpcError)?.code === "data_file" };
     }
   };
 
@@ -999,6 +1008,40 @@ export class RelayStore {
     const r = this.playback.repeat;
     if (r !== "forever") this.lastCounts = { ...this.lastCounts, [this.view.id]: r.count };
     return this.setPlayback({ repeat: nextRepeat(r) });
+  };
+
+  // — data file —
+
+  /** Reads the open macro's data file (again: it may have changed on disk). */
+  loadDataFile = async () => {
+    const id = this.view?.id;
+    if (!id) return;
+    const seq = ++this.dataSeq;
+    const info = await this.run(this.backend.getDataFile(id));
+    if (info !== undefined && this.view?.id === id && seq === this.dataSeq) this.dataFile = info;
+  };
+
+  /** Asks for a CSV whose rows drive the open macro's repeats. */
+  chooseDataFile = async () => {
+    const id = this.view?.id;
+    if (!id) return;
+    const info = await this.run(this.backend.chooseDataFile(id));
+    if (!info || this.view?.id !== id) return;
+    ++this.dataSeq;
+    this.dataFile = info;
+  };
+
+  removeDataFile = async () => {
+    const id = this.view?.id;
+    if (!id) return;
+    try {
+      await this.backend.removeDataFile(id);
+    } catch (e) {
+      return this.fail(e);
+    }
+    if (this.view?.id !== id) return;
+    ++this.dataSeq;
+    this.dataFile = null;
   };
 
   // — triggers —

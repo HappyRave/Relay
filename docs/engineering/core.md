@@ -9,8 +9,10 @@
 - [Edits and invariants](#edits-and-invariants)
 - [Reshaping a move](#reshaping-a-move)
 - [Text templates](#text-templates)
+- [Data files](#data-files)
 - [Finding an image](#finding-an-image)
 - [The file format](#the-file-format)
+- [AutoHotkey export](#autohotkey-export)
 - [Playback timing](#playback-timing)
 - [The session state machine](#the-session-state-machine)
 - [Schedules](#schedules)
@@ -27,6 +29,8 @@
 | [`edit`](../../crates/relay-core/src/edit.rs) | `EditOp`, `apply`, `normalize`, `check_invariants` |
 | [`path`](../../crates/relay-core/src/path.rs) | `smooth`, `straighten`, `simplify`: reshaping a MOVE step's path |
 | [`text`](../../crates/relay-core/src/text.rs) | A Text step's template: `parse`, `validate`, `fill`, `typing_ms`, `escape` |
+| [`ahk`](../../crates/relay-core/src/ahk.rs) | The AutoHotkey v2 export: `script(macro, data)` |
+| [`data`](../../crates/relay-core/src/data.rs) | Data files: `parse` (CSV), `DataTable::value`, `columns_used`, `check` (why a macro can't play with its file) |
 | [`image`](../../crates/relay-core/src/image.rs) | `find`: an image on a screen capture, at any scale from 0.5 to 2. `Rgb8`: reading PNG, JPEG and clipboard bitmaps, `prepare`/`check` |
 | [`format`](../../crates/relay-core/src/format.rs) | `.rly` serialization, the JSON export, loading and migrations |
 | [`playback`](../../crates/relay-core/src/playback.rs) | `PlayClock`, `plan_times` (humanize) |
@@ -161,11 +165,17 @@ Distances use `sqrt` rather than `hypot`, since `sqrt` is exactly rounded everyw
 
 ## Text templates
 
-A Text step's `text` is a template ([`text.rs`](../../crates/relay-core/src/text.rs)): literal text with the placeholders `{date}`, `{time}`, `{clipboard}` and `{n}`. `{{` and `}}` are literal braces. `parse` splits it into `Part`s, and refuses anything else with a `TemplateError` whose message says what to do: an unknown name (names are lowercase), a `{` that isn't closed, a `}` that wasn't opened. Edits validate; playback doesn't, so a hand-edited file with a mistake types its text as it is.
+A Text step's `text` is a template ([`text.rs`](../../crates/relay-core/src/text.rs)): literal text with the placeholders `{date}`, `{time}`, `{clipboard}`, `{n}` and `{col:Name}` (a column of the data file; `Part::Column`, trimmed, never empty). `{{` and `}}` are literal braces. `parse` splits it into `Part`s, and refuses anything else with a `TemplateError` whose message says what to do: an unknown name (names are lowercase), a `{` that isn't closed, a `}` that wasn't opened. Edits validate; playback doesn't, so a hand-edited file with a mistake types its text as it is.
 
-`fill(template, n, now, clipboard)` takes everything that changes as arguments: the repeat number (from 1), the local time (`%Y-%m-%d`, `%H:%M:%S`) and a closure that reads the clipboard, called at most once and only when the template has `{clipboard}`. The engine passes `chrono::Local::now()` and `Clipboard::text`; the app's `preview_text` does the same with `n = 1`.
+`fill(template, n, now, clipboard, column)` takes everything that changes as arguments: the repeat number (from 1), the local time (`%Y-%m-%d`, `%H:%M:%S`), a closure that reads the clipboard, called at most once and only when the template has `{clipboard}`, and one that gives a column's value in this repeat's row (`None` types nothing). The engine passes `chrono::Local::now()`, `Clipboard::text` and row `n − 1` of the plan's data; the app's `preview_text` does the same with `n = 1` and the first row.
 
-`typing_ms` is how long a Text step lasts at least: `CHAR_MS` (10 ms) per character it's known to type, with `{date}` as 10, `{time}` as 8, `{n}` as 1 and the clipboard as 0. `escape` turns typed text into a template that types it (for Make editable).
+`typing_ms` is how long a Text step lasts at least: `CHAR_MS` (10 ms) per character it's known to type, with `{date}` as 10, `{time}` as 8, `{n}` as 1 and the clipboard and columns as 0. `escape` turns typed text into a template that types it (for Make editable).
+
+## Data files
+
+[`data.rs`](../../crates/relay-core/src/data.rs) reads a macro's data file. `parse` takes the file's bytes: UTF-8 (a BOM is dropped) or, if that fails, Windows-1252, which is what Excel's plain "CSV" writes. The separator is the one the header row uses most, outside quotes: comma, semicolon or tab. Quoted values may hold separators, `""` and line breaks. Blank records are skipped; a short row is padded with empty values when read, a long one is refused (`TooManyValues`), as are two columns with the same name (any case) and an empty file.
+
+`check(events, table, file)` is the one rule for whether a macro can play: a column one of its Text steps types (`columns_used`) must be in the file (matched in any case), the file must have rows, and a macro typing a column needs a file. Its `Err` is the message the user sees. The app calls it before playing and before exporting a program; `PlayPlan::for_macro` then makes the repeat `Count(rows)`.
 
 ## Finding an image
 
@@ -199,9 +209,21 @@ flowchart LR
     D --> N["normalize(events)"]
 ```
 
-An [exported program](file-formats.md#exported-programs) carries a `.rly`: `format::bundle(stub, macro)` appends it and a trailer to the player's exe, `unbundle` finds it again, and `from_file` reads any of the three kinds of file (a program starts with `MZ`).
+An [exported program](file-formats.md#exported-programs) carries a `.rly`: `format::bundle(stub, macro, data)` appends it (with the data file's rows) and a trailer to the player's exe, `unbundle` finds it again, `from_program` reads the macro and its rows, and `from_file` reads any of the three kinds of file (a program starts with `MZ`).
 
 Migrations work on `serde_json::Value`, so old shapes never need Rust types. `migrate_v0` converts the M0 prototype's high-level events (`click`, `key` combos like `"Ctrl + A"`, `char`, `wait`, `cond`) into v1 presses and releases, with a single 1080p `RecordingMeta`. Snapshot tests pin both the v1 output and the migration result. See [File formats](file-formats.md) for the full schema.
+
+## AutoHotkey export
+
+[`ahk.rs`](../../crates/relay-core/src/ahk.rs) writes a macro as an AutoHotkey v2 script made of its **steps** (`group_steps`), not its events, so it reads like the steps list: a `Play(N)` function with a commented block per step, numbered as in the UI, and a loop calling it `Repeat` times (the data file's row count, if it has one).
+
+- **Timing** is start to start: before each step, `Pause(step.t − previous step.t)`, and after the last one, up to the macro's duration, so loops are spaced as in Relay. `Pause` divides by `Speed` and adds ±`Jitter` (not for MOVE steps, as Humanize ignores them). A step's own length (a drag, typing) is the script's, not the recording's.
+- **Pointer steps** use the modifiers held at their first pointer event, found from the events (a Shift-click carries its Shift; a Ctrl held over several clicks belongs to none of them): `Send "{Shift down}{Click x y}{Shift up}"`. A MOVE is a `MouseMove` to its end; a drag a `MouseClickDrag` at speed 5 (instant drags fail in many apps).
+- **Keys**: a KEYS step's combo becomes `Send` syntax (`^s`, `!{F4}`, `{LWin}` for a lone tap); TYPE is `SendText`; a Text step's template an expression (`FormatTime`, `A_Clipboard`, `N`, `Col(N, "Name")`).
+- **Checks**: `WaitPixel` polls `PixelGetColor` every 30 ms with Relay's per-channel tolerance; `FindImage` runs `ImageSearch` every 250 ms with a color variation of `(100 − threshold) × 2`. Both stop with a message box and exit code 5 on timeout. Pictures are embedded as base64 continuation sections and written to `%TEMP%` at start (`CryptStringToBinary`).
+- The script sets per-monitor DPI awareness, since Relay's coordinates are physical pixels, and only includes the helpers it uses.
+
+The output is pinned by a snapshot, and the app's `export_macro` refuses it, like a program, when the data file can't be played. No test runs a script (it would click on the desktop), but CI checks them: with `RELAY_AHK_DIR` set, the tests write their scripts there, and the `windows` job has AutoHotkey load each one with `/Validate`, which reports syntax errors without running it.
 
 ## Playback timing
 

@@ -13,6 +13,7 @@ import type { Rect } from "./bindings/Rect";
 import type { ImportResult } from "./bindings/ImportResult";
 import type { MacroTriggers } from "./bindings/MacroTriggers";
 import type { TriggerStatus } from "./bindings/TriggerStatus";
+import type { DataFileInfo } from "./bindings/DataFileInfo";
 import type { RunEntry } from "./bindings/RunEntry";
 import type { FinishReason } from "./bindings/FinishReason";
 import { DEFAULT_SETTINGS } from "../defaults";
@@ -64,8 +65,16 @@ export interface Backend {
   testFindImage(image: string, threshold: number, area: Rect | null): Promise<FoundImage | null>;
   /** Marks a match on the screen for a few seconds: an outline around `area`, a dot where it's clicked. */
   showMatch(area: Rect, dotX: number, dotY: number): Promise<void>;
-  /** What a Text step's text would type now; rejects one with a mistake, saying what to do. */
-  previewText(text: string): Promise<string>;
+  /**
+   * What a Text step's text in macro `id` would type now (columns from the data file's
+   * first row); rejects one with a mistake, or a column it can't type, saying what to do.
+   */
+  previewText(id: string, text: string): Promise<string>;
+  /** The macro's data file, read now: its columns and rows, or why it can't be used; null without one. */
+  getDataFile(id: string): Promise<DataFileInfo | null>;
+  /** Asks for a CSV and links it to the macro; null if the user cancelled. Rejects a file that can't be read. */
+  chooseDataFile(id: string): Promise<DataFileInfo | null>;
+  removeDataFile(id: string): Promise<void>;
   getTriggers(id: string): Promise<TriggerStatus>;
   /** Rejects a hotkey that clashes with Relay's own or another macro's. */
   setTriggers(id: string, triggers: MacroTriggers): Promise<TriggerStatus>;
@@ -83,7 +92,7 @@ export interface IpcError {
 }
 
 /** The file type the save dialog names for each export format. */
-const FILE_TYPES: Record<ExportFormat, string> = { rly: "Relay macro", json: "JSON events", exe: "Program" };
+const FILE_TYPES: Record<ExportFormat, string> = { rly: "Relay macro", json: "JSON events", exe: "Program", ahk: "AutoHotkey script" };
 
 export const tauriBackend: Backend = {
   editable: true,
@@ -137,7 +146,16 @@ export const tauriBackend: Backend = {
   cancelSnip: () => invoke("cancel_snip"),
   testFindImage: (image, threshold, area) => invoke("test_find_image", { image, threshold, area }),
   showMatch: (area, dotX, dotY) => invoke("show_match", { area, dotX, dotY }),
-  previewText: (text) => invoke("preview_text", { text }),
+  previewText: (id, text) => invoke("preview_text", { id, text }),
+  getDataFile: (id) => invoke("get_data_file", { id }),
+  chooseDataFile: async (id) => {
+    const picked = await open({ filters: [{ name: "CSV files", extensions: ["csv", "txt"] }] });
+    if (!picked || Array.isArray(picked)) return null;
+    return invoke("set_data_file", { id, path: picked });
+  },
+  removeDataFile: async (id) => {
+    await invoke("set_data_file", { id, path: null });
+  },
   getTriggers: (id) => invoke("get_triggers", { id }),
   setTriggers: (id, triggers) => invoke("set_triggers", { id, triggers }),
   setTriggersPaused: (paused) => invoke("set_triggers_paused", { paused }),
@@ -357,6 +375,9 @@ export function browserBackend(): Backend {
     testFindImage: async () => unavailable(),
     showMatch: async () => {},
     previewText: async () => unavailable(),
+    getDataFile: async () => null,
+    chooseDataFile: async () => unavailable(),
+    removeDataFile: async () => unavailable(),
     // Triggers only live in memory here, so the tab can be tried out.
     getTriggers: async (id) => {
       await ready; // the sample hotkeys come from the fixture

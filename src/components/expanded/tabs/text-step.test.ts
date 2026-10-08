@@ -80,11 +80,35 @@ describe("the Text step's editor", () => {
     expect(ops()).toEqual([]);
   });
 
+  test("the data file's columns are placeholders, filled from its first row", async () => {
+    await withText("Dear ");
+    expect(within(editor()).queryByRole("button", { name: "{col:Customer}" })).toBeNull();
+    core.csv.set("C:\\customers.csv", { columns: ["Customer", "", "a{b}"], rows: [["ACME"]] });
+    core.dialog.open = "C:\\customers.csv";
+    await relay.chooseDataFile();
+    await settle();
+    expect(within(editor()).queryByRole("button", { name: "{col:}" })).toBeNull();
+    textField().setSelectionRange(5, 5);
+    await userEvent.click(within(editor()).getByRole("button", { name: "{col:Customer}" }));
+    await settle();
+    expect(ops()).toEqual([{ op: "update_text", index: 2, text: "Dear {col:Customer}" }]);
+    expect(within(editor()).getByRole("status")).toHaveTextContent("Types now: “Dear ACME”");
+  });
+
+  test("a column without a data file says where to choose one, and is saved", async () => {
+    await withText("");
+    await typeText("{col:Customer}");
+    const status = within(editor()).getByRole("status");
+    expect(status).toHaveTextContent("A Text step types {col:Customer}: choose a data file in Settings → Playback.");
+    expect(status).toHaveClass("wrong");
+    expect(ops()).toEqual([{ op: "update_text", index: 2, text: "{col:Customer}" }]);
+  });
+
   test("a text with a mistake says what's wrong and isn't saved", async () => {
     await withText("No. {n}");
     await typeText("Hello {name}");
     const status = within(editor()).getByRole("status");
-    expect(status).toHaveTextContent("{name} isn't a placeholder: use {date}, {time}, {clipboard} or {n}.");
+    expect(status).toHaveTextContent("{name} isn't a placeholder: use {date}, {time}, {clipboard}, {n} or {col:Name}.");
     expect(status).toHaveClass("wrong");
     expect(ops()).toEqual([]);
     expect(textField().value).toBe("Hello {name}");

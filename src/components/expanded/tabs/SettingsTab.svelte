@@ -4,6 +4,7 @@
   import Kbd from "../../ui/Kbd.svelte";
   import { relay } from "../../../lib/state/relay.svelte";
   import { isTauri } from "../../../lib/platform/window";
+  import { plural } from "../../../lib/format";
   import type { CoordMode } from "../../../lib/types";
   import type { PathMode } from "../../../lib/ipc/bindings/PathMode";
   import type { KeepOnTop } from "../../../lib/ipc/bindings/KeepOnTop";
@@ -18,6 +19,11 @@
   ];
   const pb = $derived(relay.playback);
   const st = $derived(relay.settings);
+  const data = $derived(relay.dataFile);
+  const fileName = (path: string) => path.split(/[\\/]/).pop();
+
+  // The file may have changed on disk since the macro was opened.
+  $effect(() => void relay.loadDataFile());
 </script>
 
 <div class="list">
@@ -47,6 +53,19 @@
       value={pb.coord_mode}
       onchange={(v) => relay.setPlayback({ coord_mode: v })}
     />
+  </div>
+  <div class="row">
+    <div class="grow">
+      <div class="title">Data file</div>
+      {#if data}
+        <div class="sub" title={data.path}>{fileName(data.path)}: {plural(data.rows, "row")}, played once each</div>
+        {#if data.error}<div class="sub wrong" role="alert">{data.error}</div>{/if}
+      {:else}
+        <div class="sub">A CSV file: the macro plays once per row, and Text steps type its columns</div>
+      {/if}
+    </div>
+    {#if data}<button class="btn btn-secondary" onclick={relay.removeDataFile}>Remove</button>{/if}
+    <button class="btn btn-secondary" onclick={relay.chooseDataFile}>{data ? "Change…" : "Choose…"}</button>
   </div>
   <div class="row">
     <div class="grow"><div class="title">Stop on key press</div><div class="sub">Any keystroke aborts playback</div></div>
@@ -229,5 +248,8 @@
   .sub {
     font-size: 11px;
     color: var(--color-neutral-600);
+  }
+  .wrong {
+    color: var(--color-accent-700);
   }
 </style>

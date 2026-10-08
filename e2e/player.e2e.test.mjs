@@ -5,6 +5,7 @@
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { App, waitingMacro, writeRly } from "./harness.mjs";
 
@@ -39,6 +40,7 @@ describe("exported programs", () => {
   let page;
   const programs = {};
   let saved;
+  let ids;
 
   before(async () => {
     page = await app.start();
@@ -46,9 +48,15 @@ describe("exported programs", () => {
       waits: waitingMacro({ name: "Waits", waits: [1500] }),
       twice: waitingMacro({ name: "Twice", waits: [1000], repeat: { count: 2 } }),
       pixel: waitingMacro({ name: "Pixel", waits: [200], pixel: { x: 0, y: 0, color: "#FE01FD" } }),
+      rows: waitingMacro({ name: "Rows", waits: [1000] }),
     };
     const paths = writeRly(app.path("sources"), Object.values(docs));
     const { imported } = await page.invoke("import_macros", { paths });
+    ids = imported;
+    // Two rows: the program carries them and plays twice.
+    const csv = app.path("sources", "rows.csv");
+    writeFileSync(csv, "Customer\nACME\nGlobex\n");
+    await page.invoke("set_data_file", { id: imported[3], path: csv });
     for (const [i, key] of Object.keys(docs).entries()) {
       programs[key] = join(app.path("exports"), `${key}.exe`);
       await page.invoke("export_macro", { id: imported[i], format: "exe", path: programs[key] });
@@ -85,6 +93,25 @@ describe("exported programs", () => {
     r = await run(programs.waits, [...QUICK, "--speed=2"]);
     assert.equal(r.code, 0, r.stderr);
     about(r.ms, 650, 2500, "--speed 2");
+  });
+
+  test("a program plays once per row of the data file it was exported with", async () => {
+    writeFileSync(app.path("sources", "rows.csv"), "Customer\nonly one now\n"); // after the export: no change
+    const r = await run(programs.rows, QUICK);
+    assert.equal(r.code, 0, r.stderr);
+    about(r.ms, 1900, 4000, "a 1 s macro, two rows");
+  });
+
+  test("a macro typing a column it has no file for isn't exported", async () => {
+    const typing = waitingMacro({ name: "Typing" });
+    typing.version = 3;
+    typing.events.push({ type: "text", t: 1500, dur: 100, text: "{col:Customer}" });
+    const [path] = writeRly(app.path("sources"), [typing]);
+    const { imported } = await page.invoke("import_macros", { paths: [path] });
+    await assert.rejects(
+      page.invoke("export_macro", { id: imported[0], format: "exe", path: join(app.path("exports"), "typing.exe") }),
+      (e) => e.code === "data_file" && e.message === "A Text step types {col:Customer}: choose a data file in Settings → Playback.",
+    );
   });
 
   test("a pixel check that never matches ends it with 5", async () => {
