@@ -12,6 +12,7 @@
 - [Data files](#data-files)
 - [Finding an image](#finding-an-image)
 - [The file format](#the-file-format)
+- [AutoHotkey export](#autohotkey-export)
 - [Playback timing](#playback-timing)
 - [The session state machine](#the-session-state-machine)
 - [Schedules](#schedules)
@@ -28,6 +29,7 @@
 | [`edit`](../../crates/relay-core/src/edit.rs) | `EditOp`, `apply`, `normalize`, `check_invariants` |
 | [`path`](../../crates/relay-core/src/path.rs) | `smooth`, `straighten`, `simplify`: reshaping a MOVE step's path |
 | [`text`](../../crates/relay-core/src/text.rs) | A Text step's template: `parse`, `validate`, `fill`, `typing_ms`, `escape` |
+| [`ahk`](../../crates/relay-core/src/ahk.rs) | The AutoHotkey v2 export: `script(macro, data)` |
 | [`data`](../../crates/relay-core/src/data.rs) | Data files: `parse` (CSV), `DataTable::value`, `columns_used`, `check` (why a macro can't play with its file) |
 | [`image`](../../crates/relay-core/src/image.rs) | `find`: an image on a screen capture, at any scale from 0.5 to 2. `Rgb8`: reading PNG, JPEG and clipboard bitmaps, `prepare`/`check` |
 | [`format`](../../crates/relay-core/src/format.rs) | `.rly` serialization, the JSON export, loading and migrations |
@@ -210,6 +212,18 @@ flowchart LR
 An [exported program](file-formats.md#exported-programs) carries a `.rly`: `format::bundle(stub, macro, data)` appends it (with the data file's rows) and a trailer to the player's exe, `unbundle` finds it again, `from_program` reads the macro and its rows, and `from_file` reads any of the three kinds of file (a program starts with `MZ`).
 
 Migrations work on `serde_json::Value`, so old shapes never need Rust types. `migrate_v0` converts the M0 prototype's high-level events (`click`, `key` combos like `"Ctrl + A"`, `char`, `wait`, `cond`) into v1 presses and releases, with a single 1080p `RecordingMeta`. Snapshot tests pin both the v1 output and the migration result. See [File formats](file-formats.md) for the full schema.
+
+## AutoHotkey export
+
+[`ahk.rs`](../../crates/relay-core/src/ahk.rs) writes a macro as an AutoHotkey v2 script made of its **steps** (`group_steps`), not its events, so it reads like the steps list: a `Play(N)` function with a commented block per step, numbered as in the UI, and a loop calling it `Repeat` times (the data file's row count, if it has one).
+
+- **Timing** is start to start: before each step, `Pause(step.t − previous step.t)`, and after the last one, up to the macro's duration, so loops are spaced as in Relay. `Pause` divides by `Speed` and adds ±`Jitter` (not for MOVE steps, as Humanize ignores them). A step's own length (a drag, typing) is the script's, not the recording's.
+- **Pointer steps** use the modifiers held at their first pointer event, found from the events (a Shift-click carries its Shift; a Ctrl held over several clicks belongs to none of them): `Send "{Shift down}{Click x y}{Shift up}"`. A MOVE is a `MouseMove` to its end; a drag a `MouseClickDrag` at speed 5 (instant drags fail in many apps).
+- **Keys**: a KEYS step's combo becomes `Send` syntax (`^s`, `!{F4}`, `{LWin}` for a lone tap); TYPE is `SendText`; a Text step's template an expression (`FormatTime`, `A_Clipboard`, `N`, `Col(N, "Name")`).
+- **Checks**: `WaitPixel` polls `PixelGetColor` every 30 ms with Relay's per-channel tolerance; `FindImage` runs `ImageSearch` every 250 ms with a color variation of `(100 − threshold) × 2`. Both stop with a message box and exit code 5 on timeout. Pictures are embedded as base64 continuation sections and written to `%TEMP%` at start (`CryptStringToBinary`).
+- The script sets per-monitor DPI awareness, since Relay's coordinates are physical pixels, and only includes the helpers it uses.
+
+The output is pinned by a snapshot, and the app's `export_macro` refuses it, like a program, when the data file can't be played. AutoHotkey isn't installed in CI, so no test runs a script.
 
 ## Playback timing
 

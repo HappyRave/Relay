@@ -39,9 +39,9 @@ Relay is a **Windows desktop macro recorder**: it records mouse and keyboard inp
 ## Where things stand
 
 - **Latest release: v1.4.0** (2026-10-01), from `main`. Releases so far: v1.0.0, v1.1.0, v1.2.0, v1.3.0, v1.4.0. Each has an NSIS installer and a portable exe.
-- **Milestone history:** M0–M8 built v1.0. Then: m9 editor polish (v1.1.0), m10 Keep on top, m11 dependency upgrades, m12 a four-reviewer architecture refactor, m13 the three-layer test suite, m14 a four-reviewer audit of every test against the user guide (about 90 findings fixed), then v1.2.0. Then fix-multi-monitor-scale and m15 the control bar, preview bar, screenshots and resizable editor (v1.3.0). Then m16 mouse moves as steps, m17 Find image (with fix-find-image-own-window), m18 the run history, m19 standalone `.exe` export (v1.4.0). Since then, unreleased: m20 Text steps with placeholders, m21 data files that drive repeats. `git log --first-parent main` shows them as merges.
+- **Milestone history:** M0–M8 built v1.0. Then: m9 editor polish (v1.1.0), m10 Keep on top, m11 dependency upgrades, m12 a four-reviewer architecture refactor, m13 the three-layer test suite, m14 a four-reviewer audit of every test against the user guide (about 90 findings fixed), then v1.2.0. Then fix-multi-monitor-scale and m15 the control bar, preview bar, screenshots and resizable editor (v1.3.0). Then m16 mouse moves as steps, m17 Find image (with fix-find-image-own-window), m18 the run history, m19 standalone `.exe` export (v1.4.0). Since then, unreleased: m20 Text steps with placeholders, m21 data files that drive repeats, m22 AutoHotkey v2 export. `git log --first-parent main` shows them as merges.
 - **Tests at v1.4.0:** about 390 Rust (unit, property, snapshot), about 640 Vitest (store, backend contract, fake core, every component), about 115 end-to-end tests against the built app. Rust unit coverage is about 76% of lines; the coordinator, commands, tray and Windows backend are exercised end to end instead. The frontend is at about 99.8% of lines.
-- **Next, per the [roadmap](README.md#roadmap):** AutoHotkey v2 export (the Export dialog already shows it as "Coming later"), code signing (needs a certificate; free options for open source: SignPath Foundation, Certum's open-source certificate, Azure Trusted Signing), remapping macros to a different monitor layout, macOS and Linux backends.
+- **Next, per the [roadmap](README.md#roadmap):** code signing (needs a certificate; free options for open source: SignPath Foundation, Certum's open-source certificate, Azure Trusted Signing), remapping macros to a different monitor layout, macOS and Linux backends.
 - **Also open:** see [Known limitations and open items](#known-limitations-and-open-items).
 
 Before starting work, check the open pull requests (`gh pr list`, and the description of the one you're continuing), `git log --oneline -15`, `git status`, the README roadmap and the *Unreleased* section of `CHANGELOG.md`.
@@ -85,6 +85,7 @@ crates/relay-core/src/       pure logic, heavily tested
   image.rs                   finding an image on a capture (gray NCC, coarse to fine, scales 0.5–2); PNG/JPEG/DIB
   text.rs                    Text steps' templates: {date} {time} {clipboard} {n} {col:Name}, parse/fill/typing_ms
   data.rs                    data files: CSV parse, DataTable, check (why a macro can't play with its file)
+  ahk.rs                     the AutoHotkey v2 export: a script with a block per step
   samples.rs  proptests.rs   the four design samples; property tests
 crates/relay-platform/src/
   lib.rs  types.rs           the OS traits (InputHook, Screen, WindowQuery, Injector, Timer…), RawInput, HookConfig
@@ -234,7 +235,7 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 
 `main` only changes through pull requests that pass CI. CI minutes are limited (2,000 a month, and Windows minutes count double), so everyday checking happens locally and the expensive CI job runs once per PR, when it's ready.
 
-- **Branches:** short-lived, off `main`. Milestones `mN-short-name` (next is `m22-…`), fixes `fix-…`, docs `docs-…`, CI and tooling `ci-…`, releases `release-X.Y.Z`.
+- **Branches:** short-lived, off `main`. Milestones `mN-short-name` (next is `m23-…`), fixes `fix-…`, docs `docs-…`, CI and tooling `ci-…`, releases `release-X.Y.Z`.
 - **Commits:** small, [Conventional Commits](https://www.conventionalcommits.org/) (`feat(recorder): …`, `fix(engine): …`, `test(e2e): …`, `docs: …`, `ci: …`, `chore: …`), with a body explaining why when it isn't obvious. Push as often as you like: pushing a branch runs nothing.
 - **The pull request is the milestone's workspace.** Open it as a **draft** when the branch starts (`gh pr create --draft --base main`), with the plan and progress in its description, kept up to date. That's where the next session (or contributor) picks up. Drafts only run the quick CI job.
 - **Ready means checked:** run `npm run verify` locally, then `gh pr ready`. That runs the full CI once; every later push to a ready PR runs it again, so push fixes in one go. Put a PR back to draft (`gh pr ready --undo`) to keep working on it.
@@ -312,7 +313,8 @@ Not fixed yet; each is a candidate task:
 - **Real-input paths** are on the manual checklist only (see [Testing](#testing)).
 - **Dead keys:** a dead key alone records as a KEYS step, and the following letter records unaccented ("e", not "ê"). It's display only, and pinned by a test.
 - **Exported programs aren't signed**, and can't be: appending the macro to the player would break a signature. SmartScreen warns on a downloaded one, and an antivirus may flag it.
-- **Roadmap:** AHK export, code signing, monitor remapping, other OS backends.
+- **AutoHotkey scripts aren't run by any test** (AutoHotkey isn't on the CI runner): the generator is pinned by a snapshot, and the scripts need a try by hand.
+- **Roadmap:** code signing, monitor remapping, other OS backends.
 
 ## Working with the maintainer
 
