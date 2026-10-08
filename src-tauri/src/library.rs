@@ -313,13 +313,28 @@ impl Library {
         self.save(id)
     }
 
-    /// Writes one macro's file after a change to it, and the index.
+    /// Writes one macro's file after a change to it, and the index. Trashed
+    /// macros that couldn't be written to the trash get another try.
     pub fn save(&mut self, id: Uuid) -> std::io::Result<()> {
+        self.save_unsaved_trash();
         let Some(e) = self.get_mut(id) else { return Ok(()) };
         e.summarize();
         let m = &self.get(id).expect("just found").macro_;
         self.write_macro(m)?;
         self.save_index()
+    }
+
+    /// Tries again to write the trashed macros kept in memory to the trash
+    /// (see [`Library::trash`]). Returns how many still aren't there.
+    pub fn save_unsaved_trash(&mut self) -> usize {
+        let dir = self.dir.clone();
+        self.unsaved_trash.retain(|id, m| {
+            let to = dir.join("macros").join(".trash").join(format!("{id}.rly"));
+            let written =
+                to.parent().map_or(Ok(()), fs::create_dir_all).and_then(|()| write_atomic(&to, &format::to_rly(m)));
+            written.is_err()
+        });
+        self.unsaved_trash.len()
     }
 
     /// Writes the index only (run counts and last runs changed).
@@ -350,7 +365,8 @@ impl Library {
 
     /// Moves a macro to the trash (its file to `macros\.trash`). A macro
     /// whose file couldn't be saved is written there from memory, or if that
-    /// fails too, kept in memory to restore until Relay quits.
+    /// fails too, kept in memory to restore, and written with the next save
+    /// or when Relay quits.
     pub fn trash(&mut self, id: Uuid) -> Result<Change, LibraryError> {
         let position = self.position(id)?;
         let (from, to) = (self.macro_path(id), self.trash_path(id));
@@ -935,6 +951,28 @@ mod tests {
         lib.restore(id).unwrap().saved.unwrap();
         assert_eq!(lib.get(id).unwrap().macro_.name, "Recording 1");
         assert!(dir.path().join("macros").join(format!("{id}.rly")).exists());
+    }
+
+    #[test]
+    fn a_macro_that_couldnt_be_written_to_the_trash_is_written_later() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut lib, _) = Library::open(dir.path());
+        let id = insert_unsaved(dir.path(), &mut lib);
+        let blocked = dir.path().join("macros/.trash").join(format!("{id}.rly"));
+        fs::create_dir_all(&blocked).unwrap();
+        assert!(lib.trash(id).unwrap().saved.is_err());
+        assert_eq!(lib.save_unsaved_trash(), 1, "still blocked");
+
+        fs::remove_dir(&blocked).unwrap();
+        let other = lib.list()[0].id;
+        lib.save(other).unwrap();
+        assert!(blocked.is_file(), "written with the next save");
+        assert_eq!(lib.save_unsaved_trash(), 0);
+
+        // So it survives a restart.
+        let (mut lib, _) = Library::open(dir.path());
+        lib.restore(id).unwrap().saved.unwrap();
+        assert_eq!(lib.get(id).unwrap().macro_.name, "Recording 1");
     }
 
     /// Changes are kept but library.json isn't written: `index` is what it held.
