@@ -102,7 +102,7 @@ pub enum Cmd {
 
 Every `Input` goes through `session::step`, and the coordinator performs the returned effects in order (see [the state machine](core.md#the-session-state-machine)).
 
-The loop waits on the channel; while a recording countdown runs, it waits with a 50 ms timeout instead, and each wake reports the time left or, at zero, feeds `CountdownDone`. Each command runs under `catch_unwind`: a bug in one ends the session cleanly (with an error for the user) instead of killing the thread every later session needs.
+The loop waits on the channel; while a recording countdown runs, it waits with a 50 ms timeout instead, and each wake reports the time left or, at zero, feeds `CountdownDone`. Each command runs under `catch_unwind`: a bug in one ends the session cleanly (with an error for the user) instead of killing the thread every later session needs. The coordinator is generic over Tauri's `Runtime` (and so are the few helpers it calls on the app), so a unit test runs the real thread on Tauri's mock runtime: a command that panics mid-countdown (`Cmd::Panic`, test-only) leaves it idle, tells the UI, doesn't go on to record, and later commands still work. Hotkey registration skips itself when the global-shortcut plugin isn't there, as in that test.
 
 A few effects in detail:
 

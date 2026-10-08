@@ -19,7 +19,7 @@ use relay_core::steps::GroupOptions;
 use relay_platform::recorder::{Recorder, RecorderConfig, is_meaningful};
 use relay_platform::types::MousePulse;
 use relay_platform::{HookConfig, HookMode, HookSession, Platform, RawInput, RawKind};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Runtime};
 use uuid::Uuid;
 
 use crate::engine::{self, EngineCmd, EngineHandle, PlayPlan, RunReport, TimingStats};
@@ -79,6 +79,9 @@ pub enum Cmd {
     HookLost,
     /// Relay is quitting: stop what's running (saving a recording) and reply.
     Shutdown(Sender<()>),
+    /// A command whose handling panics, to test the recovery.
+    #[cfg(test)]
+    Panic,
 }
 
 /// The current session mode, readable by commands (e.g. to refuse deleting
@@ -168,8 +171,8 @@ struct RunStart {
     humanize: bool,
 }
 
-struct Coordinator {
-    app: AppHandle,
+struct Coordinator<R: Runtime> {
+    app: AppHandle<R>,
     platform: Arc<Platform>,
     emit: Arc<Emitter>,
     tx: Sender<Cmd>,
@@ -187,7 +190,7 @@ struct Coordinator {
     history_unsaved_told: bool,
 }
 
-pub fn spawn(app: AppHandle, platform: Arc<Platform>, emit: Arc<Emitter>) -> CoordinatorHandle {
+pub fn spawn<R: Runtime>(app: AppHandle<R>, platform: Arc<Platform>, emit: Arc<Emitter>) -> CoordinatorHandle {
     let (tx, rx) = unbounded();
     let mut c = Coordinator {
         app,
@@ -208,7 +211,7 @@ pub fn spawn(app: AppHandle, platform: Arc<Platform>, emit: Arc<Emitter>) -> Coo
     CoordinatorHandle(tx)
 }
 
-impl Coordinator {
+impl<R: Runtime> Coordinator<R> {
     fn run(&mut self, rx: Receiver<Cmd>) {
         hotkeys::set_active(&self.app, HotkeySet::Idle);
         loop {
@@ -252,6 +255,8 @@ impl Coordinator {
 
     fn handle(&mut self, cmd: Cmd) {
         match cmd {
+            #[cfg(test)]
+            Cmd::Panic => panic!("a test's panic"),
             Cmd::Input(input) => self.input(input),
             Cmd::HotkeyPlay => self.input(Input::TogglePlay { from: self.idle_playhead.round() as u32 }),
             Cmd::Escape => self.input(Input::Stop(FinishReason::Stopped)),
@@ -926,5 +931,65 @@ mod tests {
         assert_eq!((e.macro_id, e.macro_name.as_str(), e.source, e.at), (m.id, "Invoices", RunSource::Hotkey, at));
         assert_eq!(e.note.as_deref(), Some(why));
         assert_eq!(data_file_skip(&m, RunSource::Manual, why, at), None, "Play shows the error instead");
+    }
+
+    /// The real coordinator thread, on Tauri's mock runtime (no window, no
+    /// hotkeys registered): a command that panics leaves Relay idle and
+    /// still taking commands.
+    #[test]
+    fn a_command_that_panics_leaves_relay_idle_and_working() {
+        use tauri::ipc::{Channel, InvokeResponseBody};
+        use tauri::test::{mock_builder, mock_context, noop_assets};
+
+        let dir = tempfile::tempdir().unwrap();
+        let app = mock_builder().build(mock_context(noop_assets())).unwrap();
+        app.manage(Mutex::new(Library::open(dir.path()).0));
+        app.manage(Mutex::new(SettingsStore::open(dir.path()).0));
+        app.manage(Mutex::new(RunHistory::open(dir.path()).0));
+        app.manage(TriggerState::default());
+        app.manage(SessionMode::default());
+        app.manage(hotkeys::Hotkeys::default());
+        let emit = Arc::new(Emitter::default());
+        let got = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+        let sink = got.clone();
+        emit.subscribe(Channel::new(move |body| {
+            let InvokeResponseBody::Json(s) = body else { panic!("expected JSON") };
+            sink.lock().push(serde_json::from_str(&s).unwrap());
+            Ok(())
+        }));
+        app.manage(emit.clone());
+        let c = spawn(app.handle().clone(), Arc::new(relay_platform::platform()), emit);
+        let idle = || app.state::<SessionMode>().is_idle();
+        let wait_until = |what: &str, done: &dyn Fn() -> bool| {
+            let end = std::time::Instant::now() + Duration::from_secs(2);
+            while !done() {
+                assert!(std::time::Instant::now() < end, "{what}");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        };
+
+        // Record, with its 3-second countdown: busy, though nothing is recording yet.
+        c.send(Cmd::Input(Input::ToggleRecord));
+        wait_until("the countdown", &|| !idle());
+        c.send(Cmd::Panic);
+        wait_until("idle again", &idle);
+        let error =
+            serde_json::json!({ "type": "error", "message": "Something went wrong; Relay stopped what it was doing." });
+        wait_until("the error", &|| got.lock().contains(&error));
+        assert_eq!(
+            got.lock().iter().rev().find(|m| m["type"] == "session").map(|m| m["mode"].clone()),
+            Some(serde_json::json!("idle")),
+            "the UI is told"
+        );
+        // The countdown that was running doesn't go on to record.
+        std::thread::sleep(Duration::from_millis(3300));
+        assert!(idle());
+
+        // And the next command works.
+        c.send(Cmd::Input(Input::ToggleRecord));
+        wait_until("another countdown", &|| !idle());
+        c.send(Cmd::Escape);
+        wait_until("cancelled", &idle);
+        c.shutdown(Duration::from_secs(3));
     }
 }

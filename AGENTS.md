@@ -39,7 +39,7 @@ Relay is a **Windows desktop macro recorder**: it records mouse and keyboard inp
 ## Where things stand
 
 - **Latest release: v1.4.0** (2026-10-01), from `main`. Releases so far: v1.0.0, v1.1.0, v1.2.0, v1.3.0, v1.4.0. Each has an NSIS installer and a portable exe.
-- **Milestone history:** M0–M8 built v1.0. Then: m9 editor polish (v1.1.0), m10 Keep on top, m11 dependency upgrades, m12 a four-reviewer architecture refactor, m13 the three-layer test suite, m14 a four-reviewer audit of every test against the user guide (about 90 findings fixed), then v1.2.0. Then fix-multi-monitor-scale and m15 the control bar, preview bar, screenshots and resizable editor (v1.3.0). Then m16 mouse moves as steps, m17 Find image (with fix-find-image-own-window), m18 the run history, m19 standalone `.exe` export (v1.4.0). Since then, unreleased: m20 Text steps with placeholders, m21 data files that drive repeats, m22 AutoHotkey v2 export, m23 known limitations (stacked toasts, diff-based undo, unsaved trash retried, data-file skips in the run history). `git log --first-parent main` shows them as merges.
+- **Milestone history:** M0–M8 built v1.0. Then: m9 editor polish (v1.1.0), m10 Keep on top, m11 dependency upgrades, m12 a four-reviewer architecture refactor, m13 the three-layer test suite, m14 a four-reviewer audit of every test against the user guide (about 90 findings fixed), then v1.2.0. Then fix-multi-monitor-scale and m15 the control bar, preview bar, screenshots and resizable editor (v1.3.0). Then m16 mouse moves as steps, m17 Find image (with fix-find-image-own-window), m18 the run history, m19 standalone `.exe` export (v1.4.0). Since then, unreleased: m20 Text steps with placeholders, m21 data files that drive repeats, m22 AutoHotkey v2 export, m23 known limitations (stacked toasts, diff-based undo, unsaved trash retried, data-file skips in the run history, the coordinator's crash recovery tested on Tauri's mock runtime). `git log --first-parent main` shows them as merges.
 - **Tests at v1.4.0:** about 390 Rust (unit, property, snapshot), about 640 Vitest (store, backend contract, fake core, every component), about 115 end-to-end tests against the built app. Rust unit coverage is about 76% of lines; the coordinator, commands, tray and Windows backend are exercised end to end instead. The frontend is at about 99.8% of lines.
 - **Next, per the [roadmap](README.md#roadmap):** code signing (needs a certificate; free options for open source: SignPath Foundation, Certum's open-source certificate, Azure Trusted Signing), remapping macros to a different monitor layout, macOS and Linux backends.
 - **Also open:** see [Known limitations and open items](#known-limitations-and-open-items).
@@ -275,6 +275,7 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 - A coverage-instrumented app exits without writing its profile, so merged unit + E2E coverage isn't possible; report them separately.
 - With Node 25.7, `npm run test:e2e` fails with "Cannot find module …\e2e": that Node doesn't take the folder argument. Node 26 is fine; otherwise pass the files: `node --test --test-concurrency=1 --test-timeout=120000 e2e/*.e2e.test.mjs`.
 - Bitdefender's Advanced Threat Defense blocked an exported program that PowerShell started from `%TEMP%` (a double-click from `Documents` was fine). Its cleanup also removed `target\release\relay.exe` and the screenshot script, and afterwards silently refused to recreate those paths ("Permission denied", nothing in the quarantine). That's why the screenshot script keeps its files in `target\docs-shots`.
+- `src-tauri/build.rs` embeds `app.manifest` itself (`/MANIFESTINPUT`, for every linked target), not through tauri-build: the unit tests use Tauri's mock runtime, and a test binary without Common Controls v6 fails to start with `STATUS_ENTRYPOINT_NOT_FOUND`.
 - `src-tauri/build.rs` builds the player in release in `target/player` (a folder of its own: a nested cargo in the same one deadlocks on its lock). The first build of the app takes a minute or two longer. `RELAY_PLAYER_EXE=<path>` skips it with a prebuilt player.
 
 **WebView2 and the app**
@@ -306,7 +307,6 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 
 Not fixed yet; each is a candidate task:
 
-- **Crash recovery isn't unit tested:** the coordinator's recovery path (busy state cleared after a panic) needs Tauri's `test` feature (`MockRuntime`), which isn't enabled.
 - **Zoom margin:** `zoom_for_work_area` keeps one 16 px margin vertically, so on a short work area the expanded widget sits 8 px from the top and bottom.
 - **Real-input paths** are on the manual checklist only (see [Testing](#testing)).
 - **Dead keys:** a dead key alone records as a KEYS step, and the following letter records unaccented ("e", not "ê"). It's display only, and pinned by a test.
