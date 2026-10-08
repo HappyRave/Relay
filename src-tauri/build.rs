@@ -2,9 +2,18 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
-    let windows = tauri_build::WindowsAttributes::new().app_manifest(include_str!("app.manifest"));
+    // The manifest is embedded below rather than by tauri-build, which gives
+    // it to the app only: the unit tests use Tauri too (its mock runtime),
+    // and don't start without Common Controls v6.
+    let windows = tauri_build::WindowsAttributes::new_without_app_manifest();
     tauri_build::try_build(tauri_build::Attributes::new().windows_attributes(windows))
         .expect("failed to run tauri-build");
+    if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("app.manifest");
+        println!("cargo:rerun-if-changed={}", manifest.display());
+        println!("cargo:rustc-link-arg=/MANIFEST:EMBED");
+        println!("cargo:rustc-link-arg=/MANIFESTINPUT:{}", manifest.display());
+    }
     player();
 }
 

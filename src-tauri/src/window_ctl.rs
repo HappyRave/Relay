@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, Monitor, WebviewWindow};
+use tauri::{AppHandle, Manager, Monitor, Runtime, WebviewWindow};
 use ts_rs::TS;
 
 use crate::storage::write_atomic;
@@ -69,7 +69,7 @@ impl Panes {
 
 /// The main window's handle (0 if there's none), to leave it out of screen
 /// captures and recordings.
-pub fn main_hwnd(app: &AppHandle) -> isize {
+pub fn main_hwnd<R: Runtime>(app: &AppHandle<R>) -> isize {
     #[cfg(windows)]
     return app.get_webview_window("main").and_then(|w| w.hwnd().ok()).map_or(0, |h| h.0 as isize);
     #[cfg(not(windows))]
@@ -566,14 +566,14 @@ fn set_client_rect(window: &WebviewWindow, x: i32, y: i32, w: i32, h: i32) {
 
 /// Applies the *Keep on top* setting; `session` is whether a recording or
 /// playback (or its countdown) is running.
-pub fn apply_on_top(window: &WebviewWindow, setting: crate::settings::KeepOnTop, session: bool) {
+pub fn apply_on_top<R: Runtime>(window: &WebviewWindow<R>, setting: crate::settings::KeepOnTop, session: bool) {
     let _ = window.set_always_on_top(setting.on_top(session));
 }
 
 /// While a session runs, clicking the widget must not take the keyboard away
 /// from the app being recorded or played into.
 #[cfg(windows)]
-pub fn set_no_activate(window: &WebviewWindow, on: bool) {
+pub fn set_no_activate<R: Runtime>(window: &WebviewWindow<R>, on: bool) {
     use windows::Win32::UI::WindowsAndMessaging::{
         GWL_EXSTYLE, GetWindowLongPtrW, SetWindowLongPtrW, WS_EX_NOACTIVATE,
     };
@@ -589,7 +589,7 @@ pub fn set_no_activate(window: &WebviewWindow, on: bool) {
 }
 
 #[cfg(not(windows))]
-pub fn set_no_activate(_window: &WebviewWindow, _on: bool) {}
+pub fn set_no_activate<R: Runtime>(_window: &WebviewWindow<R>, _on: bool) {}
 
 /// Makes the window match the design system: square corners and no
 /// accent-colored DWM border (Windows 11 rounds and outlines top-level

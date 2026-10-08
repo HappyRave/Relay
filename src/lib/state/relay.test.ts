@@ -25,7 +25,7 @@ beforeEach(async () => {
 afterEach(() => relay.dispose());
 
 describe("startup", () => {
-  test("subscribes, then loads settings, the library, the first macro and its triggers", async () => {
+  test("subscribes, then loads settings, the library, the first macro, its triggers and data file", async () => {
     const r = await freshStore({ init: false });
     await r.init();
     await settle();
@@ -37,6 +37,7 @@ describe("startup", () => {
       "load_macro",
       "screenshot",
       "get_triggers",
+      "get_data_file",
       "get_autostart",
     ]);
     expect(core.lastArgs("load_macro")).toEqual({ id: A });
@@ -396,29 +397,62 @@ describe("engine messages", () => {
 
   test("errors and notices become toasts", () => {
     core.emit({ type: "error", message: "Couldn't register the Play hotkey" });
-    expect(relay.toast).toEqual({ kind: "error", message: "Couldn't register the Play hotkey" });
+    expect(relay.toast).toMatchObject({ kind: "error", message: "Couldn't register the Play hotkey" });
     expect(relay.error).toBe("Couldn't register the Play hotkey");
     core.emit({ type: "notice", message: "Skipped “Export”: Relay was busy" });
     expect(relay.toast).toMatchObject({ kind: "info", message: "Skipped “Export”: Relay was busy" });
-    expect(relay.error).toBeNull();
+    expect(relay.toasts.map((t) => t.kind)).toEqual(["error", "info"]);
+    expect(relay.error).toBe("Couldn't register the Play hotkey"); // the error stays under it
   });
 });
 
 describe("toasts", () => {
   beforeEach(() => vi.useFakeTimers());
 
-  test("errors stay until dismissed or replaced, notices from the engine go after 6 s", async () => {
+  test("errors stay until dismissed, notices from the engine go after 6 s", async () => {
     core.emit({ type: "error", message: "x" });
     await vi.advanceTimersByTimeAsync(60_000);
     expect(relay.toast).toMatchObject({ kind: "error", message: "x" });
-    relay.dismissToast();
+    relay.clearToasts();
     expect(relay.toast).toBeNull();
     core.emit({ type: "error", message: "x" });
     core.emit({ type: "notice", message: "y" });
     await vi.advanceTimersByTimeAsync(5900);
-    expect(relay.toast).not.toBeNull();
+    expect(relay.toasts.map((t) => t.message)).toEqual(["x", "y"]);
     await vi.advanceTimersByTimeAsync(200);
-    expect(relay.toast).toBeNull();
+    expect(relay.toasts.map((t) => t.message)).toEqual(["x"]);
+  });
+
+  test("each toast keeps its own time", async () => {
+    relay.notify("one");
+    await vi.advanceTimersByTimeAsync(3000);
+    relay.notify("two");
+    await vi.advanceTimersByTimeAsync(2100);
+    expect(relay.toasts.map((t) => t.message)).toEqual(["two"]);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(relay.toasts).toEqual([]);
+  });
+
+  test("an edit withdraws only the Undo of the edit before, and a restore only its own Undo", async () => {
+    vi.useRealTimers();
+    core.emit({ type: "error", message: "Couldn't register the Play hotkey" });
+    await relay.deleteMacro(B);
+    await relay.deleteStep(1);
+    await settle();
+    const messages = () => relay.toasts.map((t) => t.message);
+    expect(messages()).toEqual([
+      "Couldn't register the Play hotkey",
+      "Moved “Fill weekly timesheet” to the trash",
+      "Deleted the step",
+    ]);
+    const first = relay.toast!.id;
+    await relay.deleteStep(1);
+    await settle();
+    expect(relay.toasts.filter((t) => t.undoes).map((t) => t.id)).not.toContain(first);
+    expect(messages()).toHaveLength(3);
+    await relay.restoreMacro(B);
+    await settle();
+    expect(messages()).toEqual(["Couldn't register the Play hotkey", "Deleted the step"]);
   });
 
   test("a toast with an Undo stays at least 8 s", async () => {
@@ -439,13 +473,13 @@ describe("toasts", () => {
 
   test("dismissing closes it", () => {
     relay.notify("one");
-    relay.dismissToast();
+    relay.clearToasts();
     expect(relay.toast).toBeNull();
   });
 });
 
 describe("library", () => {
-  test("opening a macro loads it and its triggers, on the Steps tab", async () => {
+  test("opening a macro loads it, its triggers and data file, on the Steps tab", async () => {
     relay.tab = "library";
     relay.cur = 3000;
     await relay.loadMacro(B);
@@ -453,6 +487,7 @@ describe("library", () => {
       { cmd: "load_macro", args: { id: B } },
       { cmd: "screenshot", args: { id: B } },
       { cmd: "get_triggers", args: { id: B } },
+      { cmd: "get_data_file", args: { id: B } },
     ]);
     expect(relay.view?.id).toBe(B);
     expect(relay.triggers?.hotkey.combo).toBe("Ctrl + Alt + 2");
@@ -530,9 +565,26 @@ describe("library", () => {
     expect(relay.triggersPaused).toBe(true);
   });
 
+  test("a data file read for the macro left behind isn't shown for the new one", async () => {
+    core.csv.set("C:\\a.csv", { columns: ["Customer"], rows: [["ACME"]] });
+    core.dialog.open = "C:\\a.csv";
+    await relay.chooseDataFile();
+    expect(relay.dataFile?.path).toBe("C:\\a.csv");
+    core.hold("get_data_file");
+    const reading = relay.loadDataFile();
+    await settle();
+    core.release("get_data_file");
+    await relay.loadMacro(B);
+    expect(relay.dataFile).toBeNull();
+    core.held[0].resolve({ path: "C:\\a.csv", columns: ["Customer"], rows: 1, error: null });
+    await reading;
+    expect(relay.view?.id).toBe(B);
+    expect(relay.dataFile).toBeNull();
+  });
+
   test("Duplicate opens the copy in the Library tab", async () => {
     await relay.duplicateMacro(A);
-    expect(core.commands()).toEqual(["duplicate_macro", "list_macros", "load_macro", "screenshot", "get_triggers"]);
+    expect(core.commands()).toEqual(["duplicate_macro", "list_macros", "load_macro", "screenshot", "get_triggers", "get_data_file"]);
     expect(relay.library.map((m) => m.name).slice(0, 2)).toEqual(["Export invoice to PDF", "Export invoice to PDF (copy)"]);
     expect(relay.view?.id).toBe(relay.library[1].id);
     expect(relay.name).toBe("Export invoice to PDF (copy)");
@@ -548,7 +600,7 @@ describe("library", () => {
 
   test("Delete moves the open macro to the trash, opens its neighbour and offers Undo", async () => {
     await relay.deleteMacro(A);
-    expect(core.commands()).toEqual(["delete_macro", "list_macros", "load_macro", "screenshot", "get_triggers"]);
+    expect(core.commands()).toEqual(["delete_macro", "list_macros", "load_macro", "screenshot", "get_triggers", "get_data_file"]);
     expect(core.argsOf("delete_macro")).toEqual([{ id: A }]);
     expect(relay.view?.id).toBe(B);
     expect(relay.tab).toBe("library");
@@ -557,7 +609,7 @@ describe("library", () => {
     core.clearCalls();
     relay.toast!.action!.run();
     await settle();
-    expect(core.commands()).toEqual(["restore_macro", "list_macros", "load_macro", "screenshot", "get_triggers"]);
+    expect(core.commands()).toEqual(["restore_macro", "list_macros", "load_macro", "screenshot", "get_triggers", "get_data_file"]);
     expect(core.argsOf("restore_macro")).toEqual([{ id: A }]);
     expect(relay.view?.id).toBe(A);
     expect(relay.toast).toBeNull();
@@ -632,7 +684,7 @@ describe("library", () => {
     test("opens the first imported macro and says how many", async () => {
       core.dialog.open = ["C:\\one.rly", "C:\\two.rly"];
       await relay.importMacros();
-      expect(core.commands()).toEqual(["plugin:dialog|open", "import_macros", "list_macros", "load_macro", "screenshot", "get_triggers"]);
+      expect(core.commands()).toEqual(["plugin:dialog|open", "import_macros", "list_macros", "load_macro", "screenshot", "get_triggers", "get_data_file"]);
       expect(relay.library.map((m) => m.name).slice(0, 3)).toEqual(["one", "two", "Export invoice to PDF"]);
       expect(relay.view?.id).toBe(relay.library[0].id); // the first imported, at the top
       expect(relay.name).toBe("one");
@@ -838,7 +890,7 @@ describe("step edits", () => {
     expect(core.argsOf("edit_macro")).toEqual([]);
     expect(relay.toast).toMatchObject({ kind: "error", message: "Couldn't read the screen at 134, 70" });
     core.fail("sample_pixel");
-    relay.dismissToast();
+    relay.clearToasts();
     await relay.insertPixelCheck();
     expect(core.argsOf("edit_macro")).toEqual([]);
     expect(relay.error).toBe("Couldn't read the screen at 134, 70");

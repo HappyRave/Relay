@@ -8,6 +8,7 @@ Every recording is saved automatically to your **Library**. From there you can o
 - [Delete and undo](#delete-and-undo)
 - [Export](#export)
 - [Exported programs](#exported-programs)
+- [AutoHotkey scripts](#autohotkey-scripts)
 - [Import](#import)
 - [Where your macros are stored](#where-your-macros-are-stored)
 - [Backing up and moving to another PC](#backing-up-and-moving-to-another-pc)
@@ -46,7 +47,7 @@ Each run shows the macro's name (as it was then), when it started, and:
 
 Runs that didn't end as planned have a red bar. Click a run to see what its [pixel checks](05-pixel-checks.md) and [Find image](06-find-image.md) steps did (*Step 4 · Pixel check matched after 1.2 s*, *Step 6 · Image found at 812, 344 (93 %) after 0.4 s*), and its playback settings if they weren't the usual ones (*From 00:03.20 · 2× speed · Humanized*). A run keeps its last 50 checks.
 
-The history also lists [triggers](07-triggers.md) that fired but didn't run their macro: *Skipped: Relay was busy*, *Skipped: screen locked*, and *Skipped: PC was asleep* for a scheduled run the PC slept through.
+The history also lists [triggers](07-triggers.md) that fired but didn't run their macro: *Skipped: Relay was busy*, *Skipped: screen locked*, *Skipped: PC was asleep* for a scheduled run the PC slept through, and *Skipped: data file* when the macro's [data file](04-playback.md#a-data-file-one-run-per-row) couldn't be played, with what was wrong.
 
 Relay keeps the last 200 runs, in `runs.json`. A run still going when you quit Relay isn't recorded.
 
@@ -77,7 +78,7 @@ If you deleted the macro that was open, Relay opens the next one in the list.
    | **Relay macro** | `.rly` | Share or back up a macro. It can be imported back into Relay with all its steps, timing and playback options. |
    | **JSON events** | `.json` | Read or process the macro in your own tools. It's the same data, pretty-printed, plus the list of steps. Relay can import it too. |
    | **Standalone program** | `.exe` | Play the macro on any Windows PC, even without Relay. See [Exported programs](#exported-programs). |
-   | AutoHotkey v2 | `.ahk` | *Coming later* |
+   | **AutoHotkey v2** | `.ahk` | Read, change or run the macro as a script, with [AutoHotkey](https://www.autohotkey.com/) v2. See [AutoHotkey scripts](#autohotkey-scripts). |
 
 3. Press **Save…** and choose where. The name defaults to the macro's name, like `export-invoice-to-pdf.rly`. (A program is never named `relay.exe`: a macro named *Relay* is exported as `relay-macro.exe`.)
 
@@ -93,7 +94,7 @@ A macro exported as a **Standalone program** is an `.exe` that plays it on any W
 <p align="center"><img src="../images/player.png" alt="An exported program playing, in the bottom-right corner of the screen" width="400"></p>
 
 1. A small window opens in a corner of the screen (one the macro doesn't click in) and counts down **3, 2, 1**. Use those seconds to click into the app the macro works in: the window never takes the focus.
-2. The macro plays with the playback options saved with it: speed, repeats, *Humanize*, *Stop on key press* and *Window* coordinates. The window shows the time, the loop and a progress bar. [Text steps](03-editing.md#text-that-changes-each-run) fill in the date, the time and the clipboard of the PC it plays on.
+2. The macro plays with the playback options saved with it: speed, repeats, *Humanize*, *Stop on key press* and *Window* coordinates. The window shows the time, the loop and a progress bar. [Text steps](03-editing.md#text-that-changes-each-run) fill in the date, the time and the clipboard of the PC it plays on. A macro with a [data file](04-playback.md#a-data-file-one-run-per-row) plays once per row of the file as it was when you exported it: export again after changing it. Relay won't export one whose file it can't play (missing, or without a column a Text step types), and says why.
 3. When it's done, the window says *Done* and closes by itself.
 
 Stop it with the window's **Stop** button, <kbd>Esc</kbd>, or the <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd> kill switch (or any key, if the macro stops on a key press). Anything it was holding is released. Drag the window by its text to move it.
@@ -109,7 +110,7 @@ Run it from a command line, a shortcut or a scheduled task to change how it play
 
 | Option | Does |
 | --- | --- |
-| `--repeat N` or `--repeat forever` | Plays it *N* times, or until stopped, instead of the saved repeat |
+| `--repeat N` or `--repeat forever` | Plays it *N* times, or until stopped, instead of the saved repeat. A macro with a data file plays once per row whatever this says. |
 | `--speed X` | Plays *X* times faster (`0.5` is half speed), from 0.01 to 100 |
 | `--no-countdown` | Starts right away |
 | `--quiet` | Shows no window at all. Stop it with <kbd>Esc</kbd> or the kill switch. |
@@ -135,6 +136,35 @@ In a script, wait for it to end: `start /wait export-invoice.exe --quiet` in `cm
 
 > [!IMPORTANT]
 > Exported programs aren't code-signed. On a PC that downloaded or received one, Windows SmartScreen may say *Windows protected your PC*: choose **More info → Run anyway**. An antivirus may be wary of it too, since it presses keys and clicks like a person would. See [Troubleshooting](10-troubleshooting.md#installing).
+
+## AutoHotkey scripts
+
+A macro exported as **AutoHotkey v2** is a script you can read, change and run with [AutoHotkey](https://www.autohotkey.com/) v2, without Relay. Each step is a short block, numbered like the steps list:
+
+```autohotkey
+Play(N) {
+    ; 2. Click · Save
+    Pause(100)
+    Click "840 412"
+    ; 3. Keys · Ctrl + S
+    Pause(300)
+    Send "^s"
+    ; 6. Text
+    Pause(300)
+    SendText "Invoice " . FormatTime(, "yyyy-MM-dd") . " #" . N
+}
+```
+
+- **Running it.** Double-click the `.ahk` (with AutoHotkey v2 installed). A tooltip counts down 3 seconds: click into the app the macro works in. It then plays and exits.
+- **Stopping it.** <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd>, and <kbd>Esc</kbd> if the macro stops on a key press. Keys it was holding are released.
+- **Options** are variables at the top: `Speed`, `Repeat` (0 loops until stopped), `Jitter` (Humanize, in ms; 0 plays exactly) and `Countdown`. A macro with a [data file](04-playback.md#a-data-file-one-run-per-row) has its rows in `Rows` and plays once per row; Relay won't export it if the file can't be played, as for a program.
+- **Timing.** Each step starts when it did, relative to the step before; waits are those pauses. Pixel checks and Find image steps wait for what they look for, up to their timeout, then stop the script with a message.
+- **Mouse.** Clicks, drags and scrolls are at the screen coordinates they were recorded at, with any key held over them (a Shift-click). A mouse path is a jump to where it ends. The script ignores the *Window* coordinates option.
+- **Text.** Typed text and Text steps are sent as characters. `{date}`, `{time}`, `{clipboard}`, `{n}` and `{col:…}` are filled in when the script plays.
+- **Find image** steps carry their picture inside the script. AutoHotkey's `ImageSearch` compares pixels rather than shapes: it finds the picture only at the size it was taken, and less forgivingly than Relay. The threshold becomes its color variation (85 % allows 30 levels).
+
+> [!NOTE]
+> Relay's tests check that AutoHotkey accepts the scripts it writes, but don't run them: try one on your own macro before you rely on it.
 
 ## Import
 

@@ -31,7 +31,7 @@ const clampMs = (t: number) => Math.max(0, t);
 const CHAR_MS = 10;
 const NAMES = ["date", "time", "clipboard", "n"];
 
-type Part = { literal: string } | { name: string };
+type Part = { literal: string } | { name: string } | { column: string };
 
 /** A template's text and placeholders, or the message relay-core refuses it with. */
 export function parseTemplate(template: string): { parts: Part[] } | { error: string } {
@@ -49,10 +49,14 @@ export function parseTemplate(template: string): { parts: Part[] } | { error: st
       const close = chars.findIndex((d, j) => j > i && (d === "}" || d === "{"));
       if (close < 0 || chars[close] === "{") return { error: "A { isn't closed: type {{ for a brace." };
       const name = chars.slice(i + 1, close).join("");
-      if (!NAMES.includes(name)) return { error: `{${name}} isn't a placeholder: use {date}, {time}, {clipboard} or {n}.` };
+      const column = name.startsWith("col:") ? name.slice(4).trim() : null;
+      if (column === "") return { error: "{col:} needs the name of a column, as in {col:Customer}." };
+      if (column == null && !NAMES.includes(name)) {
+        return { error: `{${name}} isn't a placeholder: use {date}, {time}, {clipboard}, {n} or {col:Name}.` };
+      }
       if (literal) parts.push({ literal });
       literal = "";
-      parts.push({ name });
+      parts.push(column == null ? { name } : { column });
       i = close;
     } else {
       literal += c;
@@ -62,21 +66,46 @@ export function parseTemplate(template: string): { parts: Part[] } | { error: st
   return { parts };
 }
 
-/** What `template` types on repeat `n` at local time `now` ("2026-10-01T09:05:07"). */
-export function fillTemplate(template: string, n: number, now: string, clipboard: string | null): string {
+/**
+ * What `template` types on repeat `n` at local time `now` ("2026-10-01T09:05:07");
+ * `column` gives a column's value in this repeat's row (null types nothing).
+ */
+export function fillTemplate(
+  template: string,
+  n: number,
+  now: string,
+  clipboard: string | null,
+  column: (name: string) => string | null = () => null,
+): string {
   const parsed = parseTemplate(template);
   if ("error" in parsed) return template;
   const [date, time] = now.split("T");
   const value: Record<string, string> = { date, time, clipboard: clipboard ?? "", n: String(n) };
-  return parsed.parts.map((p) => ("literal" in p ? p.literal : value[p.name])).join("");
+  return parsed.parts
+    .map((p) => ("literal" in p ? p.literal : "column" in p ? (column(p.column) ?? "") : value[p.name]))
+    .join("");
 }
 
-/** About how long typing `template` takes (the clipboard counts as empty). */
+/** The columns `templates` type, in order, each once (any case). */
+export function columnsUsed(templates: string[]): string[] {
+  const used: string[] = [];
+  for (const t of templates) {
+    const parsed = parseTemplate(t);
+    if ("error" in parsed) continue;
+    for (const p of parsed.parts) {
+      if ("column" in p && !used.some((u) => u.toLowerCase() === p.column.toLowerCase())) used.push(p.column);
+    }
+  }
+  return used;
+}
+
+/** About how long typing `template` takes (the clipboard and columns count as empty). */
 function typingMs(template: string): number {
   const parsed = parseTemplate(template);
   if ("error" in parsed) return [...template].length * CHAR_MS;
   const length: Record<string, number> = { date: 10, time: 8, clipboard: 0, n: 1 };
-  return parsed.parts.reduce((n, p) => n + ("literal" in p ? [...p.literal].length : length[p.name]), 0) * CHAR_MS;
+  const chars = (p: Part) => ("literal" in p ? [...p.literal].length : "column" in p ? 0 : length[p.name]);
+  return parsed.parts.reduce((n, p) => n + chars(p), 0) * CHAR_MS;
 }
 
 function validate(template: string) {

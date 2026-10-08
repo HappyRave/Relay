@@ -282,7 +282,7 @@ class Page {
       window.__relay.expanded = true;
       window.__relay.exportOpen = false;
       window.__relay.selected = -1; // no step editor open
-      window.__relay.dismissToast();
+      window.__relay.clearToasts();
       return true;
     });
   }

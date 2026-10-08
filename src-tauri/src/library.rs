@@ -22,6 +22,8 @@ pub struct Entry {
     pub runs: u32,
     pub last_run: Option<DateTime<Utc>>,
     pub triggers: MacroTriggers,
+    /// The CSV whose rows drive its repeats, read each time it plays.
+    pub data_file: Option<PathBuf>,
     /// The Library row's step count and length, recomputed when the macro is
     /// saved rather than on every listing.
     step_count: u32,
@@ -34,7 +36,7 @@ impl Entry {
     }
 
     fn with_stats(macro_: Macro, runs: u32, last_run: Option<DateTime<Utc>>, triggers: MacroTriggers) -> Self {
-        let mut e = Entry { macro_, runs, last_run, triggers, step_count: 0, duration: 0 };
+        let mut e = Entry { macro_, runs, last_run, triggers, data_file: None, step_count: 0, duration: 0 };
         e.summarize();
         e
     }
@@ -108,11 +110,19 @@ struct IndexEntry {
     /// label; it never did anything, so it migrates as a disabled trigger.
     #[serde(skip_serializing)]
     hotkey: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    data_file: Option<PathBuf>,
 }
 
 impl IndexEntry {
     fn of(e: &Entry) -> Self {
-        IndexEntry { runs: e.runs, last_run: e.last_run, triggers: e.triggers.clone(), hotkey: None }
+        IndexEntry {
+            runs: e.runs,
+            last_run: e.last_run,
+            triggers: e.triggers.clone(),
+            hotkey: None,
+            data_file: e.data_file.clone(),
+        }
     }
 
     fn triggers(&self) -> MacroTriggers {
@@ -247,12 +257,14 @@ impl Library {
             .into_iter()
             .map(|m| {
                 let meta = index.entries.get(&m.id);
-                Entry::with_stats(
+                let mut e = Entry::with_stats(
                     m,
                     meta.map_or(0, |e| e.runs),
                     meta.and_then(|e| e.last_run),
                     meta.map(IndexEntry::triggers).unwrap_or_default(),
-                )
+                );
+                e.data_file = meta.and_then(|m| m.data_file.clone());
+                e
             })
             .collect();
         lib.refresh_triggers();
@@ -301,13 +313,28 @@ impl Library {
         self.save(id)
     }
 
-    /// Writes one macro's file after a change to it, and the index.
+    /// Writes one macro's file after a change to it, and the index. Trashed
+    /// macros that couldn't be written to the trash get another try.
     pub fn save(&mut self, id: Uuid) -> std::io::Result<()> {
+        self.save_unsaved_trash();
         let Some(e) = self.get_mut(id) else { return Ok(()) };
         e.summarize();
         let m = &self.get(id).expect("just found").macro_;
         self.write_macro(m)?;
         self.save_index()
+    }
+
+    /// Tries again to write the trashed macros kept in memory to the trash
+    /// (see [`Library::trash`]). Returns how many still aren't there.
+    pub fn save_unsaved_trash(&mut self) -> usize {
+        let dir = self.dir.clone();
+        self.unsaved_trash.retain(|id, m| {
+            let to = dir.join("macros").join(".trash").join(format!("{id}.rly"));
+            let written =
+                to.parent().map_or(Ok(()), fs::create_dir_all).and_then(|()| write_atomic(&to, &format::to_rly(m)));
+            written.is_err()
+        });
+        self.unsaved_trash.len()
     }
 
     /// Writes the index only (run counts and last runs changed).
@@ -330,14 +357,16 @@ impl Library {
             tracing::warn!("couldn't copy the screenshot of a duplicated macro: {e}");
         }
         // A copy starts with no triggers: two macros on one hotkey or schedule would collide.
-        self.entries.insert(pos + 1, Entry::new(copy));
+        let data_file = self.entries[pos].data_file.clone();
+        self.entries.insert(pos + 1, Entry { data_file, ..Entry::new(copy) });
         self.refresh_triggers();
         Ok(Change { value: new_id, saved: self.save_index() })
     }
 
     /// Moves a macro to the trash (its file to `macros\.trash`). A macro
     /// whose file couldn't be saved is written there from memory, or if that
-    /// fails too, kept in memory to restore until Relay quits.
+    /// fails too, kept in memory to restore, and written with the next save
+    /// or when Relay quits.
     pub fn trash(&mut self, id: Uuid) -> Result<Change, LibraryError> {
         let position = self.position(id)?;
         let (from, to) = (self.macro_path(id), self.trash_path(id));
@@ -395,7 +424,8 @@ impl Library {
             });
         }
         let pos = self.place_of(t.next).unwrap_or(t.position.min(self.entries.len()));
-        self.entries.insert(pos, Entry::with_stats(m, t.meta.runs, t.meta.last_run, triggers));
+        let data_file = t.meta.data_file.clone();
+        self.entries.insert(pos, Entry { data_file, ..Entry::with_stats(m, t.meta.runs, t.meta.last_run, triggers) });
         self.refresh_triggers();
         let index = self.save_index();
         Ok(Change { value: notice, saved: file.and(index) })
@@ -503,6 +533,12 @@ impl Library {
         Ok(Change::saved(self.save_index()))
     }
 
+    pub fn set_data_file(&mut self, id: Uuid, path: Option<PathBuf>) -> Result<Change, LibraryError> {
+        let pos = self.position(id)?;
+        self.entries[pos].data_file = path;
+        Ok(Change::saved(self.save_index()))
+    }
+
     fn refresh_triggers(&mut self) {
         self.triggers = self.entries.iter().map(|e| (e.macro_.id, e.triggers.clone())).collect();
     }
@@ -567,6 +603,32 @@ mod tests {
         assert_eq!(again.list()[0].id, rec_id);
         assert_eq!(again.get(invoice).unwrap().runs, 148);
         assert_eq!(again.next_recording_name(), "Recording 2");
+    }
+
+    #[test]
+    fn the_data_file_is_kept_like_triggers_and_copied() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut lib, _) = Library::open(dir.path());
+        let [invoice, timesheet, ..] = ids(&lib)[..] else { panic!("four samples") };
+        let csv = PathBuf::from(r"C:\Data\customers.csv");
+        lib.set_data_file(invoice, Some(csv.clone())).unwrap().saved.unwrap();
+        let index = fs::read_to_string(dir.path().join("library.json")).unwrap();
+        assert!(index.contains(r#""data_file": "C:\\Data\\customers.csv""#));
+        assert_eq!(index.matches("data_file").count(), 1, "not written for macros without one");
+
+        let (mut lib, _) = Library::open(dir.path());
+        assert_eq!(lib.get(invoice).unwrap().data_file.as_ref(), Some(&csv));
+        assert_eq!(lib.get(timesheet).unwrap().data_file, None);
+        let copy = lib.duplicate(invoice).unwrap().value;
+        assert_eq!(lib.get(copy).unwrap().data_file.as_ref(), Some(&csv), "a copy reads the same file");
+        lib.trash(invoice).unwrap().saved.unwrap();
+        let (mut lib, _) = Library::open(dir.path());
+        lib.restore(invoice).unwrap();
+        assert_eq!(lib.get(invoice).unwrap().data_file.as_ref(), Some(&csv));
+
+        lib.set_data_file(invoice, None).unwrap().saved.unwrap();
+        assert_eq!(Library::open(dir.path()).0.get(invoice).unwrap().data_file, None);
+        assert!(matches!(lib.set_data_file(Uuid::new_v4(), None), Err(LibraryError::NotFound(_))));
     }
 
     #[test]
@@ -889,6 +951,28 @@ mod tests {
         lib.restore(id).unwrap().saved.unwrap();
         assert_eq!(lib.get(id).unwrap().macro_.name, "Recording 1");
         assert!(dir.path().join("macros").join(format!("{id}.rly")).exists());
+    }
+
+    #[test]
+    fn a_macro_that_couldnt_be_written_to_the_trash_is_written_later() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut lib, _) = Library::open(dir.path());
+        let id = insert_unsaved(dir.path(), &mut lib);
+        let blocked = dir.path().join("macros/.trash").join(format!("{id}.rly"));
+        fs::create_dir_all(&blocked).unwrap();
+        assert!(lib.trash(id).unwrap().saved.is_err());
+        assert_eq!(lib.save_unsaved_trash(), 1, "still blocked");
+
+        fs::remove_dir(&blocked).unwrap();
+        let other = lib.list()[0].id;
+        lib.save(other).unwrap();
+        assert!(blocked.is_file(), "written with the next save");
+        assert_eq!(lib.save_unsaved_trash(), 0);
+
+        // So it survives a restart.
+        let (mut lib, _) = Library::open(dir.path());
+        lib.restore(id).unwrap().saved.unwrap();
+        assert_eq!(lib.get(id).unwrap().macro_.name, "Recording 1");
     }
 
     /// Changes are kept but library.json isn't written: `index` is what it held.

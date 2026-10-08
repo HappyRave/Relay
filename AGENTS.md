@@ -39,9 +39,9 @@ Relay is a **Windows desktop macro recorder**: it records mouse and keyboard inp
 ## Where things stand
 
 - **Latest release: v1.4.0** (2026-10-01), from `main`. Releases so far: v1.0.0, v1.1.0, v1.2.0, v1.3.0, v1.4.0. Each has an NSIS installer and a portable exe.
-- **Milestone history:** M0–M8 built v1.0. Then: m9 editor polish (v1.1.0), m10 Keep on top, m11 dependency upgrades, m12 a four-reviewer architecture refactor, m13 the three-layer test suite, m14 a four-reviewer audit of every test against the user guide (about 90 findings fixed), then v1.2.0. Then fix-multi-monitor-scale and m15 the control bar, preview bar, screenshots and resizable editor (v1.3.0). Then m16 mouse moves as steps, m17 Find image (with fix-find-image-own-window), m18 the run history, m19 standalone `.exe` export (v1.4.0). Since then, unreleased: m20 Text steps with placeholders. `git log --first-parent main` shows them as merges.
+- **Milestone history:** M0–M8 built v1.0. Then: m9 editor polish (v1.1.0), m10 Keep on top, m11 dependency upgrades, m12 a four-reviewer architecture refactor, m13 the three-layer test suite, m14 a four-reviewer audit of every test against the user guide (about 90 findings fixed), then v1.2.0. Then fix-multi-monitor-scale and m15 the control bar, preview bar, screenshots and resizable editor (v1.3.0). Then m16 mouse moves as steps, m17 Find image (with fix-find-image-own-window), m18 the run history, m19 standalone `.exe` export (v1.4.0). Since then, unreleased: m20 Text steps with placeholders, m21 data files that drive repeats, m22 AutoHotkey v2 export, m23 known limitations (stacked toasts, diff-based undo, unsaved trash retried, data-file skips in the run history, the coordinator's crash recovery tested on Tauri's mock runtime). `git log --first-parent main` shows them as merges.
 - **Tests at v1.4.0:** about 390 Rust (unit, property, snapshot), about 640 Vitest (store, backend contract, fake core, every component), about 115 end-to-end tests against the built app. Rust unit coverage is about 76% of lines; the coordinator, commands, tray and Windows backend are exercised end to end instead. The frontend is at about 99.8% of lines.
-- **Next, per the [roadmap](README.md#roadmap):** AutoHotkey v2 export (the Export dialog already shows it as "Coming later"), code signing (needs a certificate; free options for open source: SignPath Foundation, Certum's open-source certificate, Azure Trusted Signing), remapping macros to a different monitor layout, macOS and Linux backends.
+- **Next, per the [roadmap](README.md#roadmap):** code signing (needs a certificate; free options for open source: SignPath Foundation, Certum's open-source certificate, Azure Trusted Signing), remapping macros to a different monitor layout, macOS and Linux backends.
 - **Also open:** see [Known limitations and open items](#known-limitations-and-open-items).
 
 Before starting work, check the open pull requests (`gh pr list`, and the description of the one you're continuing), `git log --oneline -15`, `git status`, the README roadmap and the *Unreleased* section of `CHANGELOG.md`.
@@ -83,7 +83,10 @@ crates/relay-core/src/       pure logic, heavily tested
   session.rs                 the session state machine: Mode × Input → effects
   schedule.rs  triggers.rs   next scheduled run (DST-safe); PixelEdge, ProcessLaunchEdge
   image.rs                   finding an image on a capture (gray NCC, coarse to fine, scales 0.5–2); PNG/JPEG/DIB
-  text.rs                    Text steps' templates: {date} {time} {clipboard} {n}, parse/fill/typing_ms
+  text.rs                    Text steps' templates: {date} {time} {clipboard} {n} {col:Name}, parse/fill/typing_ms
+  data.rs                    data files: CSV parse, DataTable, check (why a macro can't play with its file)
+  splice.rs                  what an edit changed in the events, for undo (a run of events + one time shift)
+  ahk.rs                     the AutoHotkey v2 export: a script with a block per step
   samples.rs  proptests.rs   the four design samples; property tests
 crates/relay-platform/src/
   lib.rs  types.rs           the OS traits (InputHook, Screen, WindowQuery, Injector, Timer…), RawInput, HookConfig
@@ -108,6 +111,7 @@ src-tauri/src/
   rec_thread.rs              recorder thread and hook watchdog
   commands.rs  ipc.rs        Tauri commands; the EngineMsg stream (queues errors until the UI subscribes)
   library.rs  history.rs     macros on disk + trash + import; undo/redo (in memory)
+  data_file.rs               a macro's data file, read from disk when it plays, exports or shows
   run_history.rs             runs.json, the run history
   screens.rs                 the screenshot drawn under the preview (screens\<id>.jpg, machine-local)
   settings.rs  storage.rs    settings.json (field by field); data dir, atomic writes
@@ -196,7 +200,7 @@ These came out of two full reviews (m12, m14). Breaking one has caused real bugs
 - A type crossing IPC derives `TS` with `#[ts(export)]`; the bindings are generated, never hand-edited.
 - **Components talk to the `relay` store only**, never to `backend` or `invoke`.
 - **Every async result is guarded** by macro id and `viewSeq` (`apply()`), so a slow response can't land on another macro or overwrite a newer state. Settings, trigger and trigger-pause saves carry sequence numbers too.
-- **Undo toasts belong to their macro** (`undoes`) and are withdrawn by another edit, a rename, or opening another macro. **Error toasts stay until dismissed**; info toasts time out (5 s, 8 s with an action).
+- **Toasts stack** (the newest three show, each with its own timer and Dismiss). **Undo toasts belong to their macro** (`undoes`) and are withdrawn by another edit, a rename, or opening another macro; a trash toast belongs to the macro it restores (`restores`). **Error toasts stay until dismissed**; info toasts time out (5 s, 8 s with an action).
 - Svelte 5 runes only. Colors and spacing from `var(--…)` tokens (`src/styles/tokens.css`); corners stay square.
 - User-facing text: short plain sentences saying what happened and what to do; sentence case for labels.
 
@@ -232,7 +236,7 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 
 `main` only changes through pull requests that pass CI. CI minutes are limited (2,000 a month, and Windows minutes count double), so everyday checking happens locally and the expensive CI job runs once per PR, when it's ready.
 
-- **Branches:** short-lived, off `main`. Milestones `mN-short-name` (next is `m21-…`), fixes `fix-…`, docs `docs-…`, CI and tooling `ci-…`, releases `release-X.Y.Z`.
+- **Branches:** short-lived, off `main`. Milestones `mN-short-name` (next is `m24-…`), fixes `fix-…`, docs `docs-…`, CI and tooling `ci-…`, releases `release-X.Y.Z`.
 - **Commits:** small, [Conventional Commits](https://www.conventionalcommits.org/) (`feat(recorder): …`, `fix(engine): …`, `test(e2e): …`, `docs: …`, `ci: …`, `chore: …`), with a body explaining why when it isn't obvious. Push as often as you like: pushing a branch runs nothing.
 - **The pull request is the milestone's workspace.** Open it as a **draft** when the branch starts (`gh pr create --draft --base main`), with the plan and progress in its description, kept up to date. That's where the next session (or contributor) picks up. Drafts only run the quick CI job.
 - **Ready means checked:** run `npm run verify` locally, then `gh pr ready`. That runs the full CI once; every later push to a ready PR runs it again, so push fixes in one go. Put a PR back to draft (`gh pr ready --undo`) to keep working on it.
@@ -241,7 +245,7 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 - **Authorized:** pushing branches to `HappyRave/Relay`, and opening, updating, marking ready and merging PRs (following the rule above). Never push to `main` directly; the ruleset refuses it anyway.
 - **CI** (`.github/workflows/ci.yml`), on pull requests to `main`:
   - **quick** (Linux, every push, drafts too): fmt, tests and clippy for `relay-core`, `relay-platform`, `relay-playback` and `relay-player` (they must stay portable), `npm run check`, `npm test`. It also decides whether the PR changes more than docs (`docs/**`, `*.md`).
-  - **windows** (ready PRs that change code, after `quick` passes): `cargo test`, generated files up to date, clippy, `npx tauri build`, upload the installer, then the E2E suites against the release build. If E2E fails, `e2e/ci-diagnose.mjs` reports WebView2 details as annotations.
+  - **windows** (ready PRs that change code, after `quick` passes): `cargo test`, the AutoHotkey exports its tests write loaded by a pinned AutoHotkey with `/Validate` (syntax only, never run), generated files up to date, clippy, `npx tauri build`, upload the installer, then the E2E suites against the release build. If E2E fails, `e2e/ci-diagnose.mjs` reports WebView2 details as annotations.
   - **msrv** (same condition): `cargo check` with Rust 1.95.
   - A skipped job counts as a passed check, so docs-only PRs merge after `quick`. A newer push cancels the PR's run in progress. *Actions → CI → Run workflow* runs everything on any branch by hand.
 - **Checking an E2E fix:** `.github/workflows/e2e.yml` builds the release app and runs only some E2E tests, in about ten minutes: `gh workflow run e2e.yml --ref <branch> -f suites="triggers" -f tests="<name regex>"`, then `gh run watch`. It runs on what the branch has on GitHub, so push the fix first: to a draft PR (`gh pr ready --undo`), where a push runs only `quick`. Once it passes, `gh pr ready` runs the full CI, which merging still needs. It's never a required check.
@@ -271,6 +275,7 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 - A coverage-instrumented app exits without writing its profile, so merged unit + E2E coverage isn't possible; report them separately.
 - With Node 25.7, `npm run test:e2e` fails with "Cannot find module …\e2e": that Node doesn't take the folder argument. Node 26 is fine; otherwise pass the files: `node --test --test-concurrency=1 --test-timeout=120000 e2e/*.e2e.test.mjs`.
 - Bitdefender's Advanced Threat Defense blocked an exported program that PowerShell started from `%TEMP%` (a double-click from `Documents` was fine). Its cleanup also removed `target\release\relay.exe` and the screenshot script, and afterwards silently refused to recreate those paths ("Permission denied", nothing in the quarantine). That's why the screenshot script keeps its files in `target\docs-shots`.
+- `src-tauri/build.rs` embeds `app.manifest` itself (`/MANIFESTINPUT`, for every linked target), not through tauri-build: the unit tests use Tauri's mock runtime, and a test binary without Common Controls v6 fails to start with `STATUS_ENTRYPOINT_NOT_FOUND`.
 - `src-tauri/build.rs` builds the player in release in `target/player` (a folder of its own: a nested cargo in the same one deadlocks on its lock). The first build of the app takes a minute or two longer. `RELAY_PLAYER_EXE=<path>` skips it with a prebuilt player.
 
 **WebView2 and the app**
@@ -292,6 +297,7 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 - Image searches never look inside Relay's own window: what shows of it is painted flat in the capture (`shown_rect` minus `covering`: a window in front of Relay is still searched), so the editor's thumbnail is never found. `WDA_EXCLUDEFROMCAPTURE` isn't enough for this: on multiple monitors it can still be applying when the capture is taken. The E2E tests show their image in a separate PowerShell window for this reason.
 - A Find image step that finds its image clicks it: E2E only plays one whose image is absent.
 - `.rly` is written as v2 only when the macro has a `find_image` event, and v3 only with a `text` event, so other macros still open in older Relays.
+- A data file is a path in `library.json` (machine-local), read each time the macro plays: with one, the macro plays once per row (`PlayPlan::for_macro` makes the repeat `Count(rows)`), and `relay_core::data::check` refuses to play or export it when the file is gone, lacks a column a Text step types, or has no rows. An exported program carries the rows in its `.rly` as `data`.
 - A Text step lasts at least its `typing_ms` (10 ms a character). While it types, the engine freezes the playhead at its start, then resumes from where typing got to, so what follows keeps its time unless the text runs past the step's end. E2E never plays one: it would type on the desktop.
 - relay-core is built at `opt-level = 3` in dev too: unoptimized, an image search takes seconds instead of ~25 ms.
 - App launches are detected by process name: a second instance of a program that's already running isn't a launch (`chrome.exe` starts many processes).
@@ -301,15 +307,12 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 
 Not fixed yet; each is a candidate task:
 
-- **One toast at a time:** several startup errors delivered together show only the last one. Stacking or combining them would be a `src/` change.
-- **Unsaved trash after a restart:** a macro whose file never saved, then trashed, lives in memory only and can't be restored after a restart.
-- **Undo history memory:** it keeps up to 100 full snapshots per macro, which could be large for very long recordings.
-- **Crash recovery isn't unit tested:** the coordinator's recovery path (busy state cleared after a panic) needs Tauri's `test` feature (`MockRuntime`), which isn't enabled.
 - **Zoom margin:** `zoom_for_work_area` keeps one 16 px margin vertically, so on a short work area the expanded widget sits 8 px from the top and bottom.
 - **Real-input paths** are on the manual checklist only (see [Testing](#testing)).
 - **Dead keys:** a dead key alone records as a KEYS step, and the following letter records unaccented ("e", not "ê"). It's display only, and pinned by a test.
 - **Exported programs aren't signed**, and can't be: appending the macro to the player would break a signature. SmartScreen warns on a downloaded one, and an antivirus may flag it.
-- **Roadmap:** AHK export, code signing, monitor remapping, other OS backends.
+- **AutoHotkey scripts aren't run by any test** (they'd click on the desktop): CI only checks their syntax (`/Validate`), so what they do needs a try by hand. The AutoHotkey version CI downloads is pinned with its SHA-256 in `ci.yml`; update both together.
+- **Roadmap:** code signing, monitor remapping, other OS backends.
 
 ## Working with the maintainer
 
