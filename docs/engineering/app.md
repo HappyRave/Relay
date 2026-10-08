@@ -242,14 +242,14 @@ The kill switch's `PauseTriggers` effect sets `TriggerState`, unchecks the tray'
 | `insert_front`, `save` | Write `macros/<id>.rly`, then `library.json`. The entry's cached step count and length are refreshed. |
 | `save_stats` | `library.json` only (a run was counted) |
 | `duplicate` | New id, unique name "… (copy)", no triggers, the same data file, inserted after the original |
-| `trash` | Move the file to `macros/.trash/` (or write it there from memory if its file was never saved), remember the macro that came after it, its name and stats in `library.json` |
+| `trash` | Move the file to `macros/.trash/` (or write it there from memory if its file was never saved; if that fails too, it's kept in memory and written with the next `save`, or at quit), remember the macro that came after it, its name and stats in `library.json` |
 | `restore` | Move it back before the macro that came after it (following the chain through other trashed macros), with its stats and triggers. If its enabled hotkey now belongs to another macro, it comes back with the hotkey off and the user is told. |
 | `import` | Many at once: new id if the id is already in the library or the trash, unique name (a trailing number counts on: "Report 2" → "Report 3"), inserted at the top in order, one index write. If writing one fails, the ones before it are kept. |
 | `set_triggers`, `set_data_file` | `library.json` |
 
 `Library::open` loads every `.rly` in `macros/` (skipping broken files), orders them by `library.json` (files it doesn't list go last, newest first), and attaches stats and triggers. A `library.json` that isn't valid JSON is renamed `library.json.bad`. One that exists but can't be *read* (locked by another program, say) is left alone: nothing is seeded, and the index isn't written for the rest of the run, so it's never overwritten with an empty one; saves report that instead. Every problem found at startup is shown to the user, not just logged. With no index and no files, it **seeds the four samples**, with their design hotkeys present but disabled.
 
-A macro's data file is a path in its `Entry` (`data_file`), never a copy. [`data_file.rs`](../../src-tauri/src/data_file.rs) reads it when it's needed: `for_playing` (the coordinator's `start_playback`, for manual and triggered runs alike, and `export_macro` for a program) returns its rows or the message to show, and `info` is what the Settings tab shows. A playback it refuses goes the way of *Select a macro to play*: an `error` message, then `PlaybackFinished(Error)`, so nothing is counted or added to the run history.
+A macro's data file is a path in its `Entry` (`data_file`), never a copy. [`data_file.rs`](../../src-tauri/src/data_file.rs) reads it when it's needed: `for_playing` (the coordinator's `start_playback`, for manual and triggered runs alike, and `export_macro` for a program) returns its rows or the message to show, and `info` is what the Settings tab shows. A playback it refuses goes the way of *Select a macro to play*: an `error` message, then `PlaybackFinished(Error)`, so nothing is counted, and no `Finished` is sent. A triggered run it refuses is added to the run history as skipped (`data_file`), with the message as its `note` (`data_file_skip`), since no one may have been watching.
 
 [`storage.rs`](../../src-tauri/src/storage.rs): the data directory is `%APPDATA%\Relay`, or `RELAY_DATA_DIR` if set. `write_atomic` writes a uniquely named temporary file in the same folder and renames it over the target, so a crash never leaves a half-written file and two writers never share a temporary one.
 
@@ -257,10 +257,10 @@ A macro's data file is a path in its `Entry` (`data_file`), never a copy. [`data
 
 ## Undo history
 
-[`history.rs`](../../src-tauri/src/history.rs): `EditHistory` keeps, per macro id, an undo and a redo stack of snapshots (the `name` and `events`, the only things edits change), up to 100 deep, in memory only.
+[`history.rs`](../../src-tauri/src/history.rs): `EditHistory` keeps, per macro id, an undo and a redo stack of changes, up to 100 deep, in memory only. A change is the name it replaced and, for all but renames, a [`Splice`](../../crates/relay-core/src/splice.rs) of the events: the run of events the edit replaced, and the one time shift it gave the events after them. Inserting a wait, deleting a step or changing a pause shifts everything after it, so this keeps a few events where a copy of the macro would keep thousands.
 
-- `edit_macro` (refused while a session runs) clones the macro, applies the `EditOp`, and on success records the snapshot and clears the redo stack, unless the edit changed nothing. Renames less than 2 s apart are one entry, since the UI saves the name as it's typed.
-- `undo_edit(id, redo)` swaps the current state with the top of one stack, pushes it on the other, and saves the `.rly`.
+- `edit_macro` (refused while a session runs) takes a `Snapshot` of what the edit may change, applies the `EditOp`, and on success records the change from the snapshot (`Splice::between`) and clears the redo stack, unless the edit changed nothing. Renames less than 2 s apart are one entry, since the UI saves the name as it's typed.
+- `undo_edit(id, redo)` reverts the top change of one stack (`Splice::revert`, which returns the change that re-applies it), pushes that on the other, and saves the `.rly`.
 - `view_of(macro, history)` fills `MacroView.can_undo` and `can_redo`, so every view the UI gets knows whether its buttons are enabled.
 
 Playback options and triggers aren't edits and bypass the history.

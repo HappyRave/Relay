@@ -272,7 +272,8 @@ The run history (Library → Runs), oldest first. Relay keeps the newest 200 ent
 | `at` | When the run started, or when the skipped trigger fired |
 | `macro_name` | The name at that time: the macro may be renamed or deleted since |
 | `source` | `manual` (the Play button or F10), `hotkey`, `schedule`, `app_launch`, `pixel` or `image` |
-| `outcome` | `finished` with a `FinishReason` (`completed`, `stopped`, `key_pressed`, `killed`, `pixel_timeout`, `error`), or `skipped` with `busy`, `locked` or `missed` (a schedule slept through) |
+| `outcome` | `finished` with a `FinishReason` (`completed`, `stopped`, `key_pressed`, `killed`, `pixel_timeout`, `error`), or `skipped` with `busy`, `locked`, `missed` (a schedule slept through) or `data_file` (its data file couldn't be played) |
+| `note` | Only on a skip whose reason needs saying: the data file's problem, as the user was told |
 | `duration_ms` | Wall time, pauses included; 0 for a skip |
 | `loops` | Loops played, the last one included even if it didn't finish |
 | `checks` | The last 50 pixel checks and Find image steps (`runlog::MAX_CHECKS`), with `checks_dropped` counting earlier ones. `step` is 1-based, `loop_idx` 0-based, `after_ms` excludes pauses. `outcome` is `matched`, `found` (an image's top-left corner and score in percent), `timed_out` or `interrupted` (stopped while waiting). |

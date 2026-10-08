@@ -30,6 +30,7 @@
 | [`path`](../../crates/relay-core/src/path.rs) | `smooth`, `straighten`, `simplify`: reshaping a MOVE step's path |
 | [`text`](../../crates/relay-core/src/text.rs) | A Text step's template: `parse`, `validate`, `fill`, `typing_ms`, `escape` |
 | [`ahk`](../../crates/relay-core/src/ahk.rs) | The AutoHotkey v2 export: `script(macro, data)` |
+| [`splice`](../../crates/relay-core/src/splice.rs) | What an edit changed in the events, for undo: `Splice::between`, `revert` |
 | [`data`](../../crates/relay-core/src/data.rs) | Data files: `parse` (CSV), `DataTable::value`, `columns_used`, `check` (why a macro can't play with its file) |
 | [`image`](../../crates/relay-core/src/image.rs) | `find`: an image on a screen capture, at any scale from 0.5 to 2. `Rgb8`: reading PNG, JPEG and clipboard bitmaps, `prepare`/`check` |
 | [`format`](../../crates/relay-core/src/format.rs) | `.rly` serialization, the JSON export, loading and migrations |

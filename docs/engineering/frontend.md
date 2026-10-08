@@ -56,14 +56,14 @@ src/
 | --- | --- |
 | **Session** (from the stream) | `mode` (the engine's `Mode`: `idle`, `countdown`, `recording`, `playing`, `paused`), `cur` (the playhead, ms), `countLeft`, `loopIdx`, `triggersPaused` |
 | **Data** (from commands) | `library`, `view` (the open `MacroView`), `settings`, `triggerStatus`, `dataFile`, `autostart`, `processes` |
-| **UI** | `expanded`, `tab`, `exportOpen`, `exportFmt`, `toast`, `picking`, `imaging` (an image on its way: where from, and for which step, one being inserted or the trigger), `imageTest` (what *Test* last said, and about what) |
+| **UI** | `expanded`, `tab`, `exportOpen`, `exportFmt`, `toasts` (oldest first; `shownToasts`, the newest three, and `toast`, the newest), `picking`, `imaging` (an image on its way: where from, and for which step, one being inserted or the trigger), `imageTest` (what *Test* last said, and about what) |
 | **Derived** | `recording`, `playing`, `name`, `playback`, `loops`, `steps`, `moves`, `duration`, `desktop`, `frames`, `curStepIdx`, `triggers`, `error`, `exportName`, `canUndo`, `canRedo`, `longPauses` |
 
-- `view`, `library`, `settings`, `toast` and the other data fields use `$state.raw`: they're replaced wholesale, never mutated, so deep proxies would be wasted work.
+- `view`, `library`, `settings`, `toasts` and the other data fields use `$state.raw`: they're replaced wholesale, never mutated, so deep proxies would be wasted work.
 - While recording, `steps`, `moves` and `desktop` switch to the live recording, fed by `rec_progress`. Cursor samples are appended in place and a version counter tells the derived values, rather than copying a growing array ten times a second. `duration` grows a second at a time, so the timeline is rebuilt once a second, not every frame.
 - `curStepIdx`, the step under the playhead, is one binary search per frame, shared by every component that highlights "the current step".
 - **Actions** are arrow-function fields (`toggleRec`, `togglePlay`, `stop`, `seek`, `jump`, `edit`, `rename`, `insertWait`, `insertText`, `updateText`, `makeEditable`, `previewText`, `insertPixelCheck`, `pickPixel`, `insertFindImage`, `replaceImage`, `updateFindImage`, `testFindImage`, `cancelImage`, `setPause`, `trimPauses`, `setMoveDuration`, `smoothMove`, `straightenMove`, `undo`, `redo`, `setPlayback`, `previewPlayback`, `loadDataFile`, `chooseDataFile`, `removeDataFile`, `setTriggers`, `pickTriggerPixel`, `setTriggerImage`, `setTriggerImageOptions`, `testTriggerImage`, `loadProcesses`, `duplicateMacro`, `deleteMacro`, `restoreMacro`, `importMacros`, `doExport`…), so they can be passed as event handlers without binding.
-- **Errors**: every action goes through one helper, `run(promise)`, which shows a failure as an error toast and resolves to `undefined`. Error toasts stay until dismissed or replaced. `notify()` shows information for 5 s, or 8 s when it has an action such as **Undo**.
+- **Errors**: every action goes through one helper, `run(promise)`, which shows a failure as an error toast and resolves to `undefined`. Toasts stack: each is shown under the others with its own id and timer, the newest three at once (`MAX_TOASTS`), and older ones come back as those are dismissed. Error toasts stay until dismissed. `notify()` shows information for 5 s, or 8 s when it has an action such as **Undo**. The same message again moves to the bottom rather than showing twice.
 - **Editing only while idle**: `canEdit` (a macro is open and nothing records, counts down or plays) gates every edit, undo, redo, rename and Pick, and the buttons that start them. Rust refuses edits during a session too (`busy`).
 - **Seeking** moves the playhead at once, but tells the engine at most once per animation frame, however fast the pointer drags.
 
@@ -88,7 +88,7 @@ The store is exposed as `window.__relay` for DevTools and the end-to-end tests.
 - `rename` updates the view at once and saves after 250 ms through `apply`, for the macro being renamed (not whichever is open when the timer fires). Opening, duplicating or deleting a macro, or undoing, saves a pending rename first. A blank name isn't saved (leaving the field puts the saved name back). A rename pending when a session starts is saved when it ends; one pending when the store is disposed is dropped.
 - Opening a macro clears the previous one's `triggerStatus`, so the Triggers tab can't write one macro's triggers into another; trigger results are only applied if their macro is still open. The same goes for `dataFile`, which the Settings tab also reads again each time it opens (the file may have changed on disk).
 - The pixel pickers wait 3 s, then check that the same macro is open and that the check is still the same one (its row and first event) before editing it. **+ Pixel check** inserts nothing when the screen can't be read.
-- An **Undo** offered in a toast (deleting a step, trimming pauses, smoothing or straightening a move when its path changed) belongs to its macro (`undoes`): it's withdrawn when another edit or rename starts, or another macro opens, so it never undoes something else. The trash toast's Undo isn't withdrawn by edits: restoring doesn't touch the edit history.
+- An **Undo** offered in a toast (deleting a step, trimming pauses, smoothing or straightening a move when its path changed) belongs to its macro (`undoes`): it's withdrawn when another edit or rename starts, or another macro opens, so it never undoes something else. The trash toast's Undo isn't withdrawn by edits: restoring doesn't touch the edit history. It's marked with the macro it brings back (`restores`), so a restore dismisses only its own toast.
 - Settings, trigger and trigger-pause saves carry sequence numbers too: an older response or failure never overwrites a newer change, and a failure goes back to the last state Rust confirmed.
 - The step editor's selection lives in the store (`selected`, `selectStep`). After an edit, undo or redo, `followStep` keeps it on the edited row, or finds the same step (same kind and content) nearest to where it was, or closes it.
 
@@ -155,7 +155,7 @@ A few that do more:
 | `StepEditor` | *Pause before* for every step, plus the fields of its kind. Commits on `change` (blur or Enter), validates hex colors and numbers before sending an `EditOp`. |
 | `HotkeyCapture` | Captures in the capture phase and stops propagation, so a combo being set never triggers anything else. Marked `data-captures-keys` so the undo shortcut leaves it alone. Backspace clears, Esc cancels, blur cancels. |
 | `Timeline`, `CompactBar` | Use the `seekable` action: pointer down and drag anywhere seeks, with pointer capture. |
-| `Toast` | The one place errors and notices show: at the bottom of the side panel, or under the compact player. |
+| `Toast` | The one place errors and notices show: at the bottom of the side panel, or under the compact player, stacked, the newest at the bottom, each with its own **Dismiss**. |
 | `ExportDialog` | A native modal `<dialog>` (`showModal`): focus stays inside, Esc and a click on the backdrop close it. |
 | `Preview` | An SVG in desktop coordinates (see below). |
 
