@@ -116,10 +116,13 @@
     return result;
   }
 
-  // The saved text, again after each edit (or undo) of it.
+  // The saved text, again after each edit (or undo) of it, or a new data file.
   $effect(() => {
+    void relay.dataFile;
     if (step.kind === "text") void preview(step.text);
   });
+  /** The data file's columns, as placeholders. */
+  const columns = $derived((relay.dataFile?.columns ?? []).filter((c) => c && !/[{}]/.test(c)));
 
   /** Saves the text in the field, unless it has a mistake (shown under it). */
   async function setText() {
@@ -285,6 +288,13 @@
     <div class="sources">
       {#each PLACEHOLDERS as [p, title] (p)}
         <button class="btn btn-secondary tool" {title} onclick={() => addPlaceholder(p)}>{p}</button>
+      {/each}
+      {#each columns as c (c)}
+        <button
+          class="btn btn-secondary tool"
+          title="The “{c}” column of the data file, from this repeat's row"
+          onclick={() => addPlaceholder(`{col:${c}}`)}>{`{col:${c}}`}</button
+        >
       {/each}
     </div>
     {#if typed}
