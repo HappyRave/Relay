@@ -398,7 +398,7 @@ fn check_op(op: &EditOp, before: &[Event], steps: &[Step], after: &[Event]) -> R
             let made = after_steps.iter().find(|s| s.t == step.t && matches!(s.kind, StepKind::Text { .. }));
             let made = made.expect("the Text step");
             let StepKind::Text { dur, text: template } = &made.kind else { unreachable!() };
-            prop_assert_eq!(&text::fill(template, 1, chrono::NaiveDateTime::default(), || None), typed);
+            prop_assert_eq!(&text::fill(template, 1, chrono::NaiveDateTime::default(), || None, |_| None), typed);
             prop_assert!(*dur >= step.end - step.t);
             let typing = after_steps.iter().filter(|s| matches!(s.kind, StepKind::Type { .. })).count();
             let typing_before = steps.iter().filter(|s| matches!(s.kind, StepKind::Type { .. })).count();
