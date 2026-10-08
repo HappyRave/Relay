@@ -39,6 +39,10 @@ pub struct RunEntry {
     pub checks: Vec<CheckResult>,
     /// Earlier checks that weren't kept.
     pub checks_dropped: u32,
+    /// Why it was skipped, when the reason needs saying (a data file's problem).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -60,6 +64,8 @@ pub enum SkipReason {
     Locked,
     /// A scheduled run the PC slept through.
     Missed,
+    /// Its data file couldn't be played (see the entry's `note`).
+    DataFile,
 }
 
 /// What one pixel check or Find image step did.
@@ -171,6 +177,7 @@ mod tests {
             humanize: false,
             checks: vec![],
             checks_dropped: 0,
+            note: None,
         }
     }
 

@@ -236,6 +236,7 @@ pub fn runs() -> Vec<(TimeDelta, RunEntry)> {
             humanize: m.playback.humanize,
             checks,
             checks_dropped: 0,
+            note: None,
         }
     };
     // The 1-based step of a sample's pixel check.

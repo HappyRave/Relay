@@ -594,7 +594,12 @@ impl Coordinator {
         };
         let data = match crate::data_file::for_playing(&m.events, data_file.as_deref()) {
             Ok(data) => data,
-            Err(why) => return self.refuse_playback(why),
+            Err(why) => {
+                if let Some(skipped) = data_file_skip(&m, self.pending_source, &why, Utc::now()) {
+                    self.record_run(skipped);
+                }
+                return self.refuse_playback(why);
+            }
         };
         let (own_rect, own_window) = self.own_window();
         self.hand_focus_back(own_window);
@@ -745,6 +750,7 @@ fn run_entry(start: RunStart, reason: FinishReason, report: RunReport, now: f64)
         humanize: start.humanize,
         checks,
         checks_dropped,
+        note: None,
     }
 }
 
@@ -763,7 +769,19 @@ fn skip_entry(id: Uuid, name: String, source: RunSource, reason: SkipReason, at:
         humanize: false,
         checks: Vec::new(),
         checks_dropped: 0,
+        note: None,
     }
+}
+
+/// A run its data file refused, for the history: only a triggered one, which
+/// may have had no one watching (a manual one just shows the error).
+fn data_file_skip(m: &Macro, source: RunSource, why: &str, at: DateTime<Utc>) -> Option<RunEntry> {
+    if source == RunSource::Manual {
+        return None;
+    }
+    let mut e = skip_entry(m.id, m.name.clone(), source, SkipReason::DataFile, at);
+    e.note = Some(why.to_string());
+    Some(e)
 }
 
 /// A run counts (runs, last run) only when the macro played to the end.
@@ -895,6 +913,18 @@ mod tests {
         let e = skip_entry(Uuid::from_u128(4), "Backup".into(), RunSource::Schedule, SkipReason::Missed, at);
         assert_eq!(e.outcome, RunOutcome::Skipped(SkipReason::Missed));
         assert_eq!((e.at, e.source, e.macro_name.as_str()), (at, RunSource::Schedule, "Backup"));
-        assert_eq!((e.duration_ms, e.loops, e.checks.len()), (0, 0, 0));
+        assert_eq!((e.duration_ms, e.loops, e.checks.len(), e.note), (0, 0, 0, None));
+    }
+
+    #[test]
+    fn a_trigger_its_data_file_refused_is_logged_with_why() {
+        let at = DateTime::from_timestamp(1_790_000_000, 0).unwrap();
+        let m = Macro::new("Invoices", relay_core::model::RecordingMeta::single_1080p(), Vec::new());
+        let why = "customers.csv isn't there anymore: choose it again in Settings → Playback.";
+        let e = data_file_skip(&m, RunSource::Hotkey, why, at).unwrap();
+        assert_eq!(e.outcome, RunOutcome::Skipped(SkipReason::DataFile));
+        assert_eq!((e.macro_id, e.macro_name.as_str(), e.source, e.at), (m.id, "Invoices", RunSource::Hotkey, at));
+        assert_eq!(e.note.as_deref(), Some(why));
+        assert_eq!(data_file_skip(&m, RunSource::Manual, why, at), None, "Play shows the error instead");
     }
 }

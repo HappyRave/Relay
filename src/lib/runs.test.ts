@@ -54,6 +54,7 @@ describe("run history labels", () => {
     expect(skipped("busy")).toBe("Skipped: Relay was busy");
     expect(skipped("locked")).toBe("Skipped: screen locked");
     expect(skipped("missed")).toBe("Skipped: PC was asleep");
+    expect(skipped("data_file")).toBe("Skipped: data file");
   });
 
   it("marks skips and failures, not completed or stopped runs", () => {
@@ -96,5 +97,7 @@ describe("run history labels", () => {
     expect(runSettings(entry())).toBe("");
     expect(runSettings(entry({ from_ms: 3200, speed: 2, humanize: true }))).toBe("From 00:03.20 · 2× speed · Humanized");
     expect(runSettings(entry({ outcome: { type: "skipped", reason: "busy" }, humanize: true }))).toBe("");
+    const note = "customers.csv has no column “Total”.";
+    expect(runSettings(entry({ outcome: { type: "skipped", reason: "data_file" }, note }))).toBe(note);
   });
 });
