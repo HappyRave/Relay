@@ -771,13 +771,16 @@ export class RelayStore {
   /** Turns TYPE step `index` into a Text step typing the same. */
   makeEditable = (index: number) => this.edit({ op: "make_editable", index });
 
-  /** What a Text step's `text` would type now, or why it can't be typed. */
-  previewText = async (text: string): Promise<{ text: string } | { error: string }> => {
-    if (!this.view) return { error: "Open a macro first" };
+  /**
+   * What a Text step's `text` would type now, or why it can't be typed; `saves`:
+   * the text itself is fine (only the data file lacks a column it types).
+   */
+  previewText = async (text: string): Promise<{ text: string } | { error: string; saves: boolean }> => {
+    if (!this.view) return { error: "Open a macro first", saves: false };
     try {
       return { text: await this.backend.previewText(this.view.id, text) };
     } catch (e) {
-      return { error: (e as IpcError)?.message ?? String(e) };
+      return { error: (e as IpcError)?.message ?? String(e), saves: (e as IpcError)?.code === "data_file" };
     }
   };
 

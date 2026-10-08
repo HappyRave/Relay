@@ -95,13 +95,13 @@ describe("the Text step's editor", () => {
     expect(within(editor()).getByRole("status")).toHaveTextContent("Types now: “Dear ACME”");
   });
 
-  test("a column without a data file says where to choose one", async () => {
+  test("a column without a data file says where to choose one, and is saved", async () => {
     await withText("");
     await typeText("{col:Customer}");
     const status = within(editor()).getByRole("status");
     expect(status).toHaveTextContent("A Text step types {col:Customer}: choose a data file in Settings → Playback.");
     expect(status).toHaveClass("wrong");
-    expect(ops()).toEqual([]);
+    expect(ops()).toEqual([{ op: "update_text", index: 2, text: "{col:Customer}" }]);
   });
 
   test("a text with a mistake says what's wrong and isn't saved", async () => {
