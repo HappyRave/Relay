@@ -93,7 +93,7 @@ A macro exported as a **Standalone program** is an `.exe` that plays it on any W
 <p align="center"><img src="../images/player.png" alt="An exported program playing, in the bottom-right corner of the screen" width="400"></p>
 
 1. A small window opens in a corner of the screen (one the macro doesn't click in) and counts down **3, 2, 1**. Use those seconds to click into the app the macro works in: the window never takes the focus.
-2. The macro plays with the playback options saved with it: speed, repeats, *Humanize*, *Stop on key press* and *Window* coordinates. The window shows the time, the loop and a progress bar. [Text steps](03-editing.md#text-that-changes-each-run) fill in the date, the time and the clipboard of the PC it plays on.
+2. The macro plays with the playback options saved with it: speed, repeats, *Humanize*, *Stop on key press* and *Window* coordinates. The window shows the time, the loop and a progress bar. [Text steps](03-editing.md#text-that-changes-each-run) fill in the date, the time and the clipboard of the PC it plays on. A macro with a [data file](04-playback.md#a-data-file-one-run-per-row) plays once per row of the file as it was when you exported it: export again after changing it. Relay won't export one whose file it can't play (missing, or without a column a Text step types), and says why.
 3. When it's done, the window says *Done* and closes by itself.
 
 Stop it with the window's **Stop** button, <kbd>Esc</kbd>, or the <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd> kill switch (or any key, if the macro stops on a key press). Anything it was holding is released. Drag the window by its text to move it.
@@ -109,7 +109,7 @@ Run it from a command line, a shortcut or a scheduled task to change how it play
 
 | Option | Does |
 | --- | --- |
-| `--repeat N` or `--repeat forever` | Plays it *N* times, or until stopped, instead of the saved repeat |
+| `--repeat N` or `--repeat forever` | Plays it *N* times, or until stopped, instead of the saved repeat. A macro with a data file plays once per row whatever this says. |
 | `--speed X` | Plays *X* times faster (`0.5` is half speed), from 0.01 to 100 |
 | `--no-countdown` | Starts right away |
 | `--quiet` | Shows no window at all. Stop it with <kbd>Esc</kbd> or the kill switch. |

@@ -25,7 +25,7 @@ beforeEach(async () => {
 afterEach(() => relay.dispose());
 
 describe("startup", () => {
-  test("subscribes, then loads settings, the library, the first macro and its triggers", async () => {
+  test("subscribes, then loads settings, the library, the first macro, its triggers and data file", async () => {
     const r = await freshStore({ init: false });
     await r.init();
     await settle();
@@ -37,6 +37,7 @@ describe("startup", () => {
       "load_macro",
       "screenshot",
       "get_triggers",
+      "get_data_file",
       "get_autostart",
     ]);
     expect(core.lastArgs("load_macro")).toEqual({ id: A });
@@ -445,7 +446,7 @@ describe("toasts", () => {
 });
 
 describe("library", () => {
-  test("opening a macro loads it and its triggers, on the Steps tab", async () => {
+  test("opening a macro loads it, its triggers and data file, on the Steps tab", async () => {
     relay.tab = "library";
     relay.cur = 3000;
     await relay.loadMacro(B);
@@ -453,6 +454,7 @@ describe("library", () => {
       { cmd: "load_macro", args: { id: B } },
       { cmd: "screenshot", args: { id: B } },
       { cmd: "get_triggers", args: { id: B } },
+      { cmd: "get_data_file", args: { id: B } },
     ]);
     expect(relay.view?.id).toBe(B);
     expect(relay.triggers?.hotkey.combo).toBe("Ctrl + Alt + 2");
@@ -530,9 +532,26 @@ describe("library", () => {
     expect(relay.triggersPaused).toBe(true);
   });
 
+  test("a data file read for the macro left behind isn't shown for the new one", async () => {
+    core.csv.set("C:\\a.csv", { columns: ["Customer"], rows: [["ACME"]] });
+    core.dialog.open = "C:\\a.csv";
+    await relay.chooseDataFile();
+    expect(relay.dataFile?.path).toBe("C:\\a.csv");
+    core.hold("get_data_file");
+    const reading = relay.loadDataFile();
+    await settle();
+    core.release("get_data_file");
+    await relay.loadMacro(B);
+    expect(relay.dataFile).toBeNull();
+    core.held[0].resolve({ path: "C:\\a.csv", columns: ["Customer"], rows: 1, error: null });
+    await reading;
+    expect(relay.view?.id).toBe(B);
+    expect(relay.dataFile).toBeNull();
+  });
+
   test("Duplicate opens the copy in the Library tab", async () => {
     await relay.duplicateMacro(A);
-    expect(core.commands()).toEqual(["duplicate_macro", "list_macros", "load_macro", "screenshot", "get_triggers"]);
+    expect(core.commands()).toEqual(["duplicate_macro", "list_macros", "load_macro", "screenshot", "get_triggers", "get_data_file"]);
     expect(relay.library.map((m) => m.name).slice(0, 2)).toEqual(["Export invoice to PDF", "Export invoice to PDF (copy)"]);
     expect(relay.view?.id).toBe(relay.library[1].id);
     expect(relay.name).toBe("Export invoice to PDF (copy)");
@@ -548,7 +567,7 @@ describe("library", () => {
 
   test("Delete moves the open macro to the trash, opens its neighbour and offers Undo", async () => {
     await relay.deleteMacro(A);
-    expect(core.commands()).toEqual(["delete_macro", "list_macros", "load_macro", "screenshot", "get_triggers"]);
+    expect(core.commands()).toEqual(["delete_macro", "list_macros", "load_macro", "screenshot", "get_triggers", "get_data_file"]);
     expect(core.argsOf("delete_macro")).toEqual([{ id: A }]);
     expect(relay.view?.id).toBe(B);
     expect(relay.tab).toBe("library");
@@ -557,7 +576,7 @@ describe("library", () => {
     core.clearCalls();
     relay.toast!.action!.run();
     await settle();
-    expect(core.commands()).toEqual(["restore_macro", "list_macros", "load_macro", "screenshot", "get_triggers"]);
+    expect(core.commands()).toEqual(["restore_macro", "list_macros", "load_macro", "screenshot", "get_triggers", "get_data_file"]);
     expect(core.argsOf("restore_macro")).toEqual([{ id: A }]);
     expect(relay.view?.id).toBe(A);
     expect(relay.toast).toBeNull();
@@ -632,7 +651,7 @@ describe("library", () => {
     test("opens the first imported macro and says how many", async () => {
       core.dialog.open = ["C:\\one.rly", "C:\\two.rly"];
       await relay.importMacros();
-      expect(core.commands()).toEqual(["plugin:dialog|open", "import_macros", "list_macros", "load_macro", "screenshot", "get_triggers"]);
+      expect(core.commands()).toEqual(["plugin:dialog|open", "import_macros", "list_macros", "load_macro", "screenshot", "get_triggers", "get_data_file"]);
       expect(relay.library.map((m) => m.name).slice(0, 3)).toEqual(["one", "two", "Export invoice to PDF"]);
       expect(relay.view?.id).toBe(relay.library[0].id); // the first imported, at the top
       expect(relay.name).toBe("one");

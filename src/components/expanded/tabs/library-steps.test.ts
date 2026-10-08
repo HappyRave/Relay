@@ -72,7 +72,7 @@ describe("Library tab", () => {
     render(LibraryTab);
     await userEvent.click(screen.getByRole("button", { name: "Duplicate Batch rename photos" }));
     await settle();
-    expect(core.commands()).toEqual(["duplicate_macro", "list_macros", "load_macro", "screenshot", "get_triggers"]);
+    expect(core.commands()).toEqual(["duplicate_macro", "list_macros", "load_macro", "screenshot", "get_triggers", "get_data_file"]);
     expect(core.argsOf("duplicate_macro")).toEqual([{ id: C }]);
     expect(rows()).toHaveLength(5);
     expect(rows()[3]).toHaveTextContent("Batch rename photos (copy)"); // right after the original
@@ -120,7 +120,7 @@ describe("Library tab", () => {
     core.dialog.open = ["C:\\macros\\Weekly report.rly"];
     await userEvent.click(screen.getByRole("button", { name: /Import/ }));
     await settle();
-    expect(core.commands()).toEqual(["plugin:dialog|open", "import_macros", "list_macros", "load_macro", "screenshot", "get_triggers"]);
+    expect(core.commands()).toEqual(["plugin:dialog|open", "import_macros", "list_macros", "load_macro", "screenshot", "get_triggers", "get_data_file"]);
     expect(rows()[0]).toHaveTextContent("Weekly report"); // at the top
     expect(rows()[0]).toHaveClass("active");
     expect(relay.toast).toMatchObject({ kind: "info", message: "Imported 1 macro" });

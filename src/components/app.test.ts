@@ -50,6 +50,7 @@ describe("App", () => {
       "load_macro",
       "screenshot",
       "get_triggers",
+      "get_data_file",
       "get_autostart",
     ]);
     expect(core.lastArgs("fit_window")).toEqual({ width: 0, height: 0, expanded: true });

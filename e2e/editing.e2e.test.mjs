@@ -221,7 +221,7 @@ describe("editing", () => {
       await openStep(i);
       await setText("Hello {name}");
       await until(async () => (await status())?.includes("{name} isn't a placeholder"), { what: "the mistake" });
-      assert.equal(await status(), "{name} isn't a placeholder: use {date}, {time}, {clipboard} or {n}.");
+      assert.equal(await status(), "{name} isn't a placeholder: use {date}, {time}, {clipboard}, {n} or {col:Name}.");
       await page.idle(500);
       assert.deepEqual(disk(), before);
     });

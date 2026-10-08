@@ -106,7 +106,7 @@
   ];
   let textField: HTMLTextAreaElement | undefined = $state();
   /** What the text in the field would type now, or what's wrong with it. */
-  let typed: { text: string } | { error: string } | null = $state(null);
+  let typed: { text: string } | { error: string; saves: boolean } | null = $state(null);
   let previews = 0;
 
   async function preview(text: string) {
@@ -116,17 +116,21 @@
     return result;
   }
 
-  // The saved text, again after each edit (or undo) of it.
+  // The saved text, again after each edit (or undo) of it, or a new data file.
   $effect(() => {
+    void relay.dataFile;
     if (step.kind === "text") void preview(step.text);
   });
+  /** The data file's columns, as placeholders. */
+  const columns = $derived((relay.dataFile?.columns ?? []).filter((c) => c && !/[{}]/.test(c)));
 
   /** Saves the text in the field, unless it has a mistake (shown under it). */
   async function setText() {
     if (step.kind !== "text" || !textField) return;
     const text = textField.value;
     const result = await preview(text);
-    if ("text" in result && step.kind === "text" && text !== step.text) await relay.updateText(index, text);
+    const fine = "text" in result || result.saves;
+    if (fine && step.kind === "text" && text !== step.text) await relay.updateText(index, text);
   }
 
   /** Puts a placeholder where the caret is, and saves. */
@@ -285,6 +289,13 @@
     <div class="sources">
       {#each PLACEHOLDERS as [p, title] (p)}
         <button class="btn btn-secondary tool" {title} onclick={() => addPlaceholder(p)}>{p}</button>
+      {/each}
+      {#each columns as c (c)}
+        <button
+          class="btn btn-secondary tool"
+          title="The “{c}” column of the data file, from this repeat's row"
+          onclick={() => addPlaceholder(`{col:${c}}`)}>{`{col:${c}}`}</button
+        >
       {/each}
     </div>
     {#if typed}

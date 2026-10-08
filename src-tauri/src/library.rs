@@ -22,6 +22,8 @@ pub struct Entry {
     pub runs: u32,
     pub last_run: Option<DateTime<Utc>>,
     pub triggers: MacroTriggers,
+    /// The CSV whose rows drive its repeats, read each time it plays.
+    pub data_file: Option<PathBuf>,
     /// The Library row's step count and length, recomputed when the macro is
     /// saved rather than on every listing.
     step_count: u32,
@@ -34,7 +36,7 @@ impl Entry {
     }
 
     fn with_stats(macro_: Macro, runs: u32, last_run: Option<DateTime<Utc>>, triggers: MacroTriggers) -> Self {
-        let mut e = Entry { macro_, runs, last_run, triggers, step_count: 0, duration: 0 };
+        let mut e = Entry { macro_, runs, last_run, triggers, data_file: None, step_count: 0, duration: 0 };
         e.summarize();
         e
     }
@@ -108,11 +110,19 @@ struct IndexEntry {
     /// label; it never did anything, so it migrates as a disabled trigger.
     #[serde(skip_serializing)]
     hotkey: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    data_file: Option<PathBuf>,
 }
 
 impl IndexEntry {
     fn of(e: &Entry) -> Self {
-        IndexEntry { runs: e.runs, last_run: e.last_run, triggers: e.triggers.clone(), hotkey: None }
+        IndexEntry {
+            runs: e.runs,
+            last_run: e.last_run,
+            triggers: e.triggers.clone(),
+            hotkey: None,
+            data_file: e.data_file.clone(),
+        }
     }
 
     fn triggers(&self) -> MacroTriggers {
@@ -247,12 +257,14 @@ impl Library {
             .into_iter()
             .map(|m| {
                 let meta = index.entries.get(&m.id);
-                Entry::with_stats(
+                let mut e = Entry::with_stats(
                     m,
                     meta.map_or(0, |e| e.runs),
                     meta.and_then(|e| e.last_run),
                     meta.map(IndexEntry::triggers).unwrap_or_default(),
-                )
+                );
+                e.data_file = meta.and_then(|m| m.data_file.clone());
+                e
             })
             .collect();
         lib.refresh_triggers();
@@ -330,7 +342,8 @@ impl Library {
             tracing::warn!("couldn't copy the screenshot of a duplicated macro: {e}");
         }
         // A copy starts with no triggers: two macros on one hotkey or schedule would collide.
-        self.entries.insert(pos + 1, Entry::new(copy));
+        let data_file = self.entries[pos].data_file.clone();
+        self.entries.insert(pos + 1, Entry { data_file, ..Entry::new(copy) });
         self.refresh_triggers();
         Ok(Change { value: new_id, saved: self.save_index() })
     }
@@ -395,7 +408,8 @@ impl Library {
             });
         }
         let pos = self.place_of(t.next).unwrap_or(t.position.min(self.entries.len()));
-        self.entries.insert(pos, Entry::with_stats(m, t.meta.runs, t.meta.last_run, triggers));
+        let data_file = t.meta.data_file.clone();
+        self.entries.insert(pos, Entry { data_file, ..Entry::with_stats(m, t.meta.runs, t.meta.last_run, triggers) });
         self.refresh_triggers();
         let index = self.save_index();
         Ok(Change { value: notice, saved: file.and(index) })
@@ -503,6 +517,12 @@ impl Library {
         Ok(Change::saved(self.save_index()))
     }
 
+    pub fn set_data_file(&mut self, id: Uuid, path: Option<PathBuf>) -> Result<Change, LibraryError> {
+        let pos = self.position(id)?;
+        self.entries[pos].data_file = path;
+        Ok(Change::saved(self.save_index()))
+    }
+
     fn refresh_triggers(&mut self) {
         self.triggers = self.entries.iter().map(|e| (e.macro_.id, e.triggers.clone())).collect();
     }
@@ -567,6 +587,32 @@ mod tests {
         assert_eq!(again.list()[0].id, rec_id);
         assert_eq!(again.get(invoice).unwrap().runs, 148);
         assert_eq!(again.next_recording_name(), "Recording 2");
+    }
+
+    #[test]
+    fn the_data_file_is_kept_like_triggers_and_copied() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut lib, _) = Library::open(dir.path());
+        let [invoice, timesheet, ..] = ids(&lib)[..] else { panic!("four samples") };
+        let csv = PathBuf::from(r"C:\Data\customers.csv");
+        lib.set_data_file(invoice, Some(csv.clone())).unwrap().saved.unwrap();
+        let index = fs::read_to_string(dir.path().join("library.json")).unwrap();
+        assert!(index.contains(r#""data_file": "C:\\Data\\customers.csv""#));
+        assert_eq!(index.matches("data_file").count(), 1, "not written for macros without one");
+
+        let (mut lib, _) = Library::open(dir.path());
+        assert_eq!(lib.get(invoice).unwrap().data_file.as_ref(), Some(&csv));
+        assert_eq!(lib.get(timesheet).unwrap().data_file, None);
+        let copy = lib.duplicate(invoice).unwrap().value;
+        assert_eq!(lib.get(copy).unwrap().data_file.as_ref(), Some(&csv), "a copy reads the same file");
+        lib.trash(invoice).unwrap().saved.unwrap();
+        let (mut lib, _) = Library::open(dir.path());
+        lib.restore(invoice).unwrap();
+        assert_eq!(lib.get(invoice).unwrap().data_file.as_ref(), Some(&csv));
+
+        lib.set_data_file(invoice, None).unwrap().saved.unwrap();
+        assert_eq!(Library::open(dir.path()).0.get(invoice).unwrap().data_file, None);
+        assert!(matches!(lib.set_data_file(Uuid::new_v4(), None), Err(LibraryError::NotFound(_))));
     }
 
     #[test]

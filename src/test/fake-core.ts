@@ -19,7 +19,14 @@ import type { Panes } from "../lib/ipc/bindings/Panes";
 import type { FoundImage } from "../lib/ipc/bindings/FoundImage";
 import type { IpcError } from "../lib/ipc/backend";
 import type { RunEntry } from "../lib/ipc/bindings/RunEntry";
-import { applyEdit, fillTemplate, History, parseTemplate } from "./fake-edit";
+import type { DataFileInfo } from "../lib/ipc/bindings/DataFileInfo";
+import { applyEdit, columnsUsed, fillTemplate, History, parseTemplate } from "./fake-edit";
+
+/** A data file's contents, as relay-core reads them. */
+export interface DataTable {
+  columns: string[];
+  rows: string[][];
+}
 
 export interface Call {
   cmd: string;
@@ -31,6 +38,8 @@ interface Entry {
   runs: number;
   last_run: string | null;
   history: History;
+  /** The data file's path (library.json's `data_file`). */
+  dataFile?: string;
 }
 
 type Handler = (args: Record<string, unknown>) => unknown;
@@ -126,6 +135,11 @@ export class FakeCore {
   clipboard: string | null = null;
   /** The text on the clipboard, for `{clipboard}`, or null. */
   clipboardText: string | null = null;
+  /**
+   * Data files by path: what they hold, or why they can't be read (data_file.rs's
+   * message). A path not listed isn't there.
+   */
+  csv = new Map<string, DataTable | string>();
   /** The local time `preview_text` fills in. */
   localNow = "2026-10-01T09:05:07";
   /** What `snip_image` returns: the snip, or null when the user cancelled. */
@@ -388,7 +402,8 @@ export class FakeCore {
         const copyId = this.newId();
         const view = { ...structuredClone(e.view), id: copyId, name: this.uniqueName(`${e.view.name} (copy)`) };
         // A copy starts with no triggers (two macros on one hotkey would collide) and no history.
-        this.entries.splice(this.entries.indexOf(e) + 1, 0, { view, runs: 0, last_run: null, history: new History() });
+        const copy = { view, runs: 0, last_run: null, history: new History(), dataFile: e.dataFile };
+        this.entries.splice(this.entries.indexOf(e) + 1, 0, copy);
         this.triggers.set(copyId, defaultTriggers());
         const screen = this.screens.get(id);
         if (screen) this.screens.set(copyId, screen.slice());
@@ -419,10 +434,13 @@ export class FakeCore {
         }
         return null;
       }
-      case "export_macro":
+      case "export_macro": {
         check("format", a.format, oneOf("rly", "json", "exe"));
-        this.entry(id);
+        const e = this.entry(id);
+        // A program carries the data file's rows, so it needs them now.
+        if (a.format === "exe") this.forPlaying(texts(e.view), e.dataFile);
         return null;
+      }
       case "import_macros":
         return this.import(a.paths as string[]);
       case "plugin:dialog|save":
@@ -469,7 +487,19 @@ export class FakeCore {
         check("text", a.text, "string");
         const parsed = parseTemplate(a.text as string);
         if ("error" in parsed) throw { code: "invalid_text", message: parsed.error } satisfies IpcError;
-        return fillTemplate(a.text as string, 1, this.localNow, this.clipboardText);
+        const data = parsed.parts.some((p) => "column" in p) ? this.forPlaying([a.text as string], this.entry(id).dataFile) : null;
+        return fillTemplate(a.text as string, 1, this.localNow, this.clipboardText, (name) => value(data, 0, name));
+      }
+      case "get_data_file":
+        return this.dataInfo(this.entry(id));
+      case "set_data_file": {
+        const e = this.entry(id);
+        check("path", a.path, nullable("string"));
+        const path = (a.path as string | null) ?? undefined;
+        if (path) this.readData(path);
+        e.dataFile = path;
+        this.saved();
+        return this.dataInfo(e);
       }
       case "test_find_image":
         check("image", a.image, "png");
@@ -508,6 +538,34 @@ export class FakeCore {
         return this.autostart;
       default:
         throw { code: "unknown_command", message: `no command ${cmd}` } satisfies IpcError;
+    }
+  }
+
+  /** data_file.rs `read`: the table, or its message as a `data_file` error. */
+  private readData(path: string): DataTable {
+    const found = this.csv.get(path);
+    const name = fileName(path);
+    if (found === undefined) throw dataError(`${name} isn't there anymore: choose it again in Settings → Playback.`);
+    if (typeof found === "string") throw dataError(found);
+    return found;
+  }
+
+  /** data_file.rs `for_playing`, with relay-core's `check`. */
+  private forPlaying(templates: string[], path: string | undefined): DataTable | null {
+    const table = path ? this.readData(path) : null;
+    const why = checkData(templates, table, path ? fileName(path) : "");
+    if (why) throw dataError(why);
+    return table;
+  }
+
+  private dataInfo(e: Entry): DataFileInfo | null {
+    if (!e.dataFile) return null;
+    try {
+      const t = this.readData(e.dataFile);
+      const error = checkData(texts(e.view), t, fileName(e.dataFile));
+      return { path: e.dataFile, columns: t.columns, rows: t.rows.length, error };
+    } catch (err) {
+      return { path: e.dataFile, columns: [], rows: 0, error: (err as IpcError).message };
     }
   }
 
@@ -806,6 +864,28 @@ const PLAYBACK: Spec = {
 
 const optional = (s: Spec): [Spec, "optional"] => [s, "optional"];
 /** An `Option<T>`: null, or a T. (JSON has no NaN or Infinity: over IPC they arrive as null.) */
+const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;
+const dataError = (message: string): IpcError => ({ code: "data_file", message });
+const texts = (v: MacroView) => v.steps.flatMap((s) => (s.kind === "text" ? [s.text] : []));
+const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/** relay-core `DataTable::value`: a column of row `row`, empty past the row's end. */
+function value(t: DataTable | null, row: number, name: string): string | null {
+  const col = t?.columns.findIndex((c) => sameName(c, name)) ?? -1;
+  if (!t || col < 0 || row >= t.rows.length) return null;
+  return t.rows[row][col] ?? "";
+}
+
+/** relay-core `data::check`: why a macro typing `templates` can't play with `table`. */
+function checkData(templates: string[], table: DataTable | null, file: string): string | null {
+  const used = columnsUsed(templates);
+  if (!table) return used.length ? `A Text step types {col:${used[0]}}: choose a data file in Settings → Playback.` : null;
+  const missing = used.find((u) => !table.columns.some((c) => sameName(c, u)));
+  if (missing) return `${file} has no column “${missing}”.`;
+  if (!table.rows.length) return `${file} has no rows to play.`;
+  return null;
+}
+
 const nullable = (s: Spec) => (v: unknown) => (v === null || (typeof v === "number" && !Number.isFinite(v)) ? null : why(v, s));
 const RECT: Spec = { x: "i32", y: "i32", w: "i32", h: "i32" };
 const BUTTON = oneOf("Left", "Right", "Middle", "X1", "X2");
