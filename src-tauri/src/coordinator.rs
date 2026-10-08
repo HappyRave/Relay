@@ -587,11 +587,14 @@ impl Coordinator {
     }
 
     fn start_playback(&mut self, from: u32) {
-        let m = self.current.and_then(|id| self.app.state::<Mutex<Library>>().lock().get(id).map(|e| e.macro_.clone()));
-        let Some(m) = m else {
-            self.emit.error("Select a macro to play");
-            let _ = self.tx.send(Cmd::Input(Input::PlaybackFinished(FinishReason::Error)));
-            return;
+        let lib = self.app.state::<Mutex<Library>>();
+        let entry = self.current.and_then(|id| lib.lock().get(id).map(|e| (e.macro_.clone(), e.data_file.clone())));
+        let Some((m, data_file)) = entry else {
+            return self.refuse_playback("Select a macro to play".into());
+        };
+        let data = match crate::data_file::for_playing(&m.events, data_file.as_deref()) {
+            Ok(data) => data,
+            Err(why) => return self.refuse_playback(why),
         };
         let (own_rect, own_window) = self.own_window();
         self.hand_focus_back(own_window);
@@ -611,11 +614,16 @@ impl Coordinator {
             humanize: m.playback.humanize,
         };
         let seed = (self.platform.now_ms)().to_bits() ^ (m.id.as_u128() as u64);
-        let plan = PlayPlan::for_macro(m, from, seed, offset, own_window);
+        let plan = PlayPlan::for_macro(m, data, from, seed, offset, own_window);
         let duration = plan.duration;
         let engine = engine::spawn(plan, &self.platform, self.emit.clone(), self.tx.clone(), self.generation);
         self.playback =
             Some(Playback { engine, generation: self.generation, duration, _hook: hook, click_through, run });
+    }
+
+    fn refuse_playback(&mut self, why: String) {
+        self.emit.error(why);
+        let _ = self.tx.send(Cmd::Input(Input::PlaybackFinished(FinishReason::Error)));
     }
 
     /// Started from Relay's own button: give the keyboard back to the app the
