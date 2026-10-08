@@ -2,6 +2,7 @@
 // only wait (and check a pixel), so nothing is sent to the desktop.
 import { after, afterEach, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { App, sleep, until, waitingMacro, writeRly } from "./harness.mjs";
 
 describe("playback and recording", () => {
@@ -16,6 +17,7 @@ describe("playback and recording", () => {
       long: waitingMacro({ name: "Long", waits: [1000, 1000, 1000, 1000] }),
       loops: waitingMacro({ name: "Loops", waits: [300], repeat: { count: 3 } }),
       fast: waitingMacro({ name: "Fast", waits: [1000, 1000], speed: 4 }),
+      rows: waitingMacro({ name: "Rows", waits: [300] }),
       // A color the screen won't have at (0, 0) with no tolerance.
       pixel: waitingMacro({ name: "Pixel", waits: [200], pixel: { x: 0, y: 0, color: "#FE01FD" } }),
     };
@@ -146,6 +148,61 @@ describe("playback and recording", () => {
     assert.match(await page.store("toast.message"), /^Pixel check timed out at step \d+; playback stopped\.$/);
     const steps = await page.store("view.steps");
     assert.equal(steps[await page.store("curStepIdx")].kind, "pixel_wait");
+  });
+
+  test("with a data file, the macro plays once per row", async () => {
+    mkdirSync(app.path("data"), { recursive: true });
+    const csv = app.path("data", "customers.csv");
+    writeFileSync(csv, "Customer;Total\r\nACME;12,50\r\nGlobex;7\r\nInitech;3\r\n");
+    await open(ids.rows);
+    // Where the UI would open the file dialog.
+    const info = await page.invoke("set_data_file", { id: ids.rows, path: csv });
+    assert.deepEqual(info, { path: csv, columns: ["Customer", "Total"], rows: 3, error: null });
+    assert.equal(app.json("library.json").entries[ids.rows].data_file, csv);
+    await page.run(() => window.__relay.loadDataFile());
+    await page.tab("Settings");
+    await until(async () => (await page.text(".list"))?.includes("customers.csv: 3 rows, played once each"), {
+      what: "the Data file row",
+    });
+    assert.match(await page.text(".transport"), /Each row \(3\)/);
+
+    const before = runs(ids.rows);
+    const seen = new Set();
+    const loops = new Set();
+    await page.click("Play");
+    await page.waitMode("playing");
+    await until(
+      async () => {
+        seen.add(await page.store("loopIdx"));
+        loops.add((await page.store("playInfo"))?.loops);
+        return (await page.store("mode")) === "idle";
+      },
+      { every: 30, what: "the rows to play" },
+    );
+    assert.deepEqual([...seen].sort(), [0, 1, 2], "one loop per row, though Repeat is 1");
+    assert.ok(loops.has(3) && !loops.has(1), `loops shown: ${[...loops]}`);
+    assert.equal(await page.store("lastFinish"), "completed");
+    await until(() => runs(ids.rows) === before + 1, { what: "the run count on disk" });
+  });
+
+  test("a data file that's gone refuses to play, and says so", async () => {
+    await open(ids.rows);
+    const csv = app.path("data", "customers.csv");
+    renameSync(csv, `${csv}.moved`);
+    try {
+      const before = runs(ids.rows);
+      await page.click("Play");
+      await until(async () => (await page.store("toast.kind")) === "error", { what: "the error" });
+      assert.equal(await page.store("toast.message"), "customers.csv isn't there anymore: choose it again in Settings → Playback.");
+      assert.equal(await page.store("mode"), "idle");
+      assert.equal(await page.store("lastFinish"), "error");
+      await sleep(300);
+      assert.equal(runs(ids.rows), before, "not a run");
+    } finally {
+      renameSync(`${csv}.moved`, csv);
+    }
+    await page.invoke("set_data_file", { id: ids.rows, path: null });
+    assert.equal(app.json("library.json").entries[ids.rows].data_file, undefined);
   });
 
   test("during playback, the macro can't be deleted or switched", async () => {
