@@ -67,7 +67,15 @@ export interface Toast {
    * another macro.
    */
   undoes?: string;
+  /** For an Undo of a delete: the macro it brings back. */
+  restores?: string;
 }
+
+/** A toast being shown, with what tells it from the others. */
+export type ShownToast = Toast & { id: number };
+
+/** Toasts shown at once; older ones come back as these are dismissed. */
+export const MAX_TOASTS = 3;
 
 export class RelayStore {
   private readonly backend: Backend;
@@ -126,8 +134,12 @@ export class RelayStore {
   runsFilter = $state<string | null>(null);
   exportOpen = $state(false);
   exportFmt = $state<ExportFormat>("rly");
-  /** A short message, optionally with an action (Undo). */
-  toast = $state.raw<Toast | null>(null);
+  /** Short messages, oldest first, optionally with an action (Undo). Errors stay until dismissed. */
+  toasts = $state.raw<ShownToast[]>([]);
+  /** The ones on screen: the newest few. */
+  shownToasts = $derived(this.toasts.slice(-MAX_TOASTS));
+  /** The newest toast. */
+  toast = $derived<ShownToast | null>(this.toasts.at(-1) ?? null);
   /** Seconds left before "Pick" reads the cursor's pixel, or 0 when not picking. */
   picking = $state(0);
   /**
@@ -162,7 +174,8 @@ export class RelayStore {
   private rename_: { id: string; name: string; timer: ReturnType<typeof setTimeout> | undefined } | null = null;
   /** The open macro's name as Rust has it, for when a blank one is abandoned. */
   private savedName = "";
-  private toastTimer: ReturnType<typeof setTimeout> | undefined;
+  private toastTimers = new Map<number, ReturnType<typeof setTimeout>>();
+  private toastSeq = 0;
   // Settings, triggers and their pause are saved optimistically: a change
   // shows at once, only the newest request's answer is shown, and when that
   // fails the last state Rust confirmed comes back (an older answer, or a
@@ -213,7 +226,8 @@ export class RelayStore {
   canRedo = $derived(this.canEdit && !!this.view?.can_redo);
   /** Pauses "Trim pauses" would shorten. */
   longPauses = $derived(this.steps.filter((s) => s.pause > TRIM_PAUSE_MS).length);
-  error = $derived(this.toast?.kind === "error" ? this.toast.message : null);
+  /** The newest error shown. */
+  error = $derived([...this.toasts].reverse().find((t) => t.kind === "error")?.message ?? null);
   shownRuns = $derived(this.runsFilter ? this.runs.filter((r) => r.macro_id === this.runsFilter) : this.runs);
   /** Never "relay.exe": a program named like Relay would pass for it. */
   exportName = $derived.by(() => {
@@ -271,7 +285,7 @@ export class RelayStore {
     this.seekFrame = 0;
     if (this.listening) window.removeEventListener("keydown", this.onKey, true);
     this.listening = false;
-    clearTimeout(this.toastTimer);
+    this.toastTimers.forEach(clearTimeout);
     // A name still being typed is dropped: the store is going away.
     if (this.rename_) clearTimeout(this.rename_.timer);
     this.rename_ = null;
@@ -432,19 +446,35 @@ export class RelayStore {
 
   /** An edit is starting: an Undo offered for an earlier one would now undo this one instead. */
   private withdrawUndo() {
-    if (this.toast?.undoes) this.dismissToast();
+    this.dismissWhere((t) => !!t.undoes);
   }
 
-  dismissToast = () => {
-    clearTimeout(this.toastTimer);
-    this.toast = null;
-  };
+  /** Dismisses one toast. */
+  dismissToast = (id: number) => this.dismissWhere((t) => t.id === id);
 
-  /** Shows a toast, for `ms` or, without it (errors), until it's dismissed or replaced. */
+  /** Dismisses every toast. */
+  clearToasts = () => this.dismissWhere(() => true);
+
+  private dismissWhere(gone: (t: ShownToast) => boolean) {
+    const [out, kept] = [this.toasts.filter(gone), this.toasts.filter((t) => !gone(t))];
+    if (!out.length) return;
+    for (const t of out) {
+      clearTimeout(this.toastTimers.get(t.id));
+      this.toastTimers.delete(t.id);
+    }
+    this.toasts = kept;
+  }
+
+  /**
+   * Shows a toast under the others, for `ms` or, without it (errors), until
+   * it's dismissed. The same message again moves to the bottom instead of
+   * showing twice.
+   */
   private show(toast: Toast, ms?: number) {
-    this.toast = toast;
-    clearTimeout(this.toastTimer);
-    if (ms != null) this.toastTimer = setTimeout(() => (this.toast = null), ms);
+    this.dismissWhere((t) => t.kind === toast.kind && t.message === toast.message);
+    const id = ++this.toastSeq;
+    this.toasts = [...this.toasts, { ...toast, id }];
+    if (ms != null) this.toastTimers.set(id, setTimeout(() => this.dismissToast(id), ms));
   }
 
   // — session —
@@ -533,7 +563,7 @@ export class RelayStore {
     const view = await this.run(this.backend.loadMacro(id));
     if (!view || seq !== this.viewSeq) return;
     // An Undo offered for the macro left behind mustn't stay up over this one.
-    if (this.toast?.undoes && this.toast.undoes !== id) this.dismissToast();
+    this.dismissWhere((t) => !!t.undoes && t.undoes !== id);
     this.view = view;
     this.savedName = view.name;
     this.selected = -1;
@@ -605,12 +635,13 @@ export class RelayStore {
       }
       this.tab = "library";
     }
-    this.notify(`Moved “${name}” to the trash`, { label: "Undo", run: () => this.restoreMacro(id, wasOpen) });
+    const action = { label: "Undo", run: () => this.restoreMacro(id, wasOpen) };
+    this.show({ kind: "info", message: `Moved “${name}” to the trash`, action, restores: id }, 8000);
   };
 
   /** Brings a macro back from the trash; `reopen` it when it was the open one. */
   restoreMacro = async (id: string, reopen = false) => {
-    this.dismissToast();
+    this.dismissWhere((t) => t.restores === id);
     try {
       await this.backend.restoreMacro(id);
     } catch (e) {
