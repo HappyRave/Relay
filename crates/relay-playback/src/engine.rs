@@ -93,8 +93,8 @@ pub struct PlayPlan {
     /// Added to every position ("Window" coordinates: where the anchor window moved).
     pub offset: (i32, i32),
     pub from: Ms,
-    /// Relay's window, which image searches never look inside.
-    pub own_window: isize,
+    /// Relay's windows: Find image steps never look inside them.
+    pub own: relay_platform::OwnWindows,
 }
 
 /// How late events were injected relative to their deadlines.
@@ -678,12 +678,12 @@ pub fn spawn<S: PlaybackSink>(plan: PlayPlan, platform: &Platform, sink: S) -> E
             // Created on this thread: the timer also raises this thread's priority.
             let mut timer = make_timer();
             let _ = wake_tx.send(timer.waker());
-            let own_window = plan.own_window;
+            let own = plan.own;
             let (finder_screen, windows) = (screen.clone(), platform_windows);
             let pixel: PixelReader = Box::new(move |x, y| screen.pixel(x, y));
             let find: ImageFinder = Box::new(move |image, area, threshold| {
-                // Where Relay's window is now: it may have moved since playback started.
-                let hide = crate::finder::Hidden::of(&*windows, own_window);
+                // Where Relay's windows are now: they may have moved since playback started.
+                let hide = crate::finder::Hidden::of(&*windows, own);
                 crate::finder::find_on_screen(&*finder_screen, image, area, threshold, &hide)
             });
             let data = plan.data.clone();
@@ -808,7 +808,7 @@ mod tests {
             seed: 0,
             offset: (0, 0),
             from: 0,
-            own_window: 0,
+            own: [0, 0],
         }
     }
 
@@ -1089,7 +1089,7 @@ mod tests {
             seed: 0,
             offset: (0, 0),
             from: 0,
-            own_window: 0,
+            own: [0, 0],
         };
         // The fake screen turns red at `turns_red_at` (wall ms), read through a shared clock.
         let now = Arc::new(Mutex::new(0.0));

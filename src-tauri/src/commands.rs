@@ -437,7 +437,7 @@ pub async fn test_find_image(
     area: Option<Rect>,
 ) -> Result<Option<FoundImage>> {
     let platform = platform.inner().clone();
-    let own = crate::window_ctl::main_hwnd(&app);
+    let own = crate::window_ctl::own_windows(&app);
     tauri::async_runtime::spawn_blocking(move || {
         let gray = Rgb8::decode(&image.0).map_err(image_error)?.gray();
         let hide = relay_playback::finder::Hidden::of(&*platform.windows, own);

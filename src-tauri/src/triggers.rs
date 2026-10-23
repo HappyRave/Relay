@@ -363,7 +363,7 @@ fn image_loop(app: AppHandle, platform: Arc<Platform>) {
             continue;
         }
         looker.round();
-        let hide = relay_playback::finder::Hidden::of(&*platform.windows, crate::window_ctl::main_hwnd(&app));
+        let hide = relay_playback::finder::Hidden::of(&*platform.windows, crate::window_ctl::own_windows(&app));
         let found = watch.tick(&triggers, |image, key, area, threshold| {
             looker.look(&*platform.screen, image, key, area, threshold, &hide)
         });

@@ -422,7 +422,7 @@ impl<R: Runtime> Coordinator<R> {
         let p = self.playback.take()?;
         let report = p.engine.stop();
         if p.click_through
-            && let Some(w) = self.app.get_webview_window("main")
+            && let Some(w) = self.app.get_webview_window("player")
         {
             let _ = w.set_ignore_cursor_events(false);
         }
@@ -470,21 +470,25 @@ impl<R: Runtime> Coordinator<R> {
     }
 
     /// Relay's own window, whose clicks and keys must not be recorded.
-    fn own_window(&self) -> (Option<Rect>, isize) {
-        let Some(w) = self.app.get_webview_window("main") else { return (None, 0) };
-        let rect = match (w.outer_position(), w.outer_size()) {
-            (Ok(p), Ok(s)) => Some(Rect { x: p.x, y: p.y, w: s.width as i32, h: s.height as i32 }),
-            _ => None,
-        };
-        (rect, crate::window_ctl::main_hwnd(&self.app))
+    /// Relay's windows, and where the player is when it shows: it's on top,
+    /// so a macro's clicks under it must go through.
+    fn own_windows(&self) -> (Option<Rect>, relay_platform::OwnWindows) {
+        let rect =
+            self.app.get_webview_window("player").filter(|w| w.is_visible().unwrap_or(false)).and_then(|w| {
+                match (w.outer_position(), w.outer_size()) {
+                    (Ok(p), Ok(s)) => Some(Rect { x: p.x, y: p.y, w: s.width as i32, h: s.height as i32 }),
+                    _ => None,
+                }
+            });
+        (rect, crate::window_ctl::own_windows(&self.app))
     }
 
     fn start_recording(&mut self) {
         let settings = self.settings();
-        let (_, own_window) = self.own_window();
+        let (_, own) = self.own_windows();
         let mouse_pulse = Arc::new(MousePulse::default());
         let hook_cfg = HookConfig {
-            mode: HookMode::Record { own_window, skip_vks: vec![VK_F9], esc_stops: settings.esc_stops_recording },
+            mode: HookMode::Record { own, skip_vks: vec![VK_F9], esc_stops: settings.esc_stops_recording },
             ignore_injected: settings.ignore_injected,
             mouse_pulse: Some(mouse_pulse.clone()),
         };
@@ -522,7 +526,7 @@ impl<R: Runtime> Coordinator<R> {
             let screen = self.platform.screen.clone();
             std::thread::spawn(move || {
                 let area = screen.virtual_desktop();
-                let jpeg = crate::screens::encode(&screen.capture(area, crate::screens::MAX_WIDTH, own_window)?)?;
+                let jpeg = crate::screens::encode(&screen.capture(area, crate::screens::MAX_WIDTH, own)?)?;
                 Some((area, jpeg))
             })
         });
@@ -608,8 +612,8 @@ impl<R: Runtime> Coordinator<R> {
                 return self.refuse_playback(why);
             }
         };
-        let (own_rect, own_window) = self.own_window();
-        self.hand_focus_back(own_window);
+        let (own_rect, own) = self.own_windows();
+        self.hand_focus_back(own);
         let offset = self.window_offset(&m);
         let click_through = self.click_through_if_needed(&m, own_rect, offset);
         let hook = self.watch_for_stop_keys(&m);
@@ -627,7 +631,7 @@ impl<R: Runtime> Coordinator<R> {
             rows: data.as_ref().map(|d| d.rows.len() as u32),
         };
         let seed = (self.platform.now_ms)().to_bits() ^ (m.id.as_u128() as u64);
-        let plan = PlayPlan::for_macro(m, data, from, seed, offset, own_window);
+        let plan = PlayPlan::for_macro(m, data, from, seed, offset, own);
         let duration = plan.duration;
         let engine = engine::spawn(plan, &self.platform, self.emit.clone(), self.tx.clone(), self.generation);
         self.playback =
@@ -642,11 +646,11 @@ impl<R: Runtime> Coordinator<R> {
     /// Started from Relay's own button: give the keyboard back to the app the
     /// user was working in, or keystrokes would type into Relay. Warns when
     /// Windows will block the input to that app.
-    fn hand_focus_back(&self, own_window: isize) {
+    fn hand_focus_back(&self, own: relay_platform::OwnWindows) {
         let windows = &self.platform.windows;
         let mut target = windows.foreground();
-        if target.is_some_and(|w| w.hwnd == own_window) {
-            target = windows.restore_previous(own_window);
+        if let Some(w) = target.filter(|w| relay_platform::is_own(&own, w.hwnd)) {
+            target = windows.restore_previous(w.hwnd);
         }
         if target.is_some_and(|t| windows.input_blocked(t.pid)) {
             self.emit.send(EngineMsg::Notice {
@@ -657,10 +661,10 @@ impl<R: Runtime> Coordinator<R> {
         }
     }
 
-    /// Clicks and scrolling under the always-on-top widget must reach the app beneath it.
-    fn click_through_if_needed(&self, m: &Macro, own_rect: Option<Rect>, offset: (i32, i32)) -> bool {
-        own_rect.is_some_and(|r| relay_playback::plan::clicks_inside(m, r, offset))
-            && self.app.get_webview_window("main").is_some_and(|w| w.set_ignore_cursor_events(true).is_ok())
+    /// Clicks and scrolling under the player, which is on top, must reach the app beneath it.
+    fn click_through_if_needed(&self, m: &Macro, player: Option<Rect>, offset: (i32, i32)) -> bool {
+        player.is_some_and(|r| relay_playback::plan::clicks_inside(m, r, offset))
+            && self.app.get_webview_window("player").is_some_and(|w| w.set_ignore_cursor_events(true).is_ok())
     }
 
     /// Watches for Esc and, if the macro wants it, any other key.

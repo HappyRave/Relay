@@ -16,7 +16,7 @@ use std::thread::JoinHandle;
 
 use crossbeam_channel::{Sender, bounded};
 use relay_core::model::MouseBtn;
-use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, WPARAM};
+use windows::Win32::Foundation::{HINSTANCE, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_END, VK_ESCAPE, VK_MENU};
@@ -31,7 +31,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use super::now_ms;
 use crate::keymap::is_modifier_vk;
-use crate::{HookConfig, HookMode, HookSession, InputHook, PlatformError, RELAY_MAGIC, RawInput, RawKind, Result};
+use crate::{
+    HookConfig, HookMode, HookSession, InputHook, OwnWindows, PlatformError, RELAY_MAGIC, RawInput, RawKind, Result,
+    is_own,
+};
 
 pub struct LowLevelHook;
 
@@ -166,9 +169,9 @@ fn is_down(vk: u16) -> bool {
     unsafe { GetAsyncKeyState(vk as i32) as u16 & 0x8000 != 0 }
 }
 
-/// Whether the top-level window under a screen point is `own`.
-fn is_own_window_at(own: isize, x: i32, y: i32) -> bool {
-    own != 0 && unsafe { GetAncestor(WindowFromPoint(POINT { x, y }), GA_ROOT) } == HWND(own as _)
+/// Whether the top-level window under a screen point is one of Relay's.
+fn is_own_window_at(own: &OwnWindows, x: i32, y: i32) -> bool {
+    is_own(own, unsafe { GetAncestor(WindowFromPoint(POINT { x, y }), GA_ROOT) }.0 as isize)
 }
 
 const SWALLOW: Option<LRESULT> = Some(LRESULT(1));
@@ -215,14 +218,14 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
                 return None;
             }
             match &ctx.cfg.mode {
-                HookMode::Record { own_window, skip_vks, esc_stops } => {
+                HookMode::Record { own, skip_vks, esc_stops } => {
                     if !ctx.reported.has(vk) {
                         if *esc_stops && vk == VK_ESCAPE.0 {
                             ctx.swallowed.set(vk, true);
                             report(ctx, RawKind::Escape);
                             return SWALLOW;
                         }
-                        let into_relay = *own_window != 0 && unsafe { GetForegroundWindow() } == HWND(*own_window as _);
+                        let into_relay = is_own(own, unsafe { GetForegroundWindow() }.0 as isize);
                         if skip_vks.contains(&vk) || into_relay {
                             ctx.skipped.set(vk, true);
                             return None;
@@ -259,7 +262,7 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
         let info = unsafe { &*(lparam.0 as *const MSLLHOOKSTRUCT) };
         let time = now_ms();
         with_ctx(|ctx| {
-            let HookMode::Record { own_window, .. } = ctx.cfg.mode else { return None };
+            let HookMode::Record { own, .. } = ctx.cfg.mode else { return None };
             // Before any filtering: dropped events prove the hook is alive too.
             if let Some(pulse) = &ctx.cfg.mouse_pulse {
                 pulse.beat(time);
@@ -292,7 +295,7 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
             // outside. (Only presses and wheel events look up the window under
             // the cursor, not the frequent moves.)
             match &kind {
-                RawKind::Button { btn, down: true, .. } if is_own_window_at(own_window, x, y) => {
+                RawKind::Button { btn, down: true, .. } if is_own_window_at(&own, x, y) => {
                     ctx.pressed_inside |= 1 << (*btn as u8);
                     return None;
                 }
@@ -300,7 +303,7 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
                     ctx.pressed_inside &= !(1 << (*btn as u8));
                     return None;
                 }
-                RawKind::Wheel { .. } if is_own_window_at(own_window, x, y) => return None,
+                RawKind::Wheel { .. } if is_own_window_at(&own, x, y) => return None,
                 _ => {}
             }
             let _ = ctx.tx.try_send(RawInput { time, kind });

@@ -19,7 +19,7 @@ use crossbeam_channel::Sender;
 use relay_core::keys::KeyStroke;
 use relay_core::model::{MonitorInfo, MouseBtn, Rect, Rgb, WindowInfo};
 
-pub use types::{HeldKeys, HookConfig, HookMode, RawInput, RawKind, Snapshot};
+pub use types::{HeldKeys, HookConfig, HookMode, OwnWindows, RawInput, RawKind, Snapshot, is_own};
 
 #[derive(Debug, thiserror::Error)]
 pub enum PlatformError {
@@ -55,7 +55,7 @@ pub trait Screen: Send + Sync {
     /// at most `max_w` wide (see [`types::snapshot_size`]), leaving out the
     /// window `exclude` (0: none) where the OS can. `None` if the screen
     /// can't be read (a locked or secure desktop) or the OS can't do it.
-    fn capture(&self, area: Rect, max_w: u32, exclude: isize) -> Option<Snapshot> {
+    fn capture(&self, area: Rect, max_w: u32, exclude: OwnWindows) -> Option<Snapshot> {
         let _ = (area, max_w, exclude);
         None
     }

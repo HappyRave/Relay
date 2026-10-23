@@ -389,7 +389,7 @@ impl App {
         }
         self.watch(m.playback.stop_on_key);
         let seed = (self.platform.now_ms)().to_bits() ^ (m.id.as_u128() as u64);
-        let plan = PlayPlan::for_macro(m, data, 0, seed, offset, self.hwnd.0 as isize);
+        let plan = PlayPlan::for_macro(m, data, 0, seed, offset, [self.hwnd.0 as isize, 0]);
         let loops = plan.repeat.loops();
         self.status.phase = Phase::Playing(Tick { t: 0.0, advancing: true, speed: plan.speed, loop_idx: 0, loops });
         let sink = WinSink { hwnd: self.hwnd.0 as isize, shared: self.shared.clone() };

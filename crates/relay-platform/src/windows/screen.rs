@@ -12,7 +12,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::BOOL;
 
 use crate::Screen;
-use crate::types::{Snapshot, snapshot_size};
+use crate::types::{OwnWindows, Snapshot, snapshot_size};
 
 pub struct WinScreen;
 
@@ -99,24 +99,28 @@ impl Screen for WinScreen {
     /// Leaves `exclude` out with `WDA_EXCLUDEFROMCAPTURE` (Windows 10 2004
     /// and later; on older versions the window shows in the picture) for the
     /// moment of the capture only, so other screenshot tools still see it.
-    fn capture(&self, area: Rect, max_w: u32, exclude: isize) -> Option<Snapshot> {
+    fn capture(&self, area: Rect, max_w: u32, exclude: OwnWindows) -> Option<Snapshot> {
         use windows::Win32::Foundation::HWND;
         use windows::Win32::UI::WindowsAndMessaging::{SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE, WDA_NONE};
         // One at a time: another capture ending would show the window again
         // during this one.
         static CAPTURING: std::sync::Mutex<()> = std::sync::Mutex::new(());
         let _one = CAPTURING.lock().unwrap_or_else(|e| e.into_inner());
-        let hwnd = HWND(exclude as *mut _);
+        let excluded: Vec<HWND> = exclude
+            .iter()
+            .filter(|&&w| w != 0)
+            .map(|&w| HWND(w as *mut _))
+            .filter(|&hwnd| unsafe { SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE) }.is_ok())
+            .collect();
         // The compositor applies the change on its next frame.
-        let excluded = exclude != 0 && unsafe { SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE) }.is_ok();
-        if excluded {
+        if !excluded.is_empty() {
             unsafe {
                 let _ = windows::Win32::Graphics::Dwm::DwmFlush();
                 let _ = windows::Win32::Graphics::Dwm::DwmFlush();
             }
         }
         let snapshot = unsafe { stretch_capture(area, max_w) };
-        if excluded {
+        for hwnd in excluded {
             unsafe {
                 let _ = SetWindowDisplayAffinity(hwnd, WDA_NONE);
             }

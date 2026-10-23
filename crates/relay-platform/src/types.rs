@@ -73,13 +73,22 @@ impl MousePulse {
     }
 }
 
+/// Relay's own windows, 0 where there's none: the app's main window and its
+/// player (an exported program has only one).
+pub type OwnWindows = [isize; 2];
+
+/// Whether `hwnd` is one of Relay's windows.
+pub fn is_own(own: &OwnWindows, hwnd: isize) -> bool {
+    hwnd != 0 && own.contains(&hwnd)
+}
+
 #[derive(Debug, Clone)]
 pub enum HookMode {
     /// Report input for a recording.
     Record {
-        /// Relay's window: clicks and scrolls on it, and keys typed while it
-        /// is in front, are UI, not macro input (0 when there is none).
-        own_window: isize,
+        /// Relay's windows: clicks and scrolls on them, and keys typed while
+        /// one is in front, are UI, not macro input.
+        own: OwnWindows,
         /// Virtual keys passed through but not recorded (the control hotkeys).
         skip_vks: Vec<u16>,
         /// Swallow Esc and report [`RawKind::Escape`] instead of recording it.

@@ -65,13 +65,21 @@ impl Panes {
     }
 }
 
-/// The main window's handle (0 if there's none), to leave it out of screen
-/// captures and recordings.
-pub fn main_hwnd<R: Runtime>(app: &AppHandle<R>) -> isize {
+/// A window's handle (0 if there's none).
+fn hwnd_of<R: Runtime>(app: &AppHandle<R>, label: &str) -> isize {
     #[cfg(windows)]
-    return app.get_webview_window("main").and_then(|w| w.hwnd().ok()).map_or(0, |h| h.0 as isize);
+    return app.get_webview_window(label).and_then(|w| w.hwnd().ok()).map_or(0, |h| h.0 as isize);
     #[cfg(not(windows))]
-    return 0;
+    return {
+        let _ = (app, label);
+        0
+    };
+}
+
+/// Relay's windows, the main one and the player, to leave them out of
+/// screen captures, image searches and recordings.
+pub fn own_windows<R: Runtime>(app: &AppHandle<R>) -> relay_platform::OwnWindows {
+    [hwnd_of(app, "main"), hwnd_of(app, "player")]
 }
 
 /// The editor's size: the one the user chose (never below [`MIN_EXPANDED`]), or the default.
