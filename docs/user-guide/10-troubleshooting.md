@@ -234,7 +234,7 @@ Yes: export it as a **Standalone program**, a small `.exe` that plays it. See [E
 <details>
 <summary><b>Can I export to AutoHotkey?</b></summary>
 
-Not yet. It's planned, and shown as *Coming later* in the Export dialog.
+Yes: export it as **AutoHotkey v2**, a script that plays it with AutoHotkey, one readable block per step. See [AutoHotkey scripts](08-library.md#autohotkey-scripts).
 
 </details>
 

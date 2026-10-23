@@ -1,0 +1,85 @@
+---
+source: crates/relay-core/src/ahk.rs
+expression: "script(&m, None)"
+---
+; Invoice "run", exported from Relay.
+; It plays at once, after the countdown: click into the app it works in.
+; Esc or Ctrl+Alt+End stops it.
+#Requires AutoHotkey v2.0
+#SingleInstance Force
+; Relay's coordinates are physical pixels, on every monitor.
+DllCall("SetThreadDpiAwarenessContext", "Ptr", -4, "Ptr")
+CoordMode "Mouse", "Screen"
+CoordMode "Pixel", "Screen"
+SetDefaultMouseSpeed 0
+
+Speed := 2  ; 2 plays twice as fast
+Repeat := 3  ; 0 loops until stopped
+Jitter := 40  ; Humanize: each pause ± this many ms (0: exact)
+Countdown := 3  ; seconds to click into the app first
+
+^!End::ExitApp
+Esc::ExitApp
+OnExit((*) => Send("{Ctrl up}{Alt up}{Shift up}{LWin up}"))
+
+Loop Countdown {
+    ToolTip "Playing in " (Countdown - A_Index + 1) "…"
+    Sleep 1000
+}
+ToolTip
+Loop {
+    if (Repeat && A_Index > Repeat)
+        break
+    Play(A_Index)
+}
+ExitApp
+
+Play(N) {
+    ; 1. Move
+    Pause(0, false)
+    MouseMove 840, 412
+    ; 2. Click · Save
+    Pause(100)
+    Click "840 412"
+    ; 3. Keys · Ctrl + S
+    Pause(300)
+    Send "^s"
+    ; 4. Wait 0.7 s · Dialog opens
+    Pause(200)
+    ; 5. Pixel check · Ready
+    Pause(700)
+    WaitPixel(5, 6, 0xEC3013, 8, 5000, 5)
+    ; 6. Text
+    Pause(300)
+    SendText "Invoice " . N
+    ; 7. Scroll
+    Pause(400)
+    Send "{Click 900 600 WheelDown 2}"
+    Pause(500)
+}
+
+Pause(ms, humanize := true) {
+    if (humanize && Jitter)
+        ms += Random(-Jitter, Jitter)
+    if (ms > 0)
+        Sleep Round(ms / Speed)
+}
+
+Stop(message, code) {
+    MsgBox message, "Relay macro", "Icon!"
+    ExitApp code
+}
+
+WaitPixel(x, y, color, tolerance, timeout, step) {
+    start := A_TickCount
+    Loop {
+        c := PixelGetColor(x, y)
+        if (Abs((c >> 16) - (color >> 16)) <= tolerance
+            && Abs(((c >> 8) & 0xFF) - ((color >> 8) & 0xFF)) <= tolerance
+            && Abs((c & 0xFF) - (color & 0xFF)) <= tolerance)
+            return
+        if (A_TickCount - start > timeout)
+            Stop("Pixel check timed out at step " step "; playback stopped.", 5)
+        Sleep 30
+    }
+}

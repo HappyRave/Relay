@@ -211,7 +211,7 @@ describe("Export dialog", () => {
     relay.exportOpen = true;
   });
 
-  test("is a modal with the formats, AutoHotkey for later", () => {
+  test("is a modal with the formats", () => {
     render(ExportDialog);
     const dialog = screen.getByRole("dialog", { name: "Export macro" });
     expect(dialog).toHaveAttribute("open");
@@ -220,9 +220,9 @@ describe("Export dialog", () => {
       "Relay macro",
       "JSON events",
       "Standalone program",
-      "AutoHotkey v2Coming later",
+      "AutoHotkey v2",
     ]);
-    expect(formats.map((f) => f.disabled)).toEqual([false, false, false, true]);
+    expect(formats.map((f) => f.disabled)).toEqual([false, false, false, false]);
     expect(formats[0]).toHaveClass("selected");
     expect(screen.getByText("export-invoice-to-pdf.rly")).toBeInTheDocument();
   });
@@ -248,10 +248,22 @@ describe("Export dialog", () => {
     expect(relay.toast?.message).toBe("Saved invoice.exe");
   });
 
-  test("a format for later can't be chosen", async () => {
+  test("an AutoHotkey script is an .ahk, and says what it needs", async () => {
     render(ExportDialog);
-    await fireEvent.click(screen.getByText("AutoHotkey v2").closest("button")!);
-    expect(relay.exportFmt).toBe("rly");
+    await userEvent.click(screen.getByText("AutoHotkey v2"));
+    expect(relay.exportFmt).toBe("ahk");
+    expect(screen.getByText("export-invoice-to-pdf.ahk")).toBeInTheDocument();
+    expect(
+      screen.getByText("Needs AutoHotkey v2. Clicks at screen coordinates; speed, repeat and Humanize are at the top of the script."),
+    ).toBeInTheDocument();
+    core.dialog.save = "C:\\Users\\me\\invoice.ahk";
+    await userEvent.click(screen.getByRole("button", { name: "Save…" }));
+    await settle();
+    expect(core.lastArgs("plugin:dialog|save")).toMatchObject({
+      options: { defaultPath: "export-invoice-to-pdf.ahk", filters: [{ name: "AutoHotkey script", extensions: ["ahk"] }] },
+    });
+    expect(core.lastArgs("export_macro")).toEqual({ id: A, format: "ahk", path: "C:\\Users\\me\\invoice.ahk" });
+    expect(relay.toast?.message).toBe("Saved invoice.ahk");
   });
 
   test("Save… asks where, writes the file and closes", async () => {

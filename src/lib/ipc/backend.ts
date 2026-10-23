@@ -92,7 +92,7 @@ export interface IpcError {
 }
 
 /** The file type the save dialog names for each export format. */
-const FILE_TYPES: Record<ExportFormat, string> = { rly: "Relay macro", json: "JSON events", exe: "Program" };
+const FILE_TYPES: Record<ExportFormat, string> = { rly: "Relay macro", json: "JSON events", exe: "Program", ahk: "AutoHotkey script" };
 
 export const tauriBackend: Backend = {
   editable: true,

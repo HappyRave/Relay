@@ -435,10 +435,10 @@ export class FakeCore {
         return null;
       }
       case "export_macro": {
-        check("format", a.format, oneOf("rly", "json", "exe"));
+        check("format", a.format, oneOf("rly", "json", "exe", "ahk"));
         const e = this.entry(id);
-        // A program carries the data file's rows, so it needs them now.
-        if (a.format === "exe") this.forPlaying(texts(e.view), e.dataFile);
+        // A program or script carries the data file's rows, so it needs them now.
+        if (a.format === "exe" || a.format === "ahk") this.forPlaying(texts(e.view), e.dataFile);
         return null;
       }
       case "import_macros":

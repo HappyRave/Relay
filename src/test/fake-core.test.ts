@@ -298,6 +298,8 @@ describe("edits, like edit.rs", () => {
     expect((await b.getDataFile(A))?.error).toBe("customers.csv has no rows to play.");
     core.dialog.save = "C:\\out.exe";
     await expect(b.exportMacro(A, "exe", "x.exe")).rejects.toEqual({ code: "data_file", message: "customers.csv has no rows to play." });
+    core.dialog.save = "C:\\out.ahk";
+    await expect(b.exportMacro(A, "ahk", "x.ahk")).rejects.toEqual({ code: "data_file", message: "customers.csv has no rows to play." });
     core.dialog.save = "C:\\out.rly";
     expect(await b.exportMacro(A, "rly", "x.rly")).toBe("C:\\out.rly");
     const copy = await b.duplicateMacro(A);
@@ -430,8 +432,8 @@ describe("the library, like library.rs", () => {
   });
 
   test("exports take the formats Rust knows", async () => {
-    for (const format of ["rly", "json", "exe"]) await invoke("export_macro", { id: A, format, path: "C:\\x" });
-    await expect(invoke("export_macro", { id: A, format: "ahk", path: "C:\\x" })).rejects.toMatch(/unknown variant "ahk"/);
+    for (const format of ["rly", "json", "exe", "ahk"]) await invoke("export_macro", { id: A, format, path: "C:\\x" });
+    await expect(invoke("export_macro", { id: A, format: "zip", path: "C:\\x" })).rejects.toMatch(/unknown variant "zip"/);
   });
 
   test("a file the test didn't fill in holds the first sample, named after the file", async () => {

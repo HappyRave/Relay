@@ -188,6 +188,20 @@ describe("library", () => {
     for (const i of back.imported) assert.deepEqual(app.macro(i).events, saved.events);
   });
 
+  test("export as an AutoHotkey script: a block per step", async () => {
+    const macro = await id();
+    const ahk = join(app.path("exports"), "copy.ahk");
+    await page.invoke("export_macro", { id: macro, format: "ahk", path: ahk });
+    const script = readFileSync(ahk, "utf8");
+    const name = app.macro(macro).name;
+    assert.ok(script.startsWith(`; ${name}, exported from Relay.\n`), script.slice(0, 200));
+    assert.ok(script.includes("#Requires AutoHotkey v2.0\n"));
+    await page.open(macro);
+    const steps = (await page.store("view.steps")).length;
+    assert.equal(script.match(/\n {4}; \d+\. /g).length, steps);
+    assert.ok(script.includes(`\n    ; ${steps}. `), "numbered like the steps list");
+  });
+
   test("export to a folder that can't be written reports it", async () => {
     await assert.rejects(
       page.invoke("export_macro", { id: await id(), format: "rly", path: app.path("macros") }),
