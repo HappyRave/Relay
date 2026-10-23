@@ -1337,9 +1337,12 @@ The timeline is a slider for assistive technology (*Playhead, 00:06.02 of 00:10.
 
 One picker for a pixel check, the pixel trigger, and the click point of a Find image step:
 
-1. **Pick from screen** freezes the screen and shows a loupe around the cursor: magnified pixels, the color, the coordinates.
+1. **Pick from screen** shows a loupe around the cursor over the live screen: magnified pixels, the color, the coordinates.
 2. Move with the mouse, a pen, a finger, or the arrow keys (one pixel, ten with <kbd>Shift</kbd>).
-3. Click, tap or <kbd>Enter</kbd> picks. <kbd>Esc</kbd> cancels. No countdown.
+3. **Freeze** (<kbd>Space</kbd>) holds the screen as it is, for something that blinks, animates or only shows on hover. <kbd>Space</kbd> again goes back to the live screen.
+4. Click, tap or <kbd>Enter</kbd> picks. <kbd>Esc</kbd> cancels. No countdown.
+
+The picker doesn't take the focus from the app under it, so a menu or a tooltip that's open stays open while you freeze it.
 
 Snipping an image (+ Find image, the image trigger) keeps Windows' snipping overlay, with **Paste** and **File…** in the inspector.
 

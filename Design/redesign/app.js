@@ -953,8 +953,13 @@ function exportDialog() {
 
 function pickerHtml() {
   if (!st.picking) return "";
-  return `<div class="picker" data-act="pick-confirm" role="dialog" aria-label="Pick a pixel from the screen">
-    <div class="help glass">${icon("pick", 14)}<span>Click the pixel, or move with the arrow keys and press Enter. Esc cancels.</span></div>
+  const f = st.picking.frozen;
+  return `<div class="picker${f ? " frozen" : ""}${helpLow() ? " help-low" : ""}" data-act="pick-confirm" role="dialog" aria-label="Pick a pixel from the screen">
+    ${f ? `<div class="frame" aria-hidden="true"><i></i><i></i><i></i><i></i></div>` : ""}
+    <div class="help glass" data-act="none">${icon("pick", 14)}<span>Click the pixel, or move with the arrow keys and press Enter. Esc cancels.</span>
+      <span class="lcd pick-state">${f ? `FROZEN <span class="of">${f.time}</span>` : `<i class="live-dot"></i>LIVE`}</span>
+      <button class="key small${f ? " ink" : ""}" type="button" aria-pressed="${!!f}" data-act="pick-freeze" data-fid="pick-freeze" title="Freeze the screen (Space)">${icon("freeze", 14)}Freeze<kbd>Space</kbd></button>
+    </div>
     <div class="loupe" id="loupe" style="left:${st.picking.x}px;top:${st.picking.y + 40}px"><canvas id="loupe-c" width="11" height="11"></canvas></div>
     <div class="loupe-tag" id="loupe-tag" style="left:${st.picking.x}px;top:${st.picking.y + 40}px">${st.picking.x}, ${st.picking.y} · ${colorHex(st.picking.x, st.picking.y)}</div>
   </div>`;
@@ -975,6 +980,7 @@ function render() {
   root.classList.toggle("large", st.spacing === "large");
   root.classList.toggle("narrow", narrow());
   root.classList.toggle("picking", !!st.picking);
+  root.classList.toggle("frozen-screen", !!st.picking?.frozen);
   const [ww, wh] = winPx();
   root.style.setProperty("--win-w", `${ww}px`);
   root.style.setProperty("--win-h", `${wh}px`);
@@ -991,7 +997,7 @@ function render() {
   document.getElementById("app").innerHTML = `
     ${st.frame ? "" : envBar()}
     <div class="desktop">
-      <div class="app-behind" aria-hidden="true"><div class="bar">Invoices.xlsx</div><span class="cell" style="left:12px;top:40px">ACME Ltd</span><span class="cell" style="left:140px;top:40px">F-1042</span><span class="cell" style="left:12px;top:62px">Globex</span><span class="cell" style="left:140px;top:62px">F-1043</span></div>
+      <div class="app-behind" aria-hidden="true"><div class="bar">Invoices.xlsx<span class="sync${syncOn ? " on" : ""}">Syncing</span></div><span class="cell" style="left:12px;top:40px">ACME Ltd</span><span class="cell" style="left:140px;top:40px">F-1042</span><span class="cell" style="left:12px;top:62px">Globex</span><span class="cell" style="left:140px;top:62px">F-1043</span></div>
       ${win && st.frame !== "icons" ? `<div class="win-pos">${win}</div>` : win}
       ${st.frame === "icons" ? "" : `<div class="player-pos${st.trigger && !windowAway() ? ` corner ${playerCorner()}` : ""}">${playerHtml()}</div>`}
       ${exportedHtml()}
@@ -1020,6 +1026,12 @@ function colorHex(x, y) {
 function colorAt(x, y) {
   const app = document.querySelector(".app-behind")?.getBoundingClientRect();
   const Y = y + 40;
+  const sync = document.querySelector(".app-behind .sync");
+  const sr = sync?.getBoundingClientRect();
+  if (sr && x >= sr.left && x <= sr.right && Y >= sr.top && Y <= sr.bottom) {
+    const c = st.picking?.frozen?.sync ?? getComputedStyle(sync).backgroundColor;
+    return c.match(/\d+/g).slice(0, 3).map(Number);
+  }
   if (app && x >= app.left && x <= app.right && Y >= app.top && Y <= app.bottom) {
     if (Y - app.top < 30) return [31, 122, 69];
     const gx = (x - app.left) % 64 < 1, gy = (Y - app.top - 30) % 22 < 1;
@@ -1036,17 +1048,34 @@ function drawLoupe() {
   const ctx = c.getContext("2d");
   for (let i = -5; i <= 5; i++) for (let j = -5; j <= 5; j++) { const [r, g, b] = colorAt(st.picking.x + i, st.picking.y + j); ctx.fillStyle = `rgb(${r},${g},${b})`; ctx.fillRect(i + 5, j + 5, 1, 1); }
 }
+// The help bar drops to the bottom when the loupe comes near it.
+const helpLow = () => st.picking.y < 150;
 function movePicker(x, y) {
   st.picking.x = Math.round(x); st.picking.y = Math.round(y);
+  document.querySelector(".picker")?.classList.toggle("help-low", helpLow());
   const l = document.getElementById("loupe"), t = document.getElementById("loupe-tag");
   if (l) { l.style.left = `${st.picking.x}px`; l.style.top = `${st.picking.y + 40}px`; t.style.left = l.style.left; t.style.top = l.style.top; t.textContent = `${st.picking.x}, ${st.picking.y} · ${colorHex(st.picking.x, st.picking.y)}`; drawLoupe(); }
 }
+function toggleFreeze() {
+  if (st.picking.frozen) { st.picking.frozen = null; announce("Live screen."); }
+  else {
+    const sync = document.querySelector(".app-behind .sync");
+    st.picking.frozen = { time: new Date().toTimeString().slice(0, 8), sync: sync ? getComputedStyle(sync).backgroundColor : null };
+    announce("Screen frozen. Space goes back to the live screen.");
+  }
+  render();
+}
+// The app behind blinks a badge, so the picker has something live to freeze.
+var syncOn = true;
+setInterval(() => { if (st.picking?.frozen) return; syncOn = !syncOn; document.querySelector(".app-behind .sync")?.classList.toggle("on", syncOn); }, 600);
+setInterval(() => { if (st.picking && !st.picking.frozen) movePicker(st.picking.x, st.picking.y); }, 100);
 function confirmPick() {
   const m = macro(), x = m.steps.find((s) => s.id === st.picking.stepId);
   const col = colorHex(st.picking.x, st.picking.y);
+  const frozen = !!st.picking.frozen;
   if (x) { snapshot(); x.x = Math.round(st.picking.x * 1920 / innerWidth); x.y = Math.round(st.picking.y * 1080 / innerHeight); if (x.kind === "pixel") x.color = col; }
   st.picking = null;
-  toast(`Picked ${x?.x}, ${x?.y}${x?.kind === "pixel" ? ` · ${col}` : ""}`, { action: { label: "Undo", run: () => restore(st.undo, st.redo) } });
+  toast(`Picked ${x?.x}, ${x?.y}${x?.kind === "pixel" ? ` · ${col}` : ""}${frozen ? " from the frozen screen" : ""}`, { action: { label: "Undo", run: () => restore(st.undo, st.redo) } });
   render();
 }
 
@@ -1337,6 +1366,8 @@ document.addEventListener("click", (e) => {
     case "make-editable": { snapshot(); let n = 0; m.steps.forEach((x) => { if (st.sel.has(x.id) && x.kind === "type") { x.kind = "text"; n++; } }); toast(`Made ${plural(n, "text")} editable`, { action: { label: "Undo", run: () => restore(st.undo, st.redo) } }); return doRender(); }
     case "smooth": case "straighten": snapshot(); toast(a === "smooth" ? "Smoothed the path" : "Straightened the path", { action: { label: "Undo", run: () => restore(st.undo, st.redo) } }); return doRender();
     case "pick": case "pick-trigger": st.picking = { stepId: [...st.sel][0], x: Math.round(innerWidth * 0.3), y: Math.round(innerHeight * 0.35) }; announce("Picking a pixel. Move with the arrow keys and press Enter, or click. Escape cancels."); return doRender();
+    case "pick-freeze": return toggleFreeze();
+    case "none": return;
     case "pick-confirm": movePicker(e.clientX, e.clientY - 40); return confirmPick();
     case "clickpoint": { const r = t.getBoundingClientRect(); const x = m.steps.find((s) => st.sel.has(s.id)); if (x && e.detail) { snapshot(); x.cx = (e.clientX - r.left) / r.width; x.cy = (e.clientY - r.top) / r.height; } return doRender(); }
     case "test": st.testResult = "Found at 812, 440 · 97% match, well above 85%"; announce(st.testResult); return doRender();
@@ -1420,7 +1451,7 @@ document.addEventListener("pointerdown", (e) => {
   el.setPointerCapture(e.pointerId);
 });
 document.addEventListener("pointermove", (e) => {
-  if (st.picking && e.target.closest(".picker")) return movePicker(e.clientX, e.clientY - 40);
+  if (st.picking && e.target.closest(".picker") && !e.target.closest(".help")) return movePicker(e.clientX, e.clientY - 40);
   if (!scrub) return;
   const dx = e.clientX - scrub.x; if (Math.abs(dx) < 3 && !scrub.moved) return;
   if (!scrub.moved) { scrub.moved = true; snapshot(); scrub.el.classList.add("dragging"); }
@@ -1448,7 +1479,8 @@ document.addEventListener("keydown", (e) => {
     const d = e.shiftKey ? 10 : 1;
     const mv = { ArrowLeft: [-d, 0], ArrowRight: [d, 0], ArrowUp: [0, -d], ArrowDown: [0, d] }[e.key];
     if (mv) { e.preventDefault(); return movePicker(st.picking.x + mv[0], st.picking.y + mv[1]); }
-    if (e.key === "Enter") { e.preventDefault(); return confirmPick(); }
+    if (e.key === "Enter" && !e.target.closest?.(".help")) { e.preventDefault(); return confirmPick(); }
+    if (e.key === " ") { e.preventDefault(); return toggleFreeze(); }
     if (e.key === "Escape") { st.picking = null; announce("Cancelled."); render(); document.querySelector('[data-fid="pick"]')?.focus(); return; }
     return;
   }

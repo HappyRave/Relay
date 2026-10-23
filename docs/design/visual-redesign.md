@@ -177,7 +177,7 @@ Three spacings on one scale (*Settings → Appearance → Spacing*):
 
 ## Icons
 
-Relay draws its own icons: 59 of them, on one 16 px grid, with 1.6 px strokes and round ends. Only the transport (record, play, pause, stop) is filled. The set is in [`Design/redesign/icons.js`](../../Design/redesign/icons.js).
+Relay draws its own icons: 60 of them, on one 16 px grid, with 1.6 px strokes and round ends. Only the transport (record, play, pause, stop) is filled. The set is in [`Design/redesign/icons.js`](../../Design/redesign/icons.js).
 
 <p align="center"><img src="images/proto-icons.png" alt="Relay's icon set: transport, navigation, editing, step kinds, triggers, files and states" width="820"></p>
 
@@ -227,9 +227,13 @@ Relay draws its own icons: 59 of them, on one 16 px grid, with 1.6 px strokes an
 
 <p align="center"><img src="images/proto-triggered.png" alt="A scheduled run of Fill weekly timesheet while Export invoice to PDF is open: the player at the top right, a notice with Stop in the window" width="820"></p>
 
-**Picking from the screen:** Relay steps aside, the loupe shows the pixel and its color, and the arrow keys nudge it:
+**Picking from the screen:** Relay steps aside, the loupe shows the pixel and its color on the live screen, and the arrow keys nudge it:
 
 <p align="center"><img src="images/proto-picker.png" alt="The picker's loupe over a spreadsheet's title bar: 330, 62, #1F7A45" width="820"></p>
+
+**Freezing it:** the help bar has a small screen saying **LIVE**, with a breathing red dot, and a **Freeze** key with its <kbd>Space</kbd> legend. Freezing lights the key (ink, pressed), the screen says **FROZEN** and the time it was taken, and drafting corner marks frame the screen, like a print of it. Nothing is tinted or dimmed, so the colors stay the ones picked. Picking from it says so: *Picked 566, 66 · #FFC21A from the frozen screen*.
+
+<p align="center"><img src="images/proto-picker-frozen.png" alt="The picker frozen: FROZEN 14:54:01 and the pressed Freeze key in the help bar, corner marks at the screen's corners, the loupe on a yellow Syncing badge" width="820"></p>
 
 ## Motion and juice
 
@@ -309,7 +313,7 @@ The prototype was put through the panel again, this time by doing their tasks in
 
 ### What was tested
 
-- **Every screen and state:** 64 in all, across the first run, the Library, Problems, the editor, the Macro tab, every step type, menus, the export dialog, every Settings section, key capture with its warnings, and the player in each state, and a triggered run while the window is open. They were also run in dark, solid, Windows 10, no transparency, every spacing, 150% and 200% text, the minimum and a large window, the picker, the exported program and the icon sheet.
+- **Every screen and state:** 65 in all, across the first run, the Library, Problems, the editor, the Macro tab, every step type, menus, the export dialog, every Settings section, key capture with its warnings, and the player in each state, and a triggered run while the window is open. They were also run in dark, solid, Windows 10, no transparency, every spacing, 150% and 200% text, the minimum and a large window, the picker live and frozen, the exported program and the icon sheet.
 - **On each one, an audit in the page:**
   - the contrast of every text against its real background, glass composited over a black and a white wallpaper;
   - text under 12 px;
@@ -332,7 +336,7 @@ The prototype was put through the panel again, this time by doing their tasks in
 | Kenji (P3) | Set the play key to None | 2 |
 | Dee (P4) | Solid on Windows 10; glass disabled without transparency; the kill switch's Remote Desktop warning | 3 |
 | Ruth (P5) | 150% text (two columns, nothing under 18 px), the large player | 0 |
-| Sam (P6) | Pick a pixel by keyboard only | 6 |
+| Sam (P6) | Pick a pixel by keyboard only, freezing the screen first | 7 |
 | Sam (P6) | Delete, undo and insert by keyboard | 3 |
 | Priya (P7) | Names and roles, menu focus, record and cancel announced | 4 |
 | Mateo (P8) | Edit in the minimum window | 2 |
@@ -349,9 +353,10 @@ The prototype was put through the panel again, this time by doing their tasks in
 | 2 | 50 / 60 | 24 | 0 | 2 | 0 | 103 | 11 / 15 |
 | 3 | 54 / 62 | 0 | 0 | 17 | 0 | 19 | 14 / 15 |
 | 4 | 62 / 62 | 0 | 0 | 0 | 0 | 0 | 15 / 15 |
-| Final, with triggered runs | **64 / 64** | **0** | **0** | **0** | **0** | **0** | **16 / 16** |
+| With triggered runs | 64 / 64 | 0 | 0 | 0 | 0 | 0 | 16 / 16 |
+| Final, with the picker's Freeze | **65 / 65** | **0** | **0** | **0** | **0** | **0** | **16 / 16** |
 
-Counts are issues across all states (one bad control on 10 screens counts 10). The final round added the two triggered-run states and Hannah's second task after the maintainer's decision on triggered runs. Rounds 2 and 3 also included false alarms from the audit itself, which then learned to read `color-mix()` backgrounds and to skip rows scrolled out of view; the final round uses the corrected audit throughout.
+Counts are issues across all states (one bad control on 10 screens counts 10). The triggered-run round added two states and Hannah's second task after the maintainer's decision on triggered runs; the final round added the frozen picker, and Sam's picking task now freezes the screen before picking. Rounds 2 and 3 also included false alarms from the audit itself, which then learned to read `color-mix()` backgrounds and to skip rows scrolled out of view; the final round uses the corrected audit throughout.
 
 ### What the rounds found, and what changed
 
@@ -380,6 +385,7 @@ Counts are issues across all states (one bad control on 10 screens counts 10). T
 | 21 | During playback the inspector said *No step selected* | Screenshots | Priya (P7), Aisha (P1) | It shows the step playing now, and the data row |
 | 22 | Undo brought steps back but not the selection | The keyboard test | Viktor (P9), Sam (P6) | Undo restores the selection too |
 | 23 | The picker sampled Relay's own window | Screenshots | Everyone | Relay steps aside while picking |
+| 24 | Near the top of the screen, the loupe covered the picker's help bar | Screenshots | Ruth (P5), everyone | The help bar drops to the bottom while the loupe is near it |
 | 24 | The exported program's name was cut to "E…" | Screenshots | Dee (P4) | Name on the top line, progress and time below |
 | 25 | Secondary text in dark fell to 4.4:1 on yellow rows | The audit | Ruth (P5) | Dark secondary text `#B3B1AB` |
 | 26 | Green *✓ Yesterday* fell to 4.3:1 on a hovered row | The audit | Ruth (P5) | Green text `#0E6B3D` |
@@ -443,6 +449,14 @@ The three questions the prototype round left, decided by the maintainer on 2026-
 | Archivo's width axis | Switch to the variable package, `@fontsource-variable/archivo`, and check its width axis when it's installed |
 | Where the prototype lives | In `Design/redesign/` until `m24-redesign` merges; the milestone's last commit removes it |
 | A trigger firing while the window is open | The player in a free corner (clear of the window and the macro's clicks), and a notice with **Stop** in the window; tested in the final round |
+
+And three for building it, at the start of `m24-redesign`:
+
+| Question | Decision |
+| --- | --- |
+| The player | Its own small window, on top, separate from the main window |
+| Edits on several steps | One `EditOp` in `relay-core` for a batch, undone in one step |
+| The picker | The live screen, with a **Freeze** key (<kbd>Space</kbd>) for what moves or only shows on hover |
 
 Nothing is left open from the panel's rounds. What's left to learn needs Windows itself and real people (see [What the prototype can't tell](#what-the-prototype-cant-tell)).
 

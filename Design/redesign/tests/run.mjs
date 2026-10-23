@@ -74,6 +74,7 @@ const S = [
   ["exported", "frame=exported"],
   ["icons", "frame=icons"],
   ["picker", "screen=editor&step=7", async (b) => { await b.clickSel('[data-fid="pick"]'); }],
+  ["picker-frozen", "screen=editor&step=7&theme=dark", async (b) => { await b.clickSel('[data-fid="pick"]'); await b.clickSel('[data-fid="pick-freeze"]'); }],
   ["calm-recording", "screen=library&recording&motion=on", null, { calmCheck: true }],
   ["forced-colors", "screen=editor&step=6", null, { media: [{ name: "forced-colors", value: "active" }] }],
   ["protanopia", "screen=editor&playing=6.4", null, { vision: "protanopia" }],

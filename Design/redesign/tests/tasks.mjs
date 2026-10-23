@@ -161,8 +161,10 @@ await task("P6", "pick a pixel by keyboard", async ({ act, check }) => {
   await act("Enter", () => b.key("Enter"));
   await check("picker open", async () => !!(await q(".picker")));
   await act("→ ×5, ↓ ×3", async () => { for (let i = 0; i < 5; i++) await b.key("ArrowRight"); for (let i = 0; i < 3; i++) await b.key("ArrowDown"); });
+  await act("Space freezes the screen", () => b.key(" "));
+  await check("frozen, and said so", async () => !!(await q(".picker.frozen")) && /frozen/i.test((await q("#live"))?.text ?? ""));
   await act("Enter picks", () => b.key("Enter"));
-  await check("picked, with undo", async () => /Picked/.test((await q(".toast"))?.text ?? "") && !(await q(".picker")));
+  await check("picked from the frozen screen, with undo", async () => /Picked.*frozen screen/.test((await q(".toast"))?.text ?? "") && !(await q(".picker")));
 });
 await task("P6", "delete and undo by keyboard", async ({ act, check }) => {
   await b.goto(`${BASE}?screen=editor&step=3`);

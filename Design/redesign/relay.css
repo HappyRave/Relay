@@ -616,6 +616,20 @@ table.macros tr.sel td { background: var(--plate-2); }
 .loupe { position: absolute; width: 132px; height: 132px; margin: -66px 0 0 -66px; border-radius: 50%; overflow: hidden; pointer-events: none; box-shadow: 0 0 0 2px var(--ink), 0 0 0 4px rgba(255, 255, 255, 0.9), 0 10px 30px rgba(0, 0, 0, 0.35); }
 .loupe canvas { display: block; width: 132px; height: 132px; image-rendering: pixelated; }
 .loupe::after { content: ""; position: absolute; left: 60px; top: 60px; width: 12px; height: 12px; box-shadow: 0 0 0 1.5px #fff, 0 0 0 3px #141415; }
+.picker .help { cursor: default; white-space: nowrap; }
+.picker.help-low .help { top: auto; bottom: 54px; }
+.picker .help .key kbd { margin-left: 6px; font: inherit; font-size: 12px; font-weight: 600; opacity: 0.7; }
+.pick-state { height: 24px; font-size: 12px; gap: 6px; }
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--red); animation: breathe-dot 1.6s ease-in-out infinite; }
+.calm .live-dot { animation: none; }
+.picker .frame { position: absolute; inset: 8px; pointer-events: none; }
+.picker .frame i { position: absolute; width: 28px; height: 28px; border: 0 solid var(--ink); filter: drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff); }
+.picker .frame i:nth-child(1) { left: 0; top: 0; border-width: 3px 0 0 3px; }
+.picker .frame i:nth-child(2) { right: 0; top: 0; border-width: 3px 3px 0 0; }
+.picker .frame i:nth-child(3) { right: 0; bottom: 40px; border-width: 0 3px 3px 0; }
+.picker .frame i:nth-child(4) { left: 0; bottom: 40px; border-width: 0 0 3px 3px; }
+.app-behind .sync { position: absolute; right: 10px; top: 6px; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; color: #141415; background: #fff; }
+.app-behind .sync.on { background: #ffc21a; }
 .loupe-tag { position: absolute; margin: 74px 0 0 -66px; width: 132px; text-align: center; font-size: 12px; font-weight: 700; padding: 3px 0; border-radius: var(--r-sm); background: var(--lcd); color: var(--paper); pointer-events: none; font-variant-numeric: tabular-nums; }
 
 /* ── Gallery frames ─────────────────────────────────────────────────────── */
