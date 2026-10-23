@@ -237,6 +237,7 @@ pub fn runs() -> Vec<(TimeDelta, RunEntry)> {
             checks,
             checks_dropped: 0,
             note: None,
+            rows: None,
         }
     };
     // The 1-based step of a sample's pixel check.

@@ -169,6 +169,8 @@ struct RunStart {
     from: Ms,
     speed: f32,
     humanize: bool,
+    /// The data file's rows, when it played from one.
+    rows: Option<u32>,
 }
 
 struct Coordinator<R: Runtime> {
@@ -622,6 +624,7 @@ impl<R: Runtime> Coordinator<R> {
             from,
             speed: m.playback.speed,
             humanize: m.playback.humanize,
+            rows: data.as_ref().map(|d| d.rows.len() as u32),
         };
         let seed = (self.platform.now_ms)().to_bits() ^ (m.id.as_u128() as u64);
         let plan = PlayPlan::for_macro(m, data, from, seed, offset, own_window);
@@ -756,6 +759,7 @@ fn run_entry(start: RunStart, reason: FinishReason, report: RunReport, now: f64)
         checks,
         checks_dropped,
         note: None,
+        rows: start.rows,
     }
 }
 
@@ -775,6 +779,7 @@ fn skip_entry(id: Uuid, name: String, source: RunSource, reason: SkipReason, at:
         checks: Vec::new(),
         checks_dropped: 0,
         note: None,
+        rows: None,
     }
 }
 
@@ -890,6 +895,7 @@ mod tests {
             from: 1500,
             speed: 2.0,
             humanize: true,
+            rows: Some(200),
         }
     }
 
@@ -907,6 +913,7 @@ mod tests {
         assert_eq!((e.duration_ms, e.from_ms, e.loops), (2346, 1500, 3));
         assert_eq!((e.speed, e.humanize), (2.0, true));
         assert_eq!((e.checks, e.checks_dropped), (vec![check], 0));
+        assert_eq!(e.rows, Some(200), "played from a data file");
         // An engine that panicked reports nothing: still one loop, no checks.
         let e = run_entry(started(), FinishReason::Error, RunReport::default(), 10_000.0);
         assert_eq!((e.loops, e.duration_ms, e.checks.len()), (1, 0, 0));
@@ -918,7 +925,7 @@ mod tests {
         let e = skip_entry(Uuid::from_u128(4), "Backup".into(), RunSource::Schedule, SkipReason::Missed, at);
         assert_eq!(e.outcome, RunOutcome::Skipped(SkipReason::Missed));
         assert_eq!((e.at, e.source, e.macro_name.as_str()), (at, RunSource::Schedule, "Backup"));
-        assert_eq!((e.duration_ms, e.loops, e.checks.len(), e.note), (0, 0, 0, None));
+        assert_eq!((e.duration_ms, e.loops, e.checks.len(), e.note, e.rows), (0, 0, 0, None, None));
     }
 
     #[test]
