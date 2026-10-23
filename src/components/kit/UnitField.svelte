@@ -36,7 +36,7 @@
   let offset = $state(0);
   const show = (v: number) => (Number.isInteger(v) && decimals === 0 ? String(v) : v.toFixed(decimals));
   const clamp = (v: number) => Math.min(max, Math.max(min, v));
-  const unitName = $derived(unit === "s" ? "seconds" : unit === "ms" ? "milliseconds" : unit);
+  const unitName = $derived(({ s: "seconds", ms: "milliseconds", "%": "percent" } as Record<string, string>)[unit] ?? unit);
 
   function commitText() {
     if (!input) return;
