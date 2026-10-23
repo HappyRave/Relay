@@ -14,7 +14,9 @@ pub fn name(path: &Path) -> String {
 pub fn read(path: &Path) -> Result<DataTable, String> {
     let name = name(path);
     let bytes = std::fs::read(path).map_err(|e| match e.kind() {
-        std::io::ErrorKind::NotFound => format!("{name} isn't there anymore: choose it again in the macro's play options."),
+        std::io::ErrorKind::NotFound => {
+            format!("{name} isn't there anymore: choose it again in the macro's play options.")
+        }
         _ => format!("Couldn't read {name}: {e}"),
     })?;
     data::parse(&bytes).map_err(|e| format!("{name}: {e}"))

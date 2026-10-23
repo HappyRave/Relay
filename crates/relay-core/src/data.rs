@@ -181,7 +181,9 @@ pub fn check(events: &[Event], table: Option<&DataTable>, file: &str) -> Result<
     let used = columns_used(events);
     let Some(table) = table else {
         return match used.first() {
-            Some(name) => Err(format!("A Text step types {{col:{name}}}: choose a data file in the macro's play options.")),
+            Some(name) => {
+                Err(format!("A Text step types {{col:{name}}}: choose a data file in the macro's play options."))
+            }
             None => Ok(()),
         };
     };
