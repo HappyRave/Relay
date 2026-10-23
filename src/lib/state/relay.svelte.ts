@@ -179,8 +179,8 @@ export class RelayStore {
   viewOpen = $state(true);
   /** The step the last run stopped on (a pixel check that timed out), or -1. */
   failedStep = $state(-1);
-  /** When a change to the macro was last saved (performance.now()), for the top bar's "Saved". */
-  savedAt = $state(0);
+  /** How many changes to the macro were saved, for the top bar's "Saved". */
+  saves = $state(0);
 
   // — private —
   /** Live recording data; appended in place, `recVersion` tells the derived values. */
@@ -755,7 +755,7 @@ export class RelayStore {
     const kept = this.selection.map((i) => followStep(this.view!.steps, view.steps, i, op)).filter((i) => i >= 0);
     this.selection = [...new Set(this.selected >= 0 ? [...kept, this.selected] : kept)].sort((a, b) => a - b);
     this.failedStep = -1;
-    this.savedAt = performance.now();
+    this.saves++;
     this.view = view;
     if (listChanged) await this.refreshLibrary();
   }

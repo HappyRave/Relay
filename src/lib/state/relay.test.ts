@@ -560,9 +560,9 @@ describe("the editor", () => {
   });
 
   test("an edit says it's saved", async () => {
-    expect(relay.savedAt).toBe(0);
+    expect(relay.saves).toBe(0);
     await relay.edit({ op: "set_label", index: 1, label: "Menu" });
-    expect(relay.savedAt).toBeGreaterThan(0);
+    expect(relay.saves).toBe(1);
   });
 
   test("Ctrl + M opens the Macro tab, in the editor", () => {

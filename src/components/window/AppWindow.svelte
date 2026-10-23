@@ -3,7 +3,7 @@
   import TopBar from "./TopBar.svelte";
   import Key from "../kit/Key.svelte";
   import Icon from "../ui/Icon.svelte";
-  import ExpandedWidget from "../ExpandedWidget.svelte";
+  import MacroPage from "../editor/MacroPage.svelte";
   import LibraryTab from "../expanded/tabs/LibraryTab.svelte";
   import SettingsPage from "../settings/SettingsPage.svelte";
   import Toast from "../shared/Toast.svelte";
@@ -27,7 +27,7 @@
   {:else if relay.place === "settings"}
     <SettingsPage />
   {:else}
-    <div class="plate macro legacy"><ExpandedWidget /></div>
+    <MacroPage />
   {/if}
 </div>
 
@@ -64,10 +64,6 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
-    overflow: hidden;
-  }
-  .macro {
-    height: 100%;
     overflow: hidden;
   }
   /* Today's Library and editor keep their light look until they're redesigned. */

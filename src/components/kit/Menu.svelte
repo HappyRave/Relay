@@ -27,8 +27,10 @@
   const enabled = () => [...(menu?.querySelectorAll<HTMLButtonElement>("[role^=menuitem]:not(:disabled)") ?? [])];
 
   function close(refocus = true) {
+    // The opener may go with the menu (its parent forgets both).
+    const back = opener;
     onclose();
-    if (refocus) opener.focus();
+    if (refocus) back.focus();
   }
 
   onMount(() => {

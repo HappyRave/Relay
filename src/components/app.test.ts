@@ -101,7 +101,8 @@ describe("App", () => {
     await settle();
     await relay.openMacro(A);
     await settle();
-    await userEvent.click(screen.getByRole("button", { name: "Export" }));
+    await userEvent.click(screen.getByRole("button", { name: "More" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Export…" }));
     expect(screen.getByRole("dialog", { name: "Export macro" })).toBeInTheDocument();
   });
 
@@ -125,11 +126,11 @@ describe("Widget", () => {
 
   test("switches between expanded and compact", async () => {
     const { container } = render(Widget);
-    expect(container.querySelector(".expanded")).not.toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: "Compact player" }));
+    expect(container.querySelector(".editor")).not.toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Switch to the player" }));
     expect(container.querySelector(".compact")).not.toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Expand" }));
-    expect(container.querySelector(".expanded")).not.toBeNull();
+    expect(container.querySelector(".editor")).not.toBeNull();
   });
 
   test("the compact player tells Rust its size; the editor fills the window Rust sizes", async () => {
