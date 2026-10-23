@@ -176,4 +176,17 @@ describe("the page", () => {
     await userEvent.click(screen.getByRole("button", { name: "Close the inspector" }));
     expect(relay.inspectorOpen).toBe(false);
   });
+
+  test("the divider between the list and the inspector resizes it, saved once it's let go; double-click resets it", async () => {
+    render(MacroPage);
+    const divider = screen.getByRole("separator", { name: "Resize the inspector" });
+    expect(divider).toHaveAttribute("aria-valuenow", "340");
+    divider.focus();
+    await fireEvent.keyDown(divider, { key: "ArrowLeft", shiftKey: true });
+    await settle();
+    expect(core.lastArgs("save_panes")).toEqual({ panes: { inspector_w: 372 } });
+    await fireEvent.dblClick(divider);
+    await settle();
+    expect(core.lastArgs("save_panes")).toEqual({ panes: { inspector_w: null } });
+  });
 });

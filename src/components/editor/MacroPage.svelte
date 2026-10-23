@@ -6,7 +6,9 @@
   import Inspector from "./Inspector.svelte";
   import ViewPane from "./ViewPane.svelte";
   import Toast from "../shared/Toast.svelte";
+  import Divider from "../kit/Divider.svelte";
   import { relay } from "../../lib/state/relay.svelte";
+  import { inspectorWidth, MIN_INSPECTOR_W } from "../../lib/layout";
 
   /** Narrower than this, the inspector slides over the list. */
   const NARROW = 860;
@@ -17,6 +19,8 @@
   let width = $state(0);
   let height = $state(0);
   const narrow = $derived(width > 0 && width < NARROW);
+  let mainW = $state(0);
+  const inspector_ = $derived(inspectorWidth(relay.panes, mainW));
 
   // A macro opens with the view closed when the window is short.
   $effect(() => {
@@ -35,8 +39,21 @@
 <svelte:window onkeydown={key} />
 <div class="editor" class:narrow bind:clientWidth={width} bind:clientHeight={height}>
   <EditorBar />
-  <div class="main">
+  <div class="main" bind:clientWidth={mainW} style:--inspector-w="{inspector_.width}px">
     <StepList onenter={() => inspector?.focus()} />
+    {#if !narrow}
+      <Divider
+        orientation="vertical"
+        label="Resize the inspector"
+        invert
+        value={inspector_.width}
+        min={MIN_INSPECTOR_W}
+        max={inspector_.max}
+        onchange={(inspector_w) => relay.movePanes({ inspector_w })}
+        oncommit={relay.savePanes}
+        onreset={() => relay.resetPane("inspector_w")}
+      />
+    {/if}
     <Inspector bind:this={inspector} />
   </div>
   <ViewPane />
@@ -55,8 +72,7 @@
   .main {
     position: relative;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 340px;
-    gap: var(--gap);
+    grid-template-columns: minmax(0, 1fr) auto var(--inspector-w);
     min-height: 0;
   }
   .narrow .main {

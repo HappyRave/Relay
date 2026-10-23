@@ -93,7 +93,6 @@ const INFALLIBLE = new Set([
   "quit",
   "screenshot",
   "save_panes",
-  "reset_layout",
   "cancel_snip",
   "show_match",
 ]);
@@ -152,7 +151,7 @@ export class FakeCore {
   /** What `test_find_image` finds. */
   found: FoundImage | null = null;
   /** window.json as Rust holds it: the mode and the editor's dividers (the size isn't the page's to see). */
-  window: { expanded: boolean; panes: Panes } = { expanded: true, panes: { preview_w: null, transport_h: null, timeline_h: null } };
+  window: { expanded: boolean; panes: Panes } = { expanded: true, panes: { inspector_w: null } };
   private channel: Channel<EngineMsg> | null = null;
   /** Errors and notices sent before the UI subscribed, delivered when it does. */
   private queued: EngineMsg[] = [];
@@ -201,7 +200,7 @@ export class FakeCore {
     this.snip = null;
     this.images = new Map();
     this.found = null;
-    this.window = { expanded: true, panes: { preview_w: null, transport_h: null, timeline_h: null } };
+    this.window = { expanded: true, panes: { inspector_w: null } };
     this.channel = null;
     this.queued = [];
     this.failures = new Map();
@@ -362,12 +361,9 @@ export class FakeCore {
         // As Panes::sanitized: what isn't a size is dropped, a huge one capped.
         const ok = (v: number | null | undefined) => (v != null && Number.isFinite(v) && v > 0 ? Math.min(v, 10_000) : null);
         const p = a.panes as Partial<Panes>;
-        this.window.panes = { preview_w: ok(p.preview_w), transport_h: ok(p.transport_h), timeline_h: ok(p.timeline_h) };
+        this.window.panes = { inspector_w: ok(p.inspector_w) };
         return null;
       }
-      case "reset_layout":
-        this.window.panes = { preview_w: null, transport_h: null, timeline_h: null };
-        return null;
       case "list_macros":
         return this.list();
       case "load_macro":
@@ -934,9 +930,7 @@ function opWhy(op: { op?: string } | null): string | null {
 }
 
 const PANES: Spec = {
-  preview_w: optional(nullable("f64")),
-  transport_h: optional(nullable("f64")),
-  timeline_h: optional(nullable("f64")),
+  inspector_w: optional(nullable("f64")),
 };
 const SETTINGS: Spec = {
   capture_moves: optional("bool"),

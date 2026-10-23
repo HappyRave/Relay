@@ -110,7 +110,6 @@ pub fn run() {
             commands::fit_window,
             commands::window_prefs,
             commands::save_panes,
-            commands::reset_layout,
             commands::hide_to_tray,
             commands::quit,
         ])

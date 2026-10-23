@@ -48,24 +48,20 @@ impl Default for WindowPrefs {
     }
 }
 
-/// The editor's dividers, in CSS px: the preview's width, and the heights of
-/// the button row and the timeline (`None`: the default). The UI keeps them
-/// inside the window.
+/// Where the user put the editor's divider: the inspector's width in CSS px
+/// (`None`: the default). The UI keeps it inside the window.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, TS)]
 #[serde(default)]
 #[ts(export)]
 pub struct Panes {
-    pub preview_w: Option<f64>,
-    pub transport_h: Option<f64>,
-    pub timeline_h: Option<f64>,
+    pub inspector_w: Option<f64>,
 }
 
 impl Panes {
     /// Sane values only (the UI's own limits depend on the window): a value
     /// that isn't a size is dropped, a huge one is capped.
     pub fn sanitized(self) -> Panes {
-        let ok = |v: Option<f64>| v.filter(|v| v.is_finite() && *v > 0.0).map(|v| v.min(10_000.0));
-        Panes { preview_w: ok(self.preview_w), transport_h: ok(self.transport_h), timeline_h: ok(self.timeline_h) }
+        Panes { inspector_w: self.inspector_w.filter(|v| v.is_finite() && *v > 0.0).map(|v| v.min(10_000.0)) }
     }
 }
 
@@ -177,16 +173,6 @@ impl WindowState {
     /// Saves where the user put the dividers.
     pub fn set_panes(&self, panes: Panes) {
         self.prefs.lock().panes = panes.sanitized();
-        self.save();
-    }
-
-    /// Back to the default size and dividers (the position stays).
-    fn reset_layout(&self) {
-        {
-            let mut p = self.prefs.lock();
-            p.size = None;
-            p.panes = Panes::default();
-        }
         self.save();
     }
 
@@ -362,13 +348,6 @@ pub fn fit_css(prefs: &WindowPrefs, css: (f64, f64), expanded: bool) -> (f64, f6
     if expanded { expanded_size(prefs) } else { css }
 }
 
-/// *Reset layout*: the editor goes back to its default size and dividers.
-pub fn reset_layout(window: &WebviewWindow, state: &WindowState) {
-    state.reset_layout();
-    if state.prefs().expanded {
-        place(window, state, EXPANDED);
-    }
-}
 
 /// Tracks the editor's size while the user resizes it; saved shortly after it
 /// stops. Sizes Relay sets itself, and the move loop's own after a scale
@@ -840,7 +819,7 @@ mod tests {
         assert_eq!(fresh.prefs().anchor, None);
         assert_eq!(*fresh.size.lock(), EXPANDED);
 
-        let panes = Panes { preview_w: Some(520.0), transport_h: Some(110.0), timeline_h: Some(180.0) };
+        let panes = Panes { inspector_w: Some(380.0) };
         *fresh.prefs.lock() =
             WindowPrefs { expanded: false, anchor: Some((-300, 700)), size: Some((1200.0, 800.0)), panes };
         fresh.save();
@@ -915,7 +894,7 @@ mod tests {
     }
 
     #[test]
-    fn a_resize_moves_the_anchor_and_is_saved_and_a_reset_forgets_it() {
+    fn a_resize_moves_the_anchor_and_is_saved() {
         let dir = tempfile::tempdir().unwrap();
         let state = WindowState::open(dir.path());
         state.resized((1200.0, 800.0), (900, 1000));
@@ -923,22 +902,18 @@ mod tests {
         assert_eq!(state.prefs().size, Some((1200.0, 800.0)));
         assert_eq!(state.prefs().anchor, Some((900, 1000)));
         assert!(state.dirty.lock().is_some(), "saved once the resize pauses");
-        state.set_panes(Panes { preview_w: Some(700.0), ..Panes::default() });
+        state.set_panes(Panes { inspector_w: Some(420.0) });
         let saved = WindowState::open(dir.path()).prefs();
-        assert_eq!(saved.panes, Panes { preview_w: Some(700.0), ..Panes::default() }, "saved at once");
-
-        state.reset_layout();
-        let reset = WindowState::open(dir.path()).prefs();
-        assert_eq!((reset.size, reset.panes), (None, Panes::default()));
-        assert_eq!(reset.anchor, Some((900, 1000)), "the position stays");
+        assert_eq!(saved.panes, Panes { inspector_w: Some(420.0) }, "saved at once");
     }
 
     #[test]
     fn panes_that_arent_sizes_are_dropped() {
-        let p = Panes { preview_w: Some(f64::NAN), transport_h: Some(0.0), timeline_h: Some(-5.0) }.sanitized();
-        assert_eq!(p, Panes::default());
-        let p = Panes { preview_w: Some(1e9), transport_h: Some(100.0), timeline_h: Some(120.0) }.sanitized();
-        assert_eq!(p, Panes { preview_w: Some(10_000.0), transport_h: Some(100.0), timeline_h: Some(120.0) });
+        for v in [f64::NAN, 0.0, -5.0] {
+            assert_eq!(Panes { inspector_w: Some(v) }.sanitized(), Panes::default());
+        }
+        assert_eq!(Panes { inspector_w: Some(1e9) }.sanitized(), Panes { inspector_w: Some(10_000.0) });
+        assert_eq!(Panes { inspector_w: Some(360.0) }.sanitized(), Panes { inspector_w: Some(360.0) });
     }
 
     #[test]
@@ -952,7 +927,10 @@ mod tests {
         assert!(p.expanded);
         assert_eq!(p.anchor, Some((5, 6)));
         assert_eq!((p.size, p.panes), (None, Panes::default()));
+        std::fs::write(dir.path().join("window.json"), r#"{"panes":{"inspector_w":380}}"#).unwrap();
+        assert_eq!(WindowState::open(dir.path()).prefs().panes, Panes { inspector_w: Some(380.0) });
+        // An older Relay's dividers are gone.
         std::fs::write(dir.path().join("window.json"), r#"{"panes":{"preview_w":480}}"#).unwrap();
-        assert_eq!(WindowState::open(dir.path()).prefs().panes, Panes { preview_w: Some(480.0), ..Panes::default() });
+        assert_eq!(WindowState::open(dir.path()).prefs().panes, Panes::default());
     }
 }

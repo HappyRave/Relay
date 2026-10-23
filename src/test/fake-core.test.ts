@@ -480,17 +480,16 @@ describe("the run history, like run_history.rs", () => {
 });
 
 describe("the window, like window_ctl.rs", () => {
-  test("dividers are saved sanitized, as Panes::sanitized does, and a reset clears them", async () => {
-    await invoke("save_panes", { panes: { preview_w: -5, transport_h: 90, timeline_h: 1e9 } });
-    expect((await invoke<{ panes: unknown }>("window_prefs")).panes).toEqual({ preview_w: null, transport_h: 90, timeline_h: 10_000 });
-    await invoke("save_panes", { panes: { preview_w: 480 } });
-    expect(core.window.panes).toEqual({ preview_w: 480, transport_h: null, timeline_h: null });
-    await invoke("reset_layout");
-    expect(core.window.panes).toEqual({ preview_w: null, transport_h: null, timeline_h: null });
-    await expect(invoke("save_panes", { panes: { preview_w: "wide" } })).rejects.toMatch(/invalid args `panes`/);
-    // NaN is null over JSON, which Rust drops like any other non-size.
-    await invoke("save_panes", { panes: { preview_w: NaN, transport_h: 90, timeline_h: null } });
-    expect(core.window.panes).toEqual({ preview_w: null, transport_h: 90, timeline_h: null });
+  test("the divider is saved sanitized, as Panes::sanitized does", async () => {
+    await invoke("save_panes", { panes: { inspector_w: 1e9 } });
+    expect((await invoke<{ panes: unknown }>("window_prefs")).panes).toEqual({ inspector_w: 10_000 });
+    await invoke("save_panes", { panes: { inspector_w: -5 } });
+    expect(core.window.panes).toEqual({ inspector_w: null });
+    await invoke("save_panes", { panes: {} });
+    expect(core.window.panes).toEqual({ inspector_w: null });
+    await expect(invoke("save_panes", { panes: { inspector_w: "wide" } })).rejects.toMatch(/invalid args `panes`/);
+    await invoke("save_panes", { panes: { inspector_w: NaN } });
+    expect(core.window.panes).toEqual({ inspector_w: null });
   });
 
   test("fit_window remembers the mode, as window_ctl::fit does, and checks its arguments", async () => {

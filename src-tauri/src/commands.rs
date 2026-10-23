@@ -622,11 +622,6 @@ pub fn save_panes(state: State<'_, crate::window_ctl::WindowState>, panes: crate
     state.set_panes(panes);
 }
 
-/// *Reset layout*: the editor's default size and dividers.
-#[tauri::command(async)]
-pub fn reset_layout(window: tauri::WebviewWindow, state: State<'_, crate::window_ctl::WindowState>) {
-    crate::window_ctl::reset_layout(&window, &state);
-}
 
 /// The close button: like closing the window (see `window_ctl::close_or_hide`).
 #[tauri::command]

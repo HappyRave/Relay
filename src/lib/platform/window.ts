@@ -21,20 +21,15 @@ export async function fitWindow(width: number, height: number, expanded: boolean
 /** Switches the window to the editor, whose size is Rust's (the user's, or the default). */
 export const fitEditor = () => fitWindow(0, 0, true);
 
-/** Whether the widget was expanded last time (defaults to expanded), and where the editor's dividers were. */
+/** Whether the widget was expanded last time (defaults to expanded), and where the editor's divider was. */
 export async function savedWindow(): Promise<WindowPrefsView> {
   if (!isTauri()) return { expanded: true, panes: NO_PANES };
   return invoke<WindowPrefsView>("window_prefs");
 }
 
-/** Saves where the user put the editor's dividers (window.json). */
+/** Saves where the user put the editor's divider (window.json). */
 export async function savePanes(panes: Panes): Promise<void> {
   if (isTauri()) await invoke("save_panes", { panes });
-}
-
-/** *Reset layout*: the editor's default size and dividers. */
-export async function resetLayout(): Promise<void> {
-  if (isTauri()) await invoke("reset_layout");
 }
 
 export async function minimize(): Promise<void> {

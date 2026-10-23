@@ -34,7 +34,7 @@ import type { RunEntry } from "../ipc/bindings/RunEntry";
 import type { DataFileInfo } from "../ipc/bindings/DataFileInfo";
 import { backend as defaultBackend, type Backend, type IpcError } from "../ipc/backend";
 import { DEFAULT_LOOK, DEFAULT_PLAYBACK, DEFAULT_SETTINGS } from "../defaults";
-import { isTauri, resetLayout, savePanes, savedWindow } from "../platform/window";
+import { isTauri, savePanes, savedWindow } from "../platform/window";
 import { NO_PANES } from "../layout";
 import { nextRepeat, nextSpeed } from "../transport";
 import type { Panes } from "../ipc/bindings/Panes";
@@ -291,12 +291,6 @@ export class RelayStore {
   resetPane = (key: keyof Panes) => {
     this.movePanes({ [key]: null });
     return this.savePanes();
-  };
-
-  /** Settings → Window → Reset layout: the editor's default size and dividers. */
-  resetLayout = async () => {
-    this.panes = NO_PANES;
-    await resetLayout().catch((e) => this.fail(e));
   };
 
   start() {
