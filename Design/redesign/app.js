@@ -179,11 +179,13 @@ const st = {
   firstChoice: "ctrlshift",
   frame: q.get("frame"),
   playerMode: q.get("mode") === "player",
+  trigger: null, // { macro, by }: a run a trigger started
   macroSection: q.get("msec") ?? "play", // play | runs: the Macro tab's open section
 };
 if (q.get("step")) { const m = MACROS.find((x) => x.id === st.macroId); const st0 = m?.steps[Number(q.get("step")) - 1]; if (st0) { st.sel = new Set([st0.id]); st.cursor = st0.id; } }
 if (q.has("playing")) { st.session = "playing"; st.playerMacro = st.macroId; st.t = Number(q.get("playing")) || 6.1; st.row = 37; }
 if (q.has("recording")) { st.session = "recording"; st.playerMacro = st.macroId; st.recSteps = 14; }
+if (q.has("triggered")) { st.trigger = { macro: "timesheet", by: "Schedule" }; st.playerMacro = "timesheet"; st.session = "playing"; st.t = 3.2; }
 if (q.has("error")) { st.playerMacro = st.macroId; st.error = { text: "Pixel check timed out · step 10 · row 112", step: 10 }; st.failed = { macro: st.macroId, step: 10 }; }
 
 const macro = () => MACROS.find((m) => m.id === st.macroId) ?? MACROS[0];
@@ -307,10 +309,11 @@ function envBar() {
     <strong>PROTOTYPE</strong>
     <label>Screen <select data-env="screen">${["firstrun", "library", "activity", "editor", "settings"].map((x) => opt(x, st.screen, x === "firstrun" ? "first run" : x)).join("")}</select></label>
     <label>Windows <select data-env="os">${opt("win11", st.os, "11")}${opt("win10", st.os, "10")}</select></label>
-    <label>Transparency effects <select data-env="transparency">${opt("on", st.transparency ? "on" : "off", "on")}${opt("off", st.transparency ? "on" : "off", "off (or Remote Desktop)")}</select></label>
-    <label>Windows reduce motion <select data-env="systemMotion">${opt("full", st.systemMotion, "off")}${opt("reduce", st.systemMotion, "on")}</select></label>
+    <label>Transparency <select data-env="transparency">${opt("on", st.transparency ? "on" : "off", "on")}${opt("off", st.transparency ? "on" : "off", "off")}</select></label>
+    <label>Reduce motion <select data-env="systemMotion">${opt("full", st.systemMotion, "off")}${opt("reduce", st.systemMotion, "on")}</select></label>
     <label>Keyboard <select data-env="layout">${Object.keys(LAYOUT_NAME).map((k) => opt(k, st.layout, LAYOUT_NAME[k])).join("")}</select></label>
-    <label>Window <select data-env="winSize">${opt("min", st.winSize, "760 × 520 (minimum)")}${opt("default", st.winSize, "944 × 612 (default)")}${opt("large", st.winSize, "1280 × 800")}</select></label>
+    <label>Window <select data-env="winSize">${opt("min", st.winSize, "760 × 520")}${opt("default", st.winSize, "944 × 612")}${opt("large", st.winSize, "1280 × 800")}</select></label>
+    <button type="button" data-act="env-trigger" title="Fire the schedule of “Fill weekly timesheet”">Fire a trigger</button>
     <button type="button" data-act="env-reset">Reset</button>
   </div>`;
 }
@@ -421,14 +424,16 @@ function activityScreen() {
 function recordKey(withLabel) {
   const live = st.session === "recording" || st.session === "countdown";
   const k = comboText(st.keys.record);
+  const busy = st.session === "playing" || st.session === "paused" ? " disabled" : "";
   return withLabel
-    ? `<button class="key red${live ? " live" : ""}" type="button" data-act="record" data-fid="rec-lib" aria-label="${live ? "Stop recording" : "Record"} (${k})" title="${live ? "Stop recording" : "Record"} (${k})"><span class="rec-dot"></span>${live ? "Stop" : "Record"}</button>`
-    : `<button class="key red round${live ? " live" : ""}" type="button" data-act="record" data-fid="rec" aria-label="${live ? "Stop recording" : "Record a new macro"} (${k})" title="${live ? "Stop recording" : "Record a new macro"} (${k})"><span class="rec-dot"></span></button>`;
+    ? `<button class="key red${live ? " live" : ""}" type="button" data-act="record" data-fid="rec-lib"${busy} aria-label="${live ? "Stop recording" : "Record"} (${k})" title="${live ? "Stop recording" : "Record"} (${k})"><span class="rec-dot"></span>${live ? "Stop" : "Record"}</button>`
+    : `<button class="key red round${live ? " live" : ""}" type="button" data-act="record" data-fid="rec"${busy} aria-label="${live ? "Stop recording" : "Record a new macro"} (${k})" title="${live ? "Stop recording" : "Record a new macro"} (${k})"><span class="rec-dot"></span></button>`;
 }
 
 function editorScreen() {
   const m = macro();
   const playing = st.session === "playing" || st.session === "paused";
+  const otherRun = playing && st.playerMacro !== m.id;
   const pk = comboText(st.keys.play);
   const chips = [];
   chips.push(m.data ? `Each row (${m.data.rows})` : m.play.forever ? "∞" : `×${m.play.repeat}`);
@@ -446,7 +451,12 @@ function editorScreen() {
       <button class="key small icon-only" type="button" aria-label="Redo (Ctrl + Y)" title="Redo (Ctrl + Y)" data-act="redo" data-fid="redo"${st.redo.length && !playing ? "" : " disabled"}>${icon("redo")}</button>
       <span style="width:4px"></span>
       ${recordKey(false)}
-      <button class="key ink" type="button" data-act="play" data-fid="play" aria-label="${st.session === "playing" ? "Pause" : "Play"} (${pk})" title="${st.session === "playing" ? "Pause" : "Play from the playhead"} (${pk})">${icon(st.session === "playing" ? "pause" : "play", 14)}<span class="hide-tight">${st.session === "playing" ? "Pause" : "Play"}</span></button>
+      ${(() => {
+        const pausing = st.session === "playing" && !otherRun;
+        const runName = otherRun ? MACROS.find((x) => x.id === st.playerMacro)?.name : "";
+        const tip = otherRun ? `“${runName}” is running` : `${pausing ? "Pause" : "Play from the playhead"} (${pk})`;
+        return `<button class="key ink" type="button" data-act="play" data-fid="play"${otherRun ? " disabled" : ""} aria-label="${pausing ? "Pause" : "Play"} (${pk})" title="${esc(tip)}">${icon(pausing ? "pause" : "play", 14)}<span class="hide-tight">${pausing ? "Pause" : "Play"}</span></button>`;
+      })()}
       ${playing ? `<button class="key small icon-only" type="button" aria-label="Stop (Esc)" title="Stop (Esc)" data-act="stop" data-fid="stop">${icon("stop", 14)}</button>` : ""}
       <button class="chip" type="button" data-act="chips" data-fid="chips" aria-label="${esc(chipName)}" title="${esc(chipName)}">${chips.map((c) => `<span>${esc(c)}</span>`).join('<span aria-hidden="true" class="muted">·</span>')}${m.play.stopOnKey ? "" : `<span aria-hidden="true" class="muted">·</span><span style="color:var(--red-text)">keys don't stop it</span>`}</button>
       <button class="key ghost small icon-only" type="button" aria-label="More" title="More" aria-haspopup="menu" data-act="menu" data-menu="macro" data-fid="macro-more">${icon("more")}</button>
@@ -484,8 +494,9 @@ function stepsPlate(m) {
     const idx = m.steps.indexOf(x);
     const num = x.kind === "move" ? "" : `${idx + 1}`;
     const selected = st.sel.has(x.id);
-    const played = (st.session === "playing" || st.session === "paused" || st.t > 0) && x.t <= st.t;
-    const now = st.session === "playing" && x.t <= st.t && st.t - x.t < 0.5;
+    const here = st.playerMacro === m.id;
+    const played = here && (st.session === "playing" || st.session === "paused" || st.t > 0) && x.t <= st.t;
+    const now = here && st.session === "playing" && x.t <= st.t && st.t - x.t < 0.5;
     html.push(`<div class="step ${x.kind === "move" ? "move-row" : CAT[x.kind]}${selected ? "" : ""}${played ? " played" : ""}${now ? " now" : ""}${x.id === failedStep ? " failed" : ""}${x.id === cursor ? " cursor" : ""}"
       role="option" id="row-${x.id}" aria-selected="${selected}" data-row="${x.id}" aria-label="Step ${num}: ${esc(KIND_NAME[x.kind])}, ${esc(stepDetail(x))}${x.id === failedStep ? ", failed in the last run" : ""}">
       <span class="t num">${fmt(x.t)}</span>${glyph(x.kind)}<span class="what"><b>${esc(KIND_NAME[x.kind])}</b> <span>· ${esc(stepDetail(x))}</span></span><span class="end num">${x.id === failedStep ? "Timed out" : esc(stepEnd(x))}</span>
@@ -512,13 +523,14 @@ function inspector(m) {
   const sel = [...st.sel].map((id) => m.steps.find((x) => x.id === id) ?? all.find((x) => x.id === id)).filter(Boolean);
   const isMacro = st.tab === "macro";
   let body;
-  const playingNow = st.session === "playing" || st.session === "paused";
+  const playingNow = (st.session === "playing" || st.session === "paused") && st.playerMacro === m.id;
   if (isMacro) body = macroPane(m);
   else if (playingNow) body = `<div id="now-pane" style="display:flex;flex-direction:column;gap:12px">${nowPane(m)}</div>`;
   else if (sel.length > 1) body = multiPane(m, sel);
   else if (sel.length === 1) body = stepPane(m, sel[0]);
   else body = `<div class="empty" style="padding:24px 0"><b>No step selected</b><span>Select a step to edit it, or open the Macro tab for how the macro plays and when it runs.</span></div>`;
-  const locked = st.session !== "idle" && !isMacro ? `<div class="notice">${icon("lock", 14)}Stop playback to edit steps. Speed and the other play options can still change.</div>` : "";
+  const runName = st.session !== "idle" && st.playerMacro !== m.id ? MACROS.find((x) => x.id === st.playerMacro)?.name : null;
+  const locked = st.session !== "idle" && !isMacro ? `<div class="notice">${icon("lock", 14)}${runName ? `Stop “${esc(runName)}” to edit steps.` : "Stop playback to edit steps. Speed and the other play options can still change."}</div>` : "";
   return `<div class="plate inspector${st.inspOpen ? " open" : ""}" role="region" aria-label="Inspector">
     <div style="display:flex;gap:8px;align-items:center">
       <div class="tabs${isMacro ? " second" : ""}" role="tablist" aria-label="Inspector" style="flex:1">
@@ -666,7 +678,7 @@ function viewPlate(m, open) {
   const keysL = m.steps.filter((x) => CAT[x.kind] === "keys").map((x) => { const d = Math.max(x.dur ?? 0.3, 0.3); const l = x.kind === "keys" ? x.combo.join(" ") : x.kind === "type" ? "“" + x.text + "”" : "Text"; return `<div class="blk ky" title="${esc(l)}" style="left:${pct(x.t)};width:calc(${pct(d)} - 2px)">${fits(d, l) ? `<span class="bl">${esc(l)}</span>` : ""}</div>`; }).join("");
   const logicL = m.steps.filter((x) => CAT[x.kind] === "logic").map((x) => { const d = Math.max(x.dur ?? 0.5, 0.5); const l = x.kind === "wait" ? "Wait" : x.kind === "pixel" ? "Wait for" : "Find"; return `<div class="blk lg" title="${l}" style="left:${pct(x.t)};width:calc(${pct(d)} - 2px)">${fits(d, l) ? `<span class="bl">${l}</span>` : ""}</div>`; }).join("");
   const pauses = m.steps.filter((x) => x.pause >= 1).map((x) => `<div class="blk ht" style="left:${pct(x.t - x.pause)};width:${pct(x.pause)}"></div>`).join("");
-  const cur = st.t || (m.steps.find((x) => x.id === st.cursor)?.t ?? 0);
+  const cur = (st.playerMacro === m.id ? st.t : 0) || (m.steps.find((x) => x.id === st.cursor)?.t ?? 0);
   const curStep = [...m.steps].reverse().find((x) => x.t <= cur);
   // Preview: balloons on clicks, a path through them.
   const sx = (v) => 18 + (v / 1920) * 264, sy = (v) => 10 + (v / 1080) * 130;
@@ -860,7 +872,7 @@ function firstArt(step) {
 
 function playerHtml() {
   const m = MACROS.find((x) => x.id === (st.playerMacro ?? st.macroId)) ?? macro();
-  const show = windowAway() || st.frame === "player";
+  const show = windowAway() || st.frame === "player" || !!st.trigger;
   const dur = duration(m) || 1;
   let state = `<span class="state">READY</span>`, right = `${fmtShort(0)} / ${fmtShort(dur)}`;
   if (st.session === "countdown") { state = `<span class="state live">GET READY</span>`; right = `<span class="digit" style="font-size:16px">${st.count}</span>`; }
@@ -879,7 +891,7 @@ function playerHtml() {
   const live = st.session === "recording" || st.session === "countdown";
   return `<div class="player glass${st.playerSize === "large" ? " big" : ""}${show ? "" : " hidden"}" role="group" aria-label="Relay player" ${show ? "" : 'aria-hidden="true"'}>
     <span class="grip" aria-hidden="true">${icon("grip", 14)}</span>
-    <button class="key red${live ? " live" : ""}" type="button" data-act="record" data-fid="p-rec" aria-label="${live ? "Stop recording" : "Record"} (${comboText(st.keys.record)})" title="${live ? "Stop recording" : "Record"}"><span class="rec-dot"></span></button>
+    <button class="key red${live ? " live" : ""}" type="button" data-act="record" data-fid="p-rec"${st.session === "playing" || st.session === "paused" ? " disabled" : ""} aria-label="${live ? "Stop recording" : "Record"} (${comboText(st.keys.record)})" title="${live ? "Stop recording" : "Record"}"><span class="rec-dot"></span></button>
     <button class="key ink" type="button" data-act="play" data-fid="p-play" aria-label="${st.session === "playing" ? "Pause" : "Play"} (${comboText(st.keys.play)})" title="${st.session === "playing" ? "Pause" : "Play"}"${live ? " disabled" : ""}>${icon(st.session === "playing" ? "pause" : "play")}</button>
     <button class="key" type="button" data-act="stop" data-fid="p-stop" aria-label="Stop (Esc)" title="Stop (Esc)">${icon("stop", 14)}</button>
     <div class="screen${st.done ? " flash" : ""}">
@@ -901,8 +913,11 @@ function exportedHtml() {
 }
 
 function toastsHtml() {
-  if (!st.toasts.length) return "";
-  return `<div class="toasts">${st.toasts.map((t) => `<div class="toast ${t.kind === "error" ? "error" : ""}" role="${t.kind === "error" ? "alert" : "status"}">
+  const tr = st.trigger && MACROS.find((x) => x.id === st.trigger.macro);
+  const notice = tr ? `<div class="toast run" role="status"><span class="rec-dot" aria-hidden="true"></span><span class="msg">Running “${esc(tr.name)}”, started by its ${esc(st.trigger.by.toLowerCase())}</span>
+    <button class="key small" type="button" data-act="stop-trigger" data-fid="stop-trigger">${icon("stop", 12)}Stop</button></div>` : "";
+  if (!st.toasts.length && !notice) return "";
+  return `<div class="toasts">${notice}${st.toasts.map((t) => `<div class="toast ${t.kind === "error" ? "error" : ""}" role="${t.kind === "error" ? "alert" : "status"}">
     <span class="msg">${esc(t.msg)}</span>${t.action ? `<button class="key small" type="button" data-act="toast-action" data-id="${t.id}" data-fid="toast-${t.id}">${esc(t.action.label)}</button>` : ""}
     <button class="key ghost small icon-only" type="button" aria-label="Dismiss" data-act="toast-close" data-id="${t.id}" data-fid="toastx-${t.id}" style="--key-fg:inherit">${icon("close", 12)}</button></div>`).join("")}</div>`;
 }
@@ -978,7 +993,7 @@ function render() {
     <div class="desktop">
       <div class="app-behind" aria-hidden="true"><div class="bar">Invoices.xlsx</div><span class="cell" style="left:12px;top:40px">ACME Ltd</span><span class="cell" style="left:140px;top:40px">F-1042</span><span class="cell" style="left:12px;top:62px">Globex</span><span class="cell" style="left:140px;top:62px">F-1043</span></div>
       ${win && st.frame !== "icons" ? `<div class="win-pos">${win}</div>` : win}
-      ${st.frame === "icons" ? "" : `<div class="player-pos">${playerHtml()}</div>`}
+      ${st.frame === "icons" ? "" : `<div class="player-pos${st.trigger && !windowAway() ? ` corner ${playerCorner()}` : ""}">${playerHtml()}</div>`}
       ${exportedHtml()}
       ${pickerHtml()}
       <div class="taskbar" aria-hidden="true"></div>
@@ -1067,13 +1082,34 @@ function stopRecording() {
   render();
   const nm = document.querySelector('[data-fid="name"]'); nm?.focus(); nm?.select();
 }
+function triggerRun(id, by) {
+  const m = MACROS.find((x) => x.id === id);
+  if (st.session !== "idle") {
+    RUNS.unshift({ macro: id, by, when: "Just now", ok: null, end: "Skipped: Relay was busy", dur: "", checks: [] });
+    toast(`Skipped “${m.name}”: Relay was busy`);
+    render(); return;
+  }
+  st.trigger = { macro: id, by }; st.playerMacro = id; st.t = 0; st.row = 1;
+  announce(`${m.name} started by its ${by.toLowerCase()}. Press ${comboText(st.keys.kill)} or Stop to stop it.`);
+  play();
+}
+// The corner the player takes during a triggered run: clear of the window and of the macro's clicks.
+function playerCorner() {
+  const win = document.querySelector(".window")?.getBoundingClientRect();
+  const m = MACROS.find((x) => x.id === st.trigger?.macro);
+  const clicks = (m?.steps ?? []).filter((x) => x.kind === "click").map((x) => [(x.x / 1920) * innerWidth, 40 + (x.y / 1080) * (innerHeight - 40)]);
+  const W = 600 * Math.min(zoom(), 1.5), H = 64 * Math.min(zoom(), 1.5), M = 16;
+  const rects = { "top-right": [innerWidth - M - W, 40 + M], "top-left": [M, 40 + M], "bottom-right": [innerWidth - M - W, innerHeight - 56 - H], "bottom-left": [M, innerHeight - 56 - H] };
+  const hits = ([x, y]) => (win && x < win.right && x + W > win.left && y < win.bottom && y + H > win.top) || clicks.some(([cx, cy]) => cx >= x && cx <= x + W && cy >= y && cy <= y + H);
+  return Object.keys(rects).find((k) => !hits(rects[k])) ?? "top-right";
+}
 function play() {
   if (st.session === "recording" || st.session === "countdown") return;
   if (st.session === "playing") { st.session = "paused"; clearTimer(); announce("Paused"); render(); return; }
   const m = MACROS.find((x) => x.id === (st.playerMacro ?? st.macroId)) ?? macro();
   st.playerMacro = m.id; st.error = null; st.done = false; st.menu = null;
   if (st.session !== "paused") { st.t = 0; st.row = 1; }
-  st.session = "playing"; announce(`Playing ${m.name}`); render();
+  st.session = "playing"; if (!st.trigger) announce(`Playing ${m.name}`); render();
   const dur = duration(m), t0 = performance.now(), from = st.t;
   timer = setInterval(() => {
     st.t = Math.min(dur, from + ((performance.now() - t0) / 1000) * 1.6 * m.play.speed);
@@ -1117,7 +1153,8 @@ function tickPlayback(m) {
 function finish(m) {
   clearTimer(); st.session = "idle"; st.done = true; st.t = duration(m);
   m.last = { ok: true, text: "Just now" };
-  RUNS.unshift({ macro: m.id, by: "Play", when: "Just now", ok: true, end: "Completed", dur: `${duration(m).toFixed(1)} s`, checks: [] });
+  RUNS.unshift({ macro: m.id, by: st.trigger?.by ?? "Play", when: "Just now", ok: true, end: "Completed", dur: `${duration(m).toFixed(1)} s`, checks: [] });
+  if (st.trigger) { st.trigger = null; st.t = 0; toast(`“${m.name}” finished`); }
   SOUND.done(); announce(`${m.name} finished.`);
   render();
   setTimeout(() => { st.done = false; render(); }, 1600);
@@ -1125,7 +1162,8 @@ function finish(m) {
 function fail(m, step, text) {
   clearTimer(); st.session = "idle"; st.error = { text, step }; st.failed = { macro: m.id, step }; st.t = m.steps[step - 1]?.t ?? st.t;
   m.last = { ok: false, text: "Just now" };
-  RUNS.unshift({ macro: m.id, by: "Play", when: "Just now", ok: false, end: `Pixel check timed out at step ${step}, row ${st.row}`, sub: "PolicyNo 88-1042", dur: "", step, checks: [] });
+  RUNS.unshift({ macro: m.id, by: st.trigger?.by ?? "Play", when: "Just now", ok: false, end: `Pixel check timed out at step ${step}, row ${st.row}`, sub: "PolicyNo 88-1042", dur: "", step, checks: [] });
+  st.trigger = null;
   SOUND.error(); announce(`${m.name} stopped: ${text}`);
   if (!windowAway()) toast(`${m.name} stopped: ${text.replace(/ · /g, ", ")}`, { kind: "error" });
   render();
@@ -1134,7 +1172,7 @@ function fail(m, step, text) {
 function stop() {
   const was = st.session; clearTimer();
   if (was === "recording" || was === "countdown") { if (was === "countdown") { st.session = "idle"; announce("Recording cancelled."); render(); return; } stopRecording(); return; }
-  st.session = "idle"; st.t = 0; st.done = false; if (was !== "idle") { SOUND.stop(); announce("Stopped."); }
+  st.session = "idle"; st.t = 0; st.done = false; st.trigger = null; if (was !== "idle") { SOUND.stop(); announce("Stopped."); }
   render();
 }
 
@@ -1335,6 +1373,8 @@ document.addEventListener("click", (e) => {
     case "first-skip": st.screen = "library"; return doRender();
     case "first-choice": st.firstChoice = t.dataset.v; return doRender();
     case "env-reset": location.search = ""; return;
+    case "env-trigger": return triggerRun("timesheet", "Schedule");
+    case "stop-trigger": return stop();
     case "segnop": return;
   }
 });
@@ -1478,6 +1518,6 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-window.relayProto = { st, MACROS, render, play, startRecording, stop };
+window.relayProto = { st, MACROS, RUNS, render, play, startRecording, stop };
 render();
 })();

@@ -69,6 +69,8 @@ const S = [
   ["player-mode", "screen=editor&mode=player"],
   ["player-mode-large-dark", "screen=library&mode=player&player=large&theme=dark"],
   ["editor-win10-dark", "screen=editor&step=6&os=win10&theme=dark"],
+  ["triggered-run", "screen=editor&step=6&triggered"],
+  ["triggered-run-library-dark", "screen=library&triggered&theme=dark"],
   ["exported", "frame=exported"],
   ["icons", "frame=icons"],
   ["picker", "screen=editor&step=7", async (b) => { await b.clickSel('[data-fid="pick"]'); }],

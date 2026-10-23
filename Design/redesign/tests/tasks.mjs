@@ -231,6 +231,27 @@ await task("P12", "what runs when", async ({ act, check }) => {
   await check("sentence updates", async () => /Mon, Tue, Wed, Thu, Fri, Sat at 09:00/.test((await q("#insp-panel"))?.text ?? ""));
 });
 
+// P12 Hannah, again: a scheduled run starts while editing another macro
+await task("P12", "a scheduled run while editing", async ({ act, check }) => {
+  // A real 1366 × 768 screen: the prototype's own bar takes 40 px of the page.
+  await b.send("Emulation.setDeviceMetricsOverride", { width: 1366, height: 808, deviceScaleFactor: 1, mobile: false });
+  await b.goto(`${BASE}?screen=editor&step=6`);
+  await act("the schedule fires", () => b.clickSel('[data-act="env-trigger"]'));
+  await b.wait(400);
+  await check("player shown, in a corner", async () => (await q(".player"))?.vis && (await b.eval(`document.querySelector(".player-pos").classList.contains("corner")`)));
+  await check("it doesn't cover the window", async () => b.eval(`(() => { const a = document.querySelector(".player").getBoundingClientRect(), w = document.querySelector(".window").getBoundingClientRect(); return a.right <= w.left || a.left >= w.right || a.bottom <= w.top || a.top >= w.bottom; })()`));
+  await check("the window says what runs, with Stop", async () => /Running “Fill weekly timesheet”, started by its schedule/.test((await q(".toast.run"))?.text ?? ""));
+  await check("announced", async () => /started by its schedule/.test(await live()));
+  await check("the open macro's Play is off", async () => b.eval(`document.querySelector('[data-fid="play"]').disabled`));
+  await check("the open macro isn't shown as playing", async () => (await b.eval(`document.querySelectorAll(".step.played").length`)) === 0);
+  await act("Stop in the window", () => b.clickSel('[data-fid="stop-trigger"]'));
+  await check("stopped, player and notice gone", async () => (await st("p.session")) === "idle" && !(await q(".player"))?.vis && !(await q(".toast.run")));
+  await act("Play the open macro, then the schedule fires", async () => { await b.clickSel('[data-fid="play"]'); await b.wait(300); await b.clickSel('[data-act="env-trigger"]'); });
+  await check("skipped: Relay was busy", async () => /Skipped “Fill weekly timesheet”: Relay was busy/.test((await q(".toasts"))?.text ?? ""));
+  await check("in the run history", async () => (await b.eval(`relayProto.RUNS[0].end`)) === "Skipped: Relay was busy");
+  await b.send("Emulation.setDeviceMetricsOverride", { width: 1366, height: 768, deviceScaleFactor: 1, mobile: false });
+});
+
 // P13 Grace: find among many, export two
 await task("P13", "find and export several", async ({ act, check }) => {
   await b.goto(`${BASE}?screen=library`);

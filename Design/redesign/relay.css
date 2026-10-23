@@ -640,3 +640,14 @@ table.macros tr.sel td { background: var(--plate-2); }
 
 /* While picking from the screen, Relay steps aside so what is behind it can be picked. */
 .picking .win-pos { opacity: 0; pointer-events: none; transition: opacity 150ms var(--ease); }
+
+/* A triggered run while the window is open: the player takes a free corner, the window says what runs. */
+.player-pos.corner { transform: none; left: auto; right: auto; bottom: auto; top: auto; }
+.player-pos.corner.top-right { right: 16px; top: 56px; }
+.player-pos.corner.top-left { left: 16px; top: 56px; }
+.player-pos.corner.bottom-right { right: 16px; bottom: 56px; }
+.player-pos.corner.bottom-left { left: 16px; bottom: 56px; }
+.toast.run { background: var(--plate); color: var(--text); box-shadow: 0 0 0 1.5px var(--red), var(--shadow-pop); }
+.toast.run .rec-dot { color: var(--red); animation: breathe-dot 1.6s ease-in-out infinite; }
+@keyframes breathe-dot { 50% { opacity: 0.45; } }
+.calm .toast.run .rec-dot { animation: none; }

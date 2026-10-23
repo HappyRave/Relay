@@ -16,6 +16,9 @@ Relay's new look: minimalist and modernist, with subtly rounded corners, frosted
 > - **Sounds** are in, off by default.
 > - **Frosted glass** is on by default on Windows 11 (Acrylic) and off by default on Windows 10 (solid), with a switch in Settings.
 > - **Icons:** Relay draws its own set.
+> - **Archivo** switches to its variable package, for the width axis.
+> - **The prototype** stays in the repo until `m24-redesign` merges, then goes.
+> - **A trigger firing while the window is open** shows the player in a free corner, and a notice with Stop in the window.
 
 <p align="center"><img src="images/proto-editor.png" alt="The macro editor in the new look: a frosted window, color-blocked steps, the inspector, and the view with numbered callouts and the timeline" width="820"></p>
 
@@ -34,7 +37,7 @@ Relay's new look: minimalist and modernist, with subtly rounded corners, frosted
 - [Exported programs](#exported-programs)
 - [Accessibility guardrails](#accessibility-guardrails)
 - [The prototype, tested](#the-prototype-tested)
-- [Open questions](#open-questions)
+- [Decided after the prototype](#decided-after-the-prototype)
 
 ## Where it comes from
 
@@ -102,7 +105,7 @@ Relay's new look: minimalist and modernist, with subtly rounded corners, frosted
 
 ### Type
 
-Archivo stays, as the **variable** font, for its width axis:
+Archivo stays, as the **variable** font, for its width axis. Relay bundles `@fontsource/archivo` today, which has fixed weights only; it switches to the variable package (`@fontsource-variable/archivo`), and checks the width axis is in it when it's installed:
 
 | Role | Setting | Use |
 | --- | --- | --- |
@@ -219,6 +222,10 @@ Relay draws its own icons: 59 of them, on one 16 px grid, with 1.6 px strokes an
 
 <p align="center"><img src="images/proto-player.png" alt="The player playing row 37 of 200" width="600"><br><img src="images/proto-player-recording.png" alt="The player recording: REC, 14 steps, the last step" width="600"><br><img src="images/proto-player-error.png" alt="The player stopped: Pixel check timed out at step 10, row 112" width="600"><br><img src="images/proto-player-large-dark.png" alt="The large player in the dark theme" width="760"></p>
 
+**A trigger fires while you're editing another macro:** the player shows in a corner that's clear of the window and of the macro's clicks (top right on most screens, since the window sits at the bottom), and the window says what's running, with **Stop**. The open macro's **Play** is off and its steps are locked until the run ends; it isn't drawn as playing. If Relay was already busy, the trigger is skipped and says so (*Skipped "Fill weekly timesheet": Relay was busy*), in the run history too:
+
+<p align="center"><img src="images/proto-triggered.png" alt="A scheduled run of Fill weekly timesheet while Export invoice to PDF is open: the player at the top right, a notice with Stop in the window" width="820"></p>
+
 **Picking from the screen:** Relay steps aside, the loupe shows the pixel and its color, and the arrow keys nudge it:
 
 <p align="center"><img src="images/proto-picker.png" alt="The picker's loupe over a spreadsheet's title bar: 330, 62, #1F7A45" width="820"></p>
@@ -301,7 +308,7 @@ The prototype was put through the panel again, this time by doing their tasks in
 
 ### What was tested
 
-- **Every screen and state:** 62 in all, across the first run, the Library, Problems, the editor, the Macro tab, every step type, menus, the export dialog, every Settings section, key capture with its warnings, and the player in each state. They were also run in dark, solid, Windows 10, no transparency, every spacing, 150% and 200% text, the minimum and a large window, the picker, the exported program and the icon sheet.
+- **Every screen and state:** 64 in all, across the first run, the Library, Problems, the editor, the Macro tab, every step type, menus, the export dialog, every Settings section, key capture with its warnings, and the player in each state, and a triggered run while the window is open. They were also run in dark, solid, Windows 10, no transparency, every spacing, 150% and 200% text, the minimum and a large window, the picker, the exported program and the icon sheet.
 - **On each one, an audit in the page:**
   - the contrast of every text against its real background, glass composited over a black and a white wallpaper;
   - text under 12 px;
@@ -312,7 +319,7 @@ The prototype was put through the panel again, this time by doing their tasks in
 - **Emulations:** Windows contrast themes (`forced-colors`); protanopia, deuteranopia and achromatopsia; blurred vision at 150% text; reduce motion, with a check that nothing animates.
 - **The accessibility tree** of every state: roles and names.
 - **Keyboard:** a Tab walk through the editor (every stop must show a focus ring), and the steps list's keys: arrows, <kbd>Shift</kbd>-select, <kbd>Del</kbd>, <kbd>Ctrl</kbd>+<kbd>Z</kbd>, <kbd>Insert</kbd>, <kbd>Enter</kbd>, <kbd>Esc</kbd>, <kbd>Ctrl</kbd>+<kbd>M</kbd>.
-- **15 panel tasks,** done in the prototype with clicks and keys, each step checked:
+- **16 panel tasks,** done in the prototype with clicks and keys, each step checked:
 
 | Persona | Task | Actions |
 | --- | --- | --- |
@@ -330,6 +337,7 @@ The prototype was put through the panel again, this time by doing their tasks in
 | Mateo (P8) | Edit in the minimum window | 2 |
 | Viktor (P9) | Select all, show moves, back to the Library, all by keyboard | 4 |
 | Hannah (P12) | See what runs when, from the Library and the Macro tab; change the days | 4 |
+| Hannah (P12) | A schedule fires while editing another macro: the player in a free corner, the notice, Stop; then a skip because Relay is busy | 3 |
 | Grace (P13) | Find a macro among many, select two for export | 3 |
 
 ### The rounds
@@ -339,9 +347,10 @@ The prototype was put through the panel again, this time by doing their tasks in
 | 1, first build | 9 / 57 | 44 | 69 | 127 | 185 | 89 | not run (the list's keys failed) |
 | 2 | 50 / 60 | 24 | 0 | 2 | 0 | 103 | 11 / 15 |
 | 3 | 54 / 62 | 0 | 0 | 17 | 0 | 19 | 14 / 15 |
-| 4 and final | **62 / 62** | **0** | **0** | **0** | **0** | **0** | **15 / 15** |
+| 4 | 62 / 62 | 0 | 0 | 0 | 0 | 0 | 15 / 15 |
+| Final, with triggered runs | **64 / 64** | **0** | **0** | **0** | **0** | **0** | **16 / 16** |
 
-Counts are issues across all states (one bad control on 10 screens counts 10). Rounds 2 and 3 also included false alarms from the audit itself, which then learned to read `color-mix()` backgrounds and to skip rows scrolled out of view; the final round uses the corrected audit throughout.
+Counts are issues across all states (one bad control on 10 screens counts 10). The final round added the two triggered-run states and Hannah's second task after the maintainer's decision on triggered runs. Rounds 2 and 3 also included false alarms from the audit itself, which then learned to read `color-mix()` backgrounds and to skip rows scrolled out of view; the final round uses the corrected audit throughout.
 
 ### What the rounds found, and what changed
 
@@ -373,6 +382,9 @@ Counts are issues across all states (one bad control on 10 screens counts 10). R
 | 24 | The exported program's name was cut to "E…" | Screenshots | Dee (P4) | Name on the top line, progress and time below |
 | 25 | Secondary text in dark fell to 4.4:1 on yellow rows | The audit | Ruth (P5) | Dark secondary text `#B3B1AB` |
 | 26 | Green *✓ Yesterday* fell to 4.3:1 on a hovered row | The audit | Ruth (P5) | Green text `#0E6B3D` |
+| 27 | A triggered run's announcement (*started by its schedule*) was replaced at once by a plain *Playing…* | Hannah's second task | Priya (P7) | The trigger's announcement is the one heard |
+| 28 | During another macro's run, the open macro's Play showed a disabled *Pause* | Screenshots | Hannah (P12), Linda (P11) | It shows *Play*, off, with a tooltip saying what's running; the lock note names it too |
+| 29 | The record key stayed clickable during playback, though Relay can't record then | Screenshots | Everyone | Off during playback, in the window and the player |
 
 **Checked and working from the first round:** key capture's warnings (F9, AltGr, Remote Desktop) and refusals, the first run's preselected keys, reduce motion (no animation running), the Tab order and focus rings, the accessibility tree's names and roles, and the protanopia, deuteranopia and achromatopsia views, where the shapes carry the categories.
 
@@ -421,11 +433,17 @@ node Design/redesign/tests/tasks.mjs final
 
 `run.mjs` writes a screenshot and an audit of every state to `tests/out/<round>/`, and `tasks.mjs` the panel's tasks with each step's result.
 
-## Open questions
+## Decided after the prototype
 
-1. **Archivo's width axis:** the variable font is needed for the condensed labels and wide numerals; does the package Relay bundles carry it, or should it switch packages?
-2. **The prototype's home:** keep `Design/redesign/` as the reference while building `m24-redesign`, or move the spec to Claude Design once its access works here?
-3. **Triggered runs with the window open:** a triggered run while you're editing another macro plays without the player, since the window is open. Should the player show anyway, small, for triggered runs?
+The three questions the prototype round left, decided by the maintainer on 2026-10-23:
+
+| Question | Decision |
+| --- | --- |
+| Archivo's width axis | Switch to the variable package, `@fontsource-variable/archivo`, and check its width axis when it's installed |
+| Where the prototype lives | In `Design/redesign/` until `m24-redesign` merges; the milestone's last commit removes it |
+| A trigger firing while the window is open | The player in a free corner (clear of the window and the macro's clicks), and a notice with **Stop** in the window; tested in the final round |
+
+Nothing is left open from the panel's rounds. What's left to learn needs Windows itself and real people (see [What the prototype can't tell](#what-the-prototype-cant-tell)).
 
 ---
 
