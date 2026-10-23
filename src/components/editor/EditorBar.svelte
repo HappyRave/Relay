@@ -25,6 +25,15 @@
     return () => clearTimeout(timer);
   });
 
+  let nameField: HTMLInputElement | undefined = $state();
+  // A new recording: its name, selected, ready to type.
+  $effect(() => {
+    if (!nameField || !relay.naming || relay.naming !== relay.view?.id || relay.mode !== "idle") return;
+    relay.naming = null;
+    nameField.focus();
+    nameField.select();
+  });
+
   let more: HTMLElement | undefined = $state();
   let moreOpen = $state(false);
   const MORE: MenuItem[] = [
@@ -65,6 +74,7 @@
   >
   <!-- While recording, the name is the new recording's (it's named once saved). -->
   <input
+    bind:this={nameField}
     class="name"
     aria-label="Macro name"
     spellcheck="false"

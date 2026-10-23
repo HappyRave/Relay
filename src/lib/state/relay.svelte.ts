@@ -228,6 +228,8 @@ export class RelayStore {
   private pauseSaves = { seq: 0, saved: false };
   /** A just-saved recording to open once the session is back to idle. */
   private pendingLoad: string | null = null;
+  /** A new recording to name: its name field takes the focus once it shows. */
+  naming = $state<string | null>(null);
 
   // — derived —
   recording = $derived(this.mode === "recording" || this.mode === "countdown");
@@ -388,7 +390,7 @@ export class RelayStore {
         }
         this.mode = mode;
         if (mode === "idle" && this.pendingLoad) {
-          this.openMacro(this.pendingLoad);
+          this.openRecording(this.pendingLoad);
           this.pendingLoad = null;
         } else if (mode === "idle" && this.rename_) {
           this.flushRename(); // typed just before the session started
@@ -430,7 +432,7 @@ export class RelayStore {
         break;
       case "saved":
         // Arrives just before the session returns to idle.
-        if (this.mode === "idle") this.openMacro(msg.id);
+        if (this.mode === "idle") this.openRecording(msg.id);
         else this.pendingLoad = msg.id;
         break;
       case "library_changed":
@@ -738,6 +740,15 @@ export class RelayStore {
     await this.showMacro(id);
     this.tab = "steps";
   };
+
+  /** A recording was saved: it opens, ready to be named, and says so. */
+  private async openRecording(id: string) {
+    await this.openMacro(id);
+    if (this.view?.id !== id || this.role !== "main") return;
+    const n = this.view.steps.filter((s) => s.kind !== "move").length;
+    this.naming = id;
+    this.notify(`Recording stopped, ${n} ${n === 1 ? "step" : "steps"}. Name this macro.`);
+  }
 
   /** Opens a macro in the editor, from the Library or after a recording. */
   openMacro = async (id: string) => {

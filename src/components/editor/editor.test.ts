@@ -139,6 +139,16 @@ describe("the top bar", () => {
     expect([relay.place, relay.libraryShows, relay.runsFilter]).toEqual(["library", "runs", A]);
   });
 
+  test("a new recording opens with its name selected, ready to type", async () => {
+    render(EditorBar);
+    core.emit({ type: "saved", id: A });
+    await settle();
+    const name = screen.getByRole("textbox", { name: "Macro name" }) as HTMLInputElement;
+    expect(document.activeElement).toBe(name);
+    expect([name.selectionStart, name.selectionEnd]).toEqual([0, name.value.length]);
+    expect(relay.naming).toBeNull();
+  });
+
   test("the player key switches to the player", async () => {
     render(EditorBar);
     await userEvent.click(button("Switch to the player"));

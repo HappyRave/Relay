@@ -330,6 +330,10 @@ describe("engine messages", () => {
     expect(relay.name).toBe("Batch rename photos");
     expect(relay.steps).toHaveLength(11);
     expect(relay.place).toBe("macro");
+    // Ready to be named, and said so (its moves aren't steps you count).
+    expect(relay.naming).toBe(C);
+    const n = relay.steps.filter((s) => s.kind !== "move").length;
+    expect(relay.toast?.message).toBe(`Recording stopped, ${n} steps. Name this macro.`);
   });
 
   test("a save arriving when already idle opens the macro at once", async () => {
