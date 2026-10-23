@@ -47,4 +47,9 @@ glass: boolean | null, spacing: Spacing, text_size: TextSize, player_size: Playe
 /**
  * Short sounds when recording starts and stops, and when a macro finishes or fails.
  */
-sounds: boolean, };
+sounds: boolean, 
+/**
+ * The steps list shows cursor moves as rows of their own, instead of
+ * folded into the step they lead to.
+ */
+show_moves: boolean, };

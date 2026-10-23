@@ -152,6 +152,9 @@ pub struct Settings {
     pub reduce_motion: ReduceMotion,
     /// Short sounds when recording starts and stops, and when a macro finishes or fails.
     pub sounds: bool,
+    /// The steps list shows cursor moves as rows of their own, instead of
+    /// folded into the step they lead to.
+    pub show_moves: bool,
 }
 
 impl Default for Settings {
@@ -177,6 +180,7 @@ impl Default for Settings {
             player_size: PlayerSize::Compact,
             reduce_motion: ReduceMotion::System,
             sounds: false,
+            show_moves: false,
         }
     }
 }

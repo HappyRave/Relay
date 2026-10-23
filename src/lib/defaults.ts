@@ -24,6 +24,7 @@ export const DEFAULT_SETTINGS: Settings = {
   player_size: "compact",
   reduce_motion: "system",
   sounds: false,
+  show_moves: false,
 };
 
 /** Until Rust says: Windows 11, transparency on. */

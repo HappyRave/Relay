@@ -959,6 +959,7 @@ const SETTINGS: Spec = {
   player_size: optional(oneOf("compact", "large")),
   reduce_motion: optional(oneOf("system", "always")),
   sounds: optional("bool"),
+  show_moves: optional("bool"),
 };
 
 const TRIGGERS: Spec = {

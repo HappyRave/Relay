@@ -40,6 +40,7 @@ import { nextRepeat, nextSpeed } from "../transport";
 import type { Panes } from "../ipc/bindings/Panes";
 import { lastIndexAtOrBefore } from "../preview/geometry";
 import { currentStepIndex, jumpTarget } from "../timeline/lanes";
+import { deleteRows, type Row } from "../editor/rows";
 import { plural, slug } from "../format";
 import { followStep } from "./selection";
 import { pngSize, testResult } from "../image";
@@ -78,6 +79,13 @@ export type ShownToast = Toast & { id: number };
 
 /** Toasts shown at once; older ones come back as these are dismissed. */
 export const MAX_TOASTS = 3;
+
+/** Step kinds that use the mouse: a macro with one opens with the view open. */
+const POINTER: Step["kind"][] = ["click", "drag", "scroll", "move", "find_image"];
+/** Step kinds that take a label. */
+const LABELLED: Step["kind"][] = ["click", "drag", "wait", "pixel_wait", "find_image"];
+/** One edit, or several as one. */
+const batch = (ops: EditOp[]): EditOp => (ops.length === 1 ? ops[0] : { op: "batch", ops });
 
 export class RelayStore {
   private readonly backend: Backend;
@@ -159,8 +167,20 @@ export class RelayStore {
   imageTest = $state.raw<{ id: string; item: number; text: string; found?: FoundImage | null; dot?: [number, number] } | null>(
     null,
   );
-  /** The row whose step editor is open, or -1. It follows its step across edits (see selection.ts). */
+  /** The step the inspector shows and the list's keys move from, or -1. It follows its step across edits (see selection.ts). */
   selected = $state(-1);
+  /** The steps selected in the list, ascending (`selected` among them): the inspector edits them together. */
+  selection = $state.raw<number[]>([]);
+  /** The inspector's tab: the selected steps, or the macro as a whole. */
+  inspector = $state<"step" | "macro">("step");
+  /** The Macro tab's open section. */
+  macroSection = $state<"play" | "triggers">("play");
+  /** The view (preview and timeline) is open. It opens closed for a macro without mouse steps. */
+  viewOpen = $state(true);
+  /** The step the last run stopped on (a pixel check that timed out), or -1. */
+  failedStep = $state(-1);
+  /** When a change to the macro was last saved (performance.now()), for the top bar's "Saved". */
+  savedAt = $state(0);
 
   // — private —
   /** Live recording data; appended in place, `recVersion` tells the derived values. */
@@ -321,6 +341,7 @@ export class RelayStore {
           this.tick = { t: 0, at: now, speed: 1, advancing: true };
         }
         if (mode === "countdown") this.cur = 0;
+        if (mode === "playing") this.failedStep = -1;
         if (mode === "idle") {
           this.tick.advancing = false;
           this.playInfo = null;
@@ -364,6 +385,7 @@ export class RelayStore {
         // Any stop rewinds (Stop, Esc, a key press, the kill switch). A completed run stays at
         // the end, and a timed-out pixel check stays on its step so the row is highlighted.
         if (msg.reason !== "completed" && msg.reason !== "pixel_timeout") this.cur = 0;
+        if (msg.reason === "pixel_timeout") this.failedStep = this.curStepIdx;
         break;
       case "saved":
         // Arrives just before the session returns to idle.
@@ -412,6 +434,11 @@ export class RelayStore {
       e.preventDefault();
       if (key === "y" || e.shiftKey) this.redo();
       else this.undo();
+      return;
+    }
+    if (e.ctrlKey && !e.altKey && !e.shiftKey && key === "m" && this.place === "macro") {
+      e.preventDefault();
+      this.inspector = "macro";
       return;
     }
     if (e.altKey && !e.ctrlKey && !e.shiftKey && e.key === "ArrowLeft" && !typing) {
@@ -531,12 +558,13 @@ export class RelayStore {
 
   jump = (dir: -1 | 1) => this.seek(jumpTarget(this.steps, this.cur, dir, this.duration));
 
-  /** A click on a step's row: the playhead goes to it, and its editor opens (or closes). */
-  selectStep = (index: number) => {
-    const s = this.steps[index];
-    if (!s) return;
-    this.seek(s.t);
-    this.selected = this.selected === index ? -1 : index;
+  /** Selects these steps, `cursor` the one the inspector shows: the playhead goes to it. */
+  select = (indices: number[], cursor = indices.at(-1) ?? -1) => {
+    const s = this.steps[cursor];
+    this.selection = [...new Set(indices)].filter((i) => this.steps[i]).sort((a, b) => a - b);
+    this.selected = s ? cursor : -1;
+    this.inspector = "step";
+    if (s) this.seek(s.t);
   };
 
   /** Cursor position at time `t` (virtual-desktop px). */
@@ -599,6 +627,10 @@ export class RelayStore {
     this.view = view;
     this.savedName = view.name;
     this.selected = -1;
+    this.selection = [];
+    this.failedStep = -1;
+    this.inspector = "step";
+    this.viewOpen = view.steps.some((s) => POINTER.includes(s.kind));
     this.triggerStatus = null; // the old macro's triggers mustn't be edited into this one
     this.dataFile = null;
     this.cur = 0;
@@ -720,6 +752,10 @@ export class RelayStore {
     // A name still being typed wins over the one in the response.
     if (this.rename_?.id === id) view = { ...view, name: this.rename_.name };
     this.selected = followStep(this.view.steps, view.steps, this.selected, op);
+    const kept = this.selection.map((i) => followStep(this.view!.steps, view.steps, i, op)).filter((i) => i >= 0);
+    this.selection = [...new Set(this.selected >= 0 ? [...kept, this.selected] : kept)].sort((a, b) => a - b);
+    this.failedStep = -1;
+    this.savedAt = performance.now();
     this.view = view;
     if (listChanged) await this.refreshLibrary();
   }
@@ -780,6 +816,29 @@ export class RelayStore {
     await this.edit({ op: "delete_step", index });
     if (this.view !== before && this.view?.can_undo) this.offerUndo("Deleted the step", this.view.id);
   };
+
+  /** Deletes these rows of the steps list, their folded moves too, in one undo. */
+  deleteRows = async (rows: Row[]) => {
+    if (!rows.length) return;
+    const before = this.view;
+    await this.edit(deleteRows(rows));
+    const what = rows.length === 1 ? "the step" : plural(rows.length, "step");
+    if (this.view !== before && this.view?.can_undo) this.offerUndo(`Deleted ${what}`, this.view.id);
+  };
+
+  /** Sets the pause before each of these steps, in one undo. */
+  setPauses = (indices: number[], ms: number) => {
+    const dur = Math.max(0, Math.round(ms));
+    return this.edit(batch(indices.map((index) => ({ op: "set_pause", index, dur }))));
+  };
+
+  /** Labels each of these steps that takes a label, in one undo. */
+  setLabels = (indices: number[], label: string) =>
+    this.edit(batch(indices.filter((i) => LABELLED.includes(this.steps[i]?.kind)).map((index) => ({ op: "set_label", index, label }))));
+
+  /** Makes each of these typed texts an editable Text step, in one undo. */
+  makeAllEditable = (indices: number[]) =>
+    this.edit(batch(indices.filter((i) => this.steps[i]?.kind === "type").map((index) => ({ op: "make_editable", index }))));
 
   /** Sets the idle time before step `index`. */
   setPause = (index: number, ms: number) => this.edit({ op: "set_pause", index, dur: Math.max(0, Math.round(ms)) });

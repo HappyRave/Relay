@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { core, freshStore, nextFrame, settle } from "../../test/app";
+import { stepRows } from "../editor/rows";
 import { defaultTriggers } from "../../test/fake-core";
 import { DEFAULT_SETTINGS } from "../defaults";
 import { browserBackend } from "../ipc/backend";
@@ -507,6 +508,93 @@ describe("toasts", () => {
     relay.notify("one");
     relay.clearToasts();
     expect(relay.toast).toBeNull();
+  });
+});
+
+describe("the editor", () => {
+  test("selecting steps moves the playhead to the one the inspector shows", () => {
+    relay.inspector = "macro";
+    relay.select([4, 1, 4], 4);
+    expect(relay.selection).toEqual([1, 4]);
+    expect(relay.selected).toBe(4);
+    expect(relay.cur).toBe(relay.steps[4].t);
+    expect(relay.inspector).toBe("step");
+    relay.select([]);
+    expect([relay.selection, relay.selected]).toEqual([[], -1]);
+  });
+
+  test("the selection follows its steps across an edit before them", async () => {
+    relay.select([4, 6], 6);
+    await relay.edit({ op: "delete_step", index: 0 });
+    expect(relay.selection).toEqual([3, 5]);
+    expect(relay.selected).toBe(5);
+  });
+
+  test("deleting rows deletes their moves too, in one undo, and says so", async () => {
+    const rows = stepRows(relay.steps, false);
+    await relay.deleteRows([rows[0], rows[3]]);
+    expect(core.lastArgs("edit_macro")).toEqual({
+      id: A,
+      op: { op: "batch", ops: [6, 5, 1, 0].map((index) => ({ op: "delete_step", index })) },
+    });
+    // Two rows fewer (the moves that led to them may join the ones around them).
+    expect(stepRows(relay.steps, false)).toHaveLength(10);
+    expect(relay.toast).toMatchObject({ kind: "info", message: "Deleted 2 steps" });
+    relay.toast!.action!.run();
+    await settle();
+    expect(relay.steps).toHaveLength(18);
+  });
+
+  test("pauses, labels and Make editable for several steps, each in one undo", async () => {
+    await relay.setPauses([1, 3], 300);
+    expect(core.lastArgs("edit_macro")?.op).toEqual({
+      op: "batch",
+      ops: [1, 3].map((index) => ({ op: "set_pause", index, dur: 300 })),
+    });
+    // Keys and typing take no label.
+    await relay.setLabels([1, 7, 8], "Done");
+    expect(core.lastArgs("edit_macro")?.op).toEqual({ op: "set_label", index: 1, label: "Done" });
+    await relay.makeAllEditable([1, 8]);
+    expect(core.lastArgs("edit_macro")?.op).toEqual({ op: "make_editable", index: 8 });
+    expect(relay.steps[8].kind).toBe("text");
+  });
+
+  test("an edit says it's saved", async () => {
+    expect(relay.savedAt).toBe(0);
+    await relay.edit({ op: "set_label", index: 1, label: "Menu" });
+    expect(relay.savedAt).toBeGreaterThan(0);
+  });
+
+  test("Ctrl + M opens the Macro tab, in the editor", () => {
+    relay.start();
+    key("m", { ctrlKey: true });
+    expect(relay.inspector).toBe("step");
+    relay.place = "macro";
+    key("m", { ctrlKey: true });
+    expect(relay.inspector).toBe("macro");
+  });
+
+  test("the view opens closed for a macro without mouse steps", async () => {
+    expect(relay.viewOpen).toBe(true);
+    const keysOnly = { ...core.view(B), steps: core.view(B).steps.filter((st) => st.kind === "keys" || st.kind === "type") };
+    core.on("load_macro", () => keysOnly);
+    await relay.loadMacro(B);
+    expect(relay.viewOpen).toBe(false);
+  });
+
+  test("a pixel check that timed out is the failed step until the next run or edit", async () => {
+    relay.seek(relay.steps[11].t + 100);
+    core.emit(session("playing"));
+    core.emit({ type: "finished", reason: "pixel_timeout", timing: null });
+    expect(relay.failedStep).toBe(11);
+    core.emit(session("idle"));
+    core.emit(session("playing"));
+    expect(relay.failedStep).toBe(-1);
+    core.emit({ type: "finished", reason: "pixel_timeout", timing: null });
+    core.emit(session("idle"));
+    await settle();
+    await relay.edit({ op: "set_label", index: 1, label: "Menu" });
+    expect(relay.failedStep).toBe(-1);
   });
 });
 

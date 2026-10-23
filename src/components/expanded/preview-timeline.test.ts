@@ -236,13 +236,13 @@ describe("Preview", () => {
   test("the open move's path is highlighted, from where the cursor was before it", async () => {
     const { container } = render(Preview);
     expect(container.querySelector(".open-move")).toBeNull();
-    relay.selectStep(2); // 134, 70 (the first click) → 230, 324
+    relay.select([2]); // 134, 70 (the first click) → 230, 324
     await settle();
     const d = container.querySelector(".open-move")!.getAttribute("d")!;
     expect(d.startsWith("M134 70 L")).toBe(true);
     expect(d.endsWith(" L230 324")).toBe(true);
     expect(d.split(" L")).toHaveLength(1 + 41 + 1); // the start, its samples, and the click at its end
-    relay.selectStep(1); // a click
+    relay.select([1]); // a click
     await settle();
     expect(container.querySelector(".open-move")).toBeNull();
   });

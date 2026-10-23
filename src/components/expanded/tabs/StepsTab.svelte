@@ -75,7 +75,9 @@
   const open = $derived(relay.mode === "recording" ? -1 : relay.selected);
 
   async function choose(i: number) {
-    relay.selectStep(i);
+    const s = relay.steps[i];
+    if (s) relay.seek(s.t);
+    relay.select(relay.selected === i ? [] : [i], relay.selected === i ? -1 : i);
     // Bring a newly opened editor into view.
     await tick();
     if (open === i) list?.children[i]?.scrollIntoView({ block: "nearest" });
