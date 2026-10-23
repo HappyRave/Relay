@@ -71,7 +71,9 @@
   }
 
   function click(e: MouseEvent, i: number) {
-    choose(i, e.shiftKey ? "range" : e.ctrlKey || e.metaKey ? "toggle" : "only");
+    const plain = !e.shiftKey && !e.ctrlKey && !e.metaKey;
+    choose(i, e.shiftKey ? "range" : plain ? "only" : "toggle");
+    if (plain) relay.inspectorOpen = true;
     list?.focus();
   }
 
@@ -98,7 +100,10 @@
       if (relay.canEdit && addKey) openMenu("add", addKey);
     } else if (e.key === "Enter") {
       e.preventDefault();
-      if (relay.selected >= 0) onenter?.();
+      if (relay.selected >= 0) {
+        relay.inspectorOpen = true;
+        onenter?.();
+      }
     } else if (e.key === "Escape" && relay.selection.length > 1) {
       e.preventDefault();
       relay.select([relay.selected]);

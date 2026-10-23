@@ -47,6 +47,7 @@
   function showPlayOptions() {
     relay.inspector = "macro";
     relay.macroSection = "play";
+    relay.inspectorOpen = true;
   }
 </script>
 

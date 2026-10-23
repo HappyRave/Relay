@@ -175,6 +175,8 @@ export class RelayStore {
   inspector = $state<"step" | "macro">("step");
   /** The Macro tab's open section. */
   macroSection = $state<"play" | "triggers">("play");
+  /** In a narrow window, the inspector slides over the list: it's open. */
+  inspectorOpen = $state(false);
   /** The view (preview and timeline) is open. It opens closed for a macro without mouse steps. */
   viewOpen = $state(true);
   /** The step the last run stopped on (a pixel check that timed out), or -1. */
@@ -439,6 +441,7 @@ export class RelayStore {
     if (e.ctrlKey && !e.altKey && !e.shiftKey && key === "m" && this.place === "macro") {
       e.preventDefault();
       this.inspector = "macro";
+      this.inspectorOpen = true;
       return;
     }
     if (e.altKey && !e.ctrlKey && !e.shiftKey && e.key === "ArrowLeft" && !typing) {
@@ -630,6 +633,7 @@ export class RelayStore {
     this.selection = [];
     this.failedStep = -1;
     this.inspector = "step";
+    this.inspectorOpen = false;
     this.viewOpen = view.steps.some((s) => POINTER.includes(s.kind));
     this.triggerStatus = null; // the old macro's triggers mustn't be edited into this one
     this.dataFile = null;
