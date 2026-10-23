@@ -118,14 +118,15 @@ impl Default for Hotkeys {
 struct Reported(HashSet<(RelayKey, String)>);
 
 impl Reported {
-    /// The messages for the failures (a key, its combo, why) not reported before.
-    fn new_failures(&mut self, failed: Vec<(RelayKey, String, String)>) -> Vec<String> {
+    /// The messages for the failures (a key and its combo) not reported
+    /// before. Registering fails when another program has the combination.
+    fn new_failures(&mut self, failed: Vec<(RelayKey, String)>) -> Vec<String> {
         failed
             .into_iter()
-            .filter(|(k, combo, _)| self.0.insert((*k, combo.clone())))
-            .map(|(k, combo, e)| {
+            .filter(|(k, combo)| self.0.insert((*k, combo.clone())))
+            .map(|(k, combo)| {
                 format!(
-                    "Couldn't register Relay's “{}” key, {combo}: {e}. Choose another in Settings → Keys.",
+                    "Another program uses {combo}, so Relay's “{}” key doesn't work. Choose another in Settings → Keys.",
                     k.name()
                 )
             })
@@ -200,7 +201,8 @@ fn register<R: Runtime>(app: &AppHandle<R>) {
     let mut failed = Vec::new();
     for (k, s) in shortcuts(&keys).into_iter().filter(|(k, _)| actions(wanted).contains(k)) {
         if let Err(e) = gs.register(s) {
-            failed.push((k, keys.get(k).unwrap_or_default().to_owned(), e.to_string()));
+            tracing::warn!("couldn't register the {k:?} key: {e}");
+            failed.push((k, keys.get(k).unwrap_or_default().to_owned()));
         }
     }
     let mut registered = HashMap::new();
@@ -393,21 +395,19 @@ mod tests {
     #[test]
     fn an_own_hotkey_that_fails_is_reported_once_per_run() {
         let mut r = Reported::default();
-        let taken = || (RelayKey::Record, "F9".to_string(), "HotKey already registered".to_string());
+        let taken = || (RelayKey::Record, "F9".to_string());
         assert_eq!(
             r.new_failures(vec![taken()]),
-            [
-                "Couldn't register Relay's “Record” key, F9: HotKey already registered. Choose another in Settings → Keys."
-            ]
+            ["Another program uses F9, so Relay's “Record” key doesn't work. Choose another in Settings → Keys."]
         );
         // Every session change registers again: the same failure isn't repeated.
         assert!(r.new_failures(vec![taken()]).is_empty());
         assert!(r.new_failures(vec![]).is_empty());
         assert!(r.new_failures(vec![taken()]).is_empty(), "not even after it once worked");
         // Another key failing, or the same one set to another combination, is news.
-        let play = (RelayKey::Play, "F10".to_string(), "taken".to_string());
+        let play = (RelayKey::Play, "F10".to_string());
         assert_eq!(r.new_failures(vec![taken(), play]).len(), 1);
-        let again = (RelayKey::Record, "Ctrl + F9".to_string(), "taken".to_string());
+        let again = (RelayKey::Record, "Ctrl + F9".to_string());
         assert_eq!(r.new_failures(vec![again]).len(), 1);
     }
 

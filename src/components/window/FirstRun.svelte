@@ -136,10 +136,10 @@
     </div>
     <div class="art" aria-hidden="true">
       {#if step === 1}
-        <div class="caps">
+        <div class="art-keys">
           {#each shown as combo, i (i)}
-            {#if combo}<span class="row">{#each combo.split(" + ") as k (k)}<span class="cap">{k}</span>{/each}</span>{:else}<span class="row none">None</span>{/if}
-            <span class="what">{i ? "play" : "record"}</span>
+            {#if combo}<span class="row">{#each combo.split(" + ") as k (k)}<span class="art-key">{k}</span>{/each}</span>{:else}<span class="row none">None</span>{/if}
+            <span class="art-label">{i ? "play" : "record"}</span>
           {/each}
         </div>
       {:else}
@@ -324,7 +324,7 @@
   .art svg {
     max-height: 88%;
   }
-  .caps {
+  .art-keys {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -335,7 +335,7 @@
     display: flex;
     gap: 8px;
   }
-  .cap {
+  .art-key {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -355,7 +355,7 @@
     font-size: 16px;
     color: var(--alu-400);
   }
-  .what {
+  .art-label {
     margin-bottom: 8px;
     font-size: 13px;
     color: var(--alu-400);
