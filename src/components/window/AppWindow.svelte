@@ -36,7 +36,7 @@
     box-sizing: border-box;
     width: 100%;
     height: 100%;
-    padding: var(--gap);
+    padding: var(--edge);
     color: var(--text);
     background: var(--glass);
     font-family: var(--font);
