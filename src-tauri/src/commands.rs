@@ -622,7 +622,6 @@ pub fn save_panes(state: State<'_, crate::window_ctl::WindowState>, panes: crate
     state.set_panes(panes);
 }
 
-
 /// The close button: like closing the window (see `window_ctl::close_or_hide`).
 #[tauri::command]
 pub fn hide_to_tray(window: tauri::WebviewWindow) {

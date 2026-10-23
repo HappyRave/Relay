@@ -348,7 +348,6 @@ pub fn fit_css(prefs: &WindowPrefs, css: (f64, f64), expanded: bool) -> (f64, f6
     if expanded { expanded_size(prefs) } else { css }
 }
 
-
 /// Tracks the editor's size while the user resizes it; saved shortly after it
 /// stops. Sizes Relay sets itself, and the move loop's own after a scale
 /// change, aren't the user's.
