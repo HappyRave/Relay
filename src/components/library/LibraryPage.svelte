@@ -39,7 +39,7 @@
         aria-label="Switch to the player"
         aria-keyshortcuts="Control+Shift+M"
         title="Switch to the player (Ctrl + Shift + M)"
-        onclick={() => (relay.expanded = false)}><Icon name="collapse" /></Key
+        onclick={() => relay.setPlayerMode(true)}><Icon name="collapse" /></Key
       >
       <Key size="sm" onclick={() => relay.go("settings")}><Icon name="sliders" />Settings</Key>
     {/snippet}

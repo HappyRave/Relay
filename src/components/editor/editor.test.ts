@@ -22,7 +22,7 @@ describe("the top bar", () => {
     render(EditorBar);
     await userEvent.click(button("Back to the Library"));
     expect(relay.place).toBe("library");
-    core.emit({ type: "session", mode: "playing", macro_id: A });
+    core.emit({ type: "session", mode: "playing", macro_id: A, source: null });
     await settle();
     expect(button("Back to the Library")).toBeDisabled();
   });
@@ -78,10 +78,10 @@ describe("the top bar", () => {
     render(EditorBar);
     await userEvent.click(button("Record a new macro"));
     expect(core.commands()).toEqual(["toggle_record"]);
-    core.emit({ type: "session", mode: "recording", macro_id: null });
+    core.emit({ type: "session", mode: "recording", macro_id: null, source: null });
     await settle();
     expect(button("Stop recording")).toBeInTheDocument();
-    core.emit({ type: "session", mode: "playing", macro_id: A });
+    core.emit({ type: "session", mode: "playing", macro_id: A, source: null });
     await settle();
     expect(screen.getByRole("button", { name: /record/i })).toBeDisabled();
   });
@@ -91,7 +91,7 @@ describe("the top bar", () => {
     render(EditorBar);
     await userEvent.click(button("Play"));
     expect(core.lastArgs("toggle_play")).toEqual({ from: 1500 });
-    core.emit({ type: "session", mode: "playing", macro_id: A });
+    core.emit({ type: "session", mode: "playing", macro_id: A, source: null });
     await settle();
     expect(button("Pause")).toHaveAttribute("title", "Pause (F10)");
     await userEvent.click(button("Stop"));
@@ -142,7 +142,18 @@ describe("the top bar", () => {
   test("the player key switches to the player", async () => {
     render(EditorBar);
     await userEvent.click(button("Switch to the player"));
-    expect(relay.expanded).toBe(false);
+    await settle();
+    expect(core.lastArgs("set_player_mode")).toEqual({ on: true });
+    expect(relay.playerMode).toBe(true);
+  });
+
+  test("while a trigger plays another macro, this one's Play is off and it isn't drawn as playing", async () => {
+    render(EditorBar);
+    core.emit({ type: "session", mode: "playing", macro_id: "00000000-0000-0000-0000-000000000003", source: "schedule" });
+    await settle();
+    expect(button("Play")).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Pause" })).toBeNull();
   });
 });
 
@@ -296,7 +307,7 @@ describe("the steps list", () => {
 
   test("while recording, the live steps, and nothing can be added", async () => {
     render(StepList);
-    core.emit({ type: "session", mode: "recording", macro_id: null });
+    core.emit({ type: "session", mode: "recording", macro_id: null, source: null });
     await settle();
     expect(button("Add")).toBeDisabled();
     expect(screen.getByText("No steps yet")).toBeInTheDocument();
@@ -308,7 +319,7 @@ describe("the steps list", () => {
 
   test.each(["paused", "countdown"] as const)("nothing can be added while %s", async (mode) => {
     render(StepList);
-    core.emit({ type: "session", mode, macro_id: A });
+    core.emit({ type: "session", mode, macro_id: A, source: null });
     await settle();
     expect(button("Add")).toBeDisabled();
   });
@@ -327,7 +338,7 @@ describe("the steps list", () => {
 
   test("while a session runs, nothing can be added", async () => {
     render(StepList);
-    core.emit({ type: "session", mode: "playing", macro_id: A });
+    core.emit({ type: "session", mode: "playing", macro_id: A, source: null });
     await settle();
     expect(button("Add")).toBeDisabled();
     expect(screen.queryByText("+ insert here")).toBeNull();

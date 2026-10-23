@@ -281,7 +281,7 @@ describe("the macros", () => {
 
   test("during a session, nothing changes the Library", async () => {
     render(LibraryPage);
-    core.emit({ type: "session", mode: "playing", macro_id: A });
+    core.emit({ type: "session", mode: "playing", macro_id: A, source: null });
     await settle();
     expect(nav(/Import/)).toBeDisabled();
     await userEvent.click(button("More for Fill weekly timesheet"));
@@ -305,7 +305,8 @@ describe("the macros", () => {
     await userEvent.click(button("Settings"));
     expect(relay.place).toBe("settings");
     await userEvent.click(button("Switch to the player"));
-    expect(relay.expanded).toBe(false);
+    await settle();
+    expect(core.lastArgs("set_player_mode")).toEqual({ on: true });
   });
 
   test("the browser preview can't change the Library", async () => {

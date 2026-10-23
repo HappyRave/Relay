@@ -1,6 +1,6 @@
-// The native window, managed by Rust (placement, zoom, the tray). Everything
-// is a no-op in a plain browser (`npm run dev`), where the widget renders on
-// a demo desktop instead.
+// Relay's native windows, managed by Rust (placement, zoom, the tray, which
+// one shows). Everything is a no-op in a plain browser (`npm run dev`), where
+// the window renders on a demo desktop instead.
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Panes } from "../ipc/bindings/Panes";
@@ -9,22 +9,25 @@ import { NO_PANES } from "../layout";
 
 export const isTauri = (): boolean => "__TAURI_INTERNALS__" in window;
 
-/**
- * Tells Rust the compact player's size in CSS px. Rust keeps the
- * bottom-center where it was, keeps the widget inside the monitor's work
- * area, zooms it down on small screens and remembers the mode.
- */
-export async function fitWindow(width: number, height: number, expanded: boolean): Promise<void> {
-  if (isTauri()) await invoke("fit_window", { width, height, expanded });
+/** Which of Relay's windows this page is in: the main window or the player. */
+export function windowLabel(): "main" | "player" {
+  return isTauri() && getCurrentWindow().label === "player" ? "player" : "main";
 }
 
-/** Switches the window to the editor, whose size is Rust's (the user's, or the default). */
-export const fitEditor = () => fitWindow(0, 0, true);
-
-/** Whether the widget was expanded last time (defaults to expanded), and where the editor's divider was. */
+/** Whether the player stood in for the window last time, and where the editor's divider was. */
 export async function savedWindow(): Promise<WindowPrefsView> {
-  if (!isTauri()) return { expanded: true, panes: NO_PANES };
+  if (!isTauri()) return { player_mode: false, panes: NO_PANES };
   return invoke<WindowPrefsView>("window_prefs");
+}
+
+/** The player takes the window's place (or gives it back). Rust tells both windows. */
+export async function setPlayerMode(on: boolean): Promise<void> {
+  if (isTauri()) await invoke("set_player_mode", { on });
+}
+
+/** The player's expand key: the window, on the player's macro. */
+export async function showWindow(): Promise<void> {
+  if (isTauri()) await invoke("show_window");
 }
 
 /** Saves where the user put the editor's divider (window.json). */

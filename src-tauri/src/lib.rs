@@ -182,6 +182,10 @@ pub fn run() {
             // Managed before the window moves, since moving it raises events that read it.
             app.manage(window_ctl::WindowState::open(&dir));
             let window_state = app.state::<window_ctl::WindowState>();
+            // The windows come once everything their first commands read is managed.
+            for config in app.config().app.windows.clone() {
+                tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?.build()?;
+            }
             let system_look = look::SystemLook::read();
             app.manage(Mutex::new(system_look));
             let settings = app.state::<Mutex<settings::SettingsStore>>().lock().current.clone();

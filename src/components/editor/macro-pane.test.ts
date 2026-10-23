@@ -99,7 +99,7 @@ describe("play options", () => {
 
   test("they can change while it plays", async () => {
     render(MacroPane);
-    core.emit({ type: "session", mode: "playing", macro_id: A });
+    core.emit({ type: "session", mode: "playing", macro_id: A, source: null });
     await settle();
     await userEvent.click(screen.getByRole("radio", { name: "4×" }));
     await settle();

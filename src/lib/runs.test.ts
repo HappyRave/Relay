@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { RunEntry } from "./ipc/bindings/RunEntry";
 import type { CheckResult } from "./ipc/bindings/CheckResult";
-import { checkLabel, failed, fmtDuration, fmtRunTime, outcomeLabel, runSettings, sourceLabel } from "./runs";
+import { checkLabel, failed, fmtDuration, fmtRunTime, outcomeLabel, runningText, runSettings, sourceLabel } from "./runs";
 
 const entry = (over: Partial<RunEntry> = {}): RunEntry => ({
   at: "2026-09-24T09:12:00Z",
@@ -37,6 +37,16 @@ describe("run history labels", () => {
       "App launch",
       "Pixel trigger",
       "Image trigger",
+    ]);
+  });
+
+  it("says what a trigger started", () => {
+    expect(runningText("Fill weekly timesheet", "schedule")).toBe("Running “Fill weekly timesheet”, started by its schedule");
+    expect(["hotkey", "app_launch", "pixel", "image"].map((s) => runningText("X", s as never))).toEqual([
+      "Running “X”, started by its hotkey",
+      "Running “X”, started by its app trigger",
+      "Running “X”, started by its pixel trigger",
+      "Running “X”, started by its image trigger",
     ]);
   });
 

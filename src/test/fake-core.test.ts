@@ -511,20 +511,48 @@ describe("the window, like window_ctl.rs", () => {
     expect(core.window.panes).toEqual({ inspector_w: null });
   });
 
-  test("fit_window remembers the mode, as window_ctl::fit does, and checks its arguments", async () => {
-    await invoke("fit_window", { width: 604, height: 68, expanded: false });
-    expect((await invoke<{ expanded: boolean }>("window_prefs")).expanded).toBe(false);
-    await invoke("fit_window", { width: 0, height: 0, expanded: true });
-    expect((await invoke<{ expanded: boolean }>("window_prefs")).expanded).toBe(true);
-    await expect(invoke("fit_window", { width: 604, height: 68 })).rejects.toMatch(/invalid args `expanded`/);
-    expect(() => core.fail("fit_window")).toThrow();
+  test("player mode is saved and both windows hear, as presence::set_player_mode does", async () => {
+    await invoke("set_player_mode", { on: true });
+    expect((await invoke<{ player_mode: boolean }>("window_prefs")).player_mode).toBe(true);
+    expect(got).toEqual([{ type: "player_mode", on: true }]);
+    await expect(invoke("set_player_mode", {})).rejects.toMatch(/invalid args `on`/);
+    expect(() => core.fail("set_player_mode")).toThrow();
+  });
+
+  test("the player's expand key opens the current macro in the window, and leaves player mode", async () => {
+    core.window.player_mode = true;
+    await invoke("show_window");
+    // Nothing to open before a macro is current.
+    expect(got).toEqual([{ type: "player_mode", on: false }]);
+    await b.loadMacro(B);
+    got = [];
+    await invoke("show_window");
+    expect(got).toEqual([
+      { type: "open", macro_id: B },
+      { type: "player_mode", on: false },
+    ]);
+    expect(core.window.player_mode).toBe(false);
+  });
+
+  test("opening a macro makes it current while Relay is idle, as the coordinator's Select does", async () => {
+    expect(await invoke("current_macro")).toBeNull();
+    await b.loadMacro(B);
+    expect(await invoke("current_macro")).toBe(B);
+    expect(got).toEqual([{ type: "current", macro_id: B, by: "main" }]);
+    await b.loadMacro(B);
+    expect(got).toHaveLength(1); // the same macro again changes nothing
+    core.emit({ type: "session", mode: "playing", macro_id: B, source: null });
+    got = [];
+    await b.loadMacro(C);
+    expect(await invoke("current_macro")).toBe(B); // not during a session
+    expect(got).toEqual([]);
   });
 });
 
 describe("the busy guard", () => {
   test("deletes, edits and undo are refused during a session, as the session messages say", async () => {
     await edit({ op: "delete_step", index: 0 });
-    core.emit({ type: "session", mode: "playing", macro_id: A });
+    core.emit({ type: "session", mode: "playing", macro_id: A, source: null });
     const busy = { code: "busy", message: "Stop the recording or playback first" };
     await expect(b.deleteMacro(B)).rejects.toEqual(busy);
     await expect(edit({ op: "delete_step", index: 0 })).rejects.toEqual(busy);

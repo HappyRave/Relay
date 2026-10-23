@@ -91,7 +91,9 @@ const INFALLIBLE = new Set([
   "list_processes",
   "get_autostart",
   "window_prefs",
-  "fit_window",
+  "set_player_mode",
+  "show_window",
+  "current_macro",
   "hide_to_tray",
   "quit",
   "screenshot",
@@ -153,8 +155,12 @@ export class FakeCore {
   images = new Map<string, string | IpcError>();
   /** What `test_find_image` finds. */
   found: FoundImage | null = null;
-  /** window.json as Rust holds it: the mode and the editor's dividers (the size isn't the page's to see). */
-  window: { expanded: boolean; panes: Panes } = { expanded: true, panes: { inspector_w: null } };
+  /** window.json as Rust holds it: player mode and the editor's dividers (the size isn't the page's to see). */
+  window: { player_mode: boolean; panes: Panes } = { player_mode: false, panes: { inspector_w: null } };
+  /** The macro Relay's play key and the player play (the coordinator's `current`). */
+  current: string | null = null;
+  /** The window the page is in. */
+  label: "main" | "player" = "main";
   private channel: Channel<EngineMsg> | null = null;
   /** Errors and notices sent before the UI subscribed, delivered when it does. */
   private queued: EngineMsg[] = [];
@@ -204,7 +210,8 @@ export class FakeCore {
     this.snip = null;
     this.images = new Map();
     this.found = null;
-    this.window = { expanded: true, panes: { inspector_w: null } };
+    this.window = { player_mode: false, panes: { inspector_w: null } };
+    this.current = null;
     this.channel = null;
     this.queued = [];
     this.failures = new Map();
@@ -213,9 +220,10 @@ export class FakeCore {
     this.held = [];
   }
 
-  /** Routes the webview's IPC here (the app's window is "main"). */
-  install() {
-    mockWindows("main");
+  /** Routes the webview's IPC here, as in Relay's window `label`. */
+  install(label: "main" | "player" = "main") {
+    this.label = label;
+    mockWindows(label);
     mockIPC((cmd, args) => this.handle(cmd, (args ?? {}) as Record<string, unknown>));
   }
 
@@ -256,6 +264,11 @@ export class FakeCore {
    * errors and notices are queued (Rust delivers them on subscribe); anything
    * else is a mistake in the test.
    */
+  /** What Rust sends on its own (a command's side effect): nobody hears it before the UI subscribes. */
+  private tell(msg: EngineMsg) {
+    if (this.channel) this.emit(msg);
+  }
+
   emit(msg: EngineMsg) {
     if (msg.type === "session") this.mode = msg.mode;
     if (!this.channel) {
@@ -349,13 +362,19 @@ export class FakeCore {
       case "plugin:window|start_dragging":
       case "plugin:window|minimize":
         return null;
-      case "fit_window":
-        check("width", a.width, "f64");
-        check("height", a.height, "f64");
-        check("expanded", a.expanded, "bool");
-        // window_ctl::fit remembers the mode, for the next start.
-        this.window.expanded = a.expanded as boolean;
+      case "set_player_mode":
+        check("on", a.on, "bool");
+        // presence::set_player_mode saves it and tells both windows.
+        this.window.player_mode = a.on as boolean;
+        this.tell({ type: "player_mode", on: a.on as boolean });
         return null;
+      case "show_window":
+        if (this.current) this.tell({ type: "open", macro_id: this.current });
+        this.window.player_mode = false;
+        this.tell({ type: "player_mode", on: false });
+        return null;
+      case "current_macro":
+        return this.current;
       case "list_runs":
         return structuredClone(this.runLog);
       case "window_prefs":
@@ -370,8 +389,15 @@ export class FakeCore {
       }
       case "list_macros":
         return this.list();
-      case "load_macro":
-        return this.withHistory(this.entry(id));
+      case "load_macro": {
+        const e = this.entry(id);
+        // The coordinator's Select: the macro becomes current while Relay is idle, and both windows hear.
+        if (this.mode === "idle" && this.current !== id) {
+          this.current = id;
+          this.tell({ type: "current", macro_id: id, by: this.label });
+        }
+        return this.withHistory(e);
+      }
       case "screenshot": {
         // Raw bytes, as a Tauri `Response` arrives: empty when there's none (never an error).
         check("id", id, "string");

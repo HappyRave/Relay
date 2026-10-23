@@ -31,10 +31,11 @@ import type { FoundImage } from "../ipc/bindings/FoundImage";
 import type { TimingStats } from "../ipc/bindings/TimingStats";
 import type { FinishReason } from "../ipc/bindings/FinishReason";
 import type { RunEntry } from "../ipc/bindings/RunEntry";
+import type { RunSource } from "../ipc/bindings/RunSource";
 import type { DataFileInfo } from "../ipc/bindings/DataFileInfo";
 import { backend as defaultBackend, type Backend, type IpcError } from "../ipc/backend";
 import { DEFAULT_LOOK, DEFAULT_PLAYBACK, DEFAULT_SETTINGS } from "../defaults";
-import { isTauri, savePanes, savedWindow } from "../platform/window";
+import { isTauri, savePanes, savedWindow, setPlayerMode, showWindow } from "../platform/window";
 import { NO_PANES } from "../layout";
 import { nextRepeat, nextSpeed } from "../transport";
 import type { Panes } from "../ipc/bindings/Panes";
@@ -109,8 +110,13 @@ export class RelayStore {
   loopIdx = $state(0);
   /** The loops (null: forever) and speed of the playback running, from its ticks; null before the first. */
   playInfo = $state.raw<{ loops: number | null; speed: number } | null>(null);
+  /** The macro playing, and what started it; null when nothing plays. */
+  playingId = $state<string | null>(null);
+  runSource = $state<RunSource | null>(null);
   /** How and with what timing the last playback ended (for diagnostics and the end-to-end tests). */
   lastFinish: FinishReason | null = null;
+  /** Counts the open macro's playbacks that ended, so the player can flash or shake for each. */
+  finishes = $state(0);
   lastTiming: TimingStats | null = null;
 
   // — data (from commands) —
@@ -137,9 +143,12 @@ export class RelayStore {
   runs = $state.raw<RunEntry[]>([]);
 
   // — UI —
-  /** False until the saved window mode is known (so the widget never flashes the wrong size). */
+  /** Which of Relay's windows this store is in: the main window, or the player. */
+  role: "main" | "player" = "main";
+  /** False until the saved window state is known. */
   ready = $state(false);
-  expanded = $state(true);
+  /** The player stands in for the window. */
+  playerMode = $state(false);
   /** Where the user put the editor's dividers (null: the default); the layout keeps them inside the window. */
   panes = $state.raw<Panes>(NO_PANES);
   place = $state<Place>("library");
@@ -223,6 +232,10 @@ export class RelayStore {
   // — derived —
   recording = $derived(this.mode === "recording" || this.mode === "countdown");
   playing = $derived(this.mode === "playing" || this.mode === "paused");
+  /** The open macro is the one playing. */
+  playingHere = $derived(this.playing && (this.playingId == null || this.playingId === this.view?.id));
+  /** Another macro plays (a trigger started it): the open one's Play is off, and it isn't drawn as playing. */
+  playingElsewhere = $derived(this.playing && !this.playingHere);
   name = $derived(this.view?.name ?? "");
   playback: PlaybackOptions = $derived(this.view?.playback ?? DEFAULT_PLAYBACK);
   loops = $derived(this.playback.repeat === "forever" ? Infinity : this.playback.repeat.count);
@@ -280,8 +293,8 @@ export class RelayStore {
   // — lifecycle —
 
   async init() {
-    const saved = await savedWindow().catch(() => ({ expanded: true, panes: NO_PANES }));
-    this.expanded = saved.expanded;
+    const saved = await savedWindow().catch(() => ({ player_mode: false, panes: NO_PANES }));
+    this.playerMode = saved.player_mode;
     this.panes = saved.panes;
     this.ready = true;
     await this.run(this.backend.subscribe(this.onEngine));
@@ -289,6 +302,12 @@ export class RelayStore {
     this.settingsSaves.saved = this.settings;
     this.systemLook = (await this.run(this.backend.systemLook())) ?? this.systemLook;
     await this.refreshLibrary();
+    if (this.role === "player") {
+      // The player shows the macro the window has open (or the first, before it opens one).
+      const id = (await this.run(this.backend.currentMacro())) ?? this.library[0]?.id;
+      if (id) await this.loadMacro(id);
+      return;
+    }
     await this.refreshRuns();
     if (this.library[0]) await this.loadMacro(this.library[0].id);
     // The Library is home, unless there's only one macro to go to.
@@ -343,8 +362,15 @@ export class RelayStore {
     switch (msg.type) {
       case "session": {
         const mode = msg.mode;
-        // A trigger started another macro: show the one that's playing.
-        if (mode === "playing" && msg.macro_id && msg.macro_id !== this.view?.id) this.showMacro(msg.macro_id);
+        const live = mode === "playing" || mode === "paused";
+        this.playingId = live ? msg.macro_id : null;
+        this.runSource = live ? msg.source : null;
+        // The player shows the macro that plays; the window keeps its own, and
+        // drops the run's first tick (it comes before this message).
+        if (live && msg.macro_id && msg.macro_id !== this.view?.id) {
+          if (this.role === "player") this.showMacro(msg.macro_id);
+          else this.tick.advancing = false;
+        }
         if (mode === "recording") {
           this.recMoves = [];
           this.recSteps = [];
@@ -353,7 +379,7 @@ export class RelayStore {
           this.tick = { t: 0, at: now, speed: 1, advancing: true };
         }
         if (mode === "countdown") this.cur = 0;
-        if (mode === "playing") this.failedStep = -1;
+        if (mode === "playing" && (!msg.macro_id || msg.macro_id === this.view?.id)) this.failedStep = -1;
         if (mode === "idle") {
           this.tick.advancing = false;
           this.playInfo = null;
@@ -380,6 +406,7 @@ export class RelayStore {
         this.tick = { t: msg.elapsed_ms, at: now, speed: 1, advancing: true };
         break;
       case "play_tick":
+        if (this.playingElsewhere) break;
         this.tick = { t: msg.t, at: now, speed: msg.speed, advancing: msg.advancing };
         this.loopIdx = msg.loop_idx;
         if (this.playInfo?.loops !== msg.loops || this.playInfo?.speed !== msg.speed) {
@@ -391,9 +418,11 @@ export class RelayStore {
         // The playhead stays where this leaves it: a frame before the session's
         // idle message mustn't carry on from the last tick.
         this.tick.advancing = false;
-        this.loopIdx = 0;
         this.lastFinish = msg.reason;
         if (msg.timing) this.lastTiming = msg.timing;
+        if (this.playingElsewhere) break;
+        this.finishes++;
+        this.loopIdx = 0;
         // Any stop rewinds (Stop, Esc, a key press, the kill switch). A completed run stays at
         // the end, and a timed-out pixel check stays on its step so the row is highlighted.
         if (msg.reason !== "completed" && msg.reason !== "pixel_timeout") this.cur = 0;
@@ -416,8 +445,17 @@ export class RelayStore {
       case "triggers_paused":
         this.triggersPaused = this.pauseSaves.saved = msg.paused;
         break;
-      case "toggle_compact":
-        this.expanded = !this.expanded;
+      case "current":
+        // Opened in the other window, or by Relay: this one follows, so Play plays what it shows.
+        if (msg.by !== this.role && this.mode === "idle" && msg.macro_id && msg.macro_id !== this.view?.id) {
+          this.showMacro(msg.macro_id);
+        }
+        break;
+      case "open":
+        if (this.role === "main") this.openMacro(msg.macro_id);
+        break;
+      case "player_mode":
+        this.playerMode = msg.on;
         break;
       case "error":
         this.fail({ code: msg.type, message: msg.message });
@@ -472,7 +510,7 @@ export class RelayStore {
       this.togglePlay();
     } else if (e.ctrlKey && e.shiftKey && key === "m") {
       e.preventDefault();
-      this.expanded = !this.expanded;
+      this.setPlayerMode(!this.playerMode);
     }
   };
 
@@ -553,6 +591,19 @@ export class RelayStore {
   };
 
   stop = () => this.run(this.backend.stop());
+
+  /** The player takes the window's place, or gives it back (in the browser preview, on its demo desktop). */
+  setPlayerMode = async (on: boolean) => {
+    if (!isTauri()) this.playerMode = on;
+    await this.run(setPlayerMode(on));
+  };
+
+  /** The player's expand key: the window, on the player's macro. */
+  openWindow = async () => {
+    if (isTauri()) return void (await this.run(showWindow()));
+    this.playerMode = false;
+    if (this.view) this.place = "macro";
+  };
 
   /** Moves the playhead now; the engine hears about it at most once per frame. */
   seek = (t: number) => {

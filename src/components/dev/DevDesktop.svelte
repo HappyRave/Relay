@@ -1,12 +1,17 @@
 <script lang="ts">
   // The prototype's demo desktop, used when the UI runs in a plain browser
-  // (`npm run dev`). In Tauri the window contains only the widget.
-  import Widget from "../Widget.svelte";
+  // (`npm run dev`): the window on it, or the player in player mode. In Tauri
+  // each is a window of its own.
+  import AppWindow from "../window/AppWindow.svelte";
+  import Player from "../player/Player.svelte";
   import { devDesktop } from "../../lib/dev/devDesktop.svelte";
+  import { relay } from "../../lib/state/relay.svelte";
 
   let vw = $state(window.innerWidth);
   let vh = $state(window.innerHeight);
-  let size = $state({ w: 944, h: 612 });
+  const size = $derived(
+    !relay.playerMode ? { w: 944, h: 612 } : relay.settings.player_size === "large" ? { w: 760, h: 88 } : { w: 600, h: 64 },
+  );
   let now = $state(new Date());
 
   $effect(() => {
@@ -44,10 +49,8 @@
     class="host"
     style:bottom="{bottom}px"
     style:transform="translate(calc(-50% + {devDesktop.dx}px), {devDesktop.dy}px) scale({scale})"
-    style:--widget-w="944px"
-    style:--widget-h="612px"
   >
-    <Widget onresize={(w, h) => (size = { w, h })} />
+    {#if relay.playerMode}<Player />{:else}<div class="window"><AppWindow /></div>{/if}
   </div>
 </div>
 
@@ -139,7 +142,11 @@
     box-shadow: var(--shadow-lg);
     line-height: 0;
   }
-  .host :global(.widget) {
+  .host > :global(*) {
     line-height: 1.55;
+  }
+  .window {
+    width: 944px;
+    height: 612px;
   }
 </style>

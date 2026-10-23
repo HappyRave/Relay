@@ -379,11 +379,11 @@ describe("the Step tab", () => {
   test("while playing, the step playing; fields are off, and it says why", async () => {
     await open(1);
     relay.seek(relay.steps[4].t + 10);
-    core.emit({ type: "session", mode: "playing", macro_id: A });
+    core.emit({ type: "session", mode: "playing", macro_id: A, source: null });
     await settle();
     expect(screen.getByText("Now · step 3 of 12")).toBeInTheDocument();
     expect(screen.getByText(/Stop playback to edit steps/)).toBeInTheDocument();
-    core.emit({ type: "session", mode: "idle", macro_id: A });
+    core.emit({ type: "session", mode: "idle", macro_id: A, source: null });
     await settle();
     expect(within(document.body).queryByText(/Stop playback/)).toBeNull();
   });

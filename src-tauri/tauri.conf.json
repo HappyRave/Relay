@@ -24,7 +24,8 @@
         "maximizable": false,
         "shadow": true,
         "skipTaskbar": false,
-        "visible": false
+        "visible": false,
+        "create": false
       },
       {
         "label": "player",
@@ -40,7 +41,8 @@
         "shadow": true,
         "skipTaskbar": true,
         "focus": false,
-        "visible": false
+        "visible": false,
+        "create": false
       }
     ],
     "security": {

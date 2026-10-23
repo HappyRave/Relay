@@ -17,6 +17,7 @@ const session = (mode: "idle" | "countdown" | "recording" | "playing" | "paused"
   type: "session",
   mode,
   macro_id,
+  source: null,
 });
 const key = (k: string, init: KeyboardEventInit = {}, target: EventTarget = window) =>
   target.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, ...init }));
@@ -78,13 +79,12 @@ describe("startup", () => {
     expect(r.systemLook).toEqual({ glass_default: false, transparency: false });
   });
 
-  test("opens in the mode the widget was left in", async () => {
+  test("knows whether the player stood in for the window last time", async () => {
     core.reset();
-    core.window.expanded = false;
     const r = await freshStore({ init: false });
-    core.window.expanded = false;
+    core.window.player_mode = true;
     await r.init();
-    expect(r.expanded).toBe(false);
+    expect(r.playerMode).toBe(true);
   });
 
   test("an error Rust reported before the UI subscribed is shown, and the rest still loads", async () => {
@@ -358,11 +358,65 @@ describe("engine messages", () => {
     expect(relay.cur).toBe(3456);
   });
 
-  test("a playback started by a trigger opens its macro", async () => {
-    core.emit(session("playing", D));
+  test("a playback a trigger started on another macro: the window keeps its macro, and doesn't follow the run", async () => {
+    relay.start();
+    relay.cur = 1200;
+    // The engine's first tick comes before the session message.
+    core.emit({ type: "play_tick", t: 5, advancing: true, speed: 1, loop_idx: 0, loops: 3 });
+    core.emit({ type: "session", mode: "playing", macro_id: D, source: "schedule" });
+    await nextFrame();
+    await nextFrame();
+    core.emit({ type: "play_tick", t: 4000, advancing: false, speed: 1, loop_idx: 1, loops: 3 });
     await settle();
-    expect(core.argsOf("load_macro")).toEqual([{ id: D }]);
-    expect(relay.view?.id).toBe(D);
+    expect(core.argsOf("load_macro")).toEqual([]);
+    expect(relay.view?.id).toBe(A);
+    expect([relay.playingId, relay.runSource, relay.playingHere, relay.playingElsewhere]).toEqual([D, "schedule", false, true]);
+    expect([relay.cur, relay.loopIdx]).toEqual([1200, 0]);
+    core.emit({ type: "finished", reason: "pixel_timeout", timing: null });
+    core.emit(session("idle", D));
+    expect([relay.cur, relay.failedStep, relay.finishes]).toEqual([1200, -1, 0]);
+    expect([relay.playingId, relay.runSource]).toEqual([null, null]);
+  });
+
+  test("in the player, a playback of another macro shows that macro", async () => {
+    const r = await freshStore({ init: false });
+    r.role = "player";
+    await r.init();
+    core.emit({ type: "session", mode: "playing", macro_id: D, source: "hotkey" });
+    await settle();
+    expect(r.view?.id).toBe(D);
+    expect(r.playingHere).toBe(true);
+    r.dispose();
+  });
+
+  test("a macro opened in the other window, or by Relay, is opened here too while idle", async () => {
+    core.emit({ type: "current", macro_id: B, by: "player" });
+    await settle();
+    expect(relay.view?.id).toBe(B);
+    core.emit({ type: "current", macro_id: C, by: null });
+    await settle();
+    expect(relay.view?.id).toBe(C);
+    // This window's own, the one open, or during a session: nothing to do.
+    core.clearCalls();
+    core.emit({ type: "current", macro_id: D, by: "main" });
+    core.emit({ type: "current", macro_id: C, by: "player" });
+    core.emit(session("playing", C));
+    core.emit({ type: "current", macro_id: D, by: "player" });
+    await settle();
+    expect(core.argsOf("load_macro")).toEqual([]);
+  });
+
+  test("the window opens the macro the player asks for; the player doesn't", async () => {
+    core.emit({ type: "open", macro_id: C });
+    await settle();
+    expect([relay.place, relay.view?.id]).toEqual(["macro", C]);
+    const r = await freshStore({ init: false });
+    r.role = "player";
+    await r.init();
+    core.emit({ type: "open", macro_id: D });
+    await settle();
+    expect(r.view?.id).not.toBe(D);
+    r.dispose();
   });
 
   test.each([
@@ -422,11 +476,11 @@ describe("engine messages", () => {
     expect(relay.triggersPaused).toBe(false);
   });
 
-  test("Ctrl + Shift + M switches between compact and expanded", () => {
-    core.emit({ type: "toggle_compact" });
-    expect(relay.expanded).toBe(false);
-    core.emit({ type: "toggle_compact" });
-    expect(relay.expanded).toBe(true);
+  test("player mode follows Rust (Ctrl + Shift + M, or either window's key)", () => {
+    core.emit({ type: "player_mode", on: true });
+    expect(relay.playerMode).toBe(true);
+    core.emit({ type: "player_mode", on: false });
+    expect(relay.playerMode).toBe(false);
   });
 
   test("errors and notices become toasts", () => {
@@ -1676,7 +1730,7 @@ describe("keyboard", () => {
     key("m", { ctrlKey: true, shiftKey: true });
     await settle();
     expect(core.commands()).toEqual([]);
-    expect(relay.expanded).toBe(true);
+    expect(relay.playerMode).toBe(false);
   });
 
   test("dispose stops listening", async () => {
@@ -1719,7 +1773,7 @@ describe("the browser preview (npm run dev)", () => {
     expect(r.mode).toBe("idle");
   });
 
-  test("F9 starts the countdown and Ctrl + Shift + M toggles the compact player", async () => {
+  test("F9 starts the countdown and Ctrl + Shift + M toggles the player", async () => {
     key("F9");
     await settle();
     expect(r.mode).toBe("countdown");
@@ -1727,7 +1781,8 @@ describe("the browser preview (npm run dev)", () => {
     await settle();
     expect(r.mode).toBe("idle");
     key("M", { ctrlKey: true, shiftKey: true });
-    expect(r.expanded).toBe(false);
+    await settle();
+    expect(r.playerMode).toBe(true);
   });
 
   test("edits explain that they need the app", async () => {

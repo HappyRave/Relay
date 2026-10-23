@@ -46,7 +46,7 @@
   const first = $derived(row ? rowSteps(row)[0] : -1);
   const idle = $derived(relay.mode === "idle");
   const editing = $derived(relay.canEdit);
-  const playingHere = $derived((relay.mode === "playing" || relay.mode === "paused") && relay.curStepIdx >= 0);
+  const playingHere = $derived(relay.playingHere && relay.curStepIdx >= 0);
   const now = $derived(rows[rowOf(rows, relay.curStepIdx)] ?? null);
   const failed = $derived(row && relay.failedStep >= 0 && rowSteps(row).includes(relay.failedStep) ? step : null);
   const where = (x: number, y: number) =>

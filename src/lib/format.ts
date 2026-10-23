@@ -7,6 +7,12 @@ export function fmtTime(ms: number): string {
   return String(m).padStart(2, "0") + ":" + s.toFixed(2).padStart(5, "0");
 }
 
+/** mm:ss, whole seconds, for the player (`00:04`). */
+export function fmtClock(ms: number): string {
+  const s = Math.floor(Math.max(0, ms) / 1000);
+  return String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
+}
+
 /** "Déplacer fenêtre 3" → "déplacer-fenêtre-3", for export file names ("" when nothing is left). */
 export function slug(name: string): string {
   return name

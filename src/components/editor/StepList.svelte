@@ -34,7 +34,7 @@
       .filter((r) => rowMatches(r.text, query)),
   );
   const recording = $derived(relay.mode === "recording");
-  const playing = $derived(relay.mode === "playing" || relay.mode === "paused");
+  const playing = $derived(relay.playingHere);
   /** The row of the step under the playhead: the insertion line goes after it (-1: at the top). */
   const here = $derived(rowOf(rows, relay.curStepIdx));
   const inserting = $derived(relay.canEdit && !query);
@@ -213,7 +213,7 @@
         class="step {category(s.kind)}"
         class:cursor={row.index === relay.selected}
         class:played={playing && s.t <= relay.cur}
-        class:now={relay.mode === "playing" && rows[here] === row}
+        class:now={relay.mode === "playing" && relay.playingHere && rows[here] === row}
         class:failed
         id={idOf(row)}
         role="option"

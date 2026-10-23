@@ -1,9 +1,21 @@
 <script lang="ts">
-  // The one place errors and notices are shown: at the bottom of the side
-  // panel, or under the compact player, the newest at the bottom.
+  // The one place errors and notices are shown, at the bottom of the window,
+  // the newest at the bottom. A run a trigger started comes first, with Stop.
   import Icon from "../ui/Icon.svelte";
   import { relay } from "../../lib/state/relay.svelte";
+  import { runningText } from "../../lib/runs";
+
+  const source = $derived(relay.runSource && relay.runSource !== "manual" ? relay.runSource : null);
+  const running = $derived(relay.library.find((m) => m.id === relay.playingId)?.name ?? relay.name);
 </script>
+
+{#if source}
+  <div class="toast run" role="status">
+    <span class="rec-dot" aria-hidden="true"></span>
+    <span class="message">{runningText(running, source)}</span>
+    <button class="btn btn-ghost action" onclick={relay.stop}>Stop</button>
+  </div>
+{/if}
 
 {#each relay.shownToasts as t (t.id)}
   <div class="toast" class:error={t.kind === "error"} role={t.kind === "error" ? "alert" : "status"}>
@@ -25,6 +37,16 @@
     background: var(--color-text);
     color: var(--color-bg);
     font-size: 12px;
+  }
+  .toast.run {
+    border-top-color: var(--color-accent);
+  }
+  .rec-dot {
+    width: 10px;
+    height: 10px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--color-accent);
   }
   .toast.error {
     border-top-color: var(--color-accent);

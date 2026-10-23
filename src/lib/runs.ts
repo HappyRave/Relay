@@ -15,6 +15,17 @@ const SOURCES: Record<RunSource, string> = {
 
 export const sourceLabel = (s: RunSource) => SOURCES[s];
 
+const STARTED_BY: Record<Exclude<RunSource, "manual">, string> = {
+  hotkey: "its hotkey",
+  schedule: "its schedule",
+  app_launch: "its app trigger",
+  pixel: "its pixel trigger",
+  image: "its image trigger",
+};
+
+/** What the window says while a trigger's run plays: "Running “X”, started by its schedule". */
+export const runningText = (name: string, s: Exclude<RunSource, "manual">) => `Running “${name}”, started by ${STARTED_BY[s]}`;
+
 /** "Completed", "Stopped by a key", "Skipped: Relay was busy"… */
 export function outcomeLabel(e: RunEntry): string {
   const o = e.outcome;

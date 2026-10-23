@@ -34,6 +34,8 @@ export interface Backend {
   /** The run history, newest first. */
   listRuns(): Promise<RunEntry[]>;
   loadMacro(id: string): Promise<MacroView>;
+  /** The macro Relay's play key and the player play, or null before one is opened. */
+  currentMacro(): Promise<string | null>;
   /** The screenshot taken when the macro was recorded (JPEG bytes), empty if it has none. */
   screenshot(id: string): Promise<ArrayBuffer>;
   editMacro(id: string, op: EditOp): Promise<MacroView>;
@@ -114,6 +116,7 @@ export const tauriBackend: Backend = {
   listMacros: () => invoke("list_macros"),
   listRuns: () => invoke("list_runs"),
   loadMacro: (id) => invoke("load_macro", { id }),
+  currentMacro: () => invoke("current_macro"),
   screenshot: (id) => invoke("screenshot", { id }),
   editMacro: (id, op) => invoke("edit_macro", { id, op }),
   undoEdit: (id, redo) => invoke("undo_edit", { id, redo }),
@@ -238,7 +241,7 @@ export function browserBackend(): Backend {
 
   // — session simulation —
   let emit: (m: EngineMsg) => void = () => {};
-  let mode: EngineMsg & { type: "session" } = { type: "session", mode: "idle", macro_id: null };
+  let mode: EngineMsg & { type: "session" } = { type: "session", mode: "idle", macro_id: null, source: null };
   let timer: ReturnType<typeof setInterval> | undefined;
   let play = { t: 0, loop: 0, anchorT: 0, anchorWall: 0, paused: false };
   let started = { at: "", wall: 0, from: 0 };
@@ -265,7 +268,7 @@ export function browserBackend(): Backend {
     emit({ type: "runs_changed" });
   };
   const setMode = (m: Mode) => {
-    mode = { ...mode, mode: m };
+    mode = { ...mode, mode: m, macro_id: current?.id ?? null };
     emit(mode);
   };
   const halt = () => clearInterval(timer);
@@ -361,6 +364,7 @@ export function browserBackend(): Backend {
       await ready;
       return runs;
     },
+    currentMacro: async () => current?.id ?? null,
     loadMacro: async (id) => {
       current = (await find(id)).view;
       mode = { ...mode, macro_id: id };

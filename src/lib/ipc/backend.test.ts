@@ -95,10 +95,10 @@ describe("tauriBackend", () => {
     await b.subscribe((m) => got.push(m));
     expect(core.calls).toEqual([{ cmd: "subscribe_engine", args: {} }]);
     core.emit({ type: "countdown", left_ms: 3000 });
-    core.emit({ type: "session", mode: "recording", macro_id: null });
+    core.emit({ type: "session", mode: "recording", macro_id: null, source: null });
     expect(got).toEqual([
       { type: "countdown", left_ms: 3000 },
-      { type: "session", mode: "recording", macro_id: null },
+      { type: "session", mode: "recording", macro_id: null, source: null },
     ]);
   });
 

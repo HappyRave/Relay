@@ -1,10 +1,9 @@
-// The app shell: the widget in its two sizes, the export dialog, and the
+// The app shell: the main window or the player, the export dialog, and the
 // demo desktop of the browser preview.
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import App from "../App.svelte";
-import Widget from "./Widget.svelte";
 import ExportDialog from "./ExportDialog.svelte";
 import { core, freshStore, settle } from "../test/app";
 import { setMedia } from "../test/media";
@@ -14,7 +13,7 @@ import type { RelayStore } from "../lib/state/relay.svelte";
 let relay: RelayStore;
 const A = "00000000-0000-0000-0000-000000000001";
 
-/** Resize observers the test can trigger: every one sees the widget at `w` × `h`. */
+/** Resize observers the test can trigger: every one sees the page at `w` × `h`. */
 let observers: ((w: number, h: number) => void)[] = [];
 const resize = (w: number, h: number) => observers.forEach((o) => o(w, h));
 const RealResizeObserver = globalThis.ResizeObserver;
@@ -44,7 +43,6 @@ describe("App", () => {
     expect(core.commands()).toEqual([
       "window_prefs",
       "subscribe_engine",
-      "fit_window",
       "get_settings",
       "system_look",
       "list_macros",
@@ -55,7 +53,6 @@ describe("App", () => {
       "get_data_file",
       "get_autostart",
     ]);
-    expect(core.lastArgs("fit_window")).toEqual({ width: 0, height: 0, expanded: true });
     expect(container.querySelector(".app-window")).toHaveAttribute("data-place", "library");
     expect(screen.getByText("Export invoice to PDF")).toBeInTheDocument();
   });
@@ -88,12 +85,42 @@ describe("App", () => {
     expect(html).toHaveAttribute("data-theme", "light");
   });
 
-  test("opens compact when it was left compact", async () => {
-    core.window.expanded = false;
+  test("in player mode the main window still shows the window (Rust hides it)", async () => {
+    core.window.player_mode = true;
     const { container } = render(App);
     await settle();
-    expect(container.querySelector(".compact")).not.toBeNull();
-    expect(container.querySelector(".expanded")).toBeNull();
+    expect(relay.playerMode).toBe(true);
+    expect(container.querySelector(".app-window")).not.toBeNull();
+    expect(screen.queryByRole("group", { name: "Relay player" })).toBeNull();
+  });
+
+  test("in the player's window, the player: it loads what's current, not the first macro, and no run history", async () => {
+    core.uninstall();
+    core.install("player");
+    try {
+      core.current = "00000000-0000-0000-0000-000000000003";
+      const { container } = render(App);
+      await settle();
+      expect(relay.role).toBe("player");
+      expect(screen.getByRole("group", { name: "Relay player" })).toBeInTheDocument();
+      expect(container.querySelector(".app-window")).toBeNull();
+      expect(core.commands()).toEqual([
+        "window_prefs",
+        "subscribe_engine",
+        "get_settings",
+        "system_look",
+        "list_macros",
+        "current_macro",
+        "load_macro",
+        "screenshot",
+        "get_triggers",
+        "get_data_file",
+      ]);
+      expect(core.lastArgs("load_macro")).toEqual({ id: "00000000-0000-0000-0000-000000000003" });
+    } finally {
+      core.uninstall();
+      core.install();
+    }
   });
 
   test("the export dialog opens over the widget", async () => {
@@ -115,72 +142,6 @@ describe("App", () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true }));
     await settle();
     expect(core.commands()).toEqual([]);
-  });
-});
-
-describe("Widget", () => {
-  beforeEach(async () => {
-    relay = await freshStore();
-    relay.place = "macro";
-  });
-
-  test("switches between expanded and compact", async () => {
-    const { container } = render(Widget);
-    expect(container.querySelector(".editor")).not.toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: "Switch to the player" }));
-    expect(container.querySelector(".compact")).not.toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: "Expand" }));
-    expect(container.querySelector(".editor")).not.toBeNull();
-  });
-
-  test("the compact player tells Rust its size; the editor fills the window Rust sizes", async () => {
-    const onresize = (w: number, h: number) => sizes.push([w, h]);
-    const sizes: [number, number][] = [];
-    const { container } = render(Widget, { onresize });
-    await settle();
-    // The editor only says it's the editor: its size is Rust's (the user's, or the default).
-    expect(core.argsOf("fit_window")).toEqual([{ width: 0, height: 0, expanded: true }]);
-    expect(container.querySelector(".widget")).toHaveClass("fill");
-    resize(1200.4, 800.6); // the user resized the window
-    await settle();
-    expect(core.argsOf("fit_window")).toHaveLength(1);
-    expect(sizes).toEqual([[1200, 801]]);
-
-    relay.expanded = false;
-    await settle();
-    expect(container.querySelector(".widget")).not.toHaveClass("fill");
-    resize(604.4, 67.6);
-    await settle();
-    expect(core.lastArgs("fit_window")).toEqual({ width: 604, height: 68, expanded: false });
-    relay.expanded = true;
-    await settle();
-    expect(core.lastArgs("fit_window")).toEqual({ width: 0, height: 0, expanded: true });
-  });
-
-  test("switching to the compact player sends its size even if no resize is seen", async () => {
-    // Expanded, then compact again before the page laid out the bigger window:
-    // the widget measures what it did before, and the observer doesn't fire.
-    const box = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 604.4, 67.6));
-    try {
-      render(Widget);
-      await settle();
-      relay.expanded = false;
-      await settle();
-      expect(core.argsOf("fit_window")).toEqual([
-        { width: 0, height: 0, expanded: true },
-        { width: 604, height: 68, expanded: false },
-      ]);
-    } finally {
-      box.mockRestore();
-    }
-  });
-
-  test("the compact player shows toasts too", async () => {
-    relay.expanded = false;
-    render(Widget);
-    relay.notify("Saved");
-    await settle();
-    expect(screen.getByRole("status")).toHaveTextContent("Saved");
   });
 });
 
@@ -319,7 +280,7 @@ describe("the browser preview", () => {
   });
   afterEach(() => core.install());
 
-  test("puts the widget on a demo desktop with a hint", async () => {
+  test("puts the window on a demo desktop with a hint", async () => {
     const { container } = render(App);
     await settle();
     await settle();
@@ -331,7 +292,7 @@ describe("the browser preview", () => {
     expect(screen.queryByRole("alert")).toBeNull(); // nothing needed the app
   });
 
-  test("the widget scales down to fit a small window", async () => {
+  test("the window scales down to fit a small browser window", async () => {
     const was = [window.innerWidth, window.innerHeight];
     const setWindow = (w: number, h: number) => {
       Object.defineProperty(window, "innerWidth", { value: w, configurable: true });
@@ -353,5 +314,25 @@ describe("the browser preview", () => {
     } finally {
       setWindow(was[0], was[1]);
     }
+  });
+});
+
+describe("the browser preview's player", () => {
+  beforeEach(async () => {
+    core.uninstall();
+    relay = await freshStore({ init: false, backend: browserBackend() });
+  });
+  afterEach(() => core.install());
+
+  test("player mode shows the player on the demo desktop, and its expand key the window again", async () => {
+    const { container } = render(App);
+    await settle();
+    await userEvent.click(screen.getByRole("button", { name: "Switch to the player" }));
+    await settle();
+    expect(screen.getByRole("group", { name: "Relay player" })).toBeInTheDocument();
+    expect(container.querySelector(".app-window")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Open the window" }));
+    await settle();
+    expect(container.querySelector(".app-window")).toHaveAttribute("data-place", "macro");
   });
 });

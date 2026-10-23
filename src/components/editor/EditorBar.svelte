@@ -15,7 +15,7 @@
 
   const summary = $derived(playSummary(relay.playback, relay.dataFile && !relay.dataFile.error ? relay.dataFile.rows : null));
   const idle = $derived(relay.mode === "idle");
-  const pausing = $derived(relay.mode === "playing");
+  const pausing = $derived(relay.mode === "playing" && relay.playingHere);
 
   let saved = $state(false);
   $effect(() => {
@@ -100,10 +100,10 @@
     variant="ink"
     aria-label={pausing ? "Pause" : "Play"}
     title="{pausing ? 'Pause' : 'Play from the playhead'} (F10)"
-    disabled={!relay.view || relay.recording}
+    disabled={!relay.view || relay.recording || relay.playingElsewhere}
     onclick={relay.togglePlay}><Icon name={pausing ? "pause" : "play"} size={14} /><span class="wide">{pausing ? "Pause" : "Play"}</span></Key
   >
-  {#if relay.playing}
+  {#if relay.playingHere}
     <Key size="sm" iconOnly aria-label="Stop" title="Stop (Esc)" onclick={relay.stop}><Icon name="stop" size={14} /></Key>
   {/if}
   <Chip label={summary.label} onclick={showPlayOptions}>
@@ -129,7 +129,7 @@
     aria-label="Switch to the player"
     aria-keyshortcuts="Control+Shift+M"
     title="Switch to the player (Ctrl + Shift + M)"
-    onclick={() => (relay.expanded = false)}><Icon name="collapse" /></Key
+    onclick={() => relay.setPlayerMode(true)}><Icon name="collapse" /></Key
   >
   <WindowControls />
 </header>
