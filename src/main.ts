@@ -1,8 +1,7 @@
 import { mount } from "svelte";
-import "@fontsource/archivo/400.css";
-import "@fontsource/archivo/600.css";
-import "@fontsource/archivo/800.css";
+import "@fontsource-variable/archivo/wdth.css";
 import "./styles/tokens.css";
+import "./styles/theme.css";
 import "./styles/base.css";
 import "./styles/components.css";
 import "./styles/app.css";

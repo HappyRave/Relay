@@ -182,7 +182,7 @@ The look comes from the design system in [`Design/_ds/modernist-…/styles.css`]
 | [`components.css`](../../src/styles/components.css) | Shared classes: `.btn` variants, `.input`, `.tag`, dialogs |
 | [`app.css`](../../src/styles/app.css) | App rules: no page scroll, no text selection outside inputs |
 
-Components use scoped `<style>` blocks and only `var(--…)` tokens for colors, so the palette lives in one file. Archivo is bundled with `@fontsource/archivo` (no network at runtime).
+Components use scoped `<style>` blocks and only `var(--…)` tokens for colors, so the palette lives in one file. Archivo is bundled with `@fontsource-variable/archivo`, the variable font with its width axis (62–125%) and weights (100–900), with no network at runtime.
 
 ## The window from the UI's side
 
