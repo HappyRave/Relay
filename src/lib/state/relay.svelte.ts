@@ -70,6 +70,8 @@ export interface Toast {
    * another macro.
    */
   undoes?: string;
+  /** A change that couldn't be written: the top bar says "Couldn't save" while it shows. */
+  unsaved?: boolean;
   /** For an Undo of a delete: the macro it brings back. */
   restores?: string;
 }
@@ -253,6 +255,8 @@ export class RelayStore {
   canRedo = $derived(this.canEdit && !!this.view?.can_redo);
   /** Pauses "Trim pauses" would shorten. */
   longPauses = $derived(this.steps.filter((s) => s.pause > TRIM_PAUSE_MS).length);
+  /** A change couldn't be written to disk, and its message is still up. */
+  unsaved = $derived(this.toasts.some((t) => t.unsaved));
   /** The newest error shown. */
   error = $derived([...this.toasts].reverse().find((t) => t.kind === "error")?.message ?? null);
   shownRuns = $derived(this.runsFilter ? this.runs.filter((r) => r.macro_id === this.runsFilter) : this.runs);
@@ -405,6 +409,10 @@ export class RelayStore {
         break;
       case "error":
         this.fail({ code: msg.type, message: msg.message });
+        break;
+      case "unsaved":
+        console.error("Relay:", msg.message);
+        this.show({ kind: "error", message: msg.message, unsaved: true });
         break;
       case "notice":
         this.notify(msg.message, undefined, 6000);

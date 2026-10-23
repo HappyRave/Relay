@@ -72,8 +72,9 @@
     oninput={(e) => relay.rename(e.currentTarget.value)}
     onblur={relay.endRename}
   />
-  <span class="saved" role="status">
-    {#if saved}<Icon name="check" size={12} /><span class="wide">Saved</span>{/if}
+  <span class="saved" class:failed={relay.unsaved} role="status">
+    {#if relay.unsaved}<Icon name="warning" size={12} /><span class="wide">Couldn't save</span>
+    {:else if saved}<Icon name="check" size={12} /><span class="wide">Saved</span>{/if}
   </span>
   <span class="spacer" data-tauri-drag-region></span>
   {#if relay.editable}
@@ -180,6 +181,10 @@
   }
   .saved :global(svg) {
     color: var(--green);
+  }
+  .saved.failed,
+  .saved.failed :global(svg) {
+    color: var(--red-text);
   }
   .spacer {
     flex: 1;

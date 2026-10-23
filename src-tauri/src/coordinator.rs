@@ -574,7 +574,7 @@ impl<R: Runtime> Coordinator<R> {
             let id = m.id;
             // The recording is in the library either way; only the file may be missing.
             if let Err(e) = lib.insert_front(m) {
-                self.emit.error(format!("Couldn't save the recording to disk: {e}. It's kept until you quit."));
+                self.emit.unsaved(format!("Couldn't save the recording to disk: {e}. It's kept until you quit."));
             }
             id
         };

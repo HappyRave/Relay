@@ -600,7 +600,7 @@ describe("settings and saving", () => {
     core.saveError = "disk full";
     const v = await edit({ op: "delete_step", index: 0 });
     expect(v.steps).toHaveLength(17);
-    expect(got).toEqual([{ type: "error", message: "Couldn't save the change: disk full. It's kept until you quit." }]);
+    expect(got).toEqual([{ type: "unsaved", message: "Couldn't save the change: disk full. It's kept until you quit." }]);
   });
 });
 

@@ -48,6 +48,18 @@ describe("the top bar", () => {
     expect(screen.getByRole("status")).toHaveTextContent("");
   });
 
+  test("a change that couldn't be saved says so until its message is dismissed", async () => {
+    render(EditorBar);
+    core.saveError = "disk full";
+    await relay.edit({ op: "set_label", index: 1, label: "Menu" });
+    await settle();
+    expect(screen.getByRole("status")).toHaveTextContent("Couldn't save");
+    expect(relay.toast).toMatchObject({ kind: "error", message: "Couldn't save the change: disk full. It's kept until you quit." });
+    relay.dismissToast(relay.toast!.id);
+    await settle();
+    expect(screen.getByRole("status")).not.toHaveTextContent("Couldn't save");
+  });
+
   test("Undo and Redo", async () => {
     await relay.edit({ op: "delete_step", index: 0 });
     render(EditorBar);

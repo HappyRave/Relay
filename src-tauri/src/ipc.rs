@@ -60,6 +60,10 @@ pub enum EngineMsg {
     Error {
         message: String,
     },
+    /// A change couldn't be written to disk: it's kept until Relay quits.
+    Unsaved {
+        message: String,
+    },
     /// Something worth knowing that isn't a failure (e.g. an elevated target).
     Notice {
         message: String,
@@ -107,7 +111,7 @@ impl Emitter {
             Some(c) => {
                 let _ = c.send(msg);
             }
-            None if matches!(msg, EngineMsg::Error { .. } | EngineMsg::Notice { .. }) => {
+            None if matches!(msg, EngineMsg::Error { .. } | EngineMsg::Unsaved { .. } | EngineMsg::Notice { .. }) => {
                 if s.early.len() == EARLY_LIMIT {
                     s.early.pop_front();
                 }
@@ -121,6 +125,13 @@ impl Emitter {
         let message = message.into();
         tracing::warn!("{message}");
         self.send(EngineMsg::Error { message });
+    }
+
+    /// A change that couldn't be written (see [`EngineMsg::Unsaved`]).
+    pub fn unsaved(&self, message: impl Into<String>) {
+        let message = message.into();
+        tracing::warn!("{message}");
+        self.send(EngineMsg::Unsaved { message });
     }
 }
 

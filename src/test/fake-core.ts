@@ -580,7 +580,7 @@ export class FakeCore {
 
   /** A change was saved: a failed write keeps it in memory and says so (commands.rs report_unsaved). */
   private saved() {
-    if (this.saveError) this.emit({ type: "error", message: `Couldn't save the change: ${this.saveError}. It's kept until you quit.` });
+    if (this.saveError) this.emit({ type: "unsaved", message: `Couldn't save the change: ${this.saveError}. It's kept until you quit.` });
   }
 
   private withHistory(e: Entry): MacroView {

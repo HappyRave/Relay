@@ -84,7 +84,7 @@ fn when_idle(app: &AppHandle) -> Result<()> {
 /// Reports a failed save; the change itself stays (see the module docs).
 fn report_unsaved(app: &AppHandle, r: std::io::Result<()>) {
     if let Err(e) = r {
-        app.state::<Arc<Emitter>>().error(format!("Couldn't save the change: {e}. It's kept until you quit."));
+        app.state::<Arc<Emitter>>().unsaved(format!("Couldn't save the change: {e}. It's kept until you quit."));
     }
 }
 
