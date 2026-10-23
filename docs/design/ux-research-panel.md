@@ -1091,7 +1091,7 @@ flowchart LR
 
 - **One window, two forms**, as today: the **window** (Library, Macro, Settings) and the **player**. The window becomes a normal, resizable window that doesn't float by default. The player floats.
 - **Three places in the window** instead of four tabs over five panes. You move between them like pages: Library → a macro → back.
-- **The player shows during every session.** While recording, the window hides, so Relay never covers the app being recorded and widget clicks stop being a trap. While playing, the window stays where it is but isn't on top, so you can keep it beside the app to watch the steps follow along. Both are settings. **(R2)**
+- **The player shows whenever the window doesn't.** While recording, the window hides and the player shows, so Relay never covers the app being recorded and widget clicks stop being a trap. While playing, the window stays where it is but isn't on top, so you can keep it beside the app to watch the steps follow along; its top bar has Pause and Stop, so the player isn't needed and doesn't cover it. Both are settings. **(R2)** The prototype showed that a player on top of a visible window covers the view and steals its clicks (see [the prototype round](visual-redesign.md#the-prototype-tested)).
 - **Focus:** the player never takes the keyboard, as the compact player today. When the window comes back after a recording, the focus is on the new macro's name, and screen readers hear *Recording stopped, 14 steps. Name this macro.* **(R7)**
 
 This answers [disagreement 9](#9-one-window-or-two): one window, with a home for the collection, and the bar for those who live in it.
@@ -1181,7 +1181,7 @@ The wireframes show structure, not the final look. The window's default size sta
 
 Selecting a step switches to **Step**; the play summary, a Library row's triggers, and <kbd>Ctrl</kbd>+<kbd>M</kbd> switch to **Macro**.
 
-**Narrow windows** (under about 1000 px): the inspector becomes a panel that slides over the right part of the list, and <kbd>Esc</kbd> closes it **(R3)**.
+**Narrow windows** (under about 860 px, at the minimum size or with a large text size): the inspector becomes a panel that slides over the right part of the list, and <kbd>Esc</kbd> closes it **(R3)**. A bigger text size makes the window bigger too, as far as the screen allows; when it's still short, the view starts closed.
 
 So *Settings → Playback* and the *Triggers* tab disappear: what belongs to one macro is in that macro.
 
@@ -1191,7 +1191,7 @@ So *Settings → Playback* and the *Triggers* tab disappear: what belongs to one
 - **Collapsible** (▾), and **collapsed by default for a macro without mouse steps** (keyboard macros, canned replies).
 - The transport row is gone: the time is in the view's bar, Play and Record in the top bar, previous and next step on <kbd>←</kbd> <kbd>→</kbd> in the list, speed and repeat in the Macro tab.
 
-**The Macro tab** starts with the play options, then its triggers. The data file is here once, not in two places **(R1)**:
+**The Macro tab** has two sections, **Play options** and **Runs automatically**, one open at a time, each with a one-line summary when closed (*×3 · 1× · ±40 ms*, *Ctrl + Alt + 1 · Mon–Fri at 09:00*). The data file is here once, not in two places **(R1)**. (In the prototype, a macro's triggers sat below the play options, out of sight at the default size; the sections fix that.)
 
 ```text
 ┌ MACRO TAB ─────────────────────────────────┐
@@ -1265,7 +1265,8 @@ A page in the window (**Settings** in the Library), in sections:
 | **Recording** | Capture mouse path, Capture keystrokes, Screenshot, Countdown, Esc stops recording, Ignore simulated input |
 | **Keys** | Relay's own keys, each one yours to set or turn off: record, play/pause, show the player, and the kill switch. See [Relay's keys](#relays-keys). |
 | **Window** | Keep the player on top, Hide the window while recording (on), Hide the window while playing (off) **(R2)**, Close to tray, Start with Windows |
-| **Appearance** | Theme (follow Windows, light, dark), Spacing (compact, comfortable, large) **(R9)**, Text size, Player size, Show click labels, Mouse path (full or trail) |
+| **Appearance** | Theme (follow Windows, light, dark), Frosted glass (on by default on Windows 11, off on Windows 10), Spacing (compact, comfortable, large) **(R9)**, Text size, Player size, Reduce motion, Show click labels, Mouse path (full or trail) |
+| **Sound** | Sounds (off by default): short clicks when recording starts and stops, and when a macro finishes or fails |
 
 *Reset layout* goes: the new layout has one divider (between the list and the inspector) and a collapsible view, each reset by double-click.
 
@@ -1415,7 +1416,7 @@ Every control in today's UI, and where it is in the redesign. Nothing is dropped
 ### The visual system
 
 > [!NOTE]
-> **The look is now proposed in the [visual redesign](visual-redesign.md):** subtly rounded corners, frosted glass, color-blocked step categories, and controls that answer when touched, with a [mockup](../../Design/redesign/relay-visual.html). It replaces square corners and 2 px rules everywhere. The rules below still hold: the red budget, the type floor, contrast, themes, and state never shown by color alone.
+> **The look is now proposed in the [visual redesign](visual-redesign.md):** subtly rounded corners, frosted glass, color-blocked step categories, and controls that answer when touched, with a clickable [prototype](../../Design/redesign/prototype.html). It replaces square corners and 2 px rules everywhere. The rules below still hold: the red budget, the type floor, contrast, themes, and state never shown by color alone.
 
 The panel wants Modernist kept and enforced, not replaced ([P10](#p10--noor-haddad-product-designer)). So the redesign keeps the system's bones and fixes how it's used.
 
@@ -1589,7 +1590,7 @@ The same 13 personas went through the first draft of the redesign (commit `8381a
 
 **P7 · Priya.** The plan says what screen readers hear when recording starts and stops, the player never takes focus, the window comes back with focus on the name, and the timeline is a slider with the step's name. *"That's a spec I can test against."* The draft said nothing about focus when switching between the window and the player, which is where these designs usually break. The play summary needed full words for screen readers (*Repeat 3 times*, not *×3*). Recording leaves NVDA's keys in (outside the redesign).
 
-**P8 · Mateo.** Hiding the window while recording solves *"a big box in the middle"*. At 1368×912, the draft's 1080×720 window left a cramped inspector. The plan keeps today's 944×612, never more than 80% of the screen, and turns the inspector into a sliding panel below 1000 px. Bigger targets and the loupe make touch workable; pinch to zoom is in the view.
+**P8 · Mateo.** Hiding the window while recording solves *"a big box in the middle"*. At 1368×912, the draft's 1080×720 window left a cramped inspector. The plan keeps today's 944×612, never more than 80% of the screen, and turns the inspector into a sliding panel below about 860 px. Bigger targets and the loupe make touch workable; pinch to zoom is in the view.
 
 **P9 · Viktor.** Rebindable keys mean Relay can stay running while debugging. Multi-select and <kbd>Del</kbd> help. Folded moves are a step backwards for path editing, but *Show moves* stays on once set. Still missing: a text view of the macro and a command palette. *"It's a much better app for people who aren't me."*
 
@@ -1608,7 +1609,7 @@ The same 13 personas went through the first draft of the redesign (commit `8381a
 | D1 | A macro's triggers and play options only showed with **nothing selected**: select a step and they disappear | P11, P12, P13 | **R1** The inspector gets two tabs, **Step** and **Macro**; the Macro tab is always one click away |
 | D2 | The data file was in two places (Play options and the inspector) | P1 | **R1** Play options, the data file and triggers are all in the Macro tab, once |
 | D3 | Playing from the window hid the window, so you couldn't watch the list follow along; under Magnifier, the window vanishing loses your place | P2, P5 | **R2** The window hides while recording only; while playing it stays, not on top. Both are settings |
-| D4 | On a small screen the 1080×720 window was nearly full screen, and the inspector cramped | P8 | **R3** The default goes back to today's 944×612 (the maintainer's call), never more than 80% of the work area; the inspector slides over the list below ~1000 px |
+| D4 | On a small screen the 1080×720 window was nearly full screen, and the inspector cramped | P8 | **R3** The default goes back to today's 944×612 (the maintainer's call), never more than 80% of the work area; the inspector slides over the list below about 860 px |
 | D5 | Folded moves make path editing take an extra click each time | P9, P2 | **R4** *Show moves* is remembered |
 | D6 | Errors only showed in the toast area, far from the step | P5 | **R5** The failed step's row is marked and its Step tab says what happened |
 | D7 | Rebindable keys were outside the redesign: it explained F1 instead of fixing it | P3, P4, P6, P9, P12 | **R6** [Relay's keys](#relays-keys) are part of the redesign (the maintainer's decision) |
