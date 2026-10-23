@@ -329,7 +329,7 @@ describe("triggers", () => {
     for (const source of ["Schedule", "AppLaunch", "Pixel"]) assert.match(log(), new RegExp(`source=${source}`));
   });
 
-  test("the run history records each triggered run, and the one skipped while busy", async () => {
+  test("the run history records each triggered run, and the ones skipped", async () => {
     const entries = app.json("runs.json").entries.filter((e) => e.macro_id === target);
     const ran = (source) => entries.filter((e) => e.source === source && e.outcome.type === "finished");
     for (const source of ["schedule", "app_launch", "pixel"]) {
@@ -340,7 +340,10 @@ describe("triggers", () => {
     const skipped = entries.filter((e) => e.outcome.type === "skipped");
     assert.deepEqual(
       skipped.map((e) => [e.source, e.outcome.reason, e.macro_name]),
-      [["app_launch", "busy", "Triggered"]],
+      [
+        ["app_launch", "data_file", "Triggered"],
+        ["app_launch", "busy", "Triggered"],
+      ],
     );
   });
 
