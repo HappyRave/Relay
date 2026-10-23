@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import samples from "../dev/sample-views.json";
-import { deleteRows, rowMatches, rowOf, rowText, stepRows } from "./rows";
+import { deleteRows, notches, rowMatches, rowOf, rowText, stepRows } from "./rows";
 import type { MacroView, Step } from "../types";
 
 const invoice = (samples[0] as unknown as { view: MacroView }).view;
@@ -71,5 +71,27 @@ describe("rows", () => {
     expect(rowMatches(t, "WAIT")).toBe(true);
     expect(rowMatches(t, "1248")).toBe(true);
     expect(rowMatches(t, "click")).toBe(false);
+  });
+
+  test("drags, scrolls, moves and the other buttons", () => {
+    const at = { t: 0, end: 500, pause: 0, items: [0] };
+    const f = { anchor: null };
+    const drag = { ...at, kind: "drag", btn: "Right", x: 1, y: 2, to_x: 30, to_y: 40, label: "" } as Step;
+    expect(rowText(drag, null, f)).toEqual({ kind: "Right drag", what: "1, 2 → 30, 40", aside: "" });
+    const scroll = { ...at, kind: "scroll", x: 5, y: 5, delta: -240, horizontal: false } as Step;
+    expect(rowText(scroll, null, f).what).toBe("down 2 notches");
+    expect(rowText({ ...scroll, delta: 60, horizontal: true } as Step, null, f).what).toBe("right 0.5 notch");
+    const move = { ...at, kind: "move", x: 1, y: 1, to_x: 9, to_y: 9, samples: 3 } as Step;
+    expect(rowText(move, null, f)).toEqual({ kind: "Move", what: "1, 1 → 9, 9", aside: "0.50 s" });
+    expect(rowText({ ...at, kind: "click", btn: "Middle", count: 1, x: 3, y: 4, label: "" } as Step, null, f).kind).toBe("Middle click");
+    expect(rowText({ ...at, kind: "click", btn: "Left", count: 4, x: 3, y: 4, label: "" } as Step, null, f).kind).toBe("4× click");
+    expect(rowText({ ...at, kind: "text", text: "{date}", dur: 60 } as Step, null, f)).toEqual({ kind: "Text", what: "“{date}”", aside: "" });
+    expect(rowText({ ...at, kind: "find_image", label: "", timeout_ms: 2000 } as unknown as Step, null, f)).toEqual({ kind: "Find", what: "image", aside: "≤ 2 s" });
+  });
+
+  test("notches: a wheel notch is 120, precise wheels send less", () => {
+    expect(notches(120)).toBe("1 notch");
+    expect(notches(-360)).toBe("3 notches");
+    expect(notches(3)).toBe("0.03 notch");
   });
 });

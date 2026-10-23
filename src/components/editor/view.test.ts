@@ -149,6 +149,25 @@ describe("the preview", () => {
     }
   });
 
+  test("the wheel zooms in where it points; zoomed in, a drag and the arrows move it; a double-click fits", async () => {
+    render(ViewPane);
+    const stage = screen.getByRole("img", { name: /mouse path/ });
+    stage.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 150, right: 300, bottom: 150, x: 0, y: 0, toJSON: () => null });
+    await fireEvent.wheel(stage, { deltaY: -100, clientX: 150, clientY: 75 });
+    expect(screen.getByRole("button", { name: "125% · Fit" })).toBeInTheDocument();
+    await fireEvent.pointerDown(stage, { button: 0, pointerId: 1, clientX: 100, clientY: 50 });
+    await fireEvent.pointerMove(stage, { pointerId: 1, clientX: 80, clientY: 40 });
+    await fireEvent.pointerUp(stage, { pointerId: 1 });
+    stage.focus();
+    await userEvent.keyboard("{ArrowRight}");
+    expect(screen.getByRole("button", { name: "125% · Fit" })).toBeInTheDocument();
+    await fireEvent.dblClick(stage);
+    expect(screen.queryByRole("button", { name: /Fit/ })).toBeNull();
+    // Zoomed back out to the whole screen, it's fitted again.
+    await userEvent.keyboard("+-");
+    expect(screen.queryByRole("button", { name: /Fit/ })).toBeNull();
+  });
+
   test("+ and − zoom, 0 fits", async () => {
     render(ViewPane);
     const stage = screen.getByRole("img", { name: /mouse path/ });
@@ -175,6 +194,22 @@ describe("the page", () => {
     expect([relay.inspectorOpen, relay.inspector]).toEqual([true, "macro"]);
     await userEvent.click(screen.getByRole("button", { name: "Close the inspector" }));
     expect(relay.inspectorOpen).toBe(false);
+  });
+
+  test("in a narrow window, Esc closes the inspector and goes back to the list", async () => {
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
+    try {
+      render(MacroPage);
+      await settle();
+      expect(document.querySelector(".editor")).toHaveClass("narrow");
+      expect(screen.queryByRole("separator")).toBeNull();
+      relay.inspectorOpen = true;
+      await userEvent.keyboard("{Escape}");
+      expect(relay.inspectorOpen).toBe(false);
+      expect(screen.getByRole("listbox", { name: /Steps/ })).toHaveFocus();
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 0 });
+    }
   });
 
   test("the divider between the list and the inspector resizes it, saved once it's let go; double-click resets it", async () => {
