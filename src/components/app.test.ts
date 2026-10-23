@@ -34,7 +34,7 @@ afterEach(() => {
 
 describe("App", () => {
   beforeEach(async () => {
-    relay = await freshStore({ init: false });
+    relay = await freshStore({ init: false, settings: { intro: "done" } });
   });
 
   test("starts the store and shows the window on the Library once it's ready", async () => {

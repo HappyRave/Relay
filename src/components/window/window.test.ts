@@ -9,7 +9,7 @@ import type { RelayStore } from "../../lib/state/relay.svelte";
 let relay: RelayStore;
 const B = "00000000-0000-0000-0000-000000000002";
 beforeEach(async () => {
-  relay = await freshStore();
+  relay = await freshStore({ settings: { intro: "done" } });
 });
 
 describe("the window", () => {

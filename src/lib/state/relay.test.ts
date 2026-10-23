@@ -1808,3 +1808,37 @@ describe("the browser preview (npm run dev)", () => {
 test("the store is on window.__relay for debugging and end-to-end tests", () => {
   expect((window as unknown as { __relay: RelayStore }).__relay).toBe(relay);
 });
+
+describe("Relay's keys and the first run", () => {
+  test("setting a key resolves to why Relay refused it, without an error message", async () => {
+    expect(await relay.setRelayKey("record", "F8")).toBeNull();
+    expect(relay.settings.keys.record).toBe("F8");
+    expect(await relay.setRelayKey("play", "F8")).toBe("F8 is already Relay's “Record” key");
+    expect(relay.settings.keys.play).toBe("Ctrl + Shift + F10");
+    expect(relay.toasts).toEqual([]);
+  });
+
+  test("a warning comes from Rust, and none when it can't say", async () => {
+    expect(await relay.keyWarning("F10")).toMatch(/^F10 opens the menu bar/);
+    core.on("key_warning", () => Promise.reject({ code: "io", message: "x" }));
+    expect(await relay.keyWarning("F10")).toBeNull();
+  });
+
+  test("the first run shows until it's done, once the settings say", async () => {
+    const r = await freshStore({ init: false });
+    expect(r.showsIntro).toBe(false); // not before Rust answers
+    await r.init();
+    expect(r.showsIntro).toBe(true);
+    await r.finishIntro();
+    expect([r.showsIntro, core.settings.intro]).toEqual([false, "done"]);
+    r.openSettings("keys");
+    expect([r.place, r.settingsSection]).toEqual(["settings", "keys"]);
+  });
+
+  test("key fields hold the hotkeys while they listen", async () => {
+    await relay.holdHotkeys(true);
+    expect(core.hotkeysHeld).toBe(true);
+    await relay.holdHotkeys(false);
+    expect(core.lastArgs("hold_hotkeys")).toEqual({ on: false });
+  });
+});

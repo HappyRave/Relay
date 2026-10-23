@@ -4,15 +4,22 @@ import { vi } from "vitest";
 import { core } from "./fake-core";
 import { resetRelay, type RelayStore } from "../lib/state/relay.svelte";
 import { tauriBackend, type Backend } from "../lib/ipc/backend";
+import type { Settings } from "../lib/types";
 
 export { core };
 
 /**
- * A fresh store on a fresh fake core; `init` loads it like the app does at
- * startup (subscribe, settings, library, first macro, autostart).
+ * A fresh store on a fresh fake core (with these `settings` in Rust); `init`
+ * loads it like the app does at startup (subscribe, settings, library, first
+ * macro, autostart).
  */
-export async function freshStore({ init = true, backend = tauriBackend }: { init?: boolean; backend?: Backend } = {}): Promise<RelayStore> {
+export async function freshStore({
+  init = true,
+  backend = tauriBackend,
+  settings = {},
+}: { init?: boolean; backend?: Backend; settings?: Partial<Settings> } = {}): Promise<RelayStore> {
   core.reset();
+  core.settings = { ...core.settings, ...settings };
   const relay = resetRelay(backend);
   if (init) {
     await relay.init();

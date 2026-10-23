@@ -31,7 +31,7 @@
     ["kill", "Stop everything", "Stops any recording or playback and pauses triggers. Can't be turned off."],
   ];
 
-  let section = $state<SectionId>("recording");
+  const section = $derived(relay.settingsSection);
   const st = $derived(relay.settings);
   const look = $derived(relay.systemLook);
   const set = (patch: Partial<Settings>) => relay.updateSettings(patch);
@@ -64,7 +64,7 @@
   </TopBar>
   <nav class="side" aria-label="Settings sections">
     {#each SECTIONS as [id, label] (id)}
-      <button type="button" class="navi" aria-current={section === id ? "page" : undefined} onclick={() => (section = id)}>
+      <button type="button" class="navi" aria-current={section === id ? "page" : undefined} onclick={() => (relay.settingsSection = id)}>
         {label}
       </button>
     {/each}

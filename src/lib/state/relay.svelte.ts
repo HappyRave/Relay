@@ -154,6 +154,10 @@ export class RelayStore {
   /** Where the user put the editor's dividers (null: the default); the layout keeps them inside the window. */
   panes = $state.raw<Panes>(NO_PANES);
   place = $state<Place>("library");
+  /** The section Settings shows. */
+  settingsSection = $state<"recording" | "keys" | "window" | "appearance" | "sound">("recording");
+  /** The settings came from Rust (until then, they're the defaults). */
+  private settingsKnown = $state(false);
   tab = $state<Tab>("steps");
   /** What the Library shows: its macros, or Activity (every run, or only the problems). */
   libraryShows = $state<"macros" | "runs" | "problems">("macros");
@@ -271,6 +275,8 @@ export class RelayStore {
   /** The step under the playhead, or -1. */
   curStepIdx = $derived(currentStepIndex(this.steps, Math.min(this.cur, this.duration)));
   triggers: MacroTriggers | null = $derived(this.triggerStatus?.triggers ?? null);
+  /** The first run shows in the window, until it's done or skipped (never in the browser preview). */
+  showsIntro = $derived(this.editable && this.settingsKnown && this.settings.intro !== "done");
   /** Whether the open macro can be edited now: in the app, with a macro open, while idle (Rust refuses edits during a session). */
   canEdit = $derived(this.editable && this.mode === "idle" && !!this.view);
   canUndo = $derived(this.canEdit && !!this.view?.can_undo);
@@ -304,6 +310,7 @@ export class RelayStore {
     await this.run(this.backend.subscribe(this.onEngine));
     this.settings = (await this.run(this.backend.getSettings())) ?? this.settings;
     this.settingsSaves.saved = this.settings;
+    this.settingsKnown = true;
     this.systemLook = (await this.run(this.backend.systemLook())) ?? this.systemLook;
     await this.refreshLibrary();
     if (this.role === "player") {
@@ -764,6 +771,12 @@ export class RelayStore {
 
   go = (place: Place) => {
     this.place = place;
+  };
+
+  /** Settings, on one of its sections. */
+  openSettings = (section: RelayStore["settingsSection"]) => {
+    this.settingsSection = section;
+    this.place = "settings";
   };
 
   /** Alt + ←: the Library, from a macro or Settings. */
