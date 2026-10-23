@@ -194,8 +194,8 @@ describe("playback and recording", () => {
       await page.click("Play");
       await until(async () => (await page.store("toast.kind")) === "error", { what: "the error" });
       assert.equal(await page.store("toast.message"), "customers.csv isn't there anymore: choose it again in Settings → Playback.");
-      assert.equal(await page.store("mode"), "idle");
-      assert.equal(await page.store("lastFinish"), "error");
+      // Nothing played, so it's back to idle without a "finished".
+      await page.waitMode("idle");
       await sleep(300);
       assert.equal(runs(ids.rows), before, "not a run");
     } finally {
