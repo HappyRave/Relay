@@ -22,7 +22,7 @@ Input for the overhaul of Relay's UI and UX. Thirteen simulated users, each with
 - [The panel reviews the redesign](#the-panel-reviews-the-redesign)
 - [Open questions for the maintainer](#open-questions-for-the-maintainer)
 - [Validating with real users](#validating-with-real-users)
-- [Appendix: measurements](#appendix-measurements)
+- [Appendix: measurements and research](#appendix-measurements-and-research)
 
 ## Summary
 
@@ -58,7 +58,7 @@ Input for the overhaul of Relay's UI and UX. Thirteen simulated users, each with
    | T7 | Their own workflow, end to end |
 
 4. **Interviews.** For each task: what they did step by step, where they hesitated or failed, what they thought, and what they'd want instead. Then questions about the look (type, color, the square corners and rules, the two sizes).
-5. **Checking the claims.** Every behavior the personas run into was checked against the user guide or the code. Where a claim is a prediction (how Windows contrast themes affect the CSS, say), it's marked **to verify**. Contrast ratios were computed from the tokens; see the [appendix](#appendix-measurements).
+5. **Checking the claims.** Every behavior the personas run into was checked against the user guide or the code. Where a claim is a prediction (how Windows contrast themes affect the CSS, say), it's marked **to verify**. Contrast ratios were computed from the tokens; see the [appendix](#appendix-measurements-and-research).
 
 ### Limits
 
@@ -718,7 +718,7 @@ Red (`#EC3013`) is used for: record, the selected tab, the selected speed, a swi
 
 - Text sizes: 9 px (step tags, timeline chips), 10 px (lane labels, ruler, compact badge, pause markers, Kbd), 11 px (step times, sub-lines, transport labels), 12 px (tabs, toasts, steps bar, most secondary text). Body text is 13–14 px.
 - Contrast on the `#f3f2f2` ground: red text **3.76:1**, grey `neutral-600` text **3.85:1**, both under the 4.5:1 WCAG AA needs for small text. Disabled controls are 2.59:1 (allowed for disabled, but disabled red looks like light red, not "off").
-- See the [appendix](#appendix-measurements).
+- See the [appendix](#appendix-measurements-and-research).
 
 #### F17. No dark, high-contrast or reduced-motion support
 
@@ -1009,7 +1009,7 @@ The findings don't add up to a list of fixes. They describe one problem: Relay g
 The feature set is complete, so this is a redesign of **where things are and how they behave**, not of what Relay can do. Every current control has a place in it ([where everything goes](#where-everything-goes)). The one change of behavior it includes is choosing Relay's own keys, because the only Critical finding needs it. The other things the panel asked for that aren't UI are listed apart ([Outside the redesign](#outside-the-redesign)).
 
 > [!NOTE]
-> **Decided** by the maintainer, 2026-10-23: **one window** (with the floating player); **no samples on first run**, a guided first recording instead; **rebindable keys are part of the redesign**; it ships as **one milestone**.
+> **Decided** by the maintainer, 2026-10-23: **one window** (with the floating player); **no samples on first run**, a guided first recording instead; **rebindable keys are part of the redesign**, with **<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F9</kbd>/<kbd>F10</kbd>** preselected at first run; a **compact base**: the player stays 600×64 and the window keeps today's default size; it ships as **one milestone**.
 >
 > This is the plan **after the panel's review** of a first draft. Changes from that review are marked **(R1)** to **(R11)** and explained in [The panel reviews the redesign](#the-panel-reviews-the-redesign).
 
@@ -1029,7 +1029,7 @@ The feature set is complete, so this is a redesign of **where things are and how
 | Goal | Today | Target |
 | --- | --- | --- |
 | **One place, one question** | One window answers *what's in this macro*, *how does it play*, *when does it run*, *what are my macros* and *how is Relay set up*, all at once | Each screen answers one of them |
-| **The macro first** | Steps get ~230 px of a 612 px window, about four rows | Steps get most of the window: 12 or more rows at the default size |
+| **The macro first** | Steps get ~230 px of a 612 px window, about four rows | Steps get most of the window: about 11 rows at the default size with the view open, 16 with it closed |
 | **Fewer things on screen** | About 30 controls visible in the editor at once, in 6 regions | About 12, in 3 regions; the rest on demand |
 | **Nothing hidden that matters** | Where an insert goes, whether Stop on key press is on, which triggers are armed: all invisible | All visible where you'd look |
 | **Safe by default** | A sample or <kbd>F10</kbd> can click on the desktop by accident | Nothing plays that the user didn't start on purpose |
@@ -1098,7 +1098,7 @@ This answers [disagreement 9](#9-one-window-or-two): one window, with a home for
 
 ### The screens
 
-The wireframes show structure, not the final look. Sizes are at the default window size, 1080×720, or 80% of the screen's work area when that's smaller (today's 944×612 is too small for the Library and too big as a floating editor; the minimum stays 760×520). **(R3)**
+The wireframes show structure, not the final look. The window's default size stays today's **944×612**, and never more than 80% of the screen's work area; the minimum stays 760×520 **(R3)**. The wireframes show structure at that size, not the final look.
 
 #### Library: the home
 
@@ -1241,11 +1241,11 @@ RUNS AUTOMATICALLY                                   + Add ▾
 └─────┴─────┴─────┴─────────────────────────────────────────────────────────┴─────┘
 ```
 
-- **Record, play/pause, stop**, the state, the macro's name as a **menu to switch macros**, the time, and a progress bar with ticks for clicks.
+- **Compact: 600×64, the same as today.** Record, play/pause and **stop**, the state, the macro's name as a **menu to switch macros**, the time, and a progress bar with ticks for clicks. Adding Stop doesn't make it bigger: its three buttons are 48 px wide instead of 64.
 - **What's happening** in words: *Recording · 14 steps*, *Get ready 3…*, *Playing · Row 37 / 200*, *Waiting for pixel 1248, 680*, *Looking for the image*.
-- **Errors** show in the player itself (it grows by one line), on the step's row and Step tab **(R5)**, and in Activity.
+- **Errors** replace the player's status line until dismissed (the player doesn't grow), and show on the step's row and Step tab **(R5)** and in Activity.
 - **⤢** opens the window on that macro.
-- Two sizes: today's 600×64, and a larger one for low vision (*Settings → Appearance*).
+- A larger size is opt-in, for low vision (*Settings → Appearance → Player size*). The base stays compact.
 - It's the **only** thing that floats by default.
 
 #### Recording, step by step
@@ -1288,7 +1288,7 @@ There are no samples in a new Library: the first run's guided recording replaces
 | Record | <kbd>F9</kbd> | Settable, or **None** |
 | Play / pause | <kbd>F10</kbd> | Settable, or **None** |
 | Show the player | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd> | Settable, or **None** |
-| Kill switch | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd> | Settable, never off |
+| Kill switch | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd> | Settable, never off. New default **<kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Backspace</kbd>**, which reaches Relay over Remote Desktop and exists on every keyboard ([research](#choosing-the-kill-switch)) |
 
 - **Setting one** works like a macro's hotkey: click the field, press the combination. The same rules apply as today (a key that types needs <kbd>Ctrl</kbd>, <kbd>Alt</kbd> or <kbd>Win</kbd>; function keys work alone), and Relay's keys and macro hotkeys can't overlap.
 - **None** leaves the job to the buttons: the window's Record and Play, the player's. The key then goes to your apps.
@@ -1296,11 +1296,12 @@ There are no samples in a new Library: the first run's guided recording replaces
 
   | When | Says |
   | --- | --- |
-  | A key apps commonly use | *F9 recalculates in Excel and updates fields in Word. While Relay runs, they won't get it.* |
+  | A key apps commonly use | *F9 recalculates in Excel and updates fields in Word. While Relay runs, they won't get it.* (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F9</kbd> gets the same treatment: it unlinks fields in Word, a rarer command.) |
   | A combination that types a character on the current layout | *Ctrl + Alt + 7 types "{" on your keyboard (AltGr + 7). You couldn't type it while this is set.* |
-  | The kill switch, with <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd> | *Remote Desktop sends this as Ctrl + Alt + Del. In a remote session, choose another.* |
+  | A combination a remote-desktop client takes (from the [research](#choosing-the-kill-switch)), for example <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd> | *Remote Desktop sends this as Ctrl + Alt + Del. In a remote session, Relay won't get it.* |
 
-- **The first run** offers three choices: **F9 and F10** (one key each; Excel, Word and debuggers lose them while Relay runs), **Ctrl + Shift + F9 and F10** (safe in other apps), or **Choose my own**. Which one is preselected is an [open question](#open-questions-for-the-maintainer).
+- **The first run** offers three choices: **Ctrl + Shift + F9 and F10**, preselected (other apps keep F9 and F10); **F9 and F10** (one key each; Excel, Word and debuggers lose them while Relay runs); or **Choose my own** (for keyboards without an F-row). The kill switch is shown with them: <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Backspace</kbd>.
+- **Upgrading** keeps the keys people already use, and shows this screen once ([details](#choosing-the-kill-switch)).
 - **Everywhere the UI names a key** (tooltips, the player, the guide's wording in the app), it shows the one you chose.
 
 ### Interaction model
@@ -1462,7 +1463,7 @@ The redesign needs few components, each defined once:
 | Card | For triggers and grouped options, with a 2 px rule |
 | Menu | For ⋯ and + Add: keyboard-operable, with shortcuts shown |
 | Toast | One style per kind (info, undoable, error) |
-| Player | Its own component, in two sizes |
+| Player | Its own component: compact by default, a larger size opt-in |
 
 Targets at least 32 px at comfortable spacing (24 px at compact, the WCAG 2.2 minimum), 44 px at large.
 
@@ -1488,7 +1489,7 @@ Targets at least 32 px at comfortable spacing (24 px at compact, the WCAG 2.2 mi
 | F16 Text and contrast | The type scale, contrast rules, Text size |
 | F17 Themes and motion | Light, Dark, contrast themes, reduced motion |
 | F18 Keyboard and screen readers | Keys everywhere, the timeline as a slider, announcements, labels |
-| F19 Player | Stop, macro menu, row, two sizes |
+| F19 Player | Stop and a macro menu in the same 600×64, the row, a larger size opt-in |
 | F20 Covering the work | The player during sessions; a normal window otherwise |
 | F21 Library | Search, sort, filters, triggers per row, menus, multi-select |
 | F22 Feedback away | *Problems*, the player and the tray; Windows notifications [outside](#outside-the-redesign) |
@@ -1575,9 +1576,9 @@ The same 13 personas went through the first draft of the redesign (commit `8381a
 
 **P2 · Joris.** In the draft, playing from the window switched to the player. Joris debugs by watching the list follow along and the preview draw the path. *"You took away the one thing I watch."* The plan keeps the window during playback, just not on top. Joris puts it on the laptop screen and plays on the external one. Humanize is still on by default for new macros: defaults are outside the redesign.
 
-**P3 · Kenji.** Stop and the macro menu in the player fix the two gripes with the compact bar, and choosing **None** for the play key and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd> as the kill switch fits the 60% keyboard. The dark theme is in. Kenji asked for speed in the player too, to change it mid-loop without opening the window. **Declined:** the player stays small, and speed is one click away in the Macro tab, which can change it mid-playback. Hold-to-run is still outside.
+**P3 · Kenji.** Stop and the macro menu in the player fix the two gripes with the compact bar, and choosing **None** for the play key fits the 60% keyboard, and the new default kill switch, <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Backspace</kbd>, needs no <kbd>Fn</kbd>. The dark theme is in. Kenji asked for speed in the player too, to change it mid-loop without opening the window. **Declined:** the player stays small, and speed is one click away in the Macro tab, which can change it mid-playback. Hold-to-run is still outside.
 
-**P4 · Dee.** The kill switch warning for Remote Desktop is exactly the trap Dee fell into. With rebinding, it works in the remote session. Activity saying which check failed and on which step helps. Signing still decides whether Relay goes on the lab PCs at all. *"Better tool, same blocker."*
+**P4 · Dee.** The kill switch warning for Remote Desktop is exactly the trap Dee fell into, and the new default, <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Backspace</kbd>, isn't taken by the Remote Desktop client. Activity saying which check failed and on which step helps. Signing still decides whether Relay goes on the lab PCs at all. *"Better tool, same blocker."*
 
 **P5 · Ruth.** The 12 px floor, *Text size*, contrast themes and the large player make Relay readable without the lens for most things. The loupe picker is *"made for me: it's a magnifier that waits."* In the draft, errors only appeared at the bottom of the window, outside the lens. The plan marks the failed step's row and says what happened in its Step tab, where Ruth is already looking.
 
@@ -1585,7 +1586,7 @@ The same 13 personas went through the first draft of the redesign (commit `8381a
 
 **P7 · Priya.** The plan says what screen readers hear when recording starts and stops, the player never takes focus, the window comes back with focus on the name, and the timeline is a slider with the step's name. *"That's a spec I can test against."* The draft said nothing about focus when switching between the window and the player, which is where these designs usually break. The play summary needed full words for screen readers (*Repeat 3 times*, not *×3*). Recording leaves NVDA's keys in (outside the redesign).
 
-**P8 · Mateo.** Hiding the window while recording solves *"a big box in the middle"*. At 1368×912, the draft's 1080×720 window left a cramped inspector. The plan caps the window at 80% of the screen and turns the inspector into a sliding panel below 1000 px. Bigger targets and the loupe make touch workable; pinch to zoom is in the view.
+**P8 · Mateo.** Hiding the window while recording solves *"a big box in the middle"*. At 1368×912, the draft's 1080×720 window left a cramped inspector. The plan keeps today's 944×612, never more than 80% of the screen, and turns the inspector into a sliding panel below 1000 px. Bigger targets and the loupe make touch workable; pinch to zoom is in the view.
 
 **P9 · Viktor.** Rebindable keys mean Relay can stay running while debugging. Multi-select and <kbd>Del</kbd> help. Folded moves are a step backwards for path editing, but *Show moves* stays on once set. Still missing: a text view of the macro and a command palette. *"It's a much better app for people who aren't me."*
 
@@ -1593,7 +1594,7 @@ The same 13 personas went through the first draft of the redesign (commit `8381a
 
 **P11 · Linda.** The guided first macro into Notepad replaces the samples that clicked on the desktop. *‹ Library* is clear. In the draft, Linda's triggers seemed to disappear when a step was selected, because they were only shown with nothing selected. The Macro tab fixes it. *Density* in Settings was another unknown word: it's now *Spacing*.
 
-**P12 · Hannah.** Setting record to <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F9</kbd> at first run gives <kbd>F9</kbd> back to Excel. The Library's *Also runs* column and *Problems* replace the sticky note. The draft hid triggers behind "select nothing", the same problem Linda had. Still missing: a Windows notification when the 07:30 report fails during a meeting.
+**P12 · Hannah.** The first run's preselected <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F9</kbd> gives <kbd>F9</kbd> back to Excel. The Library's *Also runs* column and *Problems* replace the sticky note. The draft hid triggers behind "select nothing", the same problem Linda had. Still missing: a Windows notification when the 07:30 report fails during a meeting.
 
 **P13 · Grace.** Search finds *Refund — partial (EU)* in two keystrokes. In the draft, hotkeys were buried in a sentence (*Hotkey Ctrl+Alt+1, Mon–Fri 09:00*). The plan gives them a column, and the Library becomes the cheat sheet Grace wanted. Exporting 40 macros with their hotkeys is still one at a time.
 
@@ -1604,7 +1605,7 @@ The same 13 personas went through the first draft of the redesign (commit `8381a
 | D1 | A macro's triggers and play options only showed with **nothing selected**: select a step and they disappear | P11, P12, P13 | **R1** The inspector gets two tabs, **Step** and **Macro**; the Macro tab is always one click away |
 | D2 | The data file was in two places (Play options and the inspector) | P1 | **R1** Play options, the data file and triggers are all in the Macro tab, once |
 | D3 | Playing from the window hid the window, so you couldn't watch the list follow along; under Magnifier, the window vanishing loses your place | P2, P5 | **R2** The window hides while recording only; while playing it stays, not on top. Both are settings |
-| D4 | On a small screen the 1080×720 window was nearly full screen, and the inspector cramped | P8 | **R3** Default capped at 80% of the work area; the inspector slides over the list below ~1000 px |
+| D4 | On a small screen the 1080×720 window was nearly full screen, and the inspector cramped | P8 | **R3** The default goes back to today's 944×612 (the maintainer's call), never more than 80% of the work area; the inspector slides over the list below ~1000 px |
 | D5 | Folded moves make path editing take an extra click each time | P9, P2 | **R4** *Show moves* is remembered |
 | D6 | Errors only showed in the toast area, far from the step | P5 | **R5** The failed step's row is marked and its Step tab says what happened |
 | D7 | Rebindable keys were outside the redesign: it explained F1 instead of fixing it | P3, P4, P6, P9, P12 | **R6** [Relay's keys](#relays-keys) are part of the redesign (the maintainer's decision) |
@@ -1626,7 +1627,7 @@ The [journey map](#journey-map)'s steps, scored today and with the plan (1 painf
 | | Press record, count down | 3 | 4 | In the player, announced; the key is yours |
 | | Do the task | 4 | 5 | The window is out of the way |
 | | Stop, see the steps | 4 | 4 | Named on the spot; folded moves |
-| Edit | Find the step to fix | 2 | 4 | Folded moves, find, 12+ rows visible |
+| Edit | Find the step to fix | 2 | 4 | Folded moves, find, 11 to 16 rows visible |
 | | Insert in the right place | 2 | 4 | The insertion point is always shown |
 | | Pick a pixel or snip an image | 2 | 4 | The loupe, no countdown |
 | | Test and Show an image | 5 | 5 | Unchanged |
@@ -1676,15 +1677,13 @@ What the panel would do next, outside this redesign, by how many personas it wou
 
 1. **Who's the primary user?** Office workers who don't script (P1, P11, P12, P13), or power users (P2, P4, P9)? The answer settles density, defaults and jargon.
 2. **How fixed is Modernist?** Is a red budget, ink for selection, a 12 px floor and a dark theme within the system, or a change to it?
-3. **Relay's default keys:** the first run proposes F9/F10, or the safer <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F9</kbd>/<kbd>F10</kbd>? And which default kill switch (it must reach Relay in a Remote Desktop session)?
-4. **Accessibility target:** WCAG 2.2 AA? Is Windows contrast-theme support in scope?
-5. **Localization:** in scope for the overhaul, and which languages?
-6. **Touch and pen:** a supported input, or best effort?
-7. **The preview:** the hero of the editor, or one view among others?
-8. **Humanize and Stop on key press defaults:** keep both on?
-9. **Notifications:** is a Windows notification acceptable for a tool that otherwise stays quiet?
-10. **The exported player:** should it look like Relay?
-11. **The default window size:** 1080×720, capped at 80% of the work area?
+3. **Accessibility target:** WCAG 2.2 AA? Is Windows contrast-theme support in scope?
+4. **Localization:** in scope for the overhaul, and which languages?
+5. **Touch and pen:** a supported input, or best effort?
+6. **The preview:** the hero of the editor, or one view among others?
+7. **Humanize and Stop on key press defaults:** keep both on?
+8. **Notifications:** is a Windows notification acceptable for a tool that otherwise stays quiet?
+9. **The exported player:** should it look like Relay?
 
 ## Validating with real users
 
@@ -1739,7 +1738,52 @@ Relay never connects to the internet, and that's a feature the panel values (P4)
 | Small text meeting 4.5:1 | ink and `neutral-700` text only | all text |
 | SUS score in task tests | unknown | above 80 |
 
-## Appendix: measurements
+## Appendix: measurements and research
+
+### Choosing the kill switch
+
+Research for the default kill switch (2026-10-23). Today's <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd> fails three of the panel's personas: Remote Desktop takes it (Dee, P4), and compact keyboards have no End key (Kenji, P3; Mateo, P8).
+
+**What it has to do.** Reach Relay from anywhere: inside a remote session, on any keyboard and any layout, without typing a character or doing something else on the way. Relay registers it as a global hotkey (`RegisterHotKey`, through `hotkeys.rs`), and the input hook lets it through (`hook.rs`), so it also has to be registrable.
+
+**What takes keys first:**
+
+| Who | Takes | Source |
+| --- | --- | --- |
+| Remote Desktop client (`mstsc`), and Hyper-V's Virtual Machine Connection | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd> (sends <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Del</kbd>), <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Home</kbd> (connection bar), <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Break</kbd>/<kbd>Pause</kbd>/<kbd>PrtScn</kbd> (full screen), <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>−</kbd>/<kbd>+</kbd> (screenshots), <kbd>Alt</kbd>+<kbd>PgUp</kbd>/<kbd>PgDn</kbd>/<kbd>Insert</kbd>/<kbd>Home</kbd>/<kbd>Delete</kbd>. In a window (the default *Only when using the full screen*), Windows' own combinations such as <kbd>Alt</kbd>+<kbd>Esc</kbd> and <kbd>Ctrl</kbd>+<kbd>Esc</kbd> stay on the local PC. Hyper-V also uses <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>←</kbd> to release the mouse. | [Microsoft: Remote Desktop Services shortcut keys](https://learn.microsoft.com/en-us/windows/win32/termserv/terminal-services-shortcut-keys), [Microsoft: Virtual Machine Connection](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/virtual-machine-connection) |
+| VMware Horizon | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Insert</kbd> (sends <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Del</kbd>) | [VMware Horizon docs](https://docs.vmware.com/en/VMware-Horizon/2303/horizon-remote-desktop-features/GUID-2FA7564D-FF3E-472B-AD2D-575CCCD82410.html) |
+| Citrix Workspace app | <kbd>Ctrl</kbd>+<kbd>F1</kbd>, <kbd>Ctrl</kbd>+<kbd>F3</kbd>, <kbd>Shift</kbd>+<kbd>F1</kbd> by default (configurable) | [Citrix: keyboard](https://docs.citrix.com/en-us/citrix-workspace-app-for-windows/keyboard) |
+| VMware Workstation consoles | <kbd>Ctrl</kbd>+<kbd>Alt</kbd> releases the keyboard and mouse | VMware's console behavior |
+| Windows | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Del</kbd>, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Esc</kbd>, <kbd>Ctrl</kbd>+<kbd>Esc</kbd>, <kbd>Alt</kbd>+<kbd>Esc</kbd>; anything with <kbd>Win</kbd> is reserved for the system; <kbd>F12</kbd> is reserved for debuggers | [Microsoft: RegisterHotKey](https://learn.microsoft.com/windows/win32/api/winuser/nf-winuser-registerhotkey) |
+| Keyboard layouts | <kbd>Ctrl</kbd>+<kbd>Alt</kbd> is <kbd>AltGr</kbd>: with a letter, a digit or punctuation it types `@`, `€`, `{`, `|`… on European layouts ([F4](#f4-ctrlalt-hotkeys-steal-characters-on-european-layouts)) | — |
+| Compact keyboards | 60% and 65% keyboards and many laptops have no End, Home, Insert, Pause or F-row without <kbd>Fn</kbd>. Every keyboard has <kbd>Esc</kbd> and <kbd>Backspace</kbd>. | — |
+
+**The candidates:**
+
+| Candidate | On every keyboard | Types nothing on any layout | Free in Windows | Reaches a remote session | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd> (today) | ✗ | ✓ | ✓ | ✗ Remote Desktop, Hyper-V | Replace |
+| <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Pause</kbd> | ✗ | ✓ | ✓ | ✗ Remote Desktop | No |
+| <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Home</kbd> / <kbd>Insert</kbd> | ✗ | ✓ | ✓ | ✗ Remote Desktop / Horizon | No |
+| <kbd>Ctrl</kbd>+<kbd>Alt</kbd> + a letter or digit | ✓ | ✗ AltGr characters | ✓ | ✓ | No |
+| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Esc</kbd> | ✓ | ✓ | ✗ Task Manager | — | No |
+| <kbd>Win</kbd> + anything | ✓ | ✓ | ✗ reserved | ✗ stays local in a window | No |
+| <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Esc</kbd> | ✓ | ✓ | No known use, but close to <kbd>Ctrl</kbd>+<kbd>Esc</kbd> and <kbd>Alt</kbd>+<kbd>Esc</kbd> | Not in any list; may stay local in a windowed session, like those two (**to test**) | Second choice |
+| **<kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Backspace</kbd>** | ✓ | ✓ | No known use in Windows or common apps | Not in any list | **Recommended** |
+
+**Recommendation: <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Backspace</kbd>.** It's the only candidate that passes every test on paper. It's on every keyboard, types nothing on any layout, has no Windows meaning, and isn't taken by Remote Desktop, Hyper-V, Citrix or Horizon. Linux users know it as the old "kill the display server" chord, which is a fair mnemonic for an emergency stop. <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Esc</kbd> is the fallback if testing finds a problem: "Esc stops, Ctrl + Alt + Esc stops everything" reads well, but its closeness to <kbd>Ctrl</kbd>+<kbd>Esc</kbd> and <kbd>Alt</kbd>+<kbd>Esc</kbd> is a risk in windowed remote sessions.
+
+**To test before it's final** (none of this can be settled from documentation):
+
+1. `RegisterHotKey` accepts it on Windows 10 and 11, and Relay's hook passes it through during recording and playback.
+2. It reaches Relay inside a Remote Desktop session, windowed and full screen, with each *Apply Windows key combinations* setting; in Hyper-V's basic and enhanced sessions; in Citrix and Horizon.
+3. A VMware Workstation console: whether <kbd>Ctrl</kbd>+<kbd>Alt</kbd> releasing the input gets in the way (it would for any <kbd>Ctrl</kbd>+<kbd>Alt</kbd> kill switch, today's included).
+4. With Sticky Keys on.
+5. On AZERTY, QWERTZ and a Nordic layout: it types nothing.
+6. On a 60% keyboard and a laptop without an End key.
+
+**Upgrading.** People who used Relay before keep their keys (F9, F10, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd>, <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd>), and see the first run's keys screen once, with those preselected, so they learn the keys can change and that <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd> doesn't work over Remote Desktop.
+
 
 ### Contrast
 
