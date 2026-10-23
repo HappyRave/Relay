@@ -145,9 +145,18 @@ Relay is a Rust workspace (`relay-core` for the pure logic, `relay-platform` for
 - [x] **1.4**: mouse moves as steps (retime, smooth or straighten them), Find image (click a button or icon wherever it appears, and run a macro when one appears), a run history, standalone `.exe` export
 - [ ] **1.5**: Text steps that fill in the date, the time, the clipboard or the repeat number; data files that drive repeats
 - [ ] AutoHotkey v2 export
+- [ ] **Branching on checks**: when a pixel check or Find image doesn't match, skip, go to another step, retry, or move on to the next data row, instead of stopping
+- [ ] **Remapping macros to a different monitor layout**: docked and undocked, another PC, a VM; *Window* coordinates that follow a resized window too
+- [ ] **Reliable batches**: see which data row failed and resume from it, `--data` for exported programs, a command line to run a macro, a JSON log, exit codes per failure and a screenshot on failure, per-row and per-loop run history
+- [ ] **Editing**: insert a click or a key press by hand, copy, paste and reorder steps, an undo history that survives a restart
+- [ ] **Hotkeys and defaults**: rebindable F9, F10 and kill switch, toggle or hold-to-run macro hotkeys, defaults for new recordings (Humanize, Stop on key press, Coordinates)
+- [ ] **More triggers**: every N minutes, monthly, catching up on a schedule missed while asleep
+- [ ] **Secrets**: a placeholder for a password kept in Windows' credential store, never in the macro or an export
+- [ ] **For sharing and review**: a diff-friendly `.rly` (an event per line, pictures beside it), triggers in exports
 - [ ] Code signing
-- [ ] Remapping macros to a different monitor layout
 - [ ] macOS and Linux backends
+
+Smaller ideas: a step-by-step dry run, speeds above 4× in the app, a higher mouse sampling rate, controller buttons, closer AutoHotkey exports (mouse paths, Find image at other sizes), plainer names for Humanize, Tolerance and Sketch.
 
 See [CHANGELOG.md](CHANGELOG.md) for what changed in each version.
 

@@ -13,9 +13,9 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Runtime};
 
-pub fn data_dir(app: &AppHandle) -> PathBuf {
+pub fn data_dir<R: Runtime>(app: &AppHandle<R>) -> PathBuf {
     if let Some(dir) = std::env::var_os("RELAY_DATA_DIR") {
         return PathBuf::from(dir);
     }

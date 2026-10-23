@@ -88,6 +88,23 @@ describe("Toast", () => {
     expect(screen.queryByRole("status")).toBeNull();
   });
 
+  test("several stack, newest at the bottom, the newest three shown, each dismissed on its own", async () => {
+    const { container } = render(Toast);
+    const shown = () => [...container.querySelectorAll(".toast .message")].map((m) => m.textContent);
+    for (const message of ["Couldn't read library.json", "Couldn't register the Play hotkey", "Couldn't read settings.json"]) {
+      core.emit({ type: "error", message });
+    }
+    relay.notify("Imported 2 macros");
+    await settle();
+    expect(shown()).toEqual(["Couldn't register the Play hotkey", "Couldn't read settings.json", "Imported 2 macros"]);
+    await userEvent.click(screen.getAllByRole("button", { name: "Dismiss" })[1]);
+    expect(shown()).toEqual(["Couldn't read library.json", "Couldn't register the Play hotkey", "Imported 2 macros"]);
+    core.emit({ type: "error", message: "Couldn't read library.json" });
+    await settle();
+    expect(shown()).toEqual(["Couldn't register the Play hotkey", "Imported 2 macros", "Couldn't read library.json"]);
+    expect(relay.toasts).toHaveLength(3); // the same message again moves, it doesn't show twice
+  });
+
   test("the action button runs the action (Undo)", async () => {
     render(Toast);
     await relay.deleteMacro(core.ids[2]);

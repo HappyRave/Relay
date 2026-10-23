@@ -108,20 +108,20 @@ impl Hotkeys {
 }
 
 /// Switches to the hotkeys of `set` (from the coordinator; doesn't wait).
-pub fn set_active(app: &AppHandle, set: HotkeySet) {
+pub fn set_active<R: Runtime>(app: &AppHandle<R>, set: HotkeySet) {
     app.state::<Hotkeys>().0.lock().wanted = set;
     refresh(app);
 }
 
 /// Re-registers the current set, e.g. after macro hotkeys changed. Doesn't wait.
-pub fn refresh(app: &AppHandle) {
+pub fn refresh<R: Runtime>(app: &AppHandle<R>) {
     let a = app.clone();
     let _ = app.run_on_main_thread(move || register(&a));
 }
 
 /// Like [`refresh`], and waits until it's done, so the hotkey errors are
 /// current. Must not be called on the main thread (it would wait for itself).
-pub fn refresh_and_wait(app: &AppHandle) {
+pub fn refresh_and_wait<R: Runtime>(app: &AppHandle<R>) {
     let (done, wait) = crossbeam_channel::bounded(1);
     let a = app.clone();
     let posted = app.run_on_main_thread(move || {
@@ -135,7 +135,11 @@ pub fn refresh_and_wait(app: &AppHandle) {
 
 /// Runs on the main thread: registers the wanted set and, when idle, the
 /// macro hotkeys. No lock is held while registering.
-fn register(app: &AppHandle) {
+fn register<R: Runtime>(app: &AppHandle<R>) {
+    // Not there in the coordinator's unit tests, which mustn't take real hotkeys.
+    if app.try_state::<tauri_plugin_global_shortcut::GlobalShortcut<R>>().is_none() {
+        return;
+    }
     let wanted = app.state::<Hotkeys>().0.lock().wanted;
     let triggers = app.state::<Mutex<Library>>().lock().all_triggers();
     let emit = app.state::<std::sync::Arc<Emitter>>();

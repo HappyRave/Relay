@@ -186,6 +186,10 @@ pub fn run() {
             // stop cleanly, so no key stays held and a recording is saved.
             if let RunEvent::Exit = event {
                 app.state::<coordinator::CoordinatorHandle>().shutdown(Duration::from_secs(3));
+                let lost = app.state::<parking_lot::Mutex<library::Library>>().lock().save_unsaved_trash();
+                if lost > 0 {
+                    tracing::warn!("{lost} trashed macro(s) couldn't be written to the trash, and are gone");
+                }
                 tracing::info!("Relay quit");
                 app.state::<logging::LogGuard>().flush();
             }

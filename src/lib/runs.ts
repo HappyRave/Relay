@@ -19,7 +19,12 @@ export const sourceLabel = (s: RunSource) => SOURCES[s];
 export function outcomeLabel(e: RunEntry): string {
   const o = e.outcome;
   if (o.type === "skipped") {
-    return { busy: "Skipped: Relay was busy", locked: "Skipped: screen locked", missed: "Skipped: PC was asleep" }[o.reason];
+    return {
+      busy: "Skipped: Relay was busy",
+      locked: "Skipped: screen locked",
+      missed: "Skipped: PC was asleep",
+      data_file: "Skipped: data file",
+    }[o.reason];
   }
   switch (o.reason) {
     case "completed":
@@ -80,9 +85,9 @@ export function checkLabel(c: CheckResult, loops: number): string {
   return `${loops > 1 ? `Loop ${c.loop_idx + 1} · ` : ""}Step ${c.step} · ${what}`;
 }
 
-/** The run's settings worth mentioning: "From 00:03.20 · 2× speed · Humanized". */
+/** The run's settings worth mentioning: "From 00:03.20 · 2× speed · Humanized"; for a skip, why, if it says. */
 export function runSettings(e: RunEntry): string {
-  if (e.outcome.type === "skipped") return "";
+  if (e.outcome.type === "skipped") return e.note ?? "";
   const parts: string[] = [];
   if (e.from_ms > 0) parts.push(`From ${fmtTime(e.from_ms)}`);
   if (e.speed !== 1) parts.push(`${e.speed}× speed`);

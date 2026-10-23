@@ -4,7 +4,7 @@
 import { after, afterEach, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { App, sleep, until, waitingMacro, writeRly } from "./harness.mjs";
 
 describe("triggers", () => {
@@ -167,6 +167,26 @@ describe("triggers", () => {
       }
     });
 
+    test("a run its data file refuses is logged as skipped, with why", async () => {
+      const csv = app.path("customers.csv");
+      writeFileSync(csv, "Customer\nACME\n");
+      await page.invoke("set_data_file", { id: target, path: csv });
+      unlinkSync(csv);
+      const onDisk = () => (app.exists("runs.json") ? app.json("runs.json").entries : []);
+      const before = onDisk().length;
+      const p = await ping(6);
+      try {
+        await until(() => onDisk().length > before, { timeout: 8000, what: "the skip in the run history" });
+      } finally {
+        p.kill();
+        await page.invoke("set_data_file", { id: target, path: null });
+      }
+      const e = onDisk().at(-1);
+      assert.deepEqual([e.macro_id, e.source, e.outcome], [target, "app_launch", { type: "skipped", reason: "data_file" }]);
+      assert.equal(e.note, "customers.csv isn't there anymore: choose it again in Settings → Playback.");
+      assert.equal(await page.store("error"), e.note, "and shown");
+    });
+
     test("a program started right after its trigger is switched on counts as a launch", async () => {
       const { app_launch } = (await status()).triggers;
       await set({ app_launch: { ...app_launch, enabled: false } });
@@ -309,7 +329,7 @@ describe("triggers", () => {
     for (const source of ["Schedule", "AppLaunch", "Pixel"]) assert.match(log(), new RegExp(`source=${source}`));
   });
 
-  test("the run history records each triggered run, and the one skipped while busy", async () => {
+  test("the run history records each triggered run, and the ones skipped", async () => {
     const entries = app.json("runs.json").entries.filter((e) => e.macro_id === target);
     const ran = (source) => entries.filter((e) => e.source === source && e.outcome.type === "finished");
     for (const source of ["schedule", "app_launch", "pixel"]) {
@@ -320,7 +340,10 @@ describe("triggers", () => {
     const skipped = entries.filter((e) => e.outcome.type === "skipped");
     assert.deepEqual(
       skipped.map((e) => [e.source, e.outcome.reason, e.macro_name]),
-      [["app_launch", "busy", "Triggered"]],
+      [
+        ["app_launch", "data_file", "Triggered"],
+        ["app_launch", "busy", "Triggered"],
+      ],
     );
   });
 

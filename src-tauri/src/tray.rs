@@ -5,7 +5,7 @@
 use relay_core::session::{FinishReason, Input, Mode};
 use tauri::menu::{CheckMenuItem, CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Runtime};
 
 use crate::coordinator::{Cmd, CoordinatorHandle};
 
@@ -76,7 +76,7 @@ pub fn show(app: &AppHandle) {
 }
 
 /// The tooltip says what Relay is doing, since the widget may be hidden.
-pub fn set_mode(app: &AppHandle, mode: Mode) {
+pub fn set_mode<R: Runtime>(app: &AppHandle<R>, mode: Mode) {
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         let _ = tray.set_tooltip(Some(tooltip(mode)));
     }
@@ -92,7 +92,7 @@ fn tooltip(mode: Mode) -> &'static str {
     }
 }
 
-pub fn set_triggers_active(app: &AppHandle, active: bool) {
+pub fn set_triggers_active<R: Runtime>(app: &AppHandle<R>, active: bool) {
     if let Some(item) = app.try_state::<TriggersItem>() {
         let _ = item.0.set_checked(active);
     }

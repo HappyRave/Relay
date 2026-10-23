@@ -31,4 +31,8 @@ checks: Array<CheckResult>,
 /**
  * Earlier checks that weren't kept.
  */
-checks_dropped: number, };
+checks_dropped: number, 
+/**
+ * Why it was skipped, when the reason needs saying (a data file's problem).
+ */
+note?: string, };

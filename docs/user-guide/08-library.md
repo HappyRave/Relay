@@ -47,7 +47,7 @@ Each run shows the macro's name (as it was then), when it started, and:
 
 Runs that didn't end as planned have a red bar. Click a run to see what its [pixel checks](05-pixel-checks.md) and [Find image](06-find-image.md) steps did (*Step 4 · Pixel check matched after 1.2 s*, *Step 6 · Image found at 812, 344 (93 %) after 0.4 s*), and its playback settings if they weren't the usual ones (*From 00:03.20 · 2× speed · Humanized*). A run keeps its last 50 checks.
 
-The history also lists [triggers](07-triggers.md) that fired but didn't run their macro: *Skipped: Relay was busy*, *Skipped: screen locked*, and *Skipped: PC was asleep* for a scheduled run the PC slept through.
+The history also lists [triggers](07-triggers.md) that fired but didn't run their macro: *Skipped: Relay was busy*, *Skipped: screen locked*, *Skipped: PC was asleep* for a scheduled run the PC slept through, and *Skipped: data file* when the macro's [data file](04-playback.md#a-data-file-one-run-per-row) couldn't be played, with what was wrong.
 
 Relay keeps the last 200 runs, in `runs.json`. A run still going when you quit Relay isn't recorded.
 

@@ -3,4 +3,4 @@
 /**
  * Why a trigger that fired didn't run its macro.
  */
-export type SkipReason = "busy" | "locked" | "missed";
+export type SkipReason = "busy" | "locked" | "missed" | "data_file";

@@ -1,20 +1,19 @@
 <script lang="ts">
   // The one place errors and notices are shown: at the bottom of the side
-  // panel, or under the compact player.
+  // panel, or under the compact player, the newest at the bottom.
   import Icon from "../ui/Icon.svelte";
   import { relay } from "../../lib/state/relay.svelte";
 </script>
 
-{#if relay.toast}
-  {@const t = relay.toast}
+{#each relay.shownToasts as t (t.id)}
   <div class="toast" class:error={t.kind === "error"} role={t.kind === "error" ? "alert" : "status"}>
     <span class="message">{t.message}</span>
     {#if t.action}
       <button class="btn btn-ghost action" onclick={t.action.run}>{t.action.label}</button>
     {/if}
-    <button class="close" aria-label="Dismiss" onclick={relay.dismissToast}><Icon name="x" size={12} /></button>
+    <button class="close" aria-label="Dismiss" onclick={() => relay.dismissToast(t.id)}><Icon name="x" size={12} /></button>
   </div>
-{/if}
+{/each}
 
 <style>
   .toast {
