@@ -18,6 +18,8 @@
   const count = $derived(relay.repeatCount);
   const cur = $derived(Math.min(relay.cur, relay.duration));
   const off = $derived(relay.recording);
+  /** With a data file, the macro plays once per row instead. */
+  const data = $derived(relay.dataFile);
   const speedLabel = (s: number) => `${s}×`;
 </script>
 
@@ -73,7 +75,13 @@
     <div class="setting">
       <span class="label" aria-hidden="true">Repeat</span>
       <div class="strip">
-        {#if mode === "narrow"}
+        {#if data}
+          <span
+            class="rows"
+            title={data.error ?? "Plays once per row of the data file (Settings → Playback)"}
+            >Each row{data.error ? "" : ` (${data.rows})`}</span
+          >
+        {:else if mode === "narrow"}
           <!-- Folded: one button that steps through the usual counts. -->
           <button
             class="loop folded"
@@ -182,7 +190,8 @@
     border-left: none;
   }
   .strip > :global(button),
-  .count {
+  .count,
+  .rows {
     flex: none;
     border: 0;
     border-left: 1px solid var(--color-neutral-400);
@@ -246,6 +255,13 @@
     font-size: 17px;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
+  }
+  .rows {
+    padding: 0 13px;
+    cursor: default;
+    font-size: 15px;
+    font-weight: 700;
+    white-space: nowrap;
   }
   .loop {
     gap: 6px;

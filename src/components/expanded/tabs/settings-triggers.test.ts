@@ -135,6 +135,8 @@ describe("Settings tab", () => {
   test("Reset layout puts the editor's size and dividers back", async () => {
     relay.movePanes({ preview_w: 480, transport_h: 100, timeline_h: 220 });
     render(SettingsTab);
+    await settle();
+    core.clearCalls();
     await userEvent.click(screen.getByRole("button", { name: "Reset layout" }));
     await settle();
     expect(core.commands()).toEqual(["reset_layout"]);
@@ -165,6 +167,74 @@ describe("Settings tab", () => {
       expect(screen.getByText(what)).toBeInTheDocument();
       expect(screen.getByText(key)).toBeInTheDocument();
     }
+  });
+
+  describe("Data file", () => {
+    const CSV = "C:\\Data\\customers.csv";
+    beforeEach(() => {
+      core.csv.set(CSV, { columns: ["Customer", "Total"], rows: [["ACME", "12"], ["Globex", "7"]] });
+    });
+
+    test("Choose… links a CSV, and the row says how many runs it makes", async () => {
+      render(SettingsTab);
+      await settle();
+      expect(screen.getByText("A CSV file: the macro plays once per row, and Text steps type its columns")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+      core.clearCalls();
+      core.dialog.open = CSV;
+      await userEvent.click(screen.getByRole("button", { name: "Choose…" }));
+      await settle();
+      expect(core.commands()).toEqual(["plugin:dialog|open", "set_data_file"]);
+      expect(core.lastArgs("set_data_file")).toEqual({ id: A, path: CSV });
+      expect(screen.getByText("customers.csv: 2 rows, played once each")).toHaveAttribute("title", CSV);
+      expect(screen.getByRole("button", { name: "Change…" })).toBeInTheDocument();
+    });
+
+    test("Remove unlinks it", async () => {
+      core.dialog.open = CSV;
+      await relay.chooseDataFile();
+      render(SettingsTab);
+      await settle();
+      core.clearCalls();
+      await userEvent.click(screen.getByRole("button", { name: "Remove" }));
+      await settle();
+      expect(core.calls).toEqual([{ cmd: "set_data_file", args: { id: A, path: null } }]);
+      expect(screen.getByRole("button", { name: "Choose…" })).toBeInTheDocument();
+      expect(relay.dataFile).toBeNull();
+    });
+
+    test("cancelling the dialog changes nothing", async () => {
+      render(SettingsTab);
+      await settle();
+      core.clearCalls();
+      core.dialog.open = null;
+      await userEvent.click(screen.getByRole("button", { name: "Choose…" }));
+      await settle();
+      expect(core.commands()).toEqual(["plugin:dialog|open"]);
+      expect(relay.toast).toBeNull();
+    });
+
+    test("a file that can't be read is refused, and says why", async () => {
+      render(SettingsTab);
+      await settle();
+      core.csv.set("C:\\bad.csv", "bad.csv: A quote isn't closed in row 3.");
+      core.dialog.open = "C:\\bad.csv";
+      await userEvent.click(screen.getByRole("button", { name: "Choose…" }));
+      await settle();
+      expect(relay.error).toBe("bad.csv: A quote isn't closed in row 3.");
+      expect(relay.dataFile).toBeNull();
+    });
+
+    test("it's read again when the tab opens, and what's wrong with it shows", async () => {
+      core.dialog.open = CSV;
+      await relay.chooseDataFile();
+      await relay.edit({ op: "insert_text", at: 0, text: "{col:Due}" });
+      core.clearCalls();
+      render(SettingsTab);
+      await settle();
+      expect(core.calls).toEqual([{ cmd: "get_data_file", args: { id: A } }]);
+      expect(screen.getByRole("alert")).toHaveTextContent("customers.csv has no column “Due”.");
+    });
   });
 
   test("warns that recordings store passwords", () => {

@@ -1,6 +1,7 @@
 //! What a Text step types: text with placeholders, filled in when it plays.
-//! `{date}`, `{time}`, `{clipboard}` and `{n}` (the repeat number); `{{` and
-//! `}}` type a brace.
+//! `{date}`, `{time}`, `{clipboard}`, `{n}` (the repeat number) and
+//! `{col:Name}` (a column of the data file's row, see [`crate::data`]); `{{`
+//! and `}}` type a brace.
 
 use chrono::NaiveDateTime;
 use thiserror::Error;
@@ -17,12 +18,15 @@ pub enum Part {
     Time,
     Clipboard,
     Repeat,
+    Column(String),
 }
 
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum TemplateError {
-    #[error("{{{0}}} isn't a placeholder: use {{date}}, {{time}}, {{clipboard}} or {{n}}.")]
+    #[error("{{{0}}} isn't a placeholder: use {{date}}, {{time}}, {{clipboard}}, {{n}} or {{col:Name}}.")]
     Unknown(String),
+    #[error("{{col:}} needs the name of a column, as in {{col:Customer}}.")]
+    NoColumn,
     #[error("A {{ isn't closed: type {{{{ for a brace.")]
     Unclosed,
     #[error("A }} has no {{ before it: type }}}} for a brace.")]
@@ -59,7 +63,11 @@ pub fn parse(template: &str) -> Result<Vec<Part>, TemplateError> {
                     "time" => Part::Time,
                     "clipboard" => Part::Clipboard,
                     "n" => Part::Repeat,
-                    _ => return Err(TemplateError::Unknown(name)),
+                    _ => match name.strip_prefix("col:").map(str::trim) {
+                        Some("") => return Err(TemplateError::NoColumn),
+                        Some(column) => Part::Column(column.to_string()),
+                        None => return Err(TemplateError::Unknown(name)),
+                    },
                 };
                 if !literal.is_empty() {
                     parts.push(Part::Literal(std::mem::take(&mut literal)));
@@ -82,9 +90,16 @@ pub fn validate(template: &str) -> Result<(), TemplateError> {
 
 /// The text `template` types on repeat `n` (from 1) at local time `now`.
 /// The clipboard is read only if the template uses it (`None`: no text on it,
-/// which types nothing). A template that doesn't parse (a hand-edited file)
-/// is typed as it is.
-pub fn fill(template: &str, n: u32, now: NaiveDateTime, clipboard: impl FnOnce() -> Option<String>) -> String {
+/// which types nothing); `column` gives a column's value in this repeat's row
+/// (`None`, a column that isn't there, types nothing). A template that
+/// doesn't parse (a hand-edited file) is typed as it is.
+pub fn fill(
+    template: &str,
+    n: u32,
+    now: NaiveDateTime,
+    clipboard: impl FnOnce() -> Option<String>,
+    column: impl Fn(&str) -> Option<String>,
+) -> String {
     let Ok(parts) = parse(template) else { return template.to_string() };
     let mut clipboard = Some(clipboard);
     let mut copied = String::new();
@@ -95,6 +110,7 @@ pub fn fill(template: &str, n: u32, now: NaiveDateTime, clipboard: impl FnOnce()
             Part::Date => out.push_str(&now.format("%Y-%m-%d").to_string()),
             Part::Time => out.push_str(&now.format("%H:%M:%S").to_string()),
             Part::Repeat => out.push_str(&n.to_string()),
+            Part::Column(name) => out.push_str(&column(&name).unwrap_or_default()),
             Part::Clipboard => {
                 if let Some(read) = clipboard.take() {
                     copied = read().unwrap_or_default();
@@ -107,7 +123,7 @@ pub fn fill(template: &str, n: u32, now: NaiveDateTime, clipboard: impl FnOnce()
 }
 
 /// About how long typing `template` takes: what's known of it (the
-/// clipboard counts as empty). A Text step lasts at least this long.
+/// clipboard and columns count as empty). A Text step lasts at least this long.
 pub fn typing_ms(template: &str) -> Ms {
     let chars = match parse(template) {
         Ok(parts) => parts
@@ -117,7 +133,7 @@ pub fn typing_ms(template: &str) -> Ms {
                 Part::Date => 10,
                 Part::Time => 8,
                 Part::Repeat => 1,
-                Part::Clipboard => 0,
+                Part::Clipboard | Part::Column(_) => 0,
             })
             .sum(),
         Err(_) => template.chars().count(),
@@ -135,36 +151,46 @@ mod tests {
     use super::*;
     use chrono::NaiveDate;
 
+    fn no_data(_: &str) -> Option<String> {
+        None
+    }
+
     fn at() -> NaiveDateTime {
         NaiveDate::from_ymd_opt(2026, 10, 1).unwrap().and_hms_opt(9, 5, 7).unwrap()
     }
 
     #[test]
     fn placeholders_are_filled_in() {
-        let filled = fill("Invoice {date} {time} #{n}: {clipboard}.", 3, at(), || Some("ACME".into()));
+        let filled = fill("Invoice {date} {time} #{n}: {clipboard}.", 3, at(), || Some("ACME".into()), no_data);
         assert_eq!(filled, "Invoice 2026-10-01 09:05:07 #3: ACME.");
     }
 
     #[test]
     fn double_braces_type_a_brace() {
-        assert_eq!(fill("{{n}} = {n}, }}{{", 12, at(), || None), "{n} = 12, }{");
+        assert_eq!(fill("{{n}} = {n}, }}{{", 12, at(), || None, no_data), "{n} = 12, }{");
         assert_eq!(parse("{{}}").unwrap(), [Part::Literal("{}".into())]);
-        assert_eq!(fill(&escape("a {b} }}"), 1, at(), || None), "a {b} }}");
+        assert_eq!(fill(&escape("a {b} }}"), 1, at(), || None, no_data), "a {b} }}");
     }
 
     #[test]
     fn the_clipboard_is_read_once_and_only_when_used() {
         let mut reads = 0;
         assert_eq!(
-            fill("{clipboard}-{clipboard}", 1, at(), || {
-                reads += 1;
-                Some("x".into())
-            }),
+            fill(
+                "{clipboard}-{clipboard}",
+                1,
+                at(),
+                || {
+                    reads += 1;
+                    Some("x".into())
+                },
+                no_data
+            ),
             "x-x"
         );
         assert_eq!(reads, 1);
-        assert_eq!(fill("{date}", 1, at(), || panic!("not read")), "2026-10-01");
-        assert_eq!(fill("[{clipboard}]", 1, at(), || None), "[]", "no text on the clipboard");
+        assert_eq!(fill("{date}", 1, at(), || panic!("not read"), no_data), "2026-10-01");
+        assert_eq!(fill("[{clipboard}]", 1, at(), || None, no_data), "[]", "no text on the clipboard");
     }
 
     #[test]
@@ -175,17 +201,30 @@ mod tests {
         assert_eq!(parse("a {date"), Err(TemplateError::Unclosed));
         assert_eq!(parse("{da{te}"), Err(TemplateError::Unclosed));
         assert_eq!(parse("a } b"), Err(TemplateError::Unopened));
+        assert_eq!(parse("{col:}"), Err(TemplateError::NoColumn));
+        assert_eq!(parse("{col: }"), Err(TemplateError::NoColumn));
+        assert_eq!(parse("{Col:x}"), Err(TemplateError::Unknown("Col:x".into())));
         assert_eq!(
             TemplateError::Unknown("name".into()).to_string(),
-            "{name} isn't a placeholder: use {date}, {time}, {clipboard} or {n}."
+            "{name} isn't a placeholder: use {date}, {time}, {clipboard}, {n} or {col:Name}."
         );
+        assert_eq!(TemplateError::NoColumn.to_string(), "{col:} needs the name of a column, as in {col:Customer}.");
         assert_eq!(TemplateError::Unclosed.to_string(), "A { isn't closed: type {{ for a brace.");
         assert_eq!(TemplateError::Unopened.to_string(), "A } has no { before it: type }} for a brace.");
     }
 
     #[test]
+    fn columns_type_the_rows_value() {
+        let row = |name: &str| (name == "Customer").then(|| "ACME".to_string());
+        assert_eq!(fill("{col:Customer}#{n}", 2, at(), || None, row), "ACME#2");
+        assert_eq!(fill("[{col:Other}]", 2, at(), || None, row), "[]", "a missing column types nothing");
+        assert_eq!(parse("{col: Unit price }").unwrap(), [Part::Column("Unit price".into())]);
+        assert_eq!(typing_ms("{col:Customer}!"), CHAR_MS);
+    }
+
+    #[test]
     fn a_template_that_does_not_parse_is_typed_as_it_is() {
-        assert_eq!(fill("50% {off", 1, at(), || None), "50% {off");
+        assert_eq!(fill("50% {off", 1, at(), || None, no_data), "50% {off");
     }
 
     #[test]

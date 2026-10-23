@@ -21,6 +21,7 @@ These belong to the macro that's open and are saved in its file, so each macro c
 | --- | --- | --- |
 | **Humanize** | On, ±40 ms | Shifts each step by a random amount up to the slider value (0–200 ms) |
 | **Coordinates** | Screen | **Screen** clicks at the recorded pixels. **Window** follows the recorded window if it moved. |
+| **Data file** | None | A CSV file: the macro plays once per row, and Text steps type its columns. **Choose…**, **Change…** and **Remove**. Kept on this PC, not in the macro's file. See [A data file](04-playback.md#a-data-file-one-run-per-row). |
 | **Stop on key press** | On | Any key you press stops playback (and is swallowed) |
 
 ### Recording

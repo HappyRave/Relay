@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 
 use crossbeam_channel::{Sender, TryRecvError, unbounded};
+use relay_core::data::DataTable;
 use relay_core::image::{Gray, Match, Rgb8};
 use relay_core::keys::KeyStroke;
 use relay_core::model::{Event, MouseBtn, Ms, Rect, Repeat, Rgb};
@@ -83,6 +84,8 @@ pub struct PlayPlan {
     pub steps: Vec<Step>,
     pub duration: Ms,
     pub repeat: Repeat,
+    /// The data file's rows: repeat `n` types columns of row `n`.
+    pub data: Option<Arc<DataTable>>,
     pub speed: f64,
     /// ± per-step timing jitter ("Humanize"); 0 plays the recording exactly.
     pub jitter_ms: u32,
@@ -683,8 +686,10 @@ pub fn spawn<S: PlaybackSink>(plan: PlayPlan, platform: &Platform, sink: S) -> E
                 let hide = crate::finder::Hidden::of(&*windows, own_window);
                 crate::finder::find_on_screen(&*finder_screen, image, area, threshold, &hide)
             });
+            let data = plan.data.clone();
             let fill: TextFiller = Box::new(move |template, n| {
-                relay_core::text::fill(template, n, chrono::Local::now().naive_local(), || clipboard.text())
+                let column = |name: &str| data.as_ref()?.value(n as usize - 1, name).map(str::to_string);
+                relay_core::text::fill(template, n, chrono::Local::now().naive_local(), || clipboard.text(), column)
             });
             let mut engine = Engine::new(plan, make_injector(), pixel, find, fill, now_ms());
             let mut next_tick = f64::MIN;
@@ -797,6 +802,7 @@ mod tests {
             steps,
             duration,
             repeat,
+            data: None,
             speed,
             jitter_ms: 0,
             seed: 0,
@@ -1077,6 +1083,7 @@ mod tests {
             steps,
             duration,
             repeat: Repeat::Count(1),
+            data: None,
             speed: 1.0,
             jitter_ms: 0,
             seed: 0,

@@ -1102,7 +1102,7 @@ mod tests {
         assert_eq!(refused, Err(EditError::Text(TemplateError::Unknown("name".into()))));
         assert_eq!(
             refused.unwrap_err().to_string(),
-            "{name} isn't a placeholder: use {date}, {time}, {clipboard} or {n}."
+            "{name} isn't a placeholder: use {date}, {time}, {clipboard}, {n} or {col:Name}."
         );
         assert_eq!(m.events, before);
     }
@@ -1150,7 +1150,7 @@ mod tests {
         apply(&mut m, EditOp::MakeEditable { index: 0 }).unwrap();
         // 6 ms of typing becomes the 20 ms that typing "{}" takes, pushing the click back.
         assert_eq!(m.events[0], Event::Text { t: 0, dur: 20, text: "{{}}".into() });
-        assert_eq!(crate::text::fill("{{}}", 1, Default::default(), || None), "{}");
+        assert_eq!(crate::text::fill("{{}}", 1, Default::default(), || None, |_| None), "{}");
         let ts: Vec<_> = m.events.iter().map(Event::t).collect();
         assert_eq!(ts, [0, 20, 114, 194], "the cursor moving during the typing waits for it");
         check_invariants(&m.events).unwrap();

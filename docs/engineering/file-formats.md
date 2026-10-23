@@ -157,12 +157,12 @@ A macro exported as a **Standalone program** is the player's exe with the macro 
 | Bytes | Content |
 | --- | --- |
 | … | The player (`crates/relay-player`), a normal Windows program |
-| *n* | The macro as a compact `.rly` (UTF-8), exactly as a `.rly` export would write it (v3 with a `text` event, v2 with a `find_image` event) |
+| *n* | The macro as a compact `.rly` (UTF-8), exactly as a `.rly` export would write it (v3 with a `text` event, v2 with a `find_image` event), plus, for a macro with a data file, its rows as `"data": { "columns": [...], "rows": [[...], ...] }` |
 | 8 | *n*, as a little-endian u64 |
 | 4 | The bundle version, 1, as a little-endian u32 |
 | 8 | `RELAYRLY` |
 
-Windows loads the program's image and ignores what follows it, so the player runs as it is, and reads the macro from its own file. Import recognizes a program by its `MZ` header: without the trailer it's *not a program exported by Relay*, with a newer bundle version it's *saved by a newer Relay*. The player isn't signed, and appending the macro would invalidate a signature anyway, so an exported program can never carry Relay's.
+Windows loads the program's image and ignores what follows it, so the player runs as it is, and reads the macro from its own file (`format::from_program`, which also returns `data`). Loading it as a macro (`from_rly`, Import) drops `data`, so older Relays import such a program too; the bundle version stays 1. Import recognizes a program by its `MZ` header: without the trailer it's *not a program exported by Relay*, with a newer bundle version it's *saved by a newer Relay*. The player isn't signed, and appending the macro would invalidate a signature anyway, so an exported program can never carry Relay's.
 
 ## Versioning and migrations
 
@@ -205,7 +205,8 @@ To change the format:
         "app_launch": { "enabled": false, "exe": "", "delay_ms": 2000 },
         "pixel": { "enabled": false, "x": 0, "y": 0, "color": "#EC3013", "tolerance": 8 },
         "image": { "enabled": false, "image": null, "threshold": 85, "area": null }
-      }
+      },
+      "data_file": "C:\\Users\\me\\Documents\\customers.csv"
     }
   },
   "trash": {
@@ -213,6 +214,8 @@ To change the format:
   }
 }
 ```
+
+`data_file`, the macro's [data file](../user-guide/04-playback.md#a-data-file-one-run-per-row), is only written for a macro that has one. It's an absolute path, read each time the macro plays (`src-tauri/src/data_file.rs`), and kept by duplicates, the trash and restore. Older Relays ignore it.
 
 | Field | Notes |
 | --- | --- |

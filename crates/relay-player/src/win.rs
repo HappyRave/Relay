@@ -6,6 +6,7 @@ use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use relay_core::data::DataTable;
 use relay_core::format;
 use relay_core::model::{Macro, Ms, Rect};
 use relay_core::session::FinishReason;
@@ -67,7 +68,7 @@ struct App {
     hwnd: HWND,
     quiet: bool,
     /// The macro, until playback takes it.
-    pending: Option<Macro>,
+    pending: Option<(Macro, Option<DataTable>)>,
     status: Status,
     layout: Layout,
     fonts: Fonts,
@@ -171,15 +172,15 @@ fn with_app<R>(f: impl FnOnce(&mut App) -> R) -> Option<R> {
 pub fn main() -> i32 {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let quiet = args.iter().any(|a| a == "--quiet");
-    let m = match load() {
-        Ok(m) => m,
+    let (m, data) = match load() {
+        Ok(loaded) => loaded,
         Err(e) => {
             tell(&format!("This program's macro can't be read: {e}"), quiet);
             return Exit::Error.code();
         }
     };
     match args::parse(args, &m.playback) {
-        Ok(Parsed::Run(cli)) => run(m, cli),
+        Ok(Parsed::Run(cli)) => run(m, data, cli),
         Ok(Parsed::Help) => {
             tell(USAGE, false);
             Exit::Completed.code()
@@ -191,10 +192,10 @@ pub fn main() -> i32 {
     }
 }
 
-fn load() -> Result<Macro, String> {
+fn load() -> Result<(Macro, Option<DataTable>), String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let bytes = std::fs::read(exe).map_err(|e| e.to_string())?;
-    format::from_file(&bytes).map_err(|e| e.to_string())
+    format::from_program(&bytes).map_err(|e| e.to_string())
 }
 
 /// Writes `text` to the console this was started from, or shows it in a
@@ -209,7 +210,7 @@ fn tell(text: &str, quiet: bool) {
     }
 }
 
-fn run(mut m: Macro, cli: Cli) -> i32 {
+fn run(mut m: Macro, data: Option<DataTable>, cli: Cli) -> i32 {
     m.playback = cli.apply(&m.playback);
     let platform = relay_platform::platform();
     let monitors = platform.screen.monitors();
@@ -228,7 +229,7 @@ fn run(mut m: Macro, cli: Cli) -> i32 {
         platform,
         hwnd,
         quiet: cli.quiet,
-        pending: Some(m),
+        pending: Some((m, data)),
         status,
         fonts: Fonts::new(&l),
         layout: l,
@@ -369,7 +370,7 @@ impl App {
     }
 
     fn play(&mut self) {
-        let Some(m) = self.pending.take() else { return };
+        let Some((m, data)) = self.pending.take() else { return };
         let windows = self.platform.windows.clone();
         if !windows.input_desktop_available() {
             self.status.notice = Some("The screen is locked, so nothing can be played.".into());
@@ -388,8 +389,8 @@ impl App {
         }
         self.watch(m.playback.stop_on_key);
         let seed = (self.platform.now_ms)().to_bits() ^ (m.id.as_u128() as u64);
-        let loops = m.playback.repeat.loops();
-        let plan = PlayPlan::for_macro(m, 0, seed, offset, self.hwnd.0 as isize);
+        let plan = PlayPlan::for_macro(m, data, 0, seed, offset, self.hwnd.0 as isize);
+        let loops = plan.repeat.loops();
         self.status.phase = Phase::Playing(Tick { t: 0.0, advancing: true, speed: plan.speed, loop_idx: 0, loops });
         let sink = WinSink { hwnd: self.hwnd.0 as isize, shared: self.shared.clone() };
         self.engine = Some(relay_playback::spawn(plan, &self.platform, sink));

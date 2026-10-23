@@ -1,18 +1,33 @@
 //! Getting a macro ready to play: its [`PlayPlan`], where "Window"
 //! coordinates put it now, and whether it clicks inside a window of ours.
 
-use relay_core::model::{CoordMode, Event, Macro, Ms, Rect, WindowInfo};
+use std::sync::Arc;
+
+use relay_core::data::DataTable;
+use relay_core::model::{CoordMode, Event, Macro, Ms, Rect, Repeat, WindowInfo};
 use relay_core::steps::group_steps;
 use relay_core::timeline;
 
 use crate::engine::PlayPlan;
 
 impl PlayPlan {
-    /// Plays `m` with its saved playback options, from `from`.
-    pub fn for_macro(m: Macro, from: Ms, seed: u64, offset: (i32, i32), own_window: isize) -> PlayPlan {
+    /// Plays `m` with its saved playback options, from `from`; with a data
+    /// file, once per row instead of its Repeat.
+    pub fn for_macro(
+        m: Macro,
+        data: Option<DataTable>,
+        from: Ms,
+        seed: u64,
+        offset: (i32, i32),
+        own_window: isize,
+    ) -> PlayPlan {
         PlayPlan {
             duration: timeline::duration(&m.events),
-            repeat: m.playback.repeat,
+            repeat: match &data {
+                Some(d) => Repeat::Count(d.rows.len() as u32),
+                None => m.playback.repeat,
+            },
+            data: data.map(Arc::new),
             speed: m.playback.speed as f64,
             jitter_ms: if m.playback.humanize { m.playback.jitter_ms } else { 0 },
             seed,
@@ -54,7 +69,7 @@ pub fn clicks_inside(m: &Macro, r: Rect, offset: (i32, i32)) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use relay_core::model::{MouseBtn, RecordingMeta, Repeat};
+    use relay_core::model::{MouseBtn, RecordingMeta};
 
     use super::*;
 
@@ -76,7 +91,7 @@ mod tests {
         m.playback.speed = 2.0;
         m.playback.jitter_ms = 40;
         m.playback.humanize = false;
-        let plan = PlayPlan::for_macro(m.clone(), 10, 7, (5, 6), 42);
+        let plan = PlayPlan::for_macro(m.clone(), None, 10, 7, (5, 6), 42);
         assert_eq!(
             (plan.repeat, plan.speed, plan.jitter_ms, plan.seed, plan.offset, plan.from, plan.own_window),
             (Repeat::Count(3), 2.0, 0, 7, (5, 6), 10, 42),
@@ -87,7 +102,24 @@ mod tests {
         assert_eq!(plan.events, m.events);
 
         m.playback.humanize = true;
-        assert_eq!(PlayPlan::for_macro(m, 0, 0, (0, 0), 0).jitter_ms, 40);
+        assert_eq!(PlayPlan::for_macro(m.clone(), None, 0, 0, (0, 0), 0).jitter_ms, 40);
+        assert_eq!(plan.data, None);
+    }
+
+    #[test]
+    fn a_data_file_plays_once_per_row() {
+        let mut m = clicking_at(900, 700);
+        m.playback.repeat = Repeat::Forever;
+        let data = relay_core::data::parse(
+            b"Customer
+ACME
+Globex
+Initech",
+        )
+        .unwrap();
+        let plan = PlayPlan::for_macro(m, Some(data.clone()), 0, 0, (0, 0), 0);
+        assert_eq!(plan.repeat, Repeat::Count(3));
+        assert_eq!(plan.data.as_deref(), Some(&data));
     }
 
     #[test]

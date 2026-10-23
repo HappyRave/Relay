@@ -39,7 +39,7 @@ Relay is a **Windows desktop macro recorder**: it records mouse and keyboard inp
 ## Where things stand
 
 - **Latest release: v1.4.0** (2026-10-01), from `main`. Releases so far: v1.0.0, v1.1.0, v1.2.0, v1.3.0, v1.4.0. Each has an NSIS installer and a portable exe.
-- **Milestone history:** M0–M8 built v1.0. Then: m9 editor polish (v1.1.0), m10 Keep on top, m11 dependency upgrades, m12 a four-reviewer architecture refactor, m13 the three-layer test suite, m14 a four-reviewer audit of every test against the user guide (about 90 findings fixed), then v1.2.0. Then fix-multi-monitor-scale and m15 the control bar, preview bar, screenshots and resizable editor (v1.3.0). Then m16 mouse moves as steps, m17 Find image (with fix-find-image-own-window), m18 the run history, m19 standalone `.exe` export (v1.4.0). Since then, unreleased: m20 Text steps with placeholders. `git log --first-parent main` shows them as merges.
+- **Milestone history:** M0–M8 built v1.0. Then: m9 editor polish (v1.1.0), m10 Keep on top, m11 dependency upgrades, m12 a four-reviewer architecture refactor, m13 the three-layer test suite, m14 a four-reviewer audit of every test against the user guide (about 90 findings fixed), then v1.2.0. Then fix-multi-monitor-scale and m15 the control bar, preview bar, screenshots and resizable editor (v1.3.0). Then m16 mouse moves as steps, m17 Find image (with fix-find-image-own-window), m18 the run history, m19 standalone `.exe` export (v1.4.0). Since then, unreleased: m20 Text steps with placeholders, m21 data files that drive repeats. `git log --first-parent main` shows them as merges.
 - **Tests at v1.4.0:** about 390 Rust (unit, property, snapshot), about 640 Vitest (store, backend contract, fake core, every component), about 115 end-to-end tests against the built app. Rust unit coverage is about 76% of lines; the coordinator, commands, tray and Windows backend are exercised end to end instead. The frontend is at about 99.8% of lines.
 - **Next, per the [roadmap](README.md#roadmap):** AutoHotkey v2 export (the Export dialog already shows it as "Coming later"), code signing (needs a certificate; free options for open source: SignPath Foundation, Certum's open-source certificate, Azure Trusted Signing), remapping macros to a different monitor layout, macOS and Linux backends.
 - **Also open:** see [Known limitations and open items](#known-limitations-and-open-items).
@@ -83,7 +83,8 @@ crates/relay-core/src/       pure logic, heavily tested
   session.rs                 the session state machine: Mode × Input → effects
   schedule.rs  triggers.rs   next scheduled run (DST-safe); PixelEdge, ProcessLaunchEdge
   image.rs                   finding an image on a capture (gray NCC, coarse to fine, scales 0.5–2); PNG/JPEG/DIB
-  text.rs                    Text steps' templates: {date} {time} {clipboard} {n}, parse/fill/typing_ms
+  text.rs                    Text steps' templates: {date} {time} {clipboard} {n} {col:Name}, parse/fill/typing_ms
+  data.rs                    data files: CSV parse, DataTable, check (why a macro can't play with its file)
   samples.rs  proptests.rs   the four design samples; property tests
 crates/relay-platform/src/
   lib.rs  types.rs           the OS traits (InputHook, Screen, WindowQuery, Injector, Timer…), RawInput, HookConfig
@@ -108,6 +109,7 @@ src-tauri/src/
   rec_thread.rs              recorder thread and hook watchdog
   commands.rs  ipc.rs        Tauri commands; the EngineMsg stream (queues errors until the UI subscribes)
   library.rs  history.rs     macros on disk + trash + import; undo/redo (in memory)
+  data_file.rs               a macro's data file, read from disk when it plays, exports or shows
   run_history.rs             runs.json, the run history
   screens.rs                 the screenshot drawn under the preview (screens\<id>.jpg, machine-local)
   settings.rs  storage.rs    settings.json (field by field); data dir, atomic writes
@@ -232,7 +234,7 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 
 `main` only changes through pull requests that pass CI. CI minutes are limited (2,000 a month, and Windows minutes count double), so everyday checking happens locally and the expensive CI job runs once per PR, when it's ready.
 
-- **Branches:** short-lived, off `main`. Milestones `mN-short-name` (next is `m21-…`), fixes `fix-…`, docs `docs-…`, CI and tooling `ci-…`, releases `release-X.Y.Z`.
+- **Branches:** short-lived, off `main`. Milestones `mN-short-name` (next is `m22-…`), fixes `fix-…`, docs `docs-…`, CI and tooling `ci-…`, releases `release-X.Y.Z`.
 - **Commits:** small, [Conventional Commits](https://www.conventionalcommits.org/) (`feat(recorder): …`, `fix(engine): …`, `test(e2e): …`, `docs: …`, `ci: …`, `chore: …`), with a body explaining why when it isn't obvious. Push as often as you like: pushing a branch runs nothing.
 - **The pull request is the milestone's workspace.** Open it as a **draft** when the branch starts (`gh pr create --draft --base main`), with the plan and progress in its description, kept up to date. That's where the next session (or contributor) picks up. Drafts only run the quick CI job.
 - **Ready means checked:** run `npm run verify` locally, then `gh pr ready`. That runs the full CI once; every later push to a ready PR runs it again, so push fixes in one go. Put a PR back to draft (`gh pr ready --undo`) to keep working on it.
@@ -292,6 +294,7 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 - Image searches never look inside Relay's own window: what shows of it is painted flat in the capture (`shown_rect` minus `covering`: a window in front of Relay is still searched), so the editor's thumbnail is never found. `WDA_EXCLUDEFROMCAPTURE` isn't enough for this: on multiple monitors it can still be applying when the capture is taken. The E2E tests show their image in a separate PowerShell window for this reason.
 - A Find image step that finds its image clicks it: E2E only plays one whose image is absent.
 - `.rly` is written as v2 only when the macro has a `find_image` event, and v3 only with a `text` event, so other macros still open in older Relays.
+- A data file is a path in `library.json` (machine-local), read each time the macro plays: with one, the macro plays once per row (`PlayPlan::for_macro` makes the repeat `Count(rows)`), and `relay_core::data::check` refuses to play or export it when the file is gone, lacks a column a Text step types, or has no rows. An exported program carries the rows in its `.rly` as `data`.
 - A Text step lasts at least its `typing_ms` (10 ms a character). While it types, the engine freezes the playhead at its start, then resumes from where typing got to, so what follows keeps its time unless the text runs past the step's end. E2E never plays one: it would type on the desktop.
 - relay-core is built at `opt-level = 3` in dev too: unoptimized, an image search takes seconds instead of ~25 ms.
 - App launches are detected by process name: a second instance of a program that's already running isn't a launch (`chrome.exe` starts many processes).

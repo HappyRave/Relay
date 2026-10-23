@@ -265,6 +265,27 @@ describe("Transport", () => {
 
   const repeat = () => (core.lastArgs("set_playback_options")!.options as { repeat: unknown }).repeat;
 
+  test("with a data file, the macro plays once per row instead of its repeat", async () => {
+    core.csv.set("C:\\customers.csv", { columns: ["Customer"], rows: [["ACME"], ["Globex"]] });
+    core.dialog.open = "C:\\customers.csv";
+    render(Transport);
+    await relay.chooseDataFile();
+    await settle();
+    const rows = screen.getByText("Each row (2)");
+    expect(rows).toHaveAttribute("title", "Plays once per row of the data file (Settings → Playback)");
+    for (const name of ["Fewer repeats", "More repeats", "Loop forever"]) expect(screen.queryByRole("button", { name })).toBeNull();
+    core.csv.delete("C:\\customers.csv");
+    await relay.loadDataFile();
+    await settle();
+    expect(screen.getByText("Each row")).toHaveAttribute(
+      "title",
+      "customers.csv isn't there anymore: choose it again in Settings → Playback.",
+    );
+    await relay.removeDataFile();
+    await settle();
+    expect(screen.getByRole("button", { name: "More repeats" })).toBeInTheDocument();
+  });
+
   test("+ and − change the repeat count, from 1 to 99", async () => {
     render(Transport);
     expect(screen.getByText("3")).toBeInTheDocument();

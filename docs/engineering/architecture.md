@@ -199,13 +199,13 @@ The trigger threads don't decide whether a macro can run. They only detect the e
 
 ## The exported player
 
-Exporting a macro as a **Standalone program** writes the player's exe with the macro's `.rly` appended, then a 20-byte trailer (see [File formats](file-formats.md#exported-programs)). The player reads its own file, finds the macro, and plays it with the same engine as the app.
+Exporting a macro as a **Standalone program** writes the player's exe with the macro's `.rly` appended (with its data file's rows, if it has one), then a 20-byte trailer (see [File formats](file-formats.md#exported-programs)). The player reads its own file, finds the macro, and plays it with the same engine as the app.
 
 ```mermaid
 flowchart LR
     B["src-tauri/build.rs<br/>cargo build -p relay-player --release<br/>(target/player)"] --> I["relay.exe<br/>include_bytes!"]
     I -- "export_macro(exe)" --> X["program.exe =<br/>player ‖ .rly ‖ trailer"]
-    X -- "runs" --> P["relay-player:<br/>from_file(own exe)"]
+    X -- "runs" --> P["relay-player:<br/>from_program(own exe)"]
     P --> E["relay_playback::spawn"]
     X -- "import_macros" --> R["Relay: from_file"]
 ```

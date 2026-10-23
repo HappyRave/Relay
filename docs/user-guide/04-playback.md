@@ -4,6 +4,7 @@ Playback replays a macro's clicks, keys and mouse path with the timing you recor
 
 - [Play, pause and stop](#play-pause-and-stop)
 - [Speed and repeat](#speed-and-repeat)
+- [A data file: one run per row](#a-data-file-one-run-per-row)
 - [Humanize](#humanize)
 - [Stop on key press](#stop-on-key-press)
 - [Screen or Window coordinates](#screen-or-window-coordinates)
@@ -14,7 +15,7 @@ Playback replays a macro's clicks, keys and mouse path with the timing you recor
 <p align="center"><img src="../images/playing.png" alt="Relay playing a macro, on loop 1 of 3" width="720"></p>
 
 > [!NOTE]
-> Playback options (speed, repeat, Humanize, Stop on key press and Coordinates) are **saved with each macro**, in its file. The *Playback* section of the Settings tab edits the macro that's open.
+> Playback options (speed, repeat, Humanize, Stop on key press and Coordinates) are **saved with each macro**, in its file. The *Playback* section of the Settings tab edits the macro that's open. A macro's [data file](#a-data-file-one-run-per-row) is remembered on this PC only.
 
 ## Play, pause and stop
 
@@ -51,6 +52,28 @@ The bar folds to fit the window: below about 1300 px wide, **Speed** is one butt
 
 > [!CAUTION]
 > Faster isn't always better. At 2× or 4× the apps you're automating get half or a quarter of the time they had when you recorded. If they can't keep up, clicks land before a window is ready. Use [pixel checks](05-pixel-checks.md) to make fast playback reliable.
+
+## A data file: one run per row
+
+To do the same thing for each line of a list (enter each customer's invoice, rename each file), give the macro a **data file**: a CSV whose first row names the columns.
+
+```text
+Customer;Invoice;Total
+ACME Ltd;F-1042;1250,00
+Globex;F-1043;87,50
+```
+
+1. In **Settings → Playback → Data file**, press **Choose…** and pick the file. The row says how many rows it has: *customers.csv: 2 rows, played once each*.
+2. In a [Text step](03-editing.md#text-that-changes-each-run), type a column with `{col:Customer}`. The step's editor has a button for each column.
+3. Press **Play**. The macro plays **once per row**, and each run types that row's values. `{n}` is the row number.
+
+While a macro has a data file, **Repeat** shows *Each row (2)* instead of its count. **Remove** goes back to the repeat it had.
+
+- Save it from Excel as **CSV**, with commas or semicolons, or as **CSV UTF-8**: both work, and so do tab-separated files. Values in quotes can hold the separator, quotes (doubled: `""`) and new lines.
+- Column names are matched whatever their case. Empty lines are skipped, and a row with fewer values than columns types nothing for the missing ones.
+- Relay reads the file **each time the macro plays**, so edit it in Excel between runs as you like. It keeps where the file is, not a copy: if you move it, choose it again.
+- Relay won't play the macro, and says why, if the file isn't there, a row has more values than there are columns, a Text step types a column the file doesn't have, or there are no rows. Triggered runs, too.
+- The data file belongs to the macro on this PC. A copy (Duplicate) uses the same file, but a `.rly` export doesn't carry it. A [Standalone program](08-library.md#exported-programs) carries the rows the file had when it was exported.
 
 ## Humanize
 

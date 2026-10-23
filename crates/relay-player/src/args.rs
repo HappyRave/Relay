@@ -9,7 +9,8 @@ pub const USAGE: &str = "\
 Plays the Relay macro inside this program.
 
 Options:
-  --repeat N|forever   Play it N times, or until stopped (default: as saved)
+  --repeat N|forever   Play it N times, or until stopped (default: as saved).
+                       A macro with a data file plays once per row instead.
   --speed X            Play X times faster, from 0.01 to 100 (default: as saved)
   --no-countdown       Start right away, without the 3-second countdown
   --quiet              Show no window; the exit code says how it ended

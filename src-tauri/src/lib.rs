@@ -1,5 +1,6 @@
 mod commands;
 mod coordinator;
+mod data_file;
 mod engine;
 mod history;
 mod hotkeys;
@@ -94,6 +95,8 @@ pub fn run() {
             commands::test_find_image,
             commands::show_match,
             commands::preview_text,
+            commands::get_data_file,
+            commands::set_data_file,
             commands::get_settings,
             commands::update_settings,
             commands::get_triggers,
