@@ -103,6 +103,8 @@ pub fn run() {
             commands::set_data_file,
             commands::get_settings,
             commands::update_settings,
+            commands::set_relay_key,
+            commands::key_warning,
             commands::get_triggers,
             commands::set_triggers,
             commands::set_triggers_paused,
@@ -164,9 +166,11 @@ pub fn run() {
             let emit = Arc::new(ipc::Emitter::default());
             app.manage(emit.clone());
             // Damaged files are skipped or set aside; the user hears about them (and the log has them).
-            let (library, library_problems) = library::Library::open(&dir);
-            app.manage(Mutex::new(library));
+            // Settings first: they tell a new install from an older Relay by its files.
             let (settings, settings_problems) = settings::SettingsStore::open(&dir);
+            let (mut library, library_problems) = library::Library::open(&dir);
+            library.set_relay_keys(settings.current.keys.clone());
+            app.manage(Mutex::new(library));
             app.manage(Mutex::new(settings));
             let (runs, runs_problems) = run_history::RunHistory::open(&dir);
             app.manage(Mutex::new(runs));

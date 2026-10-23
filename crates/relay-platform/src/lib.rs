@@ -19,7 +19,7 @@ use crossbeam_channel::Sender;
 use relay_core::keys::KeyStroke;
 use relay_core::model::{MonitorInfo, MouseBtn, Rect, Rgb, WindowInfo};
 
-pub use types::{HeldKeys, HookConfig, HookMode, OwnWindows, RawInput, RawKind, Snapshot, is_own};
+pub use types::{HeldKeys, HookConfig, HookMode, KeyChord, OwnWindows, RawInput, RawKind, Snapshot, is_own};
 
 #[derive(Debug, thiserror::Error)]
 pub enum PlatformError {

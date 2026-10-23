@@ -32,7 +32,7 @@ use crate::hotkeys;
 use crate::ipc::{Emitter, EngineMsg};
 use crate::library::{Library, LibraryError};
 use crate::run_history::RunHistory;
-use crate::settings::{Settings, SettingsStore};
+use crate::settings::{RelayKey, Settings, SettingsStore};
 
 #[derive(Debug, Serialize)]
 pub struct IpcError {
@@ -652,14 +652,52 @@ pub fn get_settings(s: State<'_, Mutex<SettingsStore>>) -> Settings {
     s.lock().current.clone()
 }
 
+/// Sets one of Relay's keys (`None`: off), refusing one that can't be (see
+/// `hotkeys::check_key`) with why.
+#[tauri::command(async)]
+pub fn set_relay_key(app: AppHandle, key: RelayKey, combo: Option<String>) -> Result<Settings> {
+    let current = app.state::<Mutex<SettingsStore>>().lock().current.clone();
+    hotkeys::check_key(&library(&app).lock(), &current.keys, key, combo.as_deref())
+        .map_err(|message| IpcError { code: "hotkey", message })?;
+    let keys = current.keys.with(key, combo);
+    update_settings(app, Settings { keys, ..current })
+}
+
+/// What to know before using `combo` as a global key: the character it
+/// types on the keyboard layout in use, or an app that uses it.
+#[tauri::command]
+pub fn key_warning(platform: State<'_, Arc<relay_platform::Platform>>, combo: String) -> Option<String> {
+    let altgr = relay_platform::KeyChord::parse(&combo).filter(|c| c.ctrl && c.alt).and_then(|c| {
+        // Left Ctrl and left Alt, as Windows sends AltGr.
+        let mut held = relay_platform::HeldKeys::new();
+        held.extend([0xA2, 0xA4]);
+        if c.shift {
+            held.insert(0xA0);
+        }
+        (platform.translator)().translate(c.vk, 0, &held)
+    });
+    let printable = altgr.filter(|t| t.chars().all(|c| !c.is_control()));
+    relay_core::keys::key_warning(&combo, printable.as_deref())
+}
+
+/// Saves the settings. Relay's keys must each be usable (see
+/// `hotkeys::check_keys`): if one isn't, nothing is saved.
 #[tauri::command(async)]
 pub fn update_settings(app: AppHandle, settings: Settings) -> Result<Settings> {
-    let current = {
+    hotkeys::check_keys(&library(&app).lock(), &settings.keys)
+        .map_err(|message| IpcError { code: "hotkey", message })?;
+    let (current, keys_changed) = {
         let s = app.state::<Mutex<SettingsStore>>();
         let mut s = s.lock();
+        let keys_changed = s.current.keys != settings.keys;
         report_unsaved(&app, s.set(settings));
-        s.current.clone()
+        (s.current.clone(), keys_changed)
     };
+    if keys_changed {
+        library(&app).lock().set_relay_keys(current.keys.clone());
+        hotkeys::refresh(&app);
+        crate::tray::set_keys(&app, &current.keys);
+    }
     // Not under the settings lock: these call into the main thread.
     let look = *app.state::<Mutex<crate::look::SystemLook>>().lock();
     for w in app.webview_windows().values() {
@@ -685,7 +723,7 @@ mod tests {
 
     fn library() -> (tempfile::TempDir, Library) {
         let dir = tempfile::tempdir().unwrap();
-        let (lib, _) = Library::open(dir.path());
+        let (lib, _) = Library::open_with_samples(dir.path());
         (dir, lib)
     }
 

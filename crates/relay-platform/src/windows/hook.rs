@@ -19,7 +19,9 @@ use relay_core::model::MouseBtn;
 use windows::Win32::Foundation::{HINSTANCE, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::GetCurrentThreadId;
-use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_END, VK_ESCAPE, VK_MENU};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    GetAsyncKeyState, VK_CONTROL, VK_ESCAPE, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GA_ROOT, GetAncestor, GetForegroundWindow, GetMessageW, HHOOK, KBDLLHOOKSTRUCT,
     LLKHF_EXTENDED, LLKHF_INJECTED, LLKHF_LOWER_IL_INJECTED, LLMHF_INJECTED, LLMHF_LOWER_IL_INJECTED, MSG,
@@ -190,8 +192,9 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
             let report = |ctx: &Ctx, kind: RawKind| {
                 let _ = ctx.tx.try_send(RawInput { time, kind });
             };
-            // Ctrl + Alt + End is the kill switch: it must always reach its hotkey.
-            if vk == VK_END.0 && is_down(VK_CONTROL.0) && is_down(VK_MENU.0) {
+            // The kill switch must always reach its hotkey.
+            let win = is_down(VK_LWIN.0) || is_down(VK_RWIN.0);
+            if ctx.cfg.kill_switch.pressed(vk, is_down(VK_CONTROL.0), is_down(VK_MENU.0), is_down(VK_SHIFT.0), win) {
                 if down && matches!(ctx.cfg.mode, HookMode::Watch { report_kill_switch: true, .. }) {
                     report(ctx, RawKind::KillSwitch);
                 }

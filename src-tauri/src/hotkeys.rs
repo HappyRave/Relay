@@ -1,5 +1,6 @@
-//! Global hotkeys through RegisterHotKey (tauri-plugin-global-shortcut). They
-//! fire even when an elevated window is focused, unlike a low-level hook.
+//! Global hotkeys through RegisterHotKey (tauri-plugin-global-shortcut): Relay's
+//! own keys, as the settings set them, and the macros'. They fire even when an
+//! elevated window is focused, unlike a low-level hook.
 //! Which ones are registered depends on the session state, so combos Relay
 //! doesn't need at the moment reach other apps (and recordings). Macro
 //! hotkeys are registered only while idle.
@@ -24,37 +25,64 @@ use uuid::Uuid;
 use crate::coordinator::{Cmd, CoordinatorHandle};
 use crate::ipc::Emitter;
 use crate::library::Library;
+use crate::settings::{RelayKey, RelayKeys, SettingsStore};
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-enum Action {
-    Record,
-    Play,
-    Player,
-    Kill,
+/// Relay's keys that are set, as shortcuts. One that doesn't parse is left
+/// out (the settings refuse those).
+fn shortcuts(keys: &RelayKeys) -> Vec<(RelayKey, Shortcut)> {
+    RelayKey::ALL.into_iter().filter_map(|k| Some((k, parse_combo(keys.get(k)?).ok()?))).collect()
 }
 
-fn shortcut(a: Action) -> Shortcut {
-    match a {
-        Action::Record => Shortcut::new(None, Code::F9),
-        Action::Play => Shortcut::new(None, Code::F10),
-        Action::Player => Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyM),
-        Action::Kill => Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::End),
-    }
-}
-
-const ALL: [Action; 4] = [Action::Record, Action::Play, Action::Player, Action::Kill];
-
-fn actions(set: HotkeySet) -> &'static [Action] {
+fn actions(set: HotkeySet) -> &'static [RelayKey] {
     match set {
-        HotkeySet::Idle => &ALL,
-        HotkeySet::Recording => &[Action::Record, Action::Kill],
-        HotkeySet::Playing => &[Action::Play, Action::Kill],
+        HotkeySet::Idle => &RelayKey::ALL,
+        HotkeySet::Recording => &[RelayKey::Record, RelayKey::Kill],
+        HotkeySet::Playing => &[RelayKey::Play, RelayKey::Kill],
     }
 }
 
-/// Which of Relay's own hotkeys `pressed` is.
-fn action_for(pressed: &Shortcut) -> Option<Action> {
-    ALL.into_iter().find(|&a| shortcut(a) == *pressed)
+/// Which of Relay's own keys `pressed` is.
+fn action_for(keys: &RelayKeys, pressed: &Shortcut) -> Option<RelayKey> {
+    shortcuts(keys).into_iter().find(|(_, s)| s == pressed).map(|(k, _)| k)
+}
+
+fn current_keys<R: Runtime>(app: &AppHandle<R>) -> RelayKeys {
+    app.state::<Mutex<SettingsStore>>().lock().current.keys.clone()
+}
+
+/// Why `combo` can't be Relay's `key` (`None`: turned off), the others
+/// staying as they are in `keys`: it must be a hotkey Relay can register
+/// (the rules of [`parse_combo`]), not another of Relay's keys, and not a
+/// macro's hotkey. Stop everything can't be turned off.
+pub fn check_key(lib: &Library, keys: &RelayKeys, key: RelayKey, combo: Option<&str>) -> Result<(), String> {
+    let Some(combo) = combo else {
+        return match key {
+            RelayKey::Kill => Err("Stop everything can't be turned off. Choose another combination.".into()),
+            _ => Ok(()),
+        };
+    };
+    let s = parse_combo(combo)?;
+    if let Some((other, _)) = shortcuts(keys).into_iter().find(|&(k, o)| k != key && o == s) {
+        return Err(format!("{combo} is already Relay's “{}” key", other.name()));
+    }
+    match macro_using(lib, None, &s) {
+        Some(name) => Err(format!("{combo} already runs “{name}”")),
+        None => Ok(()),
+    }
+}
+
+/// Why these can't be Relay's keys, if they can't (see [`check_key`]).
+pub fn check_keys(lib: &Library, keys: &RelayKeys) -> Result<(), String> {
+    RelayKey::ALL.into_iter().try_for_each(|k| check_key(lib, keys, k, keys.get(k)))
+}
+
+/// The macro (other than `except`) whose hotkey, on, is `s`.
+fn macro_using(lib: &Library, except: Option<Uuid>, s: &Shortcut) -> Option<String> {
+    lib.all_triggers()
+        .iter()
+        .filter(|(other, t)| Some(*other) != except && t.hotkey.enabled)
+        .find(|(_, t)| parse_combo(&t.hotkey.combo).is_ok_and(|o| o == *s))
+        .and_then(|(other, _)| lib.get(*other).map(|e| e.macro_.name.clone()))
 }
 
 /// The wanted hotkey set, and what the last refresh registered.
@@ -80,19 +108,24 @@ impl Default for Hotkeys {
     }
 }
 
-/// Relay's own hotkeys whose registration failure was already reported. When
+/// Relay's own keys whose registration failure was already reported. When
 /// another app owns one, every session change registers it again and fails
-/// again; the user hears about it once per run, not at every change.
+/// again; the user hears about it once per run (and combination), not at every change.
 #[derive(Default)]
-struct Reported(HashSet<Action>);
+struct Reported(HashSet<(RelayKey, String)>);
 
 impl Reported {
-    /// The messages for the failures not reported before.
-    fn new_failures(&mut self, failed: Vec<(Action, String)>) -> Vec<String> {
+    /// The messages for the failures (a key, its combo, why) not reported before.
+    fn new_failures(&mut self, failed: Vec<(RelayKey, String, String)>) -> Vec<String> {
         failed
             .into_iter()
-            .filter(|(a, _)| self.0.insert(*a))
-            .map(|(a, e)| format!("Couldn't register the {a:?} hotkey: {e}"))
+            .filter(|(k, combo, _)| self.0.insert((*k, combo.clone())))
+            .map(|(k, combo, e)| {
+                format!(
+                    "Couldn't register Relay's “{}” key, {combo}: {e}. Choose another in Settings → Keys.",
+                    k.name()
+                )
+            })
             .collect()
     }
 }
@@ -141,14 +174,15 @@ fn register<R: Runtime>(app: &AppHandle<R>) {
         return;
     }
     let wanted = app.state::<Hotkeys>().0.lock().wanted;
+    let keys = current_keys(app);
     let triggers = app.state::<Mutex<Library>>().lock().all_triggers();
     let emit = app.state::<std::sync::Arc<Emitter>>();
     let gs = app.global_shortcut();
     let _ = gs.unregister_all();
     let mut failed = Vec::new();
-    for &a in actions(wanted) {
-        if let Err(e) = gs.register(shortcut(a)) {
-            failed.push((a, e.to_string()));
+    for (k, s) in shortcuts(&keys).into_iter().filter(|(k, _)| actions(wanted).contains(k)) {
+        if let Err(e) = gs.register(s) {
+            failed.push((k, keys.get(k).unwrap_or_default().to_owned(), e.to_string()));
         }
     }
     let mut registered = HashMap::new();
@@ -244,20 +278,17 @@ fn types_a_character(code: &str) -> bool {
         )
 }
 
-/// Why `combo` can't be `id`'s hotkey, if it can't.
+/// Why `combo` can't be `id`'s hotkey, if it can't: it's one of Relay's
+/// own keys (as the library knows them) or another macro's.
 pub fn conflict(lib: &Library, id: Uuid, combo: &str) -> Option<String> {
     let s = match parse_combo(combo) {
         Ok(s) => s,
         Err(e) => return Some(e),
     };
-    if action_for(&s).is_some() {
-        return Some(format!("{combo} is one of Relay's own hotkeys"));
+    if let Some(k) = action_for(lib.relay_keys(), &s) {
+        return Some(format!("{combo} is Relay's “{}” key", k.name()));
     }
-    lib.all_triggers()
-        .iter()
-        .filter(|(other, t)| *other != id && t.hotkey.enabled)
-        .find(|(_, t)| parse_combo(&t.hotkey.combo).is_ok_and(|o| o == s))
-        .and_then(|(other, _)| lib.get(*other).map(|e| format!("{combo} already runs “{}”", e.macro_.name)))
+    macro_using(lib, Some(id), &s).map(|name| format!("{combo} already runs “{name}”"))
 }
 
 pub fn plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
@@ -267,12 +298,12 @@ pub fn plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
                 return;
             }
             let coordinator = app.state::<CoordinatorHandle>();
-            if let Some(action) = action_for(pressed) {
+            if let Some(action) = action_for(&current_keys(app), pressed) {
                 match action {
-                    Action::Record => coordinator.send(Cmd::Input(Input::ToggleRecord)),
-                    Action::Play => coordinator.send(Cmd::HotkeyPlay),
-                    Action::Kill => coordinator.send(Cmd::Input(Input::Kill)),
-                    Action::Player => {
+                    RelayKey::Record => coordinator.send(Cmd::Input(Input::ToggleRecord)),
+                    RelayKey::Play => coordinator.send(Cmd::HotkeyPlay),
+                    RelayKey::Kill => coordinator.send(Cmd::Input(Input::Kill)),
+                    RelayKey::Player => {
                         let on = !app.state::<crate::window_ctl::WindowState>().prefs().player_mode;
                         crate::presence::set_player_mode(app, on);
                     }
@@ -310,10 +341,18 @@ mod tests {
     #[test]
     fn conflicts_with_relay_and_other_macros() {
         let dir = tempfile::tempdir().unwrap();
-        let (mut lib, _) = Library::open(dir.path());
+        let (mut lib, _) = Library::open_with_samples(dir.path());
         let ids: Vec<Uuid> = lib.list().into_iter().map(|i| i.id).collect();
-        assert!(conflict(&lib, ids[0], "Ctrl + Alt + End").unwrap().contains("Relay's own"));
-        assert!(conflict(&lib, ids[0], "F9").unwrap().contains("Relay's own"));
+        assert_eq!(
+            conflict(&lib, ids[0], "Ctrl + Alt + Backspace").unwrap(),
+            "Ctrl + Alt + Backspace is Relay's “Stop everything” key"
+        );
+        assert_eq!(conflict(&lib, ids[0], "Shift + Ctrl + F9").unwrap(), "Shift + Ctrl + F9 is Relay's “Record” key");
+        assert_eq!(conflict(&lib, ids[0], "F9"), None, "not one of Relay's keys here");
+        // Relay's keys as the settings have them.
+        lib.set_relay_keys(crate::settings::RelayKeys::legacy());
+        assert_eq!(conflict(&lib, ids[0], "F9").unwrap(), "F9 is Relay's “Record” key");
+        assert_eq!(conflict(&lib, ids[0], "Ctrl + Shift + F9"), None);
         assert_eq!(conflict(&lib, ids[0], "Ctrl + Alt + 7"), None);
         let mut t = lib.get(ids[1]).unwrap().triggers.clone();
         t.hotkey = relay_core::triggers::HotkeyTrigger { enabled: true, combo: "Ctrl + Alt + 7".into() };
@@ -324,45 +363,89 @@ mod tests {
 
     #[test]
     fn each_session_state_registers_only_what_it_needs() {
-        assert_eq!(actions(HotkeySet::Idle), ALL);
-        // Recording: F9 stops it, and F10/Ctrl+Shift+M reach the recorded app.
-        assert_eq!(actions(HotkeySet::Recording), [Action::Record, Action::Kill]);
-        assert_eq!(actions(HotkeySet::Playing), [Action::Play, Action::Kill]);
+        assert_eq!(actions(HotkeySet::Idle), RelayKey::ALL);
+        // Recording: the record key stops it, and the others reach the recorded app.
+        assert_eq!(actions(HotkeySet::Recording), [RelayKey::Record, RelayKey::Kill]);
+        assert_eq!(actions(HotkeySet::Playing), [RelayKey::Play, RelayKey::Kill]);
         for set in [HotkeySet::Idle, HotkeySet::Recording, HotkeySet::Playing] {
-            assert!(actions(set).contains(&Action::Kill), "the kill switch works in {set:?}");
+            assert!(actions(set).contains(&RelayKey::Kill), "the kill switch works in {set:?}");
         }
     }
 
     #[test]
     fn an_own_hotkey_that_fails_is_reported_once_per_run() {
         let mut r = Reported::default();
-        let taken = || (Action::Record, "HotKey already registered".to_string());
-        assert_eq!(r.new_failures(vec![taken()]), ["Couldn't register the Record hotkey: HotKey already registered"]);
+        let taken = || (RelayKey::Record, "F9".to_string(), "HotKey already registered".to_string());
+        assert_eq!(
+            r.new_failures(vec![taken()]),
+            [
+                "Couldn't register Relay's “Record” key, F9: HotKey already registered. Choose another in Settings → Keys."
+            ]
+        );
         // Every session change registers again: the same failure isn't repeated.
         assert!(r.new_failures(vec![taken()]).is_empty());
         assert!(r.new_failures(vec![]).is_empty());
         assert!(r.new_failures(vec![taken()]).is_empty(), "not even after it once worked");
-        // Another hotkey failing is news.
-        assert_eq!(
-            r.new_failures(vec![taken(), (Action::Play, "taken".into())]),
-            ["Couldn't register the Play hotkey: taken"]
-        );
+        // Another key failing, or the same one set to another combination, is news.
+        let play = (RelayKey::Play, "F10".to_string(), "taken".to_string());
+        assert_eq!(r.new_failures(vec![taken(), play]).len(), 1);
+        let again = (RelayKey::Record, "Ctrl + F9".to_string(), "taken".to_string());
+        assert_eq!(r.new_failures(vec![again]).len(), 1);
     }
 
     #[test]
-    fn relays_own_hotkeys_are_recognized() {
-        assert_eq!(action_for(&Shortcut::new(None, Code::F9)), Some(Action::Record));
-        assert_eq!(action_for(&Shortcut::new(None, Code::F10)), Some(Action::Play));
+    fn relays_own_keys_are_recognized_as_set() {
+        let keys = RelayKeys::new_default();
+        let ctrl_shift = Some(Modifiers::CONTROL | Modifiers::SHIFT);
+        assert_eq!(action_for(&keys, &Shortcut::new(ctrl_shift, Code::F9)), Some(RelayKey::Record));
+        assert_eq!(action_for(&keys, &Shortcut::new(ctrl_shift, Code::F10)), Some(RelayKey::Play));
+        assert_eq!(action_for(&keys, &Shortcut::new(ctrl_shift, Code::KeyM)), Some(RelayKey::Player));
         assert_eq!(
-            action_for(&Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyM)),
-            Some(Action::Player)
+            action_for(&keys, &Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::Backspace)),
+            Some(RelayKey::Kill)
+        );
+        assert_eq!(action_for(&keys, &Shortcut::new(None, Code::F9)), None, "modifiers matter");
+        let legacy = RelayKeys::legacy();
+        assert_eq!(action_for(&legacy, &Shortcut::new(None, Code::F9)), Some(RelayKey::Record));
+        assert_eq!(
+            action_for(&legacy, &Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::End)),
+            Some(RelayKey::Kill)
+        );
+        // A key turned off isn't one.
+        let off = keys.with(RelayKey::Record, None);
+        assert_eq!(action_for(&off, &Shortcut::new(ctrl_shift, Code::F9)), None);
+        assert_eq!(shortcuts(&off).len(), 3);
+    }
+
+    #[test]
+    fn a_relay_key_must_be_usable_and_not_taken() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut lib, _) = Library::open_with_samples(dir.path());
+        let keys = RelayKeys::new_default();
+        let check = |lib: &Library, k, c: Option<&str>| check_key(lib, &keys, k, c);
+        assert_eq!(check(&lib, RelayKey::Record, Some("F8")), Ok(()));
+        assert_eq!(check(&lib, RelayKey::Record, Some("Ctrl + Shift + F9")), Ok(()), "its own combination");
+        assert_eq!(check(&lib, RelayKey::Record, None), Ok(()), "off: the buttons do it");
+        assert_eq!(
+            check(&lib, RelayKey::Kill, None).unwrap_err(),
+            "Stop everything can't be turned off. Choose another combination."
         );
         assert_eq!(
-            action_for(&Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::End)),
-            Some(Action::Kill)
+            check(&lib, RelayKey::Play, Some("Shift + Ctrl + F9")).unwrap_err(),
+            "Shift + Ctrl + F9 is already Relay's “Record” key"
         );
-        assert_eq!(action_for(&Shortcut::new(Some(Modifiers::SHIFT), Code::F9)), None, "modifiers matter");
-        assert_eq!(action_for(&Shortcut::new(None, Code::F11)), None);
+        assert!(check(&lib, RelayKey::Play, Some("Q")).unwrap_err().contains("Add Ctrl"), "the hotkey rules");
+        let id = lib.list()[1].id;
+        let mut t = lib.get(id).unwrap().triggers.clone();
+        t.hotkey = relay_core::triggers::HotkeyTrigger { enabled: true, combo: "Ctrl + Alt + 7".into() };
+        lib.set_triggers(id, t).unwrap();
+        assert_eq!(
+            check(&lib, RelayKey::Player, Some("Ctrl + Alt + 7")).unwrap_err(),
+            "Ctrl + Alt + 7 already runs “Fill weekly timesheet”"
+        );
+        assert_eq!(check_keys(&lib, &keys), Ok(()));
+        let clash = RelayKeys { play: Some("Ctrl + Shift + F9".into()), ..keys.clone() };
+        assert!(check_keys(&lib, &clash).is_err());
     }
 
     #[test]
@@ -438,7 +521,7 @@ mod tests {
     #[test]
     fn disabled_and_broken_hotkeys_dont_conflict() {
         let dir = tempfile::tempdir().unwrap();
-        let (mut lib, _) = Library::open(dir.path());
+        let (mut lib, _) = Library::open_with_samples(dir.path());
         let ids: Vec<Uuid> = lib.list().into_iter().map(|i| i.id).collect();
         let set = |lib: &mut Library, id, enabled, combo: &str| {
             let mut t = lib.get(id).unwrap().triggers.clone();

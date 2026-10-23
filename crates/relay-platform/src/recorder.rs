@@ -8,19 +8,27 @@ use relay_core::view::MovePoint;
 
 use crate::CharTranslator;
 use crate::keymap;
-use crate::types::{HeldKeys, RawInput, RawKind};
+use crate::types::{HeldKeys, KeyChord, RawInput, RawKind};
 
 #[derive(Debug, Clone, Copy)]
 pub struct RecorderConfig {
     pub capture_moves: bool,
     pub capture_keys: bool,
+    /// Not macro input (the hook already lets it through unreported; this
+    /// keeps the recorder right on its own).
+    pub kill_switch: KeyChord,
     /// Minimum time between recorded cursor samples.
     pub move_interval_ms: Ms,
 }
 
 impl Default for RecorderConfig {
     fn default() -> Self {
-        RecorderConfig { capture_moves: true, capture_keys: true, move_interval_ms: 16 }
+        RecorderConfig {
+            capture_moves: true,
+            capture_keys: true,
+            kill_switch: KeyChord::CTRL_ALT_END,
+            move_interval_ms: 16,
+        }
     }
 }
 
@@ -102,10 +110,7 @@ impl Recorder {
                 self.events.push(Event::Wheel { t, x, y, delta, horizontal });
             }
             RawKind::Key { vk, scan, ext, down } => {
-                // Ctrl + Alt + End is the kill switch, not macro input. (The
-                // Windows hook already lets it through unreported; this keeps
-                // the recorder right on its own.)
-                if !self.cfg.capture_keys || (vk == keymap::VK_END && self.ctrl_alt_held()) {
+                if !self.cfg.capture_keys || self.cfg.kill_switch.pressed_with(vk, &self.held) {
                     return;
                 }
                 if vk == keymap::VK_PACKET {
@@ -158,10 +163,6 @@ impl Recorder {
         if let Some((t, x, y)) = self.pending_move.take() {
             self.record_move(t, x, y);
         }
-    }
-
-    fn ctrl_alt_held(&self) -> bool {
-        self.held.iter().any(|&k| keymap::is_ctrl_vk(k)) && self.held.iter().any(|&k| keymap::is_alt_vk(k))
     }
 
     pub fn finish(mut self, now: f64) -> Recording {
@@ -381,6 +382,26 @@ mod tests {
         assert_eq!(rec.events.len(), 2, "{:?}", rec.events);
         let steps = group_steps(&rec.events, GroupOptions::default());
         assert_eq!(steps.len(), 1);
+    }
+
+    #[test]
+    fn the_kill_switch_is_the_one_set() {
+        let kill_switch = KeyChord::parse("Ctrl + Alt + Backspace").unwrap();
+        let mut r = Recorder::new(RecorderConfig { kill_switch, ..Default::default() }, 0.0, Box::new(Us));
+        r.push(key(500.0, 0xA2, 0x1D, true));
+        r.push(key(510.0, 0xA4, 0x38, true));
+        r.push(key(520.0, 0x08, 0x0E, true));
+        // Ctrl + Alt + End is a key like any other now.
+        r.push(raw(530.0, RawKind::Key { vk: 0x23, scan: 0x4F, ext: true, down: true }));
+        let codes: Vec<_> = r
+            .events()
+            .iter()
+            .filter_map(|e| match e {
+                Event::Key { key, down: true, .. } => Some(key.code.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(codes, ["ControlLeft", "AltLeft", "End"]);
     }
 
     #[test]

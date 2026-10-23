@@ -18,7 +18,7 @@ use relay_core::session::{self, Effect, FinishReason, HotkeySet, Input, Mode, Ru
 use relay_core::steps::GroupOptions;
 use relay_platform::recorder::{Recorder, RecorderConfig, is_meaningful};
 use relay_platform::types::MousePulse;
-use relay_platform::{HookConfig, HookMode, HookSession, Platform, RawInput, RawKind};
+use relay_platform::{HookConfig, HookMode, HookSession, KeyChord, Platform, RawInput, RawKind};
 use tauri::{AppHandle, Manager, Runtime};
 use uuid::Uuid;
 
@@ -32,10 +32,6 @@ use crate::run_history::RunHistory;
 use crate::settings::{Settings, SettingsStore};
 use crate::triggers::TriggerState;
 
-/// F9 stops a recording through its global hotkey; keep it out of the macro.
-const VK_F9: u16 = 0x78;
-/// F10 pauses playback through its global hotkey; it must not count as "any key".
-const VK_F10: u16 = 0x79;
 /// How often the countdown before a recording is reported.
 const COUNTDOWN_TICK: Duration = Duration::from_millis(50);
 
@@ -147,6 +143,16 @@ struct Recording {
 
 /// A JPEG of the desktop, and the desktop's rect when it was taken.
 type Screenshot = (Rect, Vec<u8>);
+
+/// The kill switch the hooks let through.
+fn kill_switch(settings: &Settings) -> KeyChord {
+    KeyChord::parse(&settings.keys.kill).unwrap_or(KeyChord::CTRL_ALT_END)
+}
+
+/// The virtual key of one of Relay's keys, if it's set.
+fn key_vk(combo: Option<&str>) -> Option<u16> {
+    combo.and_then(KeyChord::parse).map(|c| c.vk)
+}
 
 /// The screenshot to keep with a new recording: only one of the desktop the
 /// macro was recorded on (a monitor plugged in or out meanwhile would put it
@@ -523,8 +529,12 @@ impl<R: Runtime> Coordinator<R> {
         let settings = self.settings();
         let own = crate::window_ctl::own_windows(&self.app);
         let mouse_pulse = Arc::new(MousePulse::default());
+        let kill_switch = kill_switch(&settings);
+        // The record key stops a recording through its global hotkey; keep it out of the macro.
+        let skip_vks = key_vk(settings.keys.record.as_deref()).into_iter().collect();
         let hook_cfg = HookConfig {
-            mode: HookMode::Record { own, skip_vks: vec![VK_F9], esc_stops: settings.esc_stops_recording },
+            mode: HookMode::Record { own, skip_vks, esc_stops: settings.esc_stops_recording },
+            kill_switch,
             ignore_injected: settings.ignore_injected,
             mouse_pulse: Some(mouse_pulse.clone()),
         };
@@ -543,6 +553,7 @@ impl<R: Runtime> Coordinator<R> {
             RecorderConfig {
                 capture_moves: settings.capture_moves,
                 capture_keys: settings.capture_keys,
+                kill_switch,
                 move_interval_ms: 16,
             },
             (self.platform.now_ms)(),
@@ -718,13 +729,16 @@ impl<R: Runtime> Coordinator<R> {
 
     /// Watches for Esc and, if the macro wants it, any other key.
     fn watch_for_stop_keys(&self, m: &Macro) -> Option<Box<dyn HookSession>> {
+        let settings = self.settings();
         let cfg = HookConfig {
             mode: HookMode::Watch {
                 stop_on_key: m.playback.stop_on_key,
-                pass_vks: vec![VK_F10],
+                // The play key pauses through its global hotkey: it isn't "any key".
+                pass_vks: key_vk(settings.keys.play.as_deref()).into_iter().collect(),
                 report_kill_switch: false,
             },
-            ignore_injected: self.settings().ignore_injected,
+            kill_switch: kill_switch(&settings),
+            ignore_injected: settings.ignore_injected,
             mouse_pulse: None,
         };
         let (raw_tx, raw_rx) = crossbeam_channel::bounded(64);
@@ -1003,7 +1017,7 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let app = mock_builder().build(mock_context(noop_assets())).unwrap();
-        app.manage(Mutex::new(Library::open(dir.path()).0));
+        app.manage(Mutex::new(Library::open_with_samples(dir.path()).0));
         app.manage(Mutex::new(SettingsStore::open(dir.path()).0));
         app.manage(Mutex::new(RunHistory::open(dir.path()).0));
         app.manage(TriggerState::default());
