@@ -1,6 +1,6 @@
 # UX research: a simulated user panel
 
-Input for the overhaul of Relay's UI and UX. Thirteen simulated users, each with their own job, setup and needs, went through Relay's real screens and behavior. This page reports what they did, where they got stuck, what they think of the look, where they disagree, and what to change.
+Input for the overhaul of Relay's UI and UX. Thirteen simulated users, each with their own job, setup and needs, went through Relay's real screens and behavior. This page reports what they did, where they got stuck, what they think of the look, where they disagree, and a proposal for a full redesign.
 
 > [!IMPORTANT]
 > **The panel is simulated, not real.** The personas, their interviews and their quotes were written by an AI model from Relay's user guide, screenshots and source code. They are a structured way to think through many kinds of users, not evidence of what real users do. Treat every finding as a hypothesis to check with real people. [Validating with real users](#validating-with-real-users) suggests how.
@@ -18,7 +18,7 @@ Input for the overhaul of Relay's UI and UX. Thirteen simulated users, each with
 - [The visual design](#the-visual-design)
 - [Accessibility](#accessibility)
 - [Where the panel disagrees](#where-the-panel-disagrees)
-- [Recommendations](#recommendations)
+- [The redesign](#the-redesign)
 - [Open questions for the maintainer](#open-questions-for-the-maintainer)
 - [Validating with real users](#validating-with-real-users)
 - [Appendix: measurements](#appendix-measurements)
@@ -36,7 +36,7 @@ Input for the overhaul of Relay's UI and UX. Thirteen simulated users, each with
 5. **The screen-dependent tools assume a steady hand and good sight.** **Pick** gives you three seconds to hold the mouse over one pixel, with no magnifier. Touch can't hover at all. The timeline and the preview work only with a pointer. 4 of 13.
 6. **Red means too many things.** Record, the selected tab, the selected speed, a switch that's on, the open row, links, warnings and the next scheduled run are all red. So red stops meaning "live" or "danger", against the design system's own *use the accent sparingly*. 3 of 13.
 
-**What to do first:** see [Recommendations](#recommendations). In short: make the global hotkeys rebindable, and warn about clashes. Fix contrast and minimum text sizes. Add Stop to the compact player. Label every field. Mark the samples as samples. Then, in the overhaul, reorganize around what each user is working on (a library home, a macro, the app's settings), give the steps list real editing, keep red for record and danger, and add dark and high-contrast themes.
+**The redesign.** These aren't separate bugs: Relay grew a feature at a time, and each took a place on the same screen. [The redesign](#the-redesign) keeps every feature and reorganizes them: three places (the **Library**, a **Macro**, **Settings**) and the floating **player**. In a macro, the steps come first, with an inspector beside them and the preview and timeline in a collapsible view below. A macro's play options and triggers live in that macro, not in a tab. Relay steps aside to the player while it records and plays. Modernist stays, enforced: red for record and danger only, a 12 px floor, and light, dark and Windows contrast themes.
 
 ## Method and its limits
 
@@ -590,7 +590,7 @@ The four samples open on first launch and look like real macros. The user guide 
 
 **High · 3 personas (P2, P9, P12).**
 
-Windows treats <kbd>Ctrl</kbd>+<kbd>Alt</kbd> as <kbd>AltGr</kbd>. A macro hotkey <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd> eats `|` on Belgian AZERTY (P2), <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>7</kbd> eats `{` on Swedish (P9), <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>E</kbd> eats `€` and <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Q</kbd> eats `@` on German (P12). The hotkey field accepts them with *Run from anywhere*, and the user guide's own examples use <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+digit. The hotkey field could warn when the combination types a character on the current layout.
+Windows treats <kbd>Ctrl</kbd>+<kbd>Alt</kbd> as <kbd>AltGr</kbd>. A macro hotkey <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd> eats `|` on Belgian AZERTY (P2), <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>7</kbd> eats `{` on Swedish (P9), <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>E</kbd> eats `€` and <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Q</kbd> eats `@` on German (P12). The hotkey field accepts them with *Run from anywhere*, and the user guide's own examples use <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+digit.
 
 ### Structure and layout
 
@@ -653,7 +653,7 @@ A recording always makes a new macro. When an app adds a dialog or a field, user
 
 **Medium · 2 personas (P1, P3).**
 
-The control bar folds Speed into one cycling button below 1290 px and Repeat below 980 px. The default editor is 944 px, so **by default** Repeat only steps through 1, 2, 3, 5, 10 and ∞, and you can't set 4, 20 or 50 without widening the window (P1, P3). Nothing says that more is available. A click that opens a small number field would keep the compact look.
+The control bar folds Speed into one cycling button below 1290 px and Repeat below 980 px. The default editor is 944 px, so **by default** Repeat only steps through 1, 2, 3, 5, 10 and ∞, and you can't set 4, 20 or 50 without widening the window (P1, P3). Nothing says that more is available.
 
 #### F11. Data-file runs don't say which row
 
@@ -991,7 +991,7 @@ These are the tensions the overhaul has to resolve. Each needs a decision, not a
 | --- | --- |
 | Kenji (P3), Mateo (P8): fewer windows | Grace (P13), Hannah (P12), Dee (P4): a Library, triggers overview and run history that fill a window |
 
-*Resolution:* a decision for the maintainer ([open questions](#open-questions-for-the-maintainer)).
+*Resolution:* one window with a home for the collection, and the player for those who live in it. See [The structure](#the-structure).
 
 ### 10. Jargon
 
@@ -1001,162 +1001,500 @@ These are the tensions the overhaul has to resolve. Each needs a decision, not a
 
 *Resolution:* plain words that are also accurate. *Wait for pixel* is both.
 
-## Recommendations
+## The redesign
 
-### How they're grouped
+The findings don't add up to a list of fixes. They describe one problem: Relay grew a feature at a time, and each feature took a place on the same screen. The result is a screen where everything is on at once, settings for one macro sit next to settings for the whole app, and the macro itself, its steps, gets the least room.
 
-- **Quick wins:** changes inside today's layout, each small and safe. They can ship before the overhaul and stay valid after it.
-- **Structural:** the overhaul itself.
-- **Effort** is a rough guess: S (a day or two), M (a week), L (more).
-- Roadmap items from `README.md` (as updated on m23) are noted, so the overhaul makes room for them.
+The feature set is complete, so this is a redesign of **where things are and how they behave**, not of what Relay can do. Every current control has a place in it ([where everything goes](#where-everything-goes)). The few things the panel asked for that aren't UI are listed apart ([Outside the redesign](#outside-the-redesign)).
 
-### Quick wins
+- [Goals](#goals)
+- [Principles](#principles)
+- [The structure](#the-structure)
+- [The screens](#the-screens)
+- [Interaction model](#interaction-model)
+- [Where everything goes](#where-everything-goes)
+- [The visual system](#the-visual-system)
+- [How the redesign answers the findings](#how-the-redesign-answers-the-findings)
+- [Outside the redesign](#outside-the-redesign)
+- [Delivering it](#delivering-it)
 
-| # | Change | Fixes | Effort |
-| --- | --- | --- | --- |
-| Q1 | **Warn when a hotkey types a character** on the current layout (AltGr), and change the guide's examples away from <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+digit | F4 | S |
-| Q2 | **Contrast:** small red text to `accent-700`, secondary grey text to `neutral-700`; disabled as outline or hatched, not pale red | F16, F15 | S |
-| Q3 | **Text floor:** nothing under 11 px; step tags, lane labels, ruler, badges to 11–12 px | F16 | S |
-| Q4 | **Stop in the compact player** | F19, F3 | S |
-| Q5 | **Visible labels** for the pixel trigger's X, Y and color, the app trigger's delay (*Delay s*), and *Pause before (s)* | F18, F14 | S |
-| Q6 | **Days with full names** for screen readers, and the first day of the week from Windows' locale | F18, F26 | S |
-| Q7 | **Export dialog:** radio semantics and a round-or-dotted radio mark, Cancel as a secondary button, a line about typed text when the macro has `TYPE` or `TEXT` steps | F23, F18 | S |
-| Q8 | **Samples marked as samples:** a *Sample* tag in the Library and header, and a confirmation the first time one plays | F2 | S |
-| Q9 | **Countdown clears the list** and shows *Recording starts in 3…* instead of the old steps | F24 | S |
-| Q10 | **Announce mode changes** (a polite live region) and offer optional sounds for record start/stop and playback end | F18, F24 | S–M |
-| Q11 | **Repeat count you can type** in the folded button (a small popover) | F10 | S |
-| Q12 | **An Insert menu** (*+ Add step ▾*: Wait, Text, Pixel check, Find image) instead of four wrapping buttons, with Trim pauses beside it | F8, F15 | S |
-| Q13 | **Show where an insert goes:** a marker line in the list after the step under the playhead while the menu is open | F8 | S |
-| Q14 | **Hide moves** switch in the steps list | F7 | S |
-| Q15 | **Plain names:** `WAIT FOR` for `IF`, *Vary timing*, *Outline*, *Waits and checks*, *Ready* for the idle badge; drop *path samples* from the header (roadmap: plainer names) | F14 | S |
-| Q16 | **Library:** nothing for an empty hotkey; small icons for the other triggers a macro has | F21, F5 | S |
-| Q17 | **Focus the name after recording**, with *Name this macro* as a hint | F24 | S |
-| Q18 | **Reduced motion:** no blinking badge; a smaller countdown | F17 | S |
-| Q19 | **Data runs say *Row 37 / 200***, not *Loop* | F11 | S |
-| Q20 | **Shape as well as color:** outline vs filled click ticks for played and unplayed; a mark inside switches | F15, F17 | S |
-| Q21 | **Bigger small targets:** toast close and step × to at least 28 px; splitters with an 8 px hit area around the 2 px line | F18 | S |
-| Q22 | **Ignore simulated input notice:** after a recording with mouse but no keys while it's on, say *No keys were recorded. Using remote desktop? Turn off Ignore simulated input.* | F24 | S |
+### Goals
 
-### Structural changes
+| Goal | Today | Target |
+| --- | --- | --- |
+| **One place, one question** | One window answers *what's in this macro*, *how does it play*, *when does it run*, *what are my macros* and *how is Relay set up*, all at once | Each screen answers one of them |
+| **The macro first** | Steps get ~230 px of a 612 px window, about four rows | Steps get most of the window: 12 or more rows at the default size |
+| **Fewer things on screen** | About 30 controls visible in the editor at once, in 6 regions | About 12, in 3 regions; the rest on demand |
+| **Nothing hidden that matters** | Where an insert goes, whether Stop on key press is on, which triggers are armed: all invisible | All visible where you'd look |
+| **Safe by default** | A sample or <kbd>F10</kbd> can click on the desktop by accident | Nothing plays that the user didn't start on purpose |
+| **Accessible by construction** | Contrast under AA, 9 px text, pointer-only parts | WCAG 2.2 AA, Windows contrast themes, everything by keyboard |
+| **Out of the way while it works** | The editor covers the app being recorded or automated | Relay steps aside while it records and plays |
 
-#### S1. Global hotkeys you choose (roadmap: *Hotkeys and defaults*)
+### Principles
 
-**Fixes F1, F3, F4.** First, because it's the only Critical finding.
+1. **Content first.** The steps are the macro. Everything else (preview, timeline, options, triggers) supports them and gives way to them.
+2. **One scope per place.** The Library is about all macros, the editor about one, Settings about Relay. Nothing about one macro lives in Settings; nothing about Relay lives in the editor.
+3. **Details on demand.** The list shows what each step does; its details open in an inspector beside it, never inside the list.
+4. **Show state where it acts.** The play button shows how it will play (×3, 2×, varied timing, stops on a key). A macro row shows its triggers and when it runs next. The list shows where an insert lands.
+5. **Step aside while working.** Recording and playing happen in the app you're automating, not in Relay. Relay shrinks to the player and comes back when done.
+6. **Red means live or danger.** Record, the recording and playing state, the playhead, errors and destructive actions. Selection is ink.
+7. **Every pointer action has a key.** Lists, the timeline, the preview, the pickers. Every control has a visible label or a tooltip with its name.
+8. **Plain words.** *Wait for pixel*, not `IF`. *Vary timing*, not *Humanize*. No engineering counts in the chrome.
 
-- Rebind record, play/pause, compact and the kill switch; each can also be **none**.
-- Offer safe presets: *F9/F10* (today), *Ctrl+Shift+F9/F10*, *none*.
-- On first run, ask once: *Use F9 and F10 for record and play? They'll stop working in other apps while Relay runs.*
-- The hotkey capture warns about known clashes (F9 in Excel, F10 for menus, AltGr characters).
-- Pick a default kill switch that Remote Desktop passes through and compact keyboards have (to research: Windows and the Remote Desktop client reserve several <kbd>Ctrl</kbd>+<kbd>Alt</kbd> and <kbd>Ctrl</kbd>+<kbd>Shift</kbd> combinations).
+### The structure
 
-#### S2. Reorganize around scope
+#### Today
 
-**Fixes F5, F6, F21, F22.**
+```mermaid
+flowchart TB
+  subgraph Expanded["Expanded editor (944×612)"]
+    H["Header: name · undo · redo · Export · compact · ×"]
+    P["Preview + its bar: mode · keys · step · Fit · Screen / Sketch · X Y"]
+    subgraph Tabs["Side panel tabs"]
+      S["Steps: + Wait · + Text · + Pixel check · + Find image · Trim pauses · list with inline editor"]
+      L["Library → Runs"]
+      T["Triggers: all five forms"]
+      G["Settings: playback (this macro) · recording · preview · window · hotkeys (Relay)"]
+    end
+    TR["Transport: time · ◀ ● ▶ ■ ▶ · speed · repeat"]
+    TL["Timeline: four lanes"]
+  end
+  C["Compact player (600×64)"]
+  E["Export dialog"]
+  Expanded <--> C
+  H --> E
+```
+
+#### Proposed
 
 ```mermaid
 flowchart LR
-  Home["Home<br/>Library · triggers overview · recent runs"] --> Macro["Macro<br/>Steps · preview · timeline<br/>its playback and triggers"]
-  Macro --> Player["Compact player<br/>floating, always on top"]
-  Home --> Prefs["Relay settings<br/>recording · window · hotkeys · defaults"]
+  subgraph Window["Relay's window (a normal window)"]
+    Lib["Library<br/>all macros · activity"]
+    Mac["Macro<br/>steps · inspector · view"]
+    Set["Settings<br/>Relay itself"]
+    Lib --> Mac
+    Lib --> Set
+    Mac --> Lib
+  end
+  Player["Player<br/>600×64, on top"]
+  Mac -- "record or play" --> Player
+  Player -- "done" --> Mac
 ```
 
-- **Home:** the Library with search, sort and folders or tags; each macro's triggers and next run; recent runs with failures first. It can fill the window.
-- **Macro:** its steps, preview and timeline, plus *this macro's* playback options and triggers, side by side with the steps rather than behind tabs.
-- **Relay settings:** recording, window, hotkeys, and defaults for new macros (roadmap), in their own dialog or page.
-- **Compact player:** unchanged in spirit, with Stop and a macro picker (S6).
+- **One window, two forms**, as today: the **window** (Library, Macro, Settings) and the **player**. The window becomes a normal, resizable window that doesn't float by default. The player floats.
+- **Three places in the window** instead of four tabs over five panes. You move between them like pages: Library → a macro → back.
+- **The player is where sessions happen.** Recording or playing from the window switches to the player (a setting can keep the window instead), so Relay never covers the app being recorded, and widget clicks stop being a trap.
 
-This also answers [disagreement 9](#9-one-window-or-two) one way. The other way is to keep one widget and add a Home tab; the maintainer should choose.
+This answers [disagreement 9](#9-one-window-or-two): one window, with a home for the collection, and the bar for those who live in it.
 
-#### S3. A steps list for real editing (roadmap: *Editing*)
+### The screens
 
-**Fixes F7, F8, F9.**
+The wireframes show structure, not the final look. Sizes are at the default window size, 1080×720 (today's 944×612 is too small for the Library and too big as a floating editor; the minimum stays 760×520).
 
-- Multi-select (click, Shift-click, Ctrl-click, Ctrl+A), with bulk actions: delete, make editable, set pause, label.
-- Keyboard: ↑ ↓ to move, Enter to open, Del to delete, Ctrl+C / Ctrl+V / Ctrl+D, Alt+↑ ↓ to reorder.
-- Moves folded into the step they lead to by default (*Click · Save*, with its move in the detail), unfoldable.
-- Search and filter by type.
-- The editor as an **inspector** beside or under the list, not inside it, so the list doesn't jump.
-- Visible insertion point; inserting by drag from the Insert menu.
-- **Record from here**: a recording inserted after the selected step.
-- Room for the roadmap's branching: a step can show *else: skip / go to step N / retry*.
+#### Library: the home
 
-#### S4. Layout that fits the macro and the screen
+```text
+┌──────────────────────────────────────────────────────────────────────────────────────────┐
+│ ■ Relay                           [ Search macros…          ]    ● Record    Settings    │
+├──────────────────────┬───────────────────────────────────────────────────────────────────┤
+│ MACROS               │ Name ▾                    Runs automatically          Last run    │
+│  All             23  │───────────────────────────────────────────────────────────────────│
+│  With triggers    9  │ Export invoice to PDF     Hotkey Ctrl+Alt+1                       │
+│  Recently run     6  │   10.2 s · 12 steps       Mon–Fri 09:00          ✓ Today 09:00    │
+│                      │───────────────────────────────────────────────────────────────────│
+│ ACTIVITY             │ Fill weekly timesheet     Fri 17:00                               │
+│  All runs            │   6.2 s · 16 steps                               ✗ Fri 17:00      │
+│  Problems         1  │───────────────────────────────────────────────────────────────────│
+│                      │ Batch rename photos       Runs when you play it                   │
+│                      │   5.9 s · 11 steps                               Never            │
+│                      │                                                                   │
+│ Import…              │                                                                   │
+└──────────────────────┴───────────────────────────────────────────────────────────────────┘
+```
 
-**Fixes F6, F20, F27.**
+- **Opens on start** when there's more than one macro; with one, Relay opens it. **Settings** is at the top right.
+- **Search** by name, **sort** by name, last run or creation, and **filters** from data Relay already has: macros with triggers, recently run. No new data, so no folders (see [Outside the redesign](#outside-the-redesign)).
+- **Each row says how the macro runs**: its hotkey, schedule, app, pixel or image trigger in words, the next run, and how the last run ended. *Triggers paused* shows here too, with **Resume**.
+- **Row actions** (open, play, duplicate, export, delete) in a ⋯ menu and on keys (<kbd>Enter</kbd>, <kbd>Del</kbd>, <kbd>Ctrl</kbd>+<kbd>D</kbd>), never hover-only. Multi-select for delete and export.
+- **Activity** is the run history, at full width, with failures and skips under *Problems*. A failed run says which step, which row of the data file, and opens the macro on that step.
+- **Record** starts a new macro from here: Relay switches to the player, counts down, records.
+- **Empty state:** *Record what you do once. Relay plays it back.* with **Record** and a link to the guide.
 
-- Transport on one line (time, controls, speed, repeat) in about 56 px; the timeline collapsible; both shrinkable.
-- The preview collapses for macros without mouse steps.
-- Layout presets: *Steps*, *Preview*, *Both*.
-- A density setting (Compact / Comfortable / Large) on one type scale ([disagreement 1](#1-density)).
-- The editor as a normal window by default (not on top), and the compact player on top.
-- Touch: pinch to zoom, wider hit areas, no hover-only actions.
+#### Macro: the editor
 
-#### S5. A disciplined visual system
+```text
+┌──────────────────────────────────────────────────────────────────────────────────────────┐
+│ ‹ Library   Export invoice to PDF          ↶  ↷     ● Record   ▶ Play   ×3 · 1×   ⋯      │
+├──────────────────────────────────────────────┬───────────────────────────────────────────┤
+│ STEPS 12        [Find a step…]    + Add ▾    │ CLICK · STEP 5                            │
+│──────────────────────────────────────────────│ Save                                      │
+│ 00:00.85  Click      File menu               │                                           │
+│ 00:01.75  Click      Export as PDF           │ Label          [ Save button        ]     │
+│ 00:03.10  Type       "invoice_0924"          │ Pause before   [ 0.3 ] s                  │
+│ 00:04.80  Keys       Ctrl + S                │ Position       1248, 680 px               │
+│▌00:06.02  Click      Save                    │ Moving there   [ 0.73 ] s                 │
+│ ─ ─ ─ ─ ─ ─ + insert here ─ ─ ─ ─ ─ ─ ─ ─    │                Smooth   Straighten        │
+│ 00:06.27  Wait for   pixel 1248, 680         │                                           │
+│ 00:07.17  Keys       Ctrl + W                │                                           │
+│ …                                            │ Delete step                               │
+├──────────────────────────────────────────────┴───────────────────────────────────────────┤
+│ ▾ VIEW   Screen | Outline          00:06.02 / 00:10.15                      Fit   100%   │
+│ ┌─────────────────────────────────────┐   0s       2s       4s       6s▐     8s     10s  │
+│ │     preview of the screen, with     │   ▬▬   ▬▬    ▬▬▬       ▬▬    ▐      ▬▬    ▬      │
+│ │    the path and numbered clicks     │     ▌    ▌      ▌ invoice    ▐ IF   Ctrl+W       │
+│ └─────────────────────────────────────┘                             ▐                    │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
+```
 
-**Fixes F15, F16, F17.**
+**The top bar** holds everything about the whole macro:
 
-- **A red budget:** record, live state, danger, the one primary action. Ink for selection.
-- **A type scale** with a 12 px floor (11 px uppercase labels at most) and fewer uppercase labels.
-- **Themes from one token set:** Light, Dark (designed, with the stage and chrome agreeing), and Windows contrast themes via `forced-colors` with system colors; draw state with borders and shapes, not backgrounds alone.
-- **Motion:** respect reduced motion.
-- **A UI zoom** (80–200%) independent of Windows scaling, or following Windows' *Text size*.
-- Keep: Archivo, square corners, 2 px rules, the grid, tabular numbers.
+- **‹ Library** goes back. The **name** is editable in place.
+- **Undo** and **Redo**.
+- **Record** records into a new macro (as today).
+- **Play** plays from the playhead. Next to it, a **summary of how it will play**: *×3 · 1×*, plus *Each row (200)*, *Varied timing* and *Stops on a key* when they apply. Clicking the summary opens **Play options** (below).
+- **⋯** for Export, Duplicate and Delete.
 
-#### S6. The compact player as a remote control
+**The steps list** is the main area, at least half the width:
 
-**Fixes F19, F3, F12.**
+- One line per step: time, a plain type (*Click*, *Type*, *Keys*, *Text*, *Wait*, *Wait for*, *Find*, *Scroll*, *Drag*), and what it does.
+- **Moves are folded** into the step they lead to by default: the click's inspector shows *Moving there 0.73 s* with Smooth and Straighten. A **Show moves** switch in the list's menu unfolds them, for those who edit paths. A move after the last step stays a row of its own, so the trip to the stop button can still be deleted.
+- **The insertion point is always visible**: a dashed line after the step under the playhead, labelled *insert here*. **+ Add ▾** (Wait, Text, Wait for pixel, Find image) puts the step there. Hovering or focusing the gap between two rows shows a **+** to insert right there.
+- **Pauses** over a second show as a thin line between rows (*1.4 s pause*), as today. *Shorten pauses* is in the list's menu.
+- **Find a step** filters by text and type.
+- Selection, multi-select and keys: see [Interaction model](#interaction-model). No × on every row: <kbd>Del</kbd>, the inspector's **Delete step**, or the row's menu.
 
-- Record, play/pause, **stop**, the name as a **macro picker**, the time and progress.
-- Small state icons: repeat, Stop on key press, Vary timing.
-- Sizes: today's 600×64, and a larger one for low vision.
+**The inspector** is the right column, and depends on what's selected:
 
-#### S7. Accessible pickers
+| Selection | The inspector shows |
+| --- | --- |
+| **Nothing** | **The macro:** Play options (below), its **data file**, and **Runs automatically** (its triggers, [below](#runs-automatically-the-triggers)) |
+| **One step** | That step's fields, as today's step editor but with room: labels and units visible, a **Pick from screen** button where it applies, **Test** and **Show** for Find image |
+| **Several steps** | What they share: *Pause before*, *Label*, *Make editable* for typed text, *Delete* |
 
-**Fixes F13.**
+So *Settings → Playback* and the *Triggers* tab disappear: what belongs to one macro is in that macro.
 
-One picker for pixel checks, the pixel trigger and (optionally) images: the screen freezes, a loupe magnifies around the cursor with the pixel's color and coordinates, arrow keys nudge by one pixel, click or <kbd>Enter</kbd> picks, <kbd>Esc</kbd> cancels. No countdown.
+**The view** is the bottom pane: the preview and the timeline together, both about *where and when*:
 
-#### S8. Feedback that reaches you
+- The **preview** on the left (Screen or Outline, zoom, Fit), the **timeline** on the right with the playhead and the time.
+- **Collapsible** (▾), and **collapsed by default for a macro without mouse steps** (keyboard macros, canned replies).
+- The transport row is gone: the time is in the view's bar, Play and Record in the top bar, previous and next step on <kbd>←</kbd> <kbd>→</kbd> in the list, speed and repeat in Play options.
 
-**Fixes F22, F11, F25.**
+**Play options** open from the summary next to Play, as a small panel:
 
-- Windows notifications for failed or skipped triggered runs, with *Open run* (opt-in per macro or global).
-- A status in the compact player and the tray when the last run failed.
-- Data runs: *Row 37 / 200 · PolicyNo 88-1042*, and on failure *Resume from row 112* (roadmap: *Reliable batches*).
-- A quiet *Saved* indicator in the header after each change.
+```text
+┌ PLAY OPTIONS ──────────────────────────────┐
+│ Repeat        [ 3 ] times    ∞ Forever     │
+│ Speed         0.5×  [1×]  2×  4×           │
+│ Data file     customers.csv · 200 rows     │
+│               Change…   Remove             │
+│ Vary timing   [■] ± 40 ms  ───●──────      │
+│ Stop on key   [■] Any key stops playback   │
+│ Clicks land   [Screen]  Window             │
+│ Saved with this macro.                     │
+└────────────────────────────────────────────┘
+```
 
-#### S9. A safe first run
+Repeat is a number you type, at any window size; the folding control bar is gone.
 
-**Fixes F2, F24, F14.**
+#### Runs automatically: the triggers
 
-- A short welcome: what F9 and F10 do (and the choice from S1), where Relay goes when closed, how to stop.
-- **Safe samples:** samples that can't click on the desktop, such as a *practice pad* inside Relay to record and play on, or samples that only type into a Notepad Relay opens. Or no samples, and an empty state that shows how to record.
-- Plain language throughout.
+In the macro's inspector (nothing selected), under **Runs automatically**:
 
-#### S10. Localization
+```text
+RUNS AUTOMATICALLY                                   + Add ▾
+┌──────────────────────────────────────────────────────────┐
+│ Hotkey       Ctrl + Alt + 1                       [■ on] │
+│   Runs from any app                                      │
+├──────────────────────────────────────────────────────────┤
+│ Schedule     Mon Tue Wed Thu Fri  at  09:00       [■ on] │
+│   Next run: tomorrow 09:00                               │
+└──────────────────────────────────────────────────────────┘
+```
 
-**Fixes F26.**
+- **Only the triggers the macro has** are shown. **+ Add ▾** offers the others (Hotkey, Schedule, When an app starts, When a pixel changes, When an image appears). Today's tab shows all five forms, empty or not.
+- Each trigger is a card with its switch, a plain sentence of what it does, and its fields with visible labels (*X*, *Y*, *Color*, *Delay s*).
+- Day buttons read *Monday*… to screen readers, and start on the locale's first day.
+- The Library rows repeat the same sentence, so a macro's automation is visible from both places.
 
-- Strings out of the components, then Dutch, French and German first (the panel's), and others as people ask.
-- Dates, times and numbers in Windows' locale, everywhere (rows and fields alike).
-- `{date}` with a format (`{date:dd.MM.yyyy}`).
+#### The player
 
-### Suggested order
+```text
+┌─────┬─────┬─────┬─────────────────────────────────────────────────────────┬─────┐
+│  ●  │  ‖  │  ■  │ PLAYING  Export invoice to PDF ▾        Row 37 / 200    │  ⤢  │
+│     │     │     │ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━──────────  00:04 / 00:10│     │
+└─────┴─────┴─────┴─────────────────────────────────────────────────────────┴─────┘
+```
 
-| Phase | What | Why first |
+- **Record, play/pause, stop**, the state, the macro's name as a **menu to switch macros**, the time, and a progress bar with ticks for clicks.
+- **What's happening** in words: *Recording · 14 steps*, *Get ready 3…*, *Playing · Row 37 / 200*, *Waiting for pixel 1248, 680*, *Looking for the image*.
+- **Errors** show in the player itself (it grows by one line), then in Activity.
+- **⤢** opens the window on that macro.
+- Two sizes: today's 600×64, and a larger one for low vision (*Settings → Appearance*).
+- It's the **only** thing that floats by default.
+
+#### Recording, step by step
+
+1. **Record** (or <kbd>F9</kbd>) anywhere: the window gives way to the player. It doesn't cover the app.
+2. The player counts down *Get ready 3, 2, 1* in its own text, announced to screen readers, with an optional sound. It never shows another macro's steps.
+3. While recording, the player shows *Recording · 14 steps* and the last step (*Click · 812, 402*).
+4. **Stop**: the window comes back on the new macro, its name selected and ready to type (*Name this macro*).
+5. If it recorded the mouse but no keys while *Ignore simulated input* is on, the macro opens with a note: *No keys were recorded. Using Remote Desktop? Turn off Ignore simulated input in Settings.*
+
+#### Settings: Relay itself
+
+A page in the window (**Settings** in the Library), in sections:
+
+| Section | Contains |
+| --- | --- |
+| **Recording** | Capture mouse path, Capture keystrokes, Screenshot, Countdown, Esc stops recording, Ignore simulated input |
+| **Keys** | Relay's own keys (record, play/pause, player, kill switch), with what each does |
+| **Window** | Keep the player on top, Switch to the player while recording or playing, Close to tray, Start with Windows |
+| **Appearance** | Theme (follow Windows, light, dark), Density (compact, comfortable, large), Text size, Player size, Show click labels, Mouse path (full or trail) |
+
+*Reset layout* goes: the new layout has one divider (between the list and the inspector) and a collapsible view, each reset by double-click.
+
+#### First run
+
+Three short screens in the window, skippable:
+
+1. **What Relay does:** record once, play back. Relay never connects to the internet.
+2. **Your keys:** *F9 records and F10 plays, from any app. While Relay runs, other apps don't get F9 and F10.* (With rebindable keys, the choice is made here: see [Outside the redesign](#outside-the-redesign).) And how to stop: <kbd>Esc</kbd>, the player's ■, the kill switch.
+3. **Your first macro:** a guided recording into Notepad, like the user guide's *Your first macro*, ending in the editor with its steps explained.
+
+The samples don't open on first run (see [open questions](#open-questions-for-the-maintainer)).
+
+### Interaction model
+
+#### Keys
+
+| Where | Key | Does |
 | --- | --- | --- |
-| **Now** (before the overhaul) | S1 (hotkeys), Q1–Q9, Q19, Q21, Q22 | The Critical finding and the cheapest accessibility fixes; all survive the overhaul |
-| **Overhaul, part 1** | S5 (visual system), S2 (scope), S4 (layout), Q10–Q18, Q20 | The frame everything else sits in |
-| **Overhaul, part 2** | S3 (steps list), S6 (compact player), S7 (pickers), S8 (feedback) | The daily work, on the new frame |
-| **After** | S9 (first run), S10 (localization), and the roadmap's branching, secrets, monitor remapping | Polish and reach, once the structure is stable |
+| Lists (macros, steps, runs) | <kbd>↑</kbd> <kbd>↓</kbd>, <kbd>Home</kbd> <kbd>End</kbd> | Move the selection (in the steps list, the playhead follows) |
+| | <kbd>Shift</kbd>+arrows, <kbd>Ctrl</kbd>+click, <kbd>Ctrl</kbd>+<kbd>A</kbd> | Select several |
+| | <kbd>Enter</kbd> | Open (a macro), or focus the inspector (a step) |
+| | <kbd>Del</kbd> | Delete, with Undo |
+| | <kbd>Ctrl</kbd>+<kbd>F</kbd> | Search or find a step |
+| Steps list | <kbd>Insert</kbd> or <kbd>+</kbd> | Open **+ Add** at the insertion point |
+| Anywhere in the window | <kbd>Ctrl</kbd>+<kbd>Z</kbd>, <kbd>Ctrl</kbd>+<kbd>Y</kbd> | Undo, redo (not in a text field) |
+| | <kbd>Alt</kbd>+<kbd>←</kbd> or <kbd>Backspace</kbd> | Back to the Library |
+| | <kbd>Space</kbd> on the timeline | Play or pause |
+| Timeline | <kbd>←</kbd> <kbd>→</kbd> | Previous or next step; with <kbd>Shift</kbd>, a tenth of a second |
+| Preview | <kbd>+</kbd> <kbd>−</kbd> <kbd>0</kbd>, arrows | Zoom, fit, pan |
+
+The timeline is a slider for assistive technology (*Playhead, 00:06.02 of 00:10.15, step 5 of 12, Click · Save*). The preview has the same text as its alternative.
+
+#### Editing and saving
+
+- Changes save as they're made, as today. The top bar shows **Saved** for a moment after each change, and **Couldn't save** (staying) when a save fails.
+- Undo covers every edit, as today, and the Library's deletions.
+- Edits are off while a session runs, as today; the inspector says why (*Stop playback to edit*).
+
+#### Picking from the screen
+
+One picker for a pixel check, the pixel trigger, and the click point of a Find image step:
+
+1. **Pick from screen** freezes the screen and shows a loupe around the cursor: magnified pixels, the color, the coordinates.
+2. Move with the mouse, a pen, a finger, or the arrow keys (one pixel, ten with <kbd>Shift</kbd>).
+3. Click, tap or <kbd>Enter</kbd> picks. <kbd>Esc</kbd> cancels. No countdown.
+
+Snipping an image (+ Find image, the image trigger) keeps Windows' snipping overlay, with **Paste** and **File…** in the inspector.
+
+#### Feedback
+
+| What | Where it shows |
+| --- | --- |
+| The result of an action (*Moved "X" to the trash*, *Shortened 4 pauses*) | One toast area, at the bottom of the window, with Undo when it applies; stacked as m23 does |
+| An error | The same area, staying until dismissed; also in Activity when it's about a run |
+| A session's state | The player, in words |
+| A triggered run that failed or was skipped while you weren't looking | The Library's *Problems* count, the player and the tray icon until seen |
+| Mode changes | Announced to screen readers; optional sounds for record start and stop and playback end |
+
+### Where everything goes
+
+Every control in today's UI, and where it is in the redesign. Nothing is dropped except what the new layout makes unnecessary.
+
+| Today | Redesign |
+| --- | --- |
+| Header: grip | The window moves by its top bar; the player keeps its grip |
+| Header: name | Macro top bar, editable in place |
+| Header: *18 steps · 301 path samples* | *12 steps · 10.2 s* in the Library row and the list's header |
+| Header: Undo, Redo | Macro top bar |
+| Header: Export | Macro ⋯ menu, Library row menu |
+| Header: compact / expand | The player's ⤢; Relay's player key (today <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd>) |
+| Header: × (hide to tray) | The window's close button, following *Close to tray* |
+| Preview bar: mode badge | The player while a session runs; nothing when idle |
+| Preview bar: keys and typing | The player (*Typing "invoice_0924"*) and the view's bar |
+| Preview bar: step under the playhead | The selected row in the list; the player while playing |
+| Preview bar: *Waiting for pixel*, *Looking for the image* | The player, and the row's live state |
+| Preview bar: zoom and Fit | The view's bar |
+| Preview bar: Screen / Sketch | The view's bar, as Screen / Outline |
+| Preview bar: X, Y | The view's bar, when the view is open |
+| Steps bar: step count | The list's header |
+| Steps bar: + Wait, + Text, + Pixel check, + Find image | **+ Add ▾** in the list's header, and **+** between rows |
+| Steps bar: Trim pauses | The list's ⋯ menu: *Shorten pauses* |
+| Step row × | <kbd>Del</kbd>, the inspector's *Delete step*, the row's menu |
+| Pause markers | Kept, thinner |
+| Step editor (inline) | The inspector |
+| Move rows | Folded into the next step; *Show moves* unfolds them |
+| Smooth, Straighten, move Duration | The inspector of the move, or of the step it's folded into |
+| Make editable | The inspector of a typed text, and for several at once |
+| Text step: field, placeholders, *Types now*, Duration | The inspector, with more room |
+| Pixel check fields, Pick | The inspector, with the new picker |
+| Find image: image, click point, Snip, Paste, File…, Match %, Timeout, Test, Show, Click, Look on, Label | The inspector |
+| Library tab: rows | The Library screen |
+| Library: Duplicate, Delete (hover) | Row menu, keys, multi-select |
+| Library: hotkey column | The row's *Runs automatically* column, with all triggers |
+| Library: Runs | **Activity** in the Library's sidebar |
+| Run history: filter by macro | Activity's filter, and *Runs* in a macro's ⋯ menu |
+| Library: Import… | The Library's sidebar |
+| Triggers tab: five forms | **Runs automatically** in the macro's inspector, only those it has, + Add |
+| Triggers tab: paused banner, Resume | The Library's header and the tray, as today |
+| Settings → Playback: Humanize, slider | **Play options**: *Vary timing* |
+| Settings → Playback: Coordinates | Play options: *Clicks land: Screen / Window* |
+| Settings → Playback: Data file | Play options and the macro's inspector |
+| Settings → Playback: Stop on key press | Play options, and shown in Play's summary |
+| Settings → Recording (6) | Settings → Recording |
+| Settings → Preview: Background, Mouse path, Click labels | The view's bar (Background), Settings → Appearance (the others) |
+| Settings → Window: Keep on top | Settings → Window: *Keep the player on top* |
+| Settings → Window: Close to tray, Start with Windows | Settings → Window |
+| Settings → Window: Reset layout | Double-click the divider or the view's edge |
+| Settings → Global hotkeys | Settings → Keys |
+| Transport: time | The view's bar; the player |
+| Transport: previous / next step | <kbd>←</kbd> <kbd>→</kbd>; buttons in the view's bar |
+| Transport: Record, Play/pause, Stop | Macro top bar; the player |
+| Transport: Speed, Repeat (and *Each row*) | Play options, summarized next to Play |
+| Resizable button row | Replaced by *Density* and *Text size* for the whole window |
+| Timeline (four lanes, playhead) | The view, keyboard-operable |
+| Countdown over the preview | The player |
+| Export dialog (four formats) | Kept, with real radios and a line about typed text when the macro has some |
+| Toasts | One area at the bottom of the window; the player for session errors |
+| Tray menu | Unchanged |
+
+### The visual system
+
+The panel wants Modernist kept and enforced, not replaced ([P10](#p10--noor-haddad-product-designer)). So the redesign keeps the system's bones and fixes how it's used.
+
+#### Keep
+
+Archivo. Square corners. The visible grid with 2 px rules between regions. One accent. Tabular numbers. Flush-left labels. No decoration.
+
+#### Red, and what it means
+
+| Red | Ink (`#201e1d`) | Neither |
+| --- | --- | --- |
+| **Record**, the recording and playing state, the **playhead** and what's played, **errors**, **destructive** actions (Delete), the *Problems* count | **Selection** (selected row's bar, selected option, the current place), the **primary** action (**Play**), switches that are on (with a mark inside) | Links and secondary buttons (ink text, underlined or outlined), *Next run* and other information |
+
+In the dark theme, ink becomes the light ground's ink and red stays red, checked for contrast on the dark ground.
+
+#### Type
+
+| Role | Size and weight | Use |
+| --- | --- | --- |
+| Display | 32 px, 800 | The player's time in the large size, empty states |
+| Title | 20 px, 800 | The screen's title (macro name, *Library*) |
+| Heading | 15 px, 700 | Inspector titles, card titles |
+| Body | 14 px, 400–600 | Rows, fields, buttons |
+| Small | 12 px, 400–600 | Details, times, hints |
+| Label | 12 px, 700, uppercase, 0.06 em | Section labels only (*STEPS*, *PLAY OPTIONS*) |
+
+Nothing under 12 px. Uppercase only for section labels. *Density* changes spacing, *Text size* scales the whole scale (90–200%).
+
+#### Color and contrast
+
+- Text on the ground: ink (14.9:1) and `neutral-700` (5.8:1) only. `neutral-600` only for disabled text and large text.
+- Small red text uses `accent-700`; the accent itself only for fills, icons and large text.
+- State is never color alone: played vs not played is filled vs outline, a switch has a mark, an error has an icon and a word.
+- **Themes from one token set:** Light (today's), Dark (designed: the view's stage and the chrome agree), and **Windows contrast themes** through `forced-colors`, drawing state with borders and system colors rather than background fills. Default: follow Windows.
+- Motion: only to show a change (a row appearing, the player taking over). None with *reduce motion*; no blinking.
+
+#### Components
+
+The redesign needs few components, each defined once:
+
+| Component | Notes |
+| --- | --- |
+| Button | Primary (ink fill), Record (red fill), Secondary (outline), Quiet (text), Destructive (red text or outline). Labels flush left, never wrapping. |
+| Field | Visible label, unit after the value (*0.3 s*), error under it |
+| Switch | Square, with a mark inside when on |
+| Choice | Segmented for 2–4 options; real radios in dialogs |
+| List row | One height per density; selection bar in ink; focus ring in accent |
+| Card | For triggers and grouped options, with a 2 px rule |
+| Menu | For ⋯ and + Add: keyboard-operable, with shortcuts shown |
+| Toast | One style per kind (info, undoable, error) |
+| Player | Its own component, in two sizes |
+
+Targets at least 32 px at the comfortable density (24 px at compact, the WCAG 2.2 minimum), 44 px at large.
+
+### How the redesign answers the findings
+
+| Finding | Answered by |
+| --- | --- |
+| F1 Global hotkeys collide | First run explains them; rebinding is [outside the redesign](#outside-the-redesign) and needed for a full answer |
+| F2 Samples can play | No samples on first run; a guided first recording instead |
+| F3 Kill switch out of reach | Stop is always on the player; rebinding [outside](#outside-the-redesign) |
+| F4 AltGr clashes | The hotkey card warns (needs a layout check, [outside](#outside-the-redesign)) |
+| F5 Scope | Library, Macro and Settings; macro options in the macro |
+| F6 Space | Steps first; the transport row gone; the view collapsible and closed for keyboard macros |
+| F7 Steps list | Folded moves, find, multi-select, keys, the inspector |
+| F8 Insertion point | Always visible, + between rows |
+| F9 Record into a macro | [Outside the redesign](#outside-the-redesign) |
+| F10 Folded repeat and speed | Play options, with a typed repeat |
+| F11 Which row | The player and Activity say the row |
+| F12 Stop on key press | Shown in Play's summary, set in Play options |
+| F13 Pick | The loupe picker, no countdown |
+| F14 Jargon | Plain names throughout |
+| F15 Red | The red budget |
+| F16 Text and contrast | The type scale, contrast rules, Text size |
+| F17 Themes and motion | Light, Dark, contrast themes, reduced motion |
+| F18 Keyboard and screen readers | Keys everywhere, the timeline as a slider, announcements, labels |
+| F19 Player | Stop, macro menu, row, two sizes |
+| F20 Covering the work | The player during sessions; a normal window otherwise |
+| F21 Library | Search, sort, filters, triggers per row, menus, multi-select |
+| F22 Feedback away | *Problems*, the player and the tray; Windows notifications [outside](#outside-the-redesign) |
+| F23 Export | Real radios, the typed-text line; the rest [outside](#outside-the-redesign) |
+| F24 First run and recording | First run, the player's countdown, naming after recording, the RDP note |
+| F25 Saved | *Saved* in the top bar |
+| F26 Locale | Dates, times and numbers in Windows' format everywhere; the first day of the week |
+| F27 Touch | Bigger targets, no hover-only actions, the picker; pinch to zoom in the view |
+
+### Outside the redesign
+
+The panel asked for these too. They change what Relay does, not where things are, so they're not part of the redesign. Several are already on the roadmap. The first one matters most: without it, the redesign can only explain F1, not fix it.
+
+| Request | Findings | On the roadmap |
+| --- | --- | --- |
+| **Rebindable F9, F10, player key and kill switch**, including none | F1, F3 | Yes (*Hotkeys and defaults*) |
+| Warn when a hotkey is an AltGr character on the current layout | F4 | No |
+| Windows notifications for failed triggered runs | F22 | No |
+| Defaults for new macros (Vary timing, Stop on key, Coordinates) | F5 | Yes |
+| Record into an existing macro, after a step | F9 | No |
+| Resume a data run from a row; a screenshot and a log on failure | F11 | Yes (*Reliable batches*) |
+| Leave out screen-reader keys while recording | F18 | No |
+| Copy, paste and reorder steps; insert a click or a key by hand | F7 | Yes (*Editing*) |
+| Folders or tags for macros | F21 | No |
+| Export several macros, with triggers | F23 | Partly (*triggers in exports*) |
+| Code signing | F23 | Yes |
+| Monthly schedules; hold-to-run hotkeys; date formats in `{date}`; localization of the UI | — | Partly |
+| Branching on checks | — | Yes; the inspector leaves room for *If it doesn't match* |
+
+### Delivering it
+
+A redesign of this size goes faster designed first, then built in one go, than built screen by screen on top of the old layout.
+
+1. **Specify.** The structure, screens and components above, turned into a design spec with hi-fi mockups, in `Design/` next to the original prototype, using the same design system.
+2. **Prototype.** A clickable prototype (the `.dc.html` format works) of the Library, the editor with the inspector, Play options, the player and the first run.
+3. **Test the prototype** with real users before building: the [studies below](#studies), especially the task test, the first-click test and the accessibility sessions. Change the design, not the code.
+4. **Build** on a milestone branch (`m24-redesign`), replacing the old UI rather than keeping both: tokens and components first, then the window and navigation, the editor, the Library and Activity, the player, Settings and the first run. The store (`relay.svelte.ts`) and the backend stay; the components above them are new. The component tests and E2E suites move with each screen.
+5. **Document.** The user guide is the spec, so it's rewritten with the UI, and `scripts/docs-screenshots.ps1` regenerates every image.
 
 ## Open questions for the maintainer
 
 1. **Who's the primary user?** Office workers who don't script (P1, P11, P12, P13), or power users (P2, P4, P9)? The answer settles density, defaults and jargon.
-2. **One widget or two windows?** Keep the single floating widget with tabs, or split a normal *Home/editor* window from the floating compact player ([disagreement 9](#9-one-window-or-two))?
+2. **One window, two forms?** The redesign keeps one window (Library, Macro, Settings) and the floating player ([The structure](#the-structure)). Or should the editor and the player be separate windows?
 3. **How fixed is Modernist?** Is a red budget, ink for selection, a 12 px floor and a dark theme within the system, or a change to it?
 4. **Global hotkeys:** keep F9/F10 as defaults with a first-run choice, or move to safer defaults for everyone?
-5. **The samples:** keep, replace with safe ones, or remove?
+5. **The samples:** the redesign drops them from the first run, for a guided first recording. Remove them from the app, or keep them reachable from the Library?
 6. **Accessibility target:** WCAG 2.2 AA? Is Windows contrast-theme support in scope?
 7. **Localization:** in scope for the overhaul, and which languages?
 8. **Touch and pen:** a supported input, or best effort?
@@ -1164,6 +1502,9 @@ One picker for pixel checks, the pixel trigger and (optionally) images: the scre
 10. **Humanize and Stop on key press defaults:** keep both on?
 11. **Notifications:** is a Windows notification acceptable for a tool that otherwise stays quiet?
 12. **The exported player:** should it look like Relay?
+13. **The default window size:** 1080×720, or a share of the screen?
+14. **Rebindable keys:** part of the redesign milestone, since F1 is the only Critical finding, or separate?
+15. **Shipping:** the whole redesign in one milestone, or screen by screen behind the old UI?
 
 ## Validating with real users
 
