@@ -578,6 +578,9 @@ describe("settings and saving", () => {
     expect(await invoke("update_settings", { settings: { countdown: false } })).toEqual({ ...DEFAULT_SETTINGS, countdown: false });
     await expect(invoke("update_settings", { settings: { keep_on_top: "sometimes" } })).rejects.toContain("unknown variant");
     await expect(invoke("update_settings", { settings: { preview_background: "photo" } })).rejects.toContain("unknown variant");
+    await expect(invoke("update_settings", { settings: { text_size: 140 } })).rejects.toContain("140% isn't a text size");
+    const look = { ...DEFAULT_SETTINGS, glass: false, text_size: 150, theme: "dark" };
+    expect(await invoke("update_settings", { settings: look })).toEqual(look);
   });
 
   test("a change that couldn't be written is kept, and the engine stream says so", async () => {

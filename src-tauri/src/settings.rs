@@ -29,7 +29,7 @@ pub enum PreviewBackground {
     Sketch,
 }
 
-/// When the widget floats above other windows.
+/// When the player floats above other windows (the window itself never does).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
@@ -41,13 +41,78 @@ pub enum KeepOnTop {
 }
 
 impl KeepOnTop {
-    /// Whether the widget should be on top, given whether a session is running.
+    /// Whether the player should be on top, given whether a session is running.
     pub fn on_top(self, session: bool) -> bool {
         match self {
             KeepOnTop::Always => true,
             KeepOnTop::Sessions => session,
             KeepOnTop::Never => false,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum Theme {
+    /// Light or dark, as Windows' app mode.
+    System,
+    Light,
+    Dark,
+}
+
+/// How much room controls take.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum Spacing {
+    Compact,
+    Comfortable,
+    Large,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum PlayerSize {
+    Compact,
+    Large,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum ReduceMotion {
+    /// As Windows' *Animation effects*.
+    System,
+    Always,
+}
+
+/// Relay's text size, in percent: everything scales with it, the window too.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(try_from = "u16", into = "u16")]
+#[ts(export, type = "100 | 125 | 150 | 200")]
+pub struct TextSize(u16);
+
+impl TextSize {
+    pub const SIZES: [u16; 4] = [100, 125, 150, 200];
+
+    /// The zoom it adds (1.5 for 150%).
+    pub fn zoom(self) -> f64 {
+        f64::from(self.0) / 100.0
+    }
+}
+
+impl TryFrom<u16> for TextSize {
+    type Error = String;
+    fn try_from(v: u16) -> Result<Self, String> {
+        Self::SIZES.contains(&v).then_some(TextSize(v)).ok_or_else(|| format!("{v}% isn't a text size"))
+    }
+}
+
+impl From<TextSize> for u16 {
+    fn from(t: TextSize) -> u16 {
+        t.0
     }
 }
 
@@ -73,6 +138,20 @@ pub struct Settings {
     /// The close button (and Alt+F4) hides Relay to the tray instead of quitting.
     pub close_to_tray: bool,
     pub keep_on_top: KeepOnTop,
+    /// The window hides while recording, and the player shows instead.
+    pub hide_while_recording: bool,
+    /// The window hides while playing; off, it stays where it is, not on top.
+    pub hide_while_playing: bool,
+    pub theme: Theme,
+    /// Frosted glass behind the window; `None` follows the default for this
+    /// Windows (on for Windows 11, off for Windows 10).
+    pub glass: Option<bool>,
+    pub spacing: Spacing,
+    pub text_size: TextSize,
+    pub player_size: PlayerSize,
+    pub reduce_motion: ReduceMotion,
+    /// Short sounds when recording starts and stops, and when a macro finishes or fails.
+    pub sounds: bool,
 }
 
 impl Default for Settings {
@@ -89,6 +168,15 @@ impl Default for Settings {
             preview_background: PreviewBackground::Screen,
             close_to_tray: true,
             keep_on_top: KeepOnTop::Always,
+            hide_while_recording: true,
+            hide_while_playing: false,
+            theme: Theme::System,
+            glass: None,
+            spacing: Spacing::Comfortable,
+            text_size: TextSize(100),
+            player_size: PlayerSize::Compact,
+            reduce_motion: ReduceMotion::System,
+            sounds: false,
         }
     }
 }
@@ -253,6 +341,20 @@ mod tests {
             assert!(problems[0].contains("every setting is back to its default"), "{}", problems[0]);
             assert_eq!(std::fs::read_to_string(dir.path().join("settings.json.bad")).unwrap(), text);
         }
+    }
+
+    #[test]
+    fn text_sizes_are_the_four_offered() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("settings.json"), r#"{"text_size":150,"theme":"dark","glass":false}"#).unwrap();
+        let (s, problems) = open(dir.path());
+        assert_eq!((s.text_size.zoom(), s.theme, s.glass), (1.5, Theme::Dark, Some(false)));
+        assert!(problems.is_empty(), "{problems:?}");
+        std::fs::write(dir.path().join("settings.json"), r#"{"text_size":140,"spacing":"large"}"#).unwrap();
+        let (s, problems) = open(dir.path());
+        assert_eq!((s.text_size, s.spacing), (TextSize(100), Spacing::Large), "only the bad one resets");
+        assert!(problems[0].contains("“text_size”"), "{problems:?}");
+        assert_eq!(serde_json::to_value(TextSize(125)).unwrap(), 125);
     }
 
     #[test]

@@ -7,6 +7,7 @@ mod hotkeys;
 mod ipc;
 mod library;
 mod logging;
+mod look;
 mod rec_thread;
 mod run_history;
 mod screens;
@@ -105,6 +106,7 @@ pub fn run() {
             commands::list_processes,
             commands::get_autostart,
             commands::set_autostart,
+            commands::system_look,
             commands::fit_window,
             commands::window_prefs,
             commands::save_panes,
@@ -118,6 +120,16 @@ pub fn run() {
             let state = app.state::<window_ctl::WindowState>();
             match event {
                 WindowEvent::Moved(_) => window_ctl::on_moved(&main, &state),
+                // Windows' transparency effects may have changed while Relay was in the background.
+                WindowEvent::Focused(true) => {
+                    let look = look::SystemLook::read();
+                    let changed = std::mem::replace(&mut *app.state::<Mutex<look::SystemLook>>().lock(), look) != look;
+                    if changed {
+                        let settings = app.state::<Mutex<settings::SettingsStore>>().lock().current.clone();
+                        look::apply(&main, &settings, look);
+                        app.state::<Arc<ipc::Emitter>>().send(ipc::EngineMsg::SystemLook { look });
+                    }
+                }
                 WindowEvent::Resized(_) => window_ctl::on_resized(&main, &state),
                 // Moved onto a monitor with another scale (or its scaling changed). The
                 // window system applies its own rect for the new scale after this event,
@@ -162,11 +174,15 @@ pub fn run() {
             // Managed before the window moves, since moving it raises events that read it.
             app.manage(window_ctl::WindowState::open(&dir));
             let window_state = app.state::<window_ctl::WindowState>();
+            let system_look = look::SystemLook::read();
+            app.manage(Mutex::new(system_look));
             if let Some(window) = app.get_webview_window("main") {
-                window_ctl::apply_modernist_frame(&window);
+                window_ctl::apply_frame(&window);
                 window_ctl::watch_move_size(&window);
-                let keep_on_top = app.state::<Mutex<settings::SettingsStore>>().lock().current.keep_on_top;
-                window_ctl::apply_on_top(&window, keep_on_top, false);
+                let settings = app.state::<Mutex<settings::SettingsStore>>().lock().current.clone();
+                look::apply(&window, &settings, system_look);
+                window_ctl::apply_on_top(&window, settings.keep_on_top, false);
+                window_ctl::init_text_size(&window_state, settings.text_size);
                 // Place it where it was, then show it (the window starts hidden, so it never jumps).
                 let prefs = window_state.prefs();
                 let css = if prefs.expanded { window_ctl::expanded_size(&prefs) } else { window_ctl::COMPACT };

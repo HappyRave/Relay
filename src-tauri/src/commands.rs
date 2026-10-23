@@ -656,9 +656,18 @@ pub fn update_settings(app: AppHandle, window: tauri::WebviewWindow, settings: S
         report_unsaved(&app, s.set(settings));
         s.current.clone()
     };
-    // Not under the settings lock: this calls into the main thread.
+    // Not under the settings lock: these call into the main thread.
     crate::window_ctl::apply_on_top(&window, current.keep_on_top, !app.state::<SessionMode>().is_idle());
+    let look = *app.state::<Mutex<crate::look::SystemLook>>().lock();
+    crate::look::apply(&window, &current, look);
+    crate::window_ctl::set_text_size(&window, &app.state::<crate::window_ctl::WindowState>(), current.text_size);
     Ok(current)
+}
+
+/// What Windows offers for the look (frosted glass by default, transparency effects).
+#[tauri::command]
+pub fn system_look(look: State<'_, Mutex<crate::look::SystemLook>>) -> crate::look::SystemLook {
+    *look.lock()
 }
 
 #[cfg(test)]

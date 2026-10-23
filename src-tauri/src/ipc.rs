@@ -68,6 +68,10 @@ pub enum EngineMsg {
     TriggersPaused {
         paused: bool,
     },
+    /// Windows' transparency effects were turned on or off.
+    SystemLook {
+        look: crate::look::SystemLook,
+    },
 }
 
 /// How many errors and notices are kept for a UI that hasn't subscribed yet.

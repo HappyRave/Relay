@@ -1,7 +1,7 @@
-//! The floating widget's window: placement anchored at its bottom-center,
-//! remembered across runs, zoomed down on small screens, resizable as the
-//! editor (not as the compact player), square corners, and no focus
-//! stealing during sessions.
+//! Relay's window: placement anchored at its bottom-center, remembered
+//! across runs, zoomed by the text size and down on small screens, resizable
+//! as the editor (not as the compact player), never on top as the editor,
+//! and no focus stealing during sessions.
 
 use parking_lot::Mutex;
 use std::path::PathBuf;
@@ -25,6 +25,8 @@ pub const MIN_EXPANDED: (f64, f64) = (760.0, 520.0);
 const MARGIN: f64 = 16.0;
 /// Default distance from the bottom of the work area, as in the design.
 const BOTTOM_GAP: f64 = 24.0;
+/// The most of the work area the editor takes at its default size.
+const DEFAULT_SHARE: f64 = 0.8;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -89,13 +91,15 @@ pub fn resized_css(inner: (u32, u32), zoom: f64, scale: f64) -> (f64, f64) {
 }
 
 /// A `css` size made to fit a `work` area (physical px, at `sf` and `zoom`)
-/// with the margins, but never below [`MIN_EXPANDED`], which the zoom
-/// always leaves room for.
-pub fn fit_work(css: (f64, f64), work: Rect, sf: f64, zoom: f64) -> (f64, f64) {
+/// with the margins, and the `default` size to 80% of it. Never below
+/// [`MIN_EXPANDED`], unless a big text size leaves no room for it.
+pub fn fit_work(css: (f64, f64), work: Rect, sf: f64, zoom: f64, default: bool) -> (f64, f64) {
     let k = sf * zoom;
-    let max_w = (work.w as f64 / k - 2.0 * MARGIN).floor();
-    let max_h = (work.h as f64 / k - MARGIN).floor();
-    (css.0.min(max_w).max(MIN_EXPANDED.0), css.1.min(max_h).max(MIN_EXPANDED.1))
+    let (w, h) = (work.w as f64 / k, work.h as f64 / k);
+    let share = if default { DEFAULT_SHARE } else { 1.0 };
+    let max_w = (w - 2.0 * MARGIN).min(w * share).floor();
+    let max_h = (h - MARGIN).min(h * share).floor();
+    (css.0.min(max_w).max(MIN_EXPANDED.0.min(max_w)), css.1.min(max_h).max(MIN_EXPANDED.1.min(max_h)))
 }
 
 /// Window placement state, saved to `window.json` (Relay-only; the UI never writes it).
@@ -107,6 +111,8 @@ pub struct WindowState {
     size: Mutex<(f64, f64)>,
     /// The zoom the window was last placed at.
     zoom: Mutex<f64>,
+    /// The text size's zoom (1.5 for 150%), on top of the screen's.
+    text: Mutex<f64>,
     /// When the anchor last changed and hasn't been saved yet.
     dirty: Mutex<Option<Instant>>,
     /// The bottom-center [`place`] last put the widget at, so the Moved
@@ -125,6 +131,7 @@ impl WindowState {
             prefs: Mutex::new(prefs),
             size: Mutex::new(size),
             zoom: Mutex::new(1.0),
+            text: Mutex::new(1.0),
             dirty: Mutex::new(None),
             placed: Mutex::new(None),
         }
@@ -189,10 +196,11 @@ impl WindowState {
     }
 }
 
-/// The zoom that fits the expanded widget on `monitor` (never above 100%).
-pub fn zoom_for(monitor: &Monitor) -> f64 {
+/// The zoom on `monitor`: the one that fits the expanded widget there (never
+/// above 100%), times the text size's `text`.
+pub fn zoom_for(monitor: &Monitor, text: f64) -> f64 {
     let work = monitor.work_area().size;
-    zoom_for_work_area(work.width, work.height, monitor.scale_factor())
+    zoom_for_work_area(work.width, work.height, monitor.scale_factor()) * text
 }
 
 /// The zoom for a work area of `w` × `h` physical pixels at `scale` (1.25 = 125%).
@@ -289,21 +297,24 @@ pub fn place(window: &WebviewWindow, state: &WindowState, css: (f64, f64)) {
         .unwrap_or(0);
     let monitor = &monitors[choose_monitor(&bounds, anchor, primary)];
 
-    let zoom = zoom_for(monitor);
+    let zoom = zoom_for(monitor, *state.text.lock());
     let (work, sf) = (Rect::work_area(monitor), monitor.scale_factor());
-    let css = if prefs.expanded { fit_work(css, work, sf, zoom) } else { css };
+    let css = if prefs.expanded { fit_work(css, work, sf, zoom, prefs.size.is_none()) } else { css };
     let _ = window.set_zoom(zoom);
     *state.zoom.lock() = zoom;
-    set_resizing(window, prefs.expanded, zoom * sf);
+    set_resizing(window, prefs.expanded, zoom * sf, work);
     let r = state.placement(work, sf, zoom, css, anchor);
     set_client_rect(window, r.x, r.y, r.w, r.h);
     *state.size.lock() = css;
 }
 
-/// The editor can be resized (down to [`MIN_EXPANDED`] at `k` = zoom × scale), the compact player can't.
-fn set_resizing(window: &WebviewWindow, expanded: bool, k: f64) {
-    let min = expanded
-        .then(|| tauri::PhysicalSize::new((MIN_EXPANDED.0 * k).round() as u32, (MIN_EXPANDED.1 * k).round() as u32));
+/// The editor can be resized (down to [`MIN_EXPANDED`] at `k` = zoom × scale,
+/// or what the `work` area holds), the compact player can't.
+fn set_resizing(window: &WebviewWindow, expanded: bool, k: f64, work: Rect) {
+    let min = expanded.then(|| {
+        let side = |min: f64, room: i32| (min * k).round().min(room as f64) as u32;
+        tauri::PhysicalSize::new(side(MIN_EXPANDED.0, work.w), side(MIN_EXPANDED.1, work.h))
+    });
     // The minimum goes first, so the compact player isn't held to the editor's.
     let _ = window.set_min_size(min.map(tauri::Size::Physical));
     let _ = window.set_resizable(expanded);
@@ -324,6 +335,25 @@ pub fn fit(window: &WebviewWindow, state: &WindowState, css: (f64, f64), expande
         place(window, state, css);
         state.save();
     }
+    if changed && let Some(settings) = window.try_state::<Mutex<crate::settings::SettingsStore>>() {
+        let keep_on_top = settings.lock().current.keep_on_top;
+        let session = window.try_state::<crate::coordinator::SessionMode>().is_some_and(|m| !m.is_idle());
+        apply_on_top(window, keep_on_top, session);
+    }
+}
+
+/// The text size changed: the window is zoomed and sized for it.
+pub fn set_text_size(window: &WebviewWindow, state: &WindowState, text: crate::settings::TextSize) {
+    let changed = std::mem::replace(&mut *state.text.lock(), text.zoom()) != text.zoom();
+    if changed {
+        let prefs = state.prefs();
+        place(window, state, if prefs.expanded { expanded_size(&prefs) } else { *state.size.lock() });
+    }
+}
+
+/// Sets the text size's zoom before the window is first placed.
+pub fn init_text_size(state: &WindowState, text: crate::settings::TextSize) {
+    *state.text.lock() = text.zoom();
 }
 
 /// The size [`fit`] gives the widget: the compact player's as the UI measured
@@ -384,15 +414,15 @@ pub fn rescale(window: &WebviewWindow, state: &WindowState) {
         return;
     };
     let client = Rect { x: pos.x, y: pos.y, w: size.width as i32, h: size.height as i32 };
-    let zoom = zoom_for(&monitor);
+    let zoom = zoom_for(&monitor, *state.text.lock());
     let _ = window.set_zoom(zoom);
     *state.zoom.lock() = zoom;
     let dragging = in_move_loop(window);
     let (work, sf) = (Rect::work_area(&monitor), monitor.scale_factor());
-    let expanded = state.prefs().expanded;
-    set_resizing(window, expanded, zoom * sf);
+    let prefs = state.prefs();
+    set_resizing(window, prefs.expanded, zoom * sf, work);
     let css = *state.size.lock();
-    let css = if expanded && !dragging { fit_work(css, work, sf, zoom) } else { css };
+    let css = if prefs.expanded && !dragging { fit_work(css, work, sf, zoom, prefs.size.is_none()) } else { css };
     *state.size.lock() = css;
     let r = rescaled(client, work, sf, zoom, css, state.prefs().anchor, dragging);
     if r != client {
@@ -564,10 +594,12 @@ fn set_client_rect(window: &WebviewWindow, x: i32, y: i32, w: i32, h: i32) {
     let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
 }
 
-/// Applies the *Keep on top* setting; `session` is whether a recording or
-/// playback (or its countdown) is running.
+/// Applies the *Keep the player on top* setting to the compact player;
+/// `session` is whether a recording or playback (or its countdown) is
+/// running. The editor is a normal window, never on top.
 pub fn apply_on_top<R: Runtime>(window: &WebviewWindow<R>, setting: crate::settings::KeepOnTop, session: bool) {
-    let _ = window.set_always_on_top(setting.on_top(session));
+    let expanded = window.try_state::<WindowState>().is_some_and(|s| s.prefs().expanded);
+    let _ = window.set_always_on_top(!expanded && setting.on_top(session));
 }
 
 /// While a session runs, clicking the widget must not take the keyboard away
@@ -591,21 +623,20 @@ pub fn set_no_activate<R: Runtime>(window: &WebviewWindow<R>, on: bool) {
 #[cfg(not(windows))]
 pub fn set_no_activate<R: Runtime>(_window: &WebviewWindow<R>, _on: bool) {}
 
-/// Makes the window match the design system: square corners and no
-/// accent-colored DWM border (Windows 11 rounds and outlines top-level
-/// windows by default). The widget draws its own 2px ink border in CSS.
+/// Rounds the window's corners on Windows 11, which also clips the frosted
+/// glass to them, without the accent-colored border Windows may draw around
+/// it. Windows 10 has no rounding: its corners stay square.
 #[cfg(windows)]
-pub fn apply_modernist_frame(window: &WebviewWindow) {
+pub fn apply_frame(window: &WebviewWindow) {
     use std::ffi::c_void;
     use windows::Win32::Graphics::Dwm::{
-        DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND, DwmSetWindowAttribute,
+        DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute,
     };
 
     let Ok(hwnd) = window.hwnd() else { return };
-    // Both attributes exist on Windows 11 only; on Windows 10 the calls fail
-    // harmlessly and the (already square) default frame is kept.
+    // Both attributes exist on Windows 11 only; on Windows 10 the calls fail harmlessly.
     unsafe {
-        let corner = DWMWCP_DONOTROUND;
+        let corner = DWMWCP_ROUND;
         let _ = DwmSetWindowAttribute(
             hwnd,
             DWMWA_WINDOW_CORNER_PREFERENCE,
@@ -623,7 +654,7 @@ pub fn apply_modernist_frame(window: &WebviewWindow) {
 }
 
 #[cfg(not(windows))]
-pub fn apply_modernist_frame(_window: &WebviewWindow) {}
+pub fn apply_frame(_window: &WebviewWindow) {}
 
 #[cfg(test)]
 mod tests {
@@ -862,14 +893,25 @@ mod tests {
 
     #[test]
     fn a_big_editor_is_made_to_fit_the_work_area() {
-        assert_eq!(fit_work((1200.0, 800.0), WORK, 1.0, 1.0), (1200.0, 800.0));
-        assert_eq!(fit_work((2400.0, 1400.0), WORK, 1.0, 1.0), (1920.0 - 32.0, 1032.0 - 16.0));
+        assert_eq!(fit_work((1200.0, 800.0), WORK, 1.0, 1.0, false), (1200.0, 800.0));
+        assert_eq!(fit_work((2400.0, 1400.0), WORK, 1.0, 1.0, false), (1920.0 - 32.0, 1032.0 - 16.0));
         // At 150%: 2880 × 1548 physical px hold 1920 × 1032 CSS px.
         let big = Rect { x: 0, y: 0, w: 2880, h: 1548 };
-        assert_eq!(fit_work((2400.0, 1400.0), big, 1.5, 1.0), (1888.0, 1016.0));
-        // A work area smaller than the minimum (the zoom shrinks it to fit): the minimum.
-        let tiny = Rect { x: 0, y: 0, w: 700, h: 500 };
-        assert_eq!(fit_work(EXPANDED, tiny, 1.0, 1.0), MIN_EXPANDED);
+        assert_eq!(fit_work((2400.0, 1400.0), big, 1.5, 1.0, false), (1888.0, 1016.0));
+        // A big text size on a small work area: as big as it holds, below the minimum.
+        let small = Rect { x: 0, y: 0, w: 1366, h: 728 };
+        assert_eq!(fit_work(EXPANDED, small, 1.0, 2.0, false), (683.0 - 32.0, 364.0 - 16.0));
+    }
+
+    #[test]
+    fn the_default_size_takes_at_most_80_percent_of_the_work_area() {
+        assert_eq!(fit_work(EXPANDED, WORK, 1.0, 1.0, true), EXPANDED);
+        let laptop = Rect { x: 0, y: 0, w: 1366, h: 728 };
+        assert_eq!(fit_work(EXPANDED, laptop, 1.0, 1.0, true), (944.0, 582.0));
+        // A size the user chose may take more.
+        assert_eq!(fit_work(EXPANDED, laptop, 1.0, 1.0, false), EXPANDED);
+        // At 150% text the window grows, as far as 80% of the screen.
+        assert_eq!(fit_work(EXPANDED, WORK, 1.0, 1.5, true), (944.0, 550.0));
     }
 
     #[test]

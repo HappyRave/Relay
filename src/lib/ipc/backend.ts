@@ -16,7 +16,8 @@ import type { TriggerStatus } from "./bindings/TriggerStatus";
 import type { DataFileInfo } from "./bindings/DataFileInfo";
 import type { RunEntry } from "./bindings/RunEntry";
 import type { FinishReason } from "./bindings/FinishReason";
-import { DEFAULT_SETTINGS } from "../defaults";
+import { DEFAULT_LOOK, DEFAULT_SETTINGS } from "../defaults";
+import type { SystemLook } from "./bindings/SystemLook";
 import { isTauri } from "../platform/window";
 
 export interface Backend {
@@ -48,6 +49,8 @@ export interface Backend {
   deleteMacro(id: string): Promise<void>;
   restoreMacro(id: string): Promise<void>;
   getSettings(): Promise<Settings>;
+  /** What Windows offers for the look: frosted glass by default, transparency effects. */
+  systemLook(): Promise<SystemLook>;
   updateSettings(settings: Settings): Promise<Settings>;
   /** The color of a screen pixel as "#RRGGBB", or null if unreadable. */
   samplePixel(x: number, y: number): Promise<string | null>;
@@ -133,6 +136,7 @@ export const tauriBackend: Backend = {
   deleteMacro: (id) => invoke("delete_macro", { id }),
   restoreMacro: (id) => invoke("restore_macro", { id }),
   getSettings: () => invoke("get_settings"),
+  systemLook: () => invoke("system_look"),
   updateSettings: (settings) => invoke("update_settings", { settings }),
   samplePixel: (x, y) => invoke("sample_pixel", { x, y }),
   pickPixel: (delayMs) => invoke("pick_pixel", { delayMs }),
@@ -365,6 +369,7 @@ export function browserBackend(): Backend {
     deleteMacro: async () => unavailable(),
     restoreMacro: async () => unavailable(),
     getSettings: async () => settings,
+    systemLook: async () => DEFAULT_LOOK,
     updateSettings: async (s) => (settings = s),
     samplePixel: async () => null,
     pickPixel: async () => unavailable(),

@@ -12,7 +12,8 @@
 import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import type { Channel } from "@tauri-apps/api/core";
 import samples from "../lib/dev/sample-views.json";
-import { DEFAULT_SETTINGS } from "../lib/defaults";
+import { DEFAULT_LOOK, DEFAULT_SETTINGS } from "../lib/defaults";
+import type { SystemLook } from "../lib/ipc/bindings/SystemLook";
 import type { EditOp, MacroListItem, MacroTriggers, MacroView, Mode, PlaybackOptions, Settings } from "../lib/types";
 import type { EngineMsg } from "../lib/ipc/bindings/EngineMsg";
 import type { Panes } from "../lib/ipc/bindings/Panes";
@@ -83,6 +84,7 @@ const INFALLIBLE = new Set([
   "list_runs",
   "import_macros",
   "get_settings",
+  "system_look",
   "list_processes",
   "get_autostart",
   "window_prefs",
@@ -103,6 +105,7 @@ export class FakeCore {
   entries: Entry[] = [];
   trash: { entry: Entry; position: number }[] = [];
   settings: Settings = { ...DEFAULT_SETTINGS };
+  look: SystemLook = { ...DEFAULT_LOOK };
   triggers = new Map<string, MacroTriggers>();
   /** Why a macro's hotkey didn't register (e.g. another app owns it), as the hotkey thread would report. */
   hotkeyErrors = new Map<string, string>();
@@ -175,6 +178,7 @@ export class FakeCore {
     this.trash = [];
     this.runLog = [];
     this.settings = { ...DEFAULT_SETTINGS };
+    this.look = { ...DEFAULT_LOOK };
     this.triggers = new Map();
     // Like library.rs seed_samples: the design's hotkeys are shown but off.
     SAMPLES.forEach((s) => {
@@ -340,6 +344,7 @@ export class FakeCore {
       case "hide_to_tray":
       case "quit":
       case "plugin:window|start_dragging":
+      case "plugin:window|minimize":
         return null;
       case "fit_window":
         check("width", a.width, "f64");
@@ -533,6 +538,8 @@ export class FakeCore {
         return this.processes;
       case "get_autostart":
         return this.autostart;
+      case "system_look":
+        return this.look;
       case "set_autostart":
         this.autostart = a.enabled as boolean;
         return this.autostart;
@@ -937,6 +944,15 @@ const SETTINGS: Spec = {
   preview_background: optional(oneOf("screen", "sketch")),
   close_to_tray: optional("bool"),
   keep_on_top: optional(oneOf("always", "sessions", "never")),
+  hide_while_recording: optional("bool"),
+  hide_while_playing: optional("bool"),
+  theme: optional(oneOf("system", "light", "dark")),
+  glass: optional(nullable("bool")),
+  spacing: optional(oneOf("compact", "comfortable", "large")),
+  text_size: optional((v: unknown) => ([100, 125, 150, 200].includes(v as number) ? null : `${v}% isn't a text size`)),
+  player_size: optional(oneOf("compact", "large")),
+  reduce_motion: optional(oneOf("system", "always")),
+  sounds: optional("bool"),
 };
 
 const TRIGGERS: Spec = {
