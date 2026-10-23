@@ -1,6 +1,5 @@
 <script lang="ts">
   import StepsTab from "./tabs/StepsTab.svelte";
-  import LibraryTab from "./tabs/LibraryTab.svelte";
   import TriggersTab from "./tabs/TriggersTab.svelte";
   import SettingsTab from "./tabs/SettingsTab.svelte";
   import Toast from "../shared/Toast.svelte";
@@ -9,9 +8,8 @@
 
   const TABS: [Tab, string][] = [
     ["steps", "Steps"],
-    ["library", "Library"],
     ["triggers", "Triggers"],
-    ["settings", "Settings"],
+    ["macro", "Macro"],
   ];
 </script>
 
@@ -25,7 +23,6 @@
   </div>
   <div class="body" role="tabpanel">
     {#if relay.tab === "steps"}<StepsTab />
-    {:else if relay.tab === "library"}<LibraryTab />
     {:else if relay.tab === "triggers"}<TriggersTab />
     {:else}<SettingsTab />{/if}
   </div>
@@ -42,7 +39,7 @@
   }
   .tabs {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     border-bottom: 2px solid var(--color-divider);
   }
   .tabs button {

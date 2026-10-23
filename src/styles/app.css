@@ -5,6 +5,8 @@ body {
   height: 100%;
   overflow: hidden;
   user-select: none;
+  /* The window frosts what is behind it: the page draws its own ground. */
+  background: transparent;
 }
 input,
 textarea {

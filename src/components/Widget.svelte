@@ -1,6 +1,6 @@
 <script lang="ts">
   import CompactBar from "./CompactBar.svelte";
-  import ExpandedWidget from "./ExpandedWidget.svelte";
+  import AppWindow from "./window/AppWindow.svelte";
   import Toast from "./shared/Toast.svelte";
   import { relay } from "../lib/state/relay.svelte";
   import { fitEditor, fitWindow, isTauri } from "../lib/platform/window";
@@ -36,7 +36,7 @@
 </script>
 
 <div class="widget" class:fill={relay.expanded} bind:this={el}>
-  {#if relay.expanded}<ExpandedWidget />{:else}<CompactBar /><Toast />{/if}
+  {#if relay.expanded}<AppWindow />{:else}<CompactBar /><Toast />{/if}
 </div>
 
 <style>
@@ -49,6 +49,8 @@
   /* The browser preview's demo desktop sets the size; the app's window is the widget. */
   .widget.fill {
     display: block;
+    border: 0;
+    background: none;
     box-sizing: border-box;
     width: var(--widget-w, 100vw);
     height: var(--widget-h, 100vh);

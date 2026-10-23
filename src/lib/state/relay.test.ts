@@ -1,6 +1,7 @@
 // The store: what each action sends to Rust, how engine messages change the
 // UI state, and the guards (busy sessions, stale responses, failed saves).
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { invoke } from "@tauri-apps/api/core";
 import { core, freshStore, nextFrame, settle } from "../../test/app";
 import { defaultTriggers } from "../../test/fake-core";
 import { DEFAULT_SETTINGS } from "../defaults";
@@ -33,6 +34,7 @@ describe("startup", () => {
       "window_prefs",
       "subscribe_engine",
       "get_settings",
+      "system_look",
       "list_macros",
       "load_macro",
       "screenshot",
@@ -44,6 +46,34 @@ describe("startup", () => {
     expect(r.ready).toBe(true);
     expect(r.name).toBe("Export invoice to PDF");
     expect(r.tab).toBe("steps");
+    expect(r.place).toBe("library");
+  });
+
+  test("with only one macro, it opens that macro", async () => {
+    const r = await freshStore({ init: false });
+    for (const id of [B, C, D]) await invoke("delete_macro", { id });
+    await r.init();
+    expect(r.place).toBe("macro");
+    expect(r.view?.id).toBe(A);
+  });
+
+  test("with none, the Library", async () => {
+    const r = await freshStore({ init: false });
+    for (const id of [A, B, C, D]) await invoke("delete_macro", { id });
+    await r.init();
+    expect(r.place).toBe("library");
+    expect(r.view).toBeNull();
+  });
+
+  test("Windows' look comes from Rust, and follows its changes", async () => {
+    core.reset();
+    core.look = { glass_default: false, transparency: true };
+    const r = await freshStore({ init: false });
+    core.look = { glass_default: false, transparency: true };
+    await r.init();
+    expect(r.systemLook).toEqual({ glass_default: false, transparency: true });
+    core.emit({ type: "system_look", look: { glass_default: false, transparency: false } });
+    expect(r.systemLook).toEqual({ glass_default: false, transparency: false });
   });
 
   test("opens in the mode the widget was left in", async () => {
@@ -297,12 +327,14 @@ describe("engine messages", () => {
     expect(core.argsOf("load_macro")).toEqual([{ id: C }]);
     expect(relay.name).toBe("Batch rename photos");
     expect(relay.steps).toHaveLength(11);
+    expect(relay.place).toBe("macro");
   });
 
   test("a save arriving when already idle opens the macro at once", async () => {
     core.emit({ type: "saved", id: B });
     await settle();
     expect(relay.view?.id).toBe(B);
+    expect(relay.place).toBe("macro");
   });
 
   test("play ticks move the playhead, extrapolated between ticks", async () => {
@@ -478,9 +510,54 @@ describe("toasts", () => {
   });
 });
 
+describe("places", () => {
+  test("opening a macro from the Library goes to it; Back and Alt + ← come back", async () => {
+    await relay.openMacro(B);
+    expect(relay.place).toBe("macro");
+    expect(relay.view?.id).toBe(B);
+    relay.back();
+    expect(relay.place).toBe("library");
+    relay.go("settings");
+    relay.start();
+    key("ArrowLeft", { altKey: true });
+    expect(relay.place).toBe("library");
+  });
+
+  test("opening the macro already open loads nothing", async () => {
+    await relay.openMacro(A);
+    expect(core.commands()).toEqual([]);
+    expect(relay.place).toBe("macro");
+  });
+
+  test("Alt + ← in a text field moves the caret, not the window", async () => {
+    relay.start();
+    relay.go("settings");
+    const input = document.body.appendChild(document.createElement("input"));
+    try {
+      key("ArrowLeft", { altKey: true }, input);
+      expect(relay.place).toBe("settings");
+    } finally {
+      input.remove();
+    }
+  });
+
+  test("a macro that fails to load isn't gone to", async () => {
+    core.fail("load_macro", "no macro with id x", "not_found");
+    await relay.openMacro(B);
+    expect(relay.place).toBe("library");
+    expect(relay.error).toBe("no macro with id x");
+  });
+
+  test("macros can't be opened during a session", async () => {
+    core.emit(session("playing"));
+    await relay.openMacro(B);
+    expect(relay.place).toBe("library");
+  });
+});
+
 describe("library", () => {
   test("opening a macro loads it, its triggers and data file, on the Steps tab", async () => {
-    relay.tab = "library";
+    relay.tab = "triggers";
     relay.cur = 3000;
     await relay.loadMacro(B);
     expect(core.calls).toEqual([
@@ -582,13 +659,13 @@ describe("library", () => {
     expect(relay.dataFile).toBeNull();
   });
 
-  test("Duplicate opens the copy in the Library tab", async () => {
+  test("Duplicate loads the copy, staying in the Library", async () => {
     await relay.duplicateMacro(A);
     expect(core.commands()).toEqual(["duplicate_macro", "list_macros", "load_macro", "screenshot", "get_triggers", "get_data_file"]);
     expect(relay.library.map((m) => m.name).slice(0, 2)).toEqual(["Export invoice to PDF", "Export invoice to PDF (copy)"]);
     expect(relay.view?.id).toBe(relay.library[1].id);
     expect(relay.name).toBe("Export invoice to PDF (copy)");
-    expect(relay.tab).toBe("library");
+    expect(relay.place).toBe("library");
   });
 
   test("a failed duplicate changes nothing", async () => {
@@ -603,7 +680,7 @@ describe("library", () => {
     expect(core.commands()).toEqual(["delete_macro", "list_macros", "load_macro", "screenshot", "get_triggers", "get_data_file"]);
     expect(core.argsOf("delete_macro")).toEqual([{ id: A }]);
     expect(relay.view?.id).toBe(B);
-    expect(relay.tab).toBe("library");
+    expect(relay.place).toBe("library");
     expect(relay.toast).toMatchObject({ kind: "info", message: "Moved “Export invoice to PDF” to the trash" });
 
     core.clearCalls();
@@ -688,7 +765,7 @@ describe("library", () => {
       expect(relay.library.map((m) => m.name).slice(0, 3)).toEqual(["one", "two", "Export invoice to PDF"]);
       expect(relay.view?.id).toBe(relay.library[0].id); // the first imported, at the top
       expect(relay.name).toBe("one");
-      expect(relay.tab).toBe("library");
+      expect(relay.place).toBe("library");
       expect(relay.toast).toMatchObject({ kind: "info", message: "Imported 2 macros" });
     });
 

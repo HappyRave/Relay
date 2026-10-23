@@ -37,6 +37,10 @@ export async function resetLayout(): Promise<void> {
   if (isTauri()) await invoke("reset_layout");
 }
 
+export async function minimize(): Promise<void> {
+  if (isTauri()) await getCurrentWindow().minimize();
+}
+
 export async function startDragging(): Promise<void> {
   if (isTauri()) await getCurrentWindow().startDragging();
 }

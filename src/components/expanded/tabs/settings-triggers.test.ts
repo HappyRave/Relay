@@ -1,4 +1,4 @@
-// The Settings and Triggers tabs: every control, and what it saves.
+// The editor's Macro and Triggers tabs: every control, and what it saves.
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
@@ -20,7 +20,7 @@ beforeEach(async () => {
 const toggle = (name: string) => screen.getByRole("switch", { name });
 const change = (el: HTMLElement, value: string) => fireEvent.change(el, { target: { value } });
 
-describe("Settings tab", () => {
+describe("Macro tab", () => {
   const options = () => core.lastArgs("set_playback_options")?.options as Record<string, unknown>;
   const settings = () => core.lastArgs("update_settings")?.settings as Record<string, unknown>;
 
@@ -69,37 +69,6 @@ describe("Settings tab", () => {
     expect(options().coord_mode).toBe("screen");
   });
 
-  test.each([
-    ["Capture mouse path", "capture_moves"],
-    ["Capture keystrokes", "capture_keys"],
-    ["Screenshot", "capture_screen"],
-    ["3-second countdown", "countdown"],
-    ["Esc stops recording", "esc_stops_recording"],
-    ["Ignore simulated input", "ignore_injected"],
-    ["Click labels", "show_click_labels"],
-    ["Close to tray", "close_to_tray"],
-  ])("the %s switch saves %s", async (name, field) => {
-    render(SettingsTab);
-    expect(toggle(name)).toHaveAttribute("aria-checked", "true");
-    await userEvent.click(toggle(name));
-    await settle();
-    expect(settings()).toEqual({ ...DEFAULT_SETTINGS, [field]: false });
-    expect(toggle(name)).toHaveAttribute("aria-checked", "false");
-    await userEvent.click(toggle(name));
-    await settle();
-    expect(settings()[field]).toBe(true);
-  });
-
-  test("Mouse path: Full path or Trail only", async () => {
-    render(SettingsTab);
-    await userEvent.click(screen.getByRole("radio", { name: "Trail only" }));
-    await settle();
-    expect(settings().path_mode).toBe("trail");
-    await userEvent.click(screen.getByRole("radio", { name: "Full path" }));
-    await settle();
-    expect(settings().path_mode).toBe("full");
-  });
-
   test("Preview background: Screen or Sketch", async () => {
     render(SettingsTab);
     const bg = within(screen.getByRole("radiogroup", { name: "Background" }));
@@ -108,65 +77,6 @@ describe("Settings tab", () => {
     await settle();
     expect(settings().preview_background).toBe("sketch");
     expect(core.lastArgs("update_settings")).toEqual({ settings: { ...DEFAULT_SETTINGS, preview_background: "sketch" } });
-  });
-
-  test.each([
-    ["Always", "always"],
-    ["While recording or playing", "sessions"],
-    ["Never", "never"],
-  ])("Keep on top: %s", async (label, value) => {
-    await relay.updateSettings({ keep_on_top: value === "always" ? "never" : "always" });
-    render(SettingsTab);
-    await userEvent.click(screen.getByRole("radio", { name: label }));
-    await settle();
-    expect(settings().keep_on_top).toBe(value);
-    expect(screen.getByRole("radio", { name: label })).toHaveAttribute("aria-checked", "true");
-  });
-
-  test("Start with Windows", async () => {
-    render(SettingsTab);
-    expect(toggle("Start with Windows")).toHaveAttribute("aria-checked", "false");
-    await userEvent.click(toggle("Start with Windows"));
-    await settle();
-    expect(core.argsOf("set_autostart")).toEqual([{ enabled: true }]);
-    expect(toggle("Start with Windows")).toHaveAttribute("aria-checked", "true");
-  });
-
-  test("Reset layout puts the editor's size and dividers back", async () => {
-    relay.movePanes({ preview_w: 480, transport_h: 100, timeline_h: 220 });
-    render(SettingsTab);
-    await settle();
-    core.clearCalls();
-    await userEvent.click(screen.getByRole("button", { name: "Reset layout" }));
-    await settle();
-    expect(core.commands()).toEqual(["reset_layout"]);
-    expect(relay.panes).toEqual({ preview_w: null, transport_h: null, timeline_h: null });
-  });
-
-  test("a setting that fails to save flips back and says why", async () => {
-    render(SettingsTab);
-    core.hold("update_settings");
-    await userEvent.click(toggle("3-second countdown"));
-    await settle();
-    expect(toggle("3-second countdown")).toHaveAttribute("aria-checked", "false"); // shown at once
-    core.held[0].reject({ code: "io", message: "Couldn't save settings: access denied" });
-    await settle();
-    expect(toggle("3-second countdown")).toHaveAttribute("aria-checked", "true");
-    expect(relay.error).toBe("Couldn't save settings: access denied");
-  });
-
-  test("lists the global hotkeys", () => {
-    render(SettingsTab);
-    for (const [what, key] of [
-      ["Start / stop recording", "F9"],
-      ["Play / pause", "F10"],
-      ["Stop everything", "Esc"],
-      ["Toggle compact player", "Ctrl + Shift + M"],
-      ["Emergency kill switch", "Ctrl + Alt + End"],
-    ]) {
-      expect(screen.getByText(what)).toBeInTheDocument();
-      expect(screen.getByText(key)).toBeInTheDocument();
-    }
   });
 
   describe("Data file", () => {
@@ -237,19 +147,11 @@ describe("Settings tab", () => {
     });
   });
 
-  test("warns that recordings store passwords", () => {
-    render(SettingsTab);
-    expect(screen.getByText(/passwords included/)).toBeInTheDocument();
-  });
-
-  test("the browser preview has no window settings", async () => {
+  test("the browser preview shows it too", async () => {
     core.uninstall();
     try {
       await freshStore({ backend: browserBackend() });
       render(SettingsTab);
-      expect(screen.queryByRole("radiogroup", { name: "Keep on top" })).toBeNull();
-      expect(screen.queryByRole("switch", { name: "Close to tray" })).toBeNull();
-      expect(screen.queryByRole("switch", { name: "Start with Windows" })).toBeNull();
       expect(screen.getByRole("switch", { name: "Humanize" })).toBeInTheDocument();
     } finally {
       core.install();

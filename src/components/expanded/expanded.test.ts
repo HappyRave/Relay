@@ -22,6 +22,18 @@ describe("Header", () => {
     expect(screen.getByText("18 steps · 301 path samples")).toBeInTheDocument();
   });
 
+  test("Back goes to the Library, except during a session", async () => {
+    relay.place = "macro";
+    render(Header);
+    const back = screen.getByRole("button", { name: "Back to the Library" });
+    expect(back).toHaveAttribute("aria-keyshortcuts", "Alt+ArrowLeft");
+    await userEvent.click(back);
+    expect(relay.place).toBe("library");
+    core.emit({ type: "session", mode: "playing", macro_id: A });
+    await settle();
+    expect(back).toBeDisabled();
+  });
+
   test("typing renames the macro, saved after a pause", async () => {
     vi.useFakeTimers();
     render(Header);
@@ -356,18 +368,17 @@ describe("Transport", () => {
 });
 
 describe("SidePanel", () => {
-  test("four tabs, Steps first", () => {
+  test("three tabs, Steps first", () => {
     render(SidePanel);
     const tabs = screen.getAllByRole("tab");
-    expect(tabs.map((t) => t.textContent?.trim())).toEqual(["Steps", "Library", "Triggers", "Settings"]);
+    expect(tabs.map((t) => t.textContent?.trim())).toEqual(["Steps", "Triggers", "Macro"]);
     expect(screen.getByRole("tab", { name: "Steps" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tabpanel")).toHaveTextContent("18 steps");
   });
 
   test.each([
-    ["Library", "New recordings are saved here automatically."],
     ["Triggers", "Run from anywhere"],
-    ["Settings", "Global hotkeys"],
+    ["Macro", "Stop on key press"],
     ["Steps", "+ Wait"],
   ])("the %s tab shows its page", async (tab, text) => {
     render(SidePanel);

@@ -1,22 +1,11 @@
 <script lang="ts">
   import Toggle from "../../ui/Toggle.svelte";
   import Segmented from "../../ui/Segmented.svelte";
-  import Kbd from "../../ui/Kbd.svelte";
   import { relay } from "../../../lib/state/relay.svelte";
-  import { isTauri } from "../../../lib/platform/window";
   import { plural } from "../../../lib/format";
   import type { CoordMode } from "../../../lib/types";
-  import type { PathMode } from "../../../lib/ipc/bindings/PathMode";
-  import type { KeepOnTop } from "../../../lib/ipc/bindings/KeepOnTop";
   import type { PreviewBackground } from "../../../lib/ipc/bindings/PreviewBackground";
 
-  const HOTKEYS = [
-    ["Start / stop recording", "F9"],
-    ["Play / pause", "F10"],
-    ["Stop everything", "Esc"],
-    ["Toggle compact player", "Ctrl + Shift + M"],
-    ["Emergency kill switch", "Ctrl + Alt + End"],
-  ];
   const pb = $derived(relay.playback);
   const st = $derived(relay.settings);
   const data = $derived(relay.dataFile);
@@ -72,50 +61,6 @@
     <Toggle label="Stop on key press" on={pb.stop_on_key} onchange={(v) => relay.setPlayback({ stop_on_key: v })} />
   </div>
 
-  <div class="section">Recording</div>
-  <div class="note">Recordings store what you type, passwords included. Stop recording before typing anything secret.</div>
-  <div class="row">
-    <div class="grow title">Capture mouse path</div>
-    <Toggle label="Capture mouse path" on={st.capture_moves} onchange={(v) => relay.updateSettings({ capture_moves: v })} />
-  </div>
-  <div class="row">
-    <div class="grow title">Capture keystrokes</div>
-    <Toggle label="Capture keystrokes" on={st.capture_keys} onchange={(v) => relay.updateSettings({ capture_keys: v })} />
-  </div>
-  <div class="row">
-    <div class="grow">
-      <div class="title">Screenshot</div>
-      <div class="sub">A picture of your screen as recording starts, for the preview. Kept on this PC only</div>
-    </div>
-    <Toggle label="Screenshot" on={st.capture_screen} onchange={(v) => relay.updateSettings({ capture_screen: v })} />
-  </div>
-  <div class="row">
-    <div class="grow title">3-second countdown</div>
-    <Toggle label="3-second countdown" on={st.countdown} onchange={(v) => relay.updateSettings({ countdown: v })} />
-  </div>
-  <div class="row">
-    <div class="grow">
-      <div class="title">Esc stops recording</div>
-      <div class="sub">Turn off to record Esc; stop with F9</div>
-    </div>
-    <Toggle
-      label="Esc stops recording"
-      on={st.esc_stops_recording}
-      onchange={(v) => relay.updateSettings({ esc_stops_recording: v })}
-    />
-  </div>
-  <div class="row">
-    <div class="grow">
-      <div class="title">Ignore simulated input</div>
-      <div class="sub">Turn off for remote-desktop and KVM tools</div>
-    </div>
-    <Toggle
-      label="Ignore simulated input"
-      on={st.ignore_injected}
-      onchange={(v) => relay.updateSettings({ ignore_injected: v })}
-    />
-  </div>
-
   <div class="section">Preview</div>
   <div class="row">
     <div class="grow">
@@ -129,72 +74,6 @@
       onchange={(v) => relay.updateSettings({ preview_background: v })}
     />
   </div>
-  <div class="row">
-    <div class="grow title">Mouse path</div>
-    <Segmented
-      label="Mouse path"
-      options={[["full", "Full path"], ["trail", "Trail only"]] as [PathMode, string][]}
-      value={st.path_mode}
-      onchange={(v) => relay.updateSettings({ path_mode: v })}
-    />
-  </div>
-  <div class="row">
-    <div class="grow title">Click labels</div>
-    <Toggle
-      label="Click labels"
-      on={st.show_click_labels}
-      onchange={(v) => relay.updateSettings({ show_click_labels: v })}
-    />
-  </div>
-
-  {#if isTauri()}
-    <div class="section">Window</div>
-    <div class="row col">
-      <div>
-        <div class="title">Keep on top</div>
-        <div class="sub">Float above other windows</div>
-      </div>
-      <Segmented
-        label="Keep on top"
-        options={[
-          ["always", "Always"],
-          ["sessions", "While recording or playing"],
-          ["never", "Never"],
-        ] as [KeepOnTop, string][]}
-        value={st.keep_on_top}
-        onchange={(v) => relay.updateSettings({ keep_on_top: v })}
-      />
-    </div>
-    <div class="row">
-      <div class="grow">
-        <div class="title">Close to tray</div>
-        <div class="sub">Keep hotkeys and triggers running; quit from the tray icon</div>
-      </div>
-      <Toggle label="Close to tray" on={st.close_to_tray} onchange={(v) => relay.updateSettings({ close_to_tray: v })} />
-    </div>
-    <div class="row">
-      <div class="grow">
-        <div class="title">Start with Windows</div>
-        <div class="sub">Starts in the tray, so triggers run after you sign in</div>
-      </div>
-      <Toggle label="Start with Windows" on={relay.autostart} onchange={(v) => relay.setAutostart(v)} />
-    </div>
-    <div class="row">
-      <div class="grow">
-        <div class="title">Layout</div>
-        <div class="sub">Drag the window's edges and the dividers between panes to resize them</div>
-      </div>
-      <button class="btn btn-secondary" onclick={relay.resetLayout}>Reset layout</button>
-    </div>
-  {/if}
-
-  <div class="section">Global hotkeys</div>
-  {#each HOTKEYS as [label, key] (key)}
-    <div class="row">
-      <span class="grow title">{label}</span>
-      <Kbd combo={key} />
-    </div>
-  {/each}
 </div>
 
 <style>
@@ -211,12 +90,6 @@
     font-weight: 600;
     color: var(--color-accent-700);
   }
-  .note {
-    padding: 2px 12px 8px;
-    font-size: 11px;
-    color: var(--color-neutral-700);
-    border-bottom: 1px solid var(--color-neutral-300);
-  }
   .section:first-child {
     padding-top: 10px;
   }
@@ -226,11 +99,6 @@
     gap: 10px;
     padding: 8px 12px;
     border-bottom: 1px solid var(--color-neutral-300);
-  }
-  .row.col {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
   }
   .slider {
     padding: 6px 12px 10px;

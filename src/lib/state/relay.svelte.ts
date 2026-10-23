@@ -20,9 +20,11 @@ import type {
   Settings,
   Step,
   StepOf,
+  Place,
   Tab,
   TriggerStatus,
 } from "../types";
+import type { SystemLook } from "../ipc/bindings/SystemLook";
 import type { EngineMsg } from "../ipc/bindings/EngineMsg";
 import type { PickedPixel } from "../ipc/bindings/PickedPixel";
 import type { FoundImage } from "../ipc/bindings/FoundImage";
@@ -31,7 +33,7 @@ import type { FinishReason } from "../ipc/bindings/FinishReason";
 import type { RunEntry } from "../ipc/bindings/RunEntry";
 import type { DataFileInfo } from "../ipc/bindings/DataFileInfo";
 import { backend as defaultBackend, type Backend, type IpcError } from "../ipc/backend";
-import { DEFAULT_PLAYBACK, DEFAULT_SETTINGS } from "../defaults";
+import { DEFAULT_LOOK, DEFAULT_PLAYBACK, DEFAULT_SETTINGS } from "../defaults";
 import { isTauri, resetLayout, savePanes, savedWindow } from "../platform/window";
 import { NO_PANES } from "../layout";
 import { nextRepeat, nextSpeed } from "../transport";
@@ -102,6 +104,8 @@ export class RelayStore {
 
   // — data (from commands) —
   settings = $state.raw<Settings>(DEFAULT_SETTINGS);
+  /** What Windows offers for the look (frosted glass by default, transparency effects). */
+  systemLook = $state.raw<SystemLook>(DEFAULT_LOOK);
   library = $state.raw<MacroListItem[]>([]);
   view = $state.raw<MacroView | null>(null);
   /** The open macro's screenshot from when it was recorded (an object URL), or null if it has none. */
@@ -127,8 +131,9 @@ export class RelayStore {
   expanded = $state(true);
   /** Where the user put the editor's dividers (null: the default); the layout keeps them inside the window. */
   panes = $state.raw<Panes>(NO_PANES);
+  place = $state<Place>("library");
   tab = $state<Tab>("steps");
-  /** The Library tab shows the run history instead of the macros. */
+  /** The Library shows the run history instead of the macros. */
   runsOpen = $state(false);
   /** The run history shows only this macro's runs (null: every macro's). */
   runsFilter = $state<string | null>(null);
@@ -245,8 +250,11 @@ export class RelayStore {
     await this.run(this.backend.subscribe(this.onEngine));
     this.settings = (await this.run(this.backend.getSettings())) ?? this.settings;
     this.settingsSaves.saved = this.settings;
+    this.systemLook = (await this.run(this.backend.systemLook())) ?? this.systemLook;
     await this.refreshLibrary();
     if (this.library[0]) await this.loadMacro(this.library[0].id);
+    // The Library is home, unless there's only one macro to go to.
+    this.place = this.library.length === 1 ? "macro" : "library";
     this.autostart = await this.backend.getAutostart().catch(() => false);
   }
 
@@ -321,7 +329,7 @@ export class RelayStore {
         }
         this.mode = mode;
         if (mode === "idle" && this.pendingLoad) {
-          this.loadMacro(this.pendingLoad);
+          this.openMacro(this.pendingLoad);
           this.pendingLoad = null;
         } else if (mode === "idle" && this.rename_) {
           this.flushRename(); // typed just before the session started
@@ -359,7 +367,7 @@ export class RelayStore {
         break;
       case "saved":
         // Arrives just before the session returns to idle.
-        if (this.mode === "idle") this.loadMacro(msg.id);
+        if (this.mode === "idle") this.openMacro(msg.id);
         else this.pendingLoad = msg.id;
         break;
       case "library_changed":
@@ -367,6 +375,9 @@ export class RelayStore {
         break;
       case "runs_changed":
         if (this.runsOpen) this.refreshRuns();
+        break;
+      case "system_look":
+        this.systemLook = msg.look;
         break;
       case "triggers_paused":
         this.triggersPaused = this.pauseSaves.saved = msg.paused;
@@ -401,6 +412,11 @@ export class RelayStore {
       e.preventDefault();
       if (key === "y" || e.shiftKey) this.redo();
       else this.undo();
+      return;
+    }
+    if (e.altKey && !e.ctrlKey && !e.shiftKey && e.key === "ArrowLeft" && !typing) {
+      e.preventDefault();
+      this.back();
       return;
     }
     if (isTauri()) return;
@@ -556,6 +572,22 @@ export class RelayStore {
     this.tab = "steps";
   };
 
+  /** Opens a macro in the editor, from the Library or after a recording. */
+  openMacro = async (id: string) => {
+    if (this.recording || this.playing) return;
+    if (this.view?.id !== id) await this.loadMacro(id);
+    if (this.view?.id === id) this.place = "macro";
+  };
+
+  go = (place: Place) => {
+    this.place = place;
+  };
+
+  /** Alt + ←: the Library, from a macro or Settings. */
+  back = () => {
+    if (this.place !== "library") this.go("library");
+  };
+
   /** Opens a macro in the editor (also mid-playback, when a trigger started it). */
   private async showMacro(id: string) {
     await this.flushRename();
@@ -609,7 +641,7 @@ export class RelayStore {
     if (!copy) return;
     await this.refreshLibrary();
     await this.loadMacro(copy);
-    this.tab = "library";
+    this.place = "library";
   };
 
   /** Moves a macro to the trash, with Undo. Opens a neighbour if it was the open one. */
@@ -633,7 +665,7 @@ export class RelayStore {
         this.triggerStatus = null;
         this.triggersFailed = false;
       }
-      this.tab = "library";
+      this.place = "library";
     }
     const action = { label: "Undo", run: () => this.restoreMacro(id, wasOpen) };
     this.show({ kind: "info", message: `Moved “${name}” to the trash`, action, restores: id }, 8000);
@@ -650,7 +682,7 @@ export class RelayStore {
     await this.refreshLibrary();
     if (!reopen) return; // stay on the macro and tab the user is on
     await this.loadMacro(id);
-    this.tab = "library";
+    this.place = "library";
   };
 
   importMacros = async () => {
@@ -658,7 +690,7 @@ export class RelayStore {
     if (!result) return;
     await this.refreshLibrary();
     if (result.imported[0]) await this.loadMacro(result.imported[0]);
-    this.tab = "library";
+    this.place = "library";
     const n = result.imported.length;
     const done = n ? `Imported ${plural(n, "macro")}` : "Nothing imported";
     if (result.problems.length) this.fail({ code: "import", message: `${done}. ${result.problems.join("; ")}` });

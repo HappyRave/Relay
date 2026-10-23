@@ -8,6 +8,7 @@ import Widget from "./Widget.svelte";
 import ExportDialog from "./ExportDialog.svelte";
 import ExpandedWidget from "./ExpandedWidget.svelte";
 import { core, freshStore, settle } from "../test/app";
+import { setMedia } from "../test/media";
 import { browserBackend } from "../lib/ipc/backend";
 import type { RelayStore } from "../lib/state/relay.svelte";
 
@@ -38,7 +39,7 @@ describe("App", () => {
     relay = await freshStore({ init: false });
   });
 
-  test("starts the store and shows the expanded widget once it's ready", async () => {
+  test("starts the store and shows the window on the Library once it's ready", async () => {
     const { container } = render(App);
     await settle();
     expect(core.commands()).toEqual([
@@ -46,6 +47,7 @@ describe("App", () => {
       "subscribe_engine",
       "fit_window",
       "get_settings",
+      "system_look",
       "list_macros",
       "load_macro",
       "screenshot",
@@ -54,8 +56,36 @@ describe("App", () => {
       "get_autostart",
     ]);
     expect(core.lastArgs("fit_window")).toEqual({ width: 0, height: 0, expanded: true });
-    expect(container.querySelector(".expanded")).not.toBeNull();
-    expect(screen.getByRole("textbox", { name: "Macro name" })).toHaveValue("Export invoice to PDF");
+    expect(container.querySelector(".app-window")).toHaveAttribute("data-place", "library");
+    expect(screen.getByText("Export invoice to PDF")).toBeInTheDocument();
+  });
+
+  test("puts the look on the page: the theme, spacing, glass and motion", async () => {
+    render(App);
+    await settle();
+    const html = document.documentElement;
+    expect(html).toHaveAttribute("data-theme", "light");
+    expect(html).not.toHaveAttribute("data-glass");
+    await relay.updateSettings({ theme: "dark", spacing: "large", glass: false, reduce_motion: "always" });
+    await settle();
+    expect(html).toHaveAttribute("data-theme", "dark");
+    expect(html).toHaveAttribute("data-spacing", "large");
+    expect(html).toHaveAttribute("data-glass", "off");
+    expect(html).toHaveAttribute("data-motion", "calm");
+  });
+
+  test("follows Windows' dark mode and animation setting while it runs", async () => {
+    render(App);
+    await settle();
+    const html = document.documentElement;
+    setMedia("(prefers-color-scheme: dark)", true);
+    setMedia("(prefers-reduced-motion: reduce)", true);
+    await settle();
+    expect(html).toHaveAttribute("data-theme", "dark");
+    expect(html).toHaveAttribute("data-motion", "calm");
+    setMedia("(prefers-color-scheme: dark)", false);
+    await settle();
+    expect(html).toHaveAttribute("data-theme", "light");
   });
 
   test("opens compact when it was left compact", async () => {
@@ -68,6 +98,8 @@ describe("App", () => {
 
   test("the export dialog opens over the widget", async () => {
     render(App);
+    await settle();
+    await relay.openMacro(A);
     await settle();
     await userEvent.click(screen.getByRole("button", { name: "Export" }));
     expect(screen.getByRole("dialog", { name: "Export macro" })).toBeInTheDocument();
@@ -88,6 +120,7 @@ describe("App", () => {
 describe("Widget", () => {
   beforeEach(async () => {
     relay = await freshStore();
+    relay.place = "macro";
   });
 
   test("switches between expanded and compact", async () => {
@@ -347,8 +380,8 @@ describe("the browser preview", () => {
     expect(container.querySelector(".desktop")).not.toBeNull();
     expect(screen.getByText("Try it")).toBeInTheDocument();
     expect(screen.getByText("Relay.")).toBeInTheDocument();
-    expect(container.querySelector(".expanded")).not.toBeNull();
-    expect(screen.getByRole("textbox", { name: "Macro name" })).toHaveValue("Export invoice to PDF");
+    expect(container.querySelector(".app-window")).toHaveAttribute("data-place", "library");
+    expect(screen.getByText("Export invoice to PDF")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).toBeNull(); // nothing needed the app
   });
 

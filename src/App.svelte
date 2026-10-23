@@ -5,8 +5,13 @@
   import { relay } from "./lib/state/relay.svelte";
   import { onMount } from "svelte";
   import { isTauri } from "./lib/platform/window";
+  import { applyLook, lookAttrs, SystemMedia } from "./lib/look.svelte";
 
   const tauri = isTauri();
+  const media = new SystemMedia();
+
+  $effect(() => media.watch());
+  $effect(() => applyLook(document.documentElement, lookAttrs(relay.settings, relay.systemLook, media)));
 
   onMount(() => {
     relay.start();

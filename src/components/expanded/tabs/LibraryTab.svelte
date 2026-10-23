@@ -16,12 +16,12 @@
         class:active={e.id === relay.view?.id}
         role="button"
         tabindex="0"
-        onclick={() => relay.loadMacro(e.id)}
+        onclick={() => relay.openMacro(e.id)}
         onkeydown={(ev) => {
           // Only the row itself; Enter on Duplicate or Delete does that instead.
           if (ev.target !== ev.currentTarget || (ev.key !== "Enter" && ev.key !== " ")) return;
           ev.preventDefault();
-          relay.loadMacro(e.id);
+          relay.openMacro(e.id);
         }}
       >
         <div class="top">

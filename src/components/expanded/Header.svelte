@@ -9,6 +9,14 @@
 </script>
 
 <div class="header">
+  <button
+    class="icon"
+    aria-label="Back to the Library"
+    aria-keyshortcuts="Alt+ArrowLeft"
+    title="Back to the Library (Alt + ←)"
+    disabled={relay.mode !== "idle"}
+    onclick={relay.back}><Icon name="back" size={16} /></button
+  >
   <Grip />
   <div class="brand"><span class="mark"></span>Relay</div>
   <!-- While recording, the name is the new recording's (it's named once saved). -->
