@@ -6,9 +6,9 @@ A working checklist for m21–m23 and the 1.5.0 release. Delete this file on the
 
 | PR | What | CI | State |
 | --- | --- | --- | --- |
-| [#9](https://github.com/HappyRave/Relay/pull/9) m21 | Data files that drive repeats | Full run green (E2E included) | Ready, can merge |
-| [#10](https://github.com/HappyRave/Relay/pull/10) m22 | AutoHotkey v2 export | Quick only | Draft, on top of m21 |
-| [#11](https://github.com/HappyRave/Relay/pull/11) m23 | Known limitations | Quick only | Draft, on top of m22 (this file is here) |
+| [#9](https://github.com/HappyRave/Relay/pull/9) m21 | Data files that drive repeats | Full run green (E2E included) | Merged |
+| [#10](https://github.com/HappyRave/Relay/pull/10) m22 | AutoHotkey v2 export | Full run | Ready, `main` merged in |
+| [#11](https://github.com/HappyRave/Relay/pull/11) m23 | Known limitations | Quick only | Draft, m22 merged in (this file is here) |
 
 Each PR's description has its decisions, the smaller choices made along the way, and what was verified.
 
@@ -34,12 +34,12 @@ Real input and a real desktop, which the tests don't cover.
 
 ## Deferred
 
-- [ ] `npm run verify` locally (or rely on each PR's full CI)
-- [ ] `scripts/docs-screenshots.ps1`: the Settings tab's Data file row, the Export dialog with AutoHotkey
+- [x] `npm run verify` locally, on m21, m22 and m23
+- [x] `scripts/docs-screenshots.ps1`: the Settings tab's Data file row (m21), the Export dialog with AutoHotkey (m22)
 
 ## Merging (in order)
 
-- [ ] Merge m21 (#9)
+- [x] Merge m21 (#9)
 - [ ] m22 (#10): merge `main` in, mark ready, full CI green (first run of the AutoHotkey syntax check and m22's E2E test), merge
 - [ ] m23 (#11): merge `main` in, mark ready, full CI green (its E2E changes haven't run yet), merge
 
