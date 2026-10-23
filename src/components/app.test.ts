@@ -72,11 +72,6 @@ describe("App", () => {
     expect(html).toHaveAttribute("data-spacing", "large");
     expect(html).toHaveAttribute("data-glass", "off");
     expect(html).toHaveAttribute("data-motion", "calm");
-    // Corners keep their size in pixels whatever the text size zooms.
-    expect(html.style.getPropertyValue("--text-zoom")).toBe("1");
-    await relay.updateSettings({ text_size: 150 });
-    await settle();
-    expect(html.style.getPropertyValue("--text-zoom")).toBe("1.5");
   });
 
   test("follows Windows' dark mode and animation setting while it runs", async () => {

@@ -12,8 +12,6 @@
 
   $effect(() => media.watch());
   $effect(() => applyLook(document.documentElement, lookAttrs(relay.settings, relay.systemLook, media)));
-  // The app zooms the page by the text size; the browser preview doesn't.
-  $effect(() => document.documentElement.style.setProperty("--text-zoom", String(tauri ? relay.settings.text_size / 100 : 1)));
 
   onMount(() => {
     relay.start();
