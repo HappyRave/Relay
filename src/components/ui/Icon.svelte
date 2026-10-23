@@ -37,6 +37,7 @@
     pixel: `<rect x="5" y="5" width="6" height="6" rx="1" ${S}/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2" ${S}/>`,
     image: `<rect x="1.8" y="2.8" width="9.4" height="8" rx="1.2" ${S}/><path d="m3.3 9.2 2.4-2.4 1.8 1.8" ${S}/><circle cx="11.4" cy="11" r="2.4" ${S}/><path d="m13.1 12.7 1.4 1.4" ${S}/>`,
     pick: `<circle cx="8" cy="8" r="4.4" ${S}/><path d="M8 .9v3M8 12.1v3M.9 8h3M12.1 8h3" ${S}/><circle cx="8" cy="8" r=".9" ${F}/>`,
+    freeze: `<path d="M1.8 5V1.8H5M11 1.8h3.2V5M14.2 11v3.2H11M5 14.2H1.8V11" ${S}/><rect x="5.6" y="5.6" width="4.8" height="4.8" rx=".8" ${F}/>`,
     check: `<path d="m3.3 8.4 3 3 6.4-6.8" ${S}/>`,
     error: `<circle cx="8" cy="8" r="6" ${S}/><path d="m5.8 5.8 4.4 4.4M10.2 5.8l-4.4 4.4" ${S}/>`,
     warning: `<path d="M8 2.2 14.2 13H1.8z" ${S}/><path d="M8 6.4v3" ${S}/><circle cx="8" cy="11.2" r=".9" ${F}/>`,
