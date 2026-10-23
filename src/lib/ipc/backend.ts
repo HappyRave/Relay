@@ -337,6 +337,8 @@ export function browserBackend(): Backend {
         runs: i.runs,
         last_run: i.last_run_ago_ms == null ? null : new Date(loadedAt - i.last_run_ago_ms).toISOString(),
         hotkey: hotkeyOf(triggersFor(i.view.id)),
+        also: [],
+        created_at: i.view.modified_at,
       }));
     },
     listRuns: async () => {

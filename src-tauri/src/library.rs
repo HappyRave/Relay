@@ -62,6 +62,8 @@ impl Entry {
             runs: self.runs,
             last_run: self.last_run,
             hotkey: self.hotkey(),
+            also: self.triggers.also_on(),
+            created_at: self.macro_.created_at,
         }
     }
 }

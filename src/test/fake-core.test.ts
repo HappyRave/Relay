@@ -372,6 +372,25 @@ describe("history, like history.rs", () => {
 });
 
 describe("the library, like library.rs", () => {
+  test("each row says what else runs it, as MacroTriggers::also_on, and when it was made", async () => {
+    const t = defaultTriggers();
+    await b.setTriggers(A, {
+      ...t,
+      hotkey: { enabled: true, combo: "Ctrl + Alt + 1" },
+      schedule: { ...t.schedule, enabled: true },
+      app_launch: { enabled: true, exe: "", delay_ms: 0 }, // no program: it can't fire
+      pixel: { ...t.pixel, enabled: true },
+    });
+    const row = (await b.listMacros())[0];
+    expect(row.hotkey).toBe("Ctrl + Alt + 1");
+    expect(row.also).toEqual([{ kind: "schedule", schedule: t.schedule.schedule }, { kind: "pixel" }]);
+    expect(row.created_at).toBe("2026-09-01T09:00:00Z");
+    await b.duplicateMacro(A);
+    const copy = (await b.listMacros())[1];
+    expect(new Date(copy.created_at).getTime()).toBeGreaterThan(Date.parse("2026-09-02"));
+    expect(copy.also).toEqual([]);
+  });
+
   test("the samples' hotkeys are seeded off, and the list only shows hotkeys that are on", async () => {
     expect((await b.getTriggers(A)).triggers.hotkey).toEqual({ enabled: false, combo: "Ctrl + Alt + 1" });
     expect((await b.listMacros()).map((m) => m.hotkey)).toEqual([null, null, null, null]);

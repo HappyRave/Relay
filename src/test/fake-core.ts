@@ -21,6 +21,7 @@ import type { FoundImage } from "../lib/ipc/bindings/FoundImage";
 import type { IpcError } from "../lib/ipc/backend";
 import type { RunEntry } from "../lib/ipc/bindings/RunEntry";
 import type { DataFileInfo } from "../lib/ipc/bindings/DataFileInfo";
+import type { TriggerOn } from "../lib/ipc/bindings/TriggerOn";
 import { applyEdit, columnsUsed, fillTemplate, History, parseTemplate } from "./fake-edit";
 
 /** A data file's contents, as relay-core reads them. */
@@ -36,6 +37,8 @@ export interface Call {
 
 interface Entry {
   view: MacroView;
+  /** When it was made (the Library sorts by it). */
+  created: string;
   runs: number;
   last_run: string | null;
   history: History;
@@ -170,6 +173,7 @@ export class FakeCore {
     this.screens = new Map();
     this.entries = SAMPLES.map((s) => ({
       view: structuredClone(s.view),
+      created: s.view.modified_at,
       runs: s.runs,
       last_run: s.last_run_ago_ms == null ? null : new Date(NOW - s.last_run_ago_ms).toISOString(),
       history: new History(),
@@ -403,7 +407,7 @@ export class FakeCore {
         const copyId = this.newId();
         const view = { ...structuredClone(e.view), id: copyId, name: this.uniqueName(`${e.view.name} (copy)`) };
         // A copy starts with no triggers (two macros on one hotkey would collide) and no history.
-        const copy = { view, runs: 0, last_run: null, history: new History(), dataFile: e.dataFile };
+        const copy = { view, created: new Date().toISOString(), runs: 0, last_run: null, history: new History(), dataFile: e.dataFile };
         this.entries.splice(this.entries.indexOf(e) + 1, 0, copy);
         this.triggers.set(copyId, defaultTriggers());
         const screen = this.screens.get(id);
@@ -598,6 +602,8 @@ export class FakeCore {
         runs: e.runs,
         last_run: e.last_run,
         hotkey: t?.hotkey.enabled && t.hotkey.combo ? t.hotkey.combo : null,
+        also: t ? alsoOn(t) : [],
+        created_at: e.created,
       };
     });
   }
@@ -625,7 +631,7 @@ export class FakeCore {
         view.id = this.newId();
       }
       view.name = this.uniqueName(view.name);
-      this.entries.splice(imported.length, 0, { view, runs: 0, last_run: null, history: new History() });
+      this.entries.splice(imported.length, 0, { view, created: new Date().toISOString(), runs: 0, last_run: null, history: new History() });
       this.triggers.set(view.id, defaultTriggers());
       imported.push(view.id);
     }
@@ -892,6 +898,16 @@ function checkData(templates: string[], table: DataTable | null, file: string): 
 const nullable = (s: Spec) => (v: unknown) => (v === null || (typeof v === "number" && !Number.isFinite(v)) ? null : why(v, s));
 const RECT: Spec = { x: "i32", y: "i32", w: "i32", h: "i32" };
 const BUTTON = oneOf("Left", "Right", "Middle", "X1", "X2");
+/** The triggers besides the hotkey that would fire, as MacroTriggers::also_on. */
+function alsoOn(t: MacroTriggers): TriggerOn[] {
+  const on: TriggerOn[] = [];
+  if (t.schedule.enabled && t.schedule.schedule.days.some(Boolean)) on.push({ kind: "schedule", schedule: structuredClone(t.schedule.schedule) });
+  if (t.app_launch.enabled && t.app_launch.exe) on.push({ kind: "app_launch", exe: t.app_launch.exe });
+  if (t.pixel.enabled) on.push({ kind: "pixel" });
+  if (t.image.enabled && t.image.image) on.push({ kind: "image" });
+  return on;
+}
+
 /** A Find image step's settings; `area` is an `Option`, so it may be left out. */
 const FIND_IMAGE = {
   image: "png",
