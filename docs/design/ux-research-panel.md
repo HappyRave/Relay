@@ -1414,11 +1414,14 @@ Every control in today's UI, and where it is in the redesign. Nothing is dropped
 
 ### The visual system
 
+> [!NOTE]
+> **The look is now proposed in the [visual redesign](visual-redesign.md):** subtly rounded corners, frosted glass, color-blocked step categories, and controls that answer when touched, with a [mockup](../../Design/redesign/relay-visual.html). It replaces square corners and 2 px rules everywhere. The rules below still hold: the red budget, the type floor, contrast, themes, and state never shown by color alone.
+
 The panel wants Modernist kept and enforced, not replaced ([P10](#p10--noor-haddad-product-designer)). So the redesign keeps the system's bones and fixes how it's used.
 
 #### Keep
 
-Archivo. Square corners. The visible grid with 2 px rules between regions. One accent. Tabular numbers. Flush-left labels. No decoration.
+Archivo. The visible grid. Tabular numbers. Flush-left labels. No decoration. (Square corners and 2 px rules everywhere give way to the [visual redesign](visual-redesign.md).)
 
 #### Red, and what it means
 
