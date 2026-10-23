@@ -32,6 +32,8 @@ import type { TimingStats } from "../ipc/bindings/TimingStats";
 import type { FinishReason } from "../ipc/bindings/FinishReason";
 import type { RunEntry } from "../ipc/bindings/RunEntry";
 import type { RunSource } from "../ipc/bindings/RunSource";
+import type { RelayKey } from "../ipc/bindings/RelayKey";
+import { comboOf } from "../hotkeys";
 import type { DataFileInfo } from "../ipc/bindings/DataFileInfo";
 import { backend as defaultBackend, type Backend, type IpcError } from "../ipc/backend";
 import { DEFAULT_LOOK, DEFAULT_PLAYBACK, DEFAULT_SETTINGS } from "../defaults";
@@ -472,8 +474,8 @@ export class RelayStore {
     }
   };
 
-  // In the app F9, F10 and Ctrl+Shift+M are global hotkeys handled in Rust;
-  // the browser preview has none, so it listens here.
+  // In the app Relay's keys are global hotkeys handled in Rust; the browser
+  // preview has none, so it listens here.
   private onKey = (e: KeyboardEvent) => {
     // A hotkey being set, or the export dialog (which handles Esc itself), owns the keyboard.
     if (this.exportOpen || (e.target as HTMLElement | null)?.closest?.("[data-captures-keys]")) return;
@@ -504,13 +506,16 @@ export class RelayStore {
       return;
     }
     if (isTauri()) return;
-    if (e.key === "F9") {
+    const combo = comboOf(e);
+    const keys = this.settings.keys;
+    if (!combo) return;
+    if (combo === keys.record) {
       e.preventDefault();
       this.toggleRec();
-    } else if (e.key === "F10") {
+    } else if (combo === keys.play) {
       e.preventDefault();
       this.togglePlay();
-    } else if (e.ctrlKey && e.shiftKey && key === "m") {
+    } else if (combo === keys.player) {
       e.preventDefault();
       this.setPlayerMode(!this.playerMode);
     }
@@ -1386,6 +1391,28 @@ export class RelayStore {
     if (latest) saves.failed = !saved;
     if (latest || saves.failed) this.settings = latest && saved ? saved : saves.saved;
   };
+
+  /** Sets one of Relay's keys (null: off). Resolves to why it was refused, or null once it's saved. */
+  setRelayKey = async (key: RelayKey, combo: string | null): Promise<string | null> => {
+    try {
+      const saved = await this.backend.setRelayKey(key, combo);
+      const saves = this.settingsSaves;
+      saves.savedSeq = ++saves.seq;
+      saves.saved = this.settings = saved;
+      return null;
+    } catch (e) {
+      return (e as IpcError)?.message ?? String(e);
+    }
+  };
+
+  /** What to know before using `combo` as a global key, or null. */
+  keyWarning = (combo: string): Promise<string | null> => this.backend.keyWarning(combo).catch(() => null);
+
+  /** A key field listens, or stopped: the hotkeys let go of the keys meanwhile. */
+  holdHotkeys = (on: boolean) => this.backend.holdHotkeys(on).catch(() => {});
+
+  /** The first run is over (finished or skipped): it doesn't show again. */
+  finishIntro = () => this.updateSettings({ intro: "done" });
 
   setAutostart = async (enabled: boolean) => {
     this.autostart = (await this.run(this.backend.setAutostart(enabled))) ?? this.autostart;

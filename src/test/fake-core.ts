@@ -22,6 +22,8 @@ import type { IpcError } from "../lib/ipc/backend";
 import type { RunEntry } from "../lib/ipc/bindings/RunEntry";
 import type { DataFileInfo } from "../lib/ipc/bindings/DataFileInfo";
 import type { TriggerOn } from "../lib/ipc/bindings/TriggerOn";
+import type { RelayKey } from "../lib/ipc/bindings/RelayKey";
+import type { RelayKeys } from "../lib/ipc/bindings/RelayKeys";
 import { applyEdit, columnsUsed, fillTemplate, History, parseTemplate } from "./fake-edit";
 
 /** A data file's contents, as relay-core reads them. */
@@ -91,6 +93,8 @@ const INFALLIBLE = new Set([
   "list_processes",
   "get_autostart",
   "window_prefs",
+  "key_warning",
+  "hold_hotkeys",
   "set_player_mode",
   "show_window",
   "current_macro",
@@ -161,6 +165,10 @@ export class FakeCore {
   current: string | null = null;
   /** The window the page is in. */
   label: "main" | "player" = "main";
+  /** What Ctrl + Alt (+ Shift) and a key type on the keyboard layout in use, by combo ("Ctrl + Alt + 7": "{"). */
+  altgr: Record<string, string> = {};
+  /** A key field is listening: hotkeys.rs let go of every hotkey. */
+  hotkeysHeld = false;
   private channel: Channel<EngineMsg> | null = null;
   /** Errors and notices sent before the UI subscribed, delivered when it does. */
   private queued: EngineMsg[] = [];
@@ -212,6 +220,8 @@ export class FakeCore {
     this.found = null;
     this.window = { player_mode: false, panes: { inspector_w: null } };
     this.current = null;
+    this.altgr = {};
+    this.hotkeysHeld = false;
     this.channel = null;
     this.queued = [];
     this.failures = new Map();
@@ -480,12 +490,33 @@ export class FakeCore {
         return this.dialog.open;
       case "get_settings":
         return this.settings;
-      case "update_settings":
+      case "update_settings": {
         // Missing fields fall back to the defaults (settings.rs has #[serde(default)]).
         check("settings", a.settings, SETTINGS);
-        this.settings = { ...DEFAULT_SETTINGS, ...(a.settings as Partial<Settings>) };
+        const next = { ...DEFAULT_SETTINGS, ...(a.settings as Partial<Settings>) };
+        const why = this.checkKeys(next.keys);
+        if (why) throw { code: "hotkey", message: why } satisfies IpcError;
+        this.settings = next;
         this.saved();
         return this.settings;
+      }
+      case "set_relay_key": {
+        check("key", a.key, oneOf("record", "play", "player", "kill"));
+        check("combo", a.combo, nullable("string"));
+        const key = a.key as RelayKey;
+        const combo = (a.combo as string | null) ?? null;
+        const why = this.checkKey(this.settings.keys, key, combo);
+        if (why) throw { code: "hotkey", message: why } satisfies IpcError;
+        const keys = { ...this.settings.keys, [key]: key === "kill" ? (combo ?? this.settings.keys.kill) : combo };
+        return this.builtin("update_settings", { settings: { ...this.settings, keys } });
+      }
+      case "hold_hotkeys":
+        check("on", a.on, "bool");
+        this.hotkeysHeld = a.on as boolean;
+        return null;
+      case "key_warning":
+        check("combo", a.combo, "string");
+        return keyWarning(a.combo as string, this.altgr[normalizeCombo(a.combo as string) ?? ""] ?? null);
       case "sample_pixel":
         check("x", a.x, "i32");
         check("y", a.y, "i32");
@@ -681,9 +712,30 @@ export class FakeCore {
   private conflict(id: string, combo: string): string | null {
     const s = parseCombo(combo);
     if (typeof s === "string") return s;
-    if (RELAYS_OWN.some((r) => sameShortcut(r, s))) return `${combo} is one of Relay's own hotkeys`;
+    const own = relayShortcuts(this.settings.keys).find(([, r]) => sameShortcut(r, s));
+    if (own) return `${combo} is Relay's “${KEY_NAMES[own[0]]}” key`;
     const other = this.takenBy(id, combo);
     return other ? `${combo} already runs “${other}”` : null;
+  }
+
+  /** Why `combo` can't be Relay's `key` (hotkeys.rs check_key). */
+  private checkKey(keys: RelayKeys, key: RelayKey, combo: string | null): string | null {
+    if (combo == null) return key === "kill" ? "Stop everything can't be turned off. Choose another combination." : null;
+    const s = parseCombo(combo);
+    if (typeof s === "string") return s;
+    const other = relayShortcuts(keys).find(([k, r]) => k !== key && sameShortcut(r, s));
+    if (other) return `${combo} is already Relay's “${KEY_NAMES[other[0]]}” key`;
+    const macro = this.takenBy("", combo);
+    return macro ? `${combo} already runs “${macro}”` : null;
+  }
+
+  /** hotkeys.rs check_keys. */
+  private checkKeys(keys: RelayKeys): string | null {
+    for (const k of RELAY_KEYS) {
+      const why = this.checkKey(keys, k, keys[k]);
+      if (why) return why;
+    }
+    return null;
   }
 
   private status(id: string) {
@@ -817,12 +869,58 @@ export function parseCombo(combo: string): Shortcut | string {
 
 const sameShortcut = (a: Shortcut, b: Shortcut) => a.mods === b.mods && a.code === b.code;
 
-const RELAYS_OWN: Shortcut[] = [
-  { mods: "", code: "F9" },
-  { mods: "", code: "F10" },
-  { mods: "Ctrl+Shift", code: "KeyM" },
-  { mods: "Ctrl+Alt", code: "End" },
-];
+const RELAY_KEYS: RelayKey[] = ["record", "play", "player", "kill"];
+const KEY_NAMES: Record<RelayKey, string> = {
+  record: "Record",
+  play: "Play / pause",
+  player: "Show the player",
+  kill: "Stop everything",
+};
+
+/** Relay's keys that are set, as shortcuts (hotkeys.rs shortcuts). */
+function relayShortcuts(keys: RelayKeys): [RelayKey, Shortcut][] {
+  return RELAY_KEYS.flatMap((k) => {
+    const s = keys[k] == null ? "" : parseCombo(keys[k]!);
+    return typeof s === "string" ? [] : [[k, s] as [RelayKey, Shortcut]];
+  });
+}
+
+/** relay_core::keys::normalize_combo. */
+export function normalizeCombo(combo: string): string | null {
+  let parts = combo.split("+").map((p) => p.trim());
+  if (parts.length >= 2 && parts.at(-1) === "" && parts.at(-2) === "") parts = [...parts.slice(0, -2), "+"];
+  if (!parts.length || parts.some((p) => p === "")) return null;
+  const key = parts.pop()!;
+  const rank = (m: string) => (MODIFIERS.includes(m) ? MODIFIERS.indexOf(m) : 4);
+  const mods = [...new Set(parts)].sort((a, b) => rank(a) - rank(b));
+  return [...mods, key].join(" + ");
+}
+
+const TAKEN: Record<string, string> = {
+  F9: "F9 recalculates in Excel and updates fields in Word. While Relay runs, they won't get it.",
+  F10: "F10 opens the menu bar in most apps and steps over in debuggers. While Relay runs, they won't get it.",
+  "Ctrl + Shift + F9": "Ctrl + Shift + F9 unlinks fields in Word, a rare command. Word won't get it while Relay runs.",
+  "Ctrl + Alt + End": "Remote Desktop sends this as Ctrl + Alt + Del. In a remote session, Relay won't get it.",
+  "Ctrl + Alt + Home": "Remote Desktop uses this for its connection bar. In a remote session, Relay won't get it.",
+  "Ctrl + Alt + Pause": "Remote Desktop uses this to switch to full screen. In a remote session, Relay won't get it.",
+  "Ctrl + Alt + Ins": "VMware Horizon sends this as Ctrl + Alt + Del. In a Horizon session, Relay won't get it.",
+  "Ctrl + F1": "Citrix Workspace uses this for Ctrl + Alt + Del. In a Citrix session, Relay won't get it.",
+  "Ctrl + F3": "Citrix Workspace uses this to open Task Manager. In a Citrix session, Relay won't get it.",
+  "Ctrl + Alt + Left": "Hyper-V uses this to release the mouse. In a virtual machine's window, Relay won't get it.",
+};
+
+/** relay_core::keys::key_warning, `altgr` what the layout types for the combo. */
+function keyWarning(combo: string, altgr: string | null): string | null {
+  const c = normalizeCombo(combo);
+  if (!c) return null;
+  const parts = c.split(" + ");
+  const key = parts.pop()!;
+  if (altgr?.trim() && parts.includes("Ctrl") && parts.includes("Alt")) {
+    const shift = parts.includes("Shift") ? "Shift + " : "";
+    return `${c} types “${altgr}” on your keyboard (AltGr + ${shift}${key}). You couldn't type it while this is set.`;
+  }
+  return TAKEN[c] ?? null;
+}
 
 // — argument types: what serde would refuse before a command runs —
 
@@ -996,6 +1094,8 @@ const SETTINGS: Spec = {
   reduce_motion: optional(oneOf("system", "always")),
   sounds: optional("bool"),
   show_moves: optional("bool"),
+  keys: optional({ record: nullable("string"), play: nullable("string"), player: nullable("string"), kill: "string" }),
+  intro: optional(oneOf("welcome", "keys", "done")),
 };
 
 const TRIGGERS: Spec = {

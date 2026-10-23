@@ -90,6 +90,8 @@ pub struct Hotkeys(Mutex<State>);
 
 struct State {
     wanted: HotkeySet,
+    /// A key field in the window is listening: no hotkey takes the keys it waits for.
+    held: bool,
     /// Macro hotkeys by shortcut id.
     registered: HashMap<u32, Uuid>,
     /// Why a macro's hotkey isn't registered.
@@ -101,6 +103,7 @@ impl Default for Hotkeys {
     fn default() -> Self {
         Hotkeys(Mutex::new(State {
             wanted: HotkeySet::Idle,
+            held: false,
             registered: HashMap::new(),
             errors: HashMap::new(),
             reported: Reported::default(),
@@ -146,6 +149,13 @@ pub fn set_active<R: Runtime>(app: &AppHandle<R>, set: HotkeySet) {
     refresh(app);
 }
 
+/// Lets go of every hotkey while a key field listens (`on`), and takes them
+/// back after, so the combination pressed reaches the field. Doesn't wait.
+pub fn hold<R: Runtime>(app: &AppHandle<R>, on: bool) {
+    app.state::<Hotkeys>().0.lock().held = on;
+    refresh(app);
+}
+
 /// Re-registers the current set, e.g. after macro hotkeys changed. Doesn't wait.
 pub fn refresh<R: Runtime>(app: &AppHandle<R>) {
     let a = app.clone();
@@ -173,11 +183,19 @@ fn register<R: Runtime>(app: &AppHandle<R>) {
     if app.try_state::<tauri_plugin_global_shortcut::GlobalShortcut<R>>().is_none() {
         return;
     }
-    let wanted = app.state::<Hotkeys>().0.lock().wanted;
+    let (wanted, held) = {
+        let state = app.state::<Hotkeys>();
+        let state = state.0.lock();
+        (state.wanted, state.held)
+    };
+    let gs = app.global_shortcut();
+    if held {
+        let _ = gs.unregister_all();
+        return;
+    }
     let keys = current_keys(app);
     let triggers = app.state::<Mutex<Library>>().lock().all_triggers();
     let emit = app.state::<std::sync::Arc<Emitter>>();
-    let gs = app.global_shortcut();
     let _ = gs.unregister_all();
     let mut failed = Vec::new();
     for (k, s) in shortcuts(&keys).into_iter().filter(|(k, _)| actions(wanted).contains(k)) {

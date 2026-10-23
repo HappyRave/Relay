@@ -25,6 +25,8 @@ export const DEFAULT_SETTINGS: Settings = {
   reduce_motion: "system",
   sounds: false,
   show_moves: false,
+  keys: { record: "Ctrl + Shift + F9", play: "Ctrl + Shift + F10", player: "Ctrl + Shift + M", kill: "Ctrl + Alt + Backspace" },
+  intro: "welcome",
 };
 
 /** Until Rust says: Windows 11, transparency on. */

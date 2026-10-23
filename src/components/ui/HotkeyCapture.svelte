@@ -1,7 +1,9 @@
 <script lang="ts">
-  // Click, then press the combination. Esc cancels, Backspace clears.
+  // Click, then press the combination. Esc cancels, Backspace clears. While it
+  // listens, the hotkeys let go of the keys, so a taken combination arrives too.
   import Kbd from "./Kbd.svelte";
-  import { comboOf } from "../../lib/hotkeys";
+  import { relay } from "../../lib/state/relay.svelte";
+  import { listenForCombo } from "../../lib/keycapture";
 
   let { combo, onchange, disabled = false }: { combo: string; onchange: (combo: string) => void; disabled?: boolean } =
     $props();
@@ -16,26 +18,18 @@
 
   $effect(() => {
     if (!capturing) return;
-    const onKey = (e: KeyboardEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.key === "Escape") return void (capturing = false);
-      if (e.key === "Backspace") {
+    relay.holdHotkeys(true);
+    const stop = listenForCombo({
+      done: (c) => {
         capturing = false;
-        return onchange("");
-      }
-      if (["Control", "Alt", "Shift", "Meta"].includes(e.key)) return;
-      const c = comboOf(e);
-      if (!c) return void (hint = "Use a letter, digit, F-key or arrow");
-      capturing = false;
-      onchange(c);
-    };
-    const cancel = () => (capturing = false);
-    window.addEventListener("keydown", onKey, true);
-    window.addEventListener("blur", cancel);
+        onchange(c ?? "");
+      },
+      cancel: () => (capturing = false),
+      hint: (text) => (hint = text),
+    });
     return () => {
-      window.removeEventListener("keydown", onKey, true);
-      window.removeEventListener("blur", cancel);
+      stop();
+      relay.holdHotkeys(false);
     };
   });
 </script>

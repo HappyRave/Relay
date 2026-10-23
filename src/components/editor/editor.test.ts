@@ -93,7 +93,8 @@ describe("the top bar", () => {
     expect(core.lastArgs("toggle_play")).toEqual({ from: 1500 });
     core.emit({ type: "session", mode: "playing", macro_id: A, source: null });
     await settle();
-    expect(button("Pause")).toHaveAttribute("title", "Pause (F10)");
+    expect(button("Pause")).toHaveAttribute("title", "Pause (Ctrl + Shift + F10)");
+    expect(button("Pause")).toHaveAttribute("aria-keyshortcuts", "Control+Shift+F10");
     await userEvent.click(button("Stop"));
     expect(core.commands()).toContain("stop_session");
   });

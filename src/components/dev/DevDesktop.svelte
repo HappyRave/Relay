@@ -35,7 +35,7 @@
   <div class="hint">
     <div class="kicker">Try it</div>
     <div>
-      A preview of Relay's UI with the design's sample macros. <b>F10</b> plays a macro back, <b>Esc</b> stops.
+      A preview of Relay's UI with the design's sample macros. <b>{relay.settings.keys.play}</b> plays a macro back, <b>Esc</b> stops.
       Recording and step edits run in the app (<b>npm run tauri dev</b>).
     </div>
   </div>

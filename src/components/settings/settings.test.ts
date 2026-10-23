@@ -1,6 +1,6 @@
 // The Settings page: its sections, every control, and what it saves.
 import { beforeEach, describe, expect, test } from "vitest";
-import { render, screen, within } from "@testing-library/svelte";
+import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import SettingsPage from "./SettingsPage.svelte";
 import { core, freshStore, settle } from "../../test/app";
@@ -158,18 +158,106 @@ describe("Settings", () => {
     expect(screen.getByText(/passwords included/)).toBeInTheDocument();
   });
 
-  test("Keys lists Relay's keys", async () => {
+  test("Keys lists Relay's keys, as set", async () => {
     await open("Keys");
     for (const [what, keys] of [
-      ["Record", "F9"],
-      ["Play / pause", "F10"],
+      ["Record", "Ctrl + Shift + F9"],
+      ["Play / pause", "Ctrl + Shift + F10"],
       ["Stop", "Esc"],
       ["Show the player", "Ctrl + Shift + M"],
-      ["Stop everything", "Ctrl + Alt + End"],
+      ["Stop everything", "Ctrl + Alt + Backspace"],
     ]) {
       expect(screen.getByText(what)).toBeInTheDocument();
       expect(screen.getByRole("img", { name: keys })).toBeInTheDocument();
     }
+  });
+
+  describe("setting a key", () => {
+    const row = (name: string) => screen.getByText(name).closest<HTMLElement>(".setting")!;
+    const change = (name: string) => userEvent.click(within(row(name)).getByRole("button", { name: "Change" }));
+    const press = (key: string, init: KeyboardEventInit = {}) => fireEvent.keyDown(window, { key, ...init });
+
+    test("Change, then a combination: saved, said, and the hotkeys let go of the keys meanwhile", async () => {
+      await open("Keys");
+      await change("Record");
+      expect(core.hotkeysHeld).toBe(true);
+      expect(within(row("Record")).getByText("Press keys…")).toBeInTheDocument();
+      press("F8", { code: "F8" });
+      await settle();
+      expect(core.lastArgs("set_relay_key")).toEqual({ key: "record", combo: "F8" });
+      expect(core.hotkeysHeld).toBe(false);
+      expect(within(row("Record")).getByRole("img", { name: "F8" })).toBeInTheDocument();
+      expect(within(row("Record")).getByRole("status")).toHaveTextContent("Set to F8.");
+    });
+
+    test("a key apps use, or that types a character here, is set with a warning", async () => {
+      await open("Keys");
+      await change("Record");
+      press("F9", { code: "F9" });
+      await settle();
+      expect(relay.settings.keys.record).toBe("F9");
+      expect(within(row("Record")).getByRole("status")).toHaveTextContent("F9 recalculates in Excel");
+      core.altgr = { "Ctrl + Alt + 7": "{" };
+      await change("Show the player");
+      press("7", { code: "Digit7", ctrlKey: true, altKey: true });
+      await settle();
+      expect(within(row("Show the player")).getByRole("status")).toHaveTextContent(
+        "Ctrl + Alt + 7 types “{” on your keyboard (AltGr + 7). You couldn't type it while this is set.",
+      );
+    });
+
+    test("one that can't be is refused, saying why, and nothing changes", async () => {
+      await open("Keys");
+      await change("Play / pause");
+      press("F9", { code: "F9", ctrlKey: true, shiftKey: true });
+      await settle();
+      expect(within(row("Play / pause")).getByRole("status")).toHaveTextContent(
+        "Ctrl + Shift + F9 is already Relay's “Record” key",
+      );
+      expect(relay.settings.keys.play).toBe("Ctrl + Shift + F10");
+      expect(screen.queryByRole("alert")).toBeNull(); // said in the row, not as an error message
+    });
+
+    test("Backspace sets None, except for Stop everything; Ctrl + Alt + Backspace is a combination", async () => {
+      await open("Keys");
+      await change("Record");
+      press("Backspace", { code: "Backspace" });
+      await settle();
+      expect(relay.settings.keys.record).toBeNull();
+      expect(within(row("Record")).getByText("None")).toBeInTheDocument();
+      expect(within(row("Record")).getByRole("status")).toHaveTextContent("Set to None: use the buttons instead.");
+      await change("Stop everything");
+      press("Backspace", { code: "Backspace" });
+      await settle();
+      expect(within(row("Stop everything")).getByRole("status")).toHaveTextContent("can't be turned off");
+      await change("Stop everything");
+      press("End", { code: "End", ctrlKey: true, altKey: true });
+      await settle();
+      expect(relay.settings.keys.kill).toBe("Ctrl + Alt + End");
+      expect(within(row("Stop everything")).getByRole("status")).toHaveTextContent("Remote Desktop sends this as Ctrl + Alt + Del");
+      await change("Stop everything");
+      press("Backspace", { code: "Backspace", ctrlKey: true, altKey: true });
+      await settle();
+      expect(relay.settings.keys.kill).toBe("Ctrl + Alt + Backspace");
+    });
+
+    test("Esc cancels, and so does Cancel", async () => {
+      await open("Keys");
+      await change("Record");
+      press("Escape", { code: "Escape" });
+      await settle();
+      expect(within(row("Record")).queryByText("Press keys…")).toBeNull();
+      await change("Record");
+      await userEvent.click(within(row("Record")).getByRole("button", { name: "Cancel" }));
+      expect(core.argsOf("set_relay_key")).toEqual([]);
+      expect(core.hotkeysHeld).toBe(false);
+    });
+
+    test("the rest of the UI names the keys as set", async () => {
+      await relay.setRelayKey("record", "F8");
+      await open("Recording");
+      expect(screen.getByText("Turn off to record Esc; stop with the player's ■ or F8.")).toBeInTheDocument();
+    });
   });
 
   test("the browser preview has no Window section", async () => {

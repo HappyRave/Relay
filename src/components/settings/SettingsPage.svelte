@@ -5,11 +5,13 @@
   import Switch from "../kit/Switch.svelte";
   import Choice from "../kit/Choice.svelte";
   import Keycaps from "../kit/Keycaps.svelte";
+  import KeyRow from "./KeyRow.svelte";
   import Toast from "../shared/Toast.svelte";
   import { relay } from "../../lib/state/relay.svelte";
   import { isTauri } from "../../lib/platform/window";
   import { glassOn } from "../../lib/look.svelte";
   import type { Settings } from "../../lib/types";
+  import type { RelayKey } from "../../lib/ipc/bindings/RelayKey";
 
   type SectionId = "recording" | "keys" | "window" | "appearance" | "sound";
   // The window settings need the app: the browser preview has no window to set.
@@ -22,12 +24,11 @@
       ["sound", "Sound"],
     ] as [SectionId, string][]
   ).filter(([id]) => id !== "window" || isTauri());
-  const KEYS: [string, string, string[]][] = [
-    ["Record", "Start and stop a recording", ["F9"]],
-    ["Play / pause", "Play the open macro from the playhead", ["F10"]],
-    ["Stop", "Stops a recording or playback", ["Esc"]],
-    ["Show the player", "Switch between the window and the player", ["Ctrl", "Shift", "M"]],
-    ["Stop everything", "Stops any recording or playback and pauses triggers", ["Ctrl", "Alt", "End"]],
+  const KEYS: [RelayKey, string, string][] = [
+    ["record", "Record", "Start and stop a recording"],
+    ["play", "Play / pause", "Play the open macro from the playhead"],
+    ["player", "Show the player", "Switch between the window and the player"],
+    ["kill", "Stop everything", "Stops any recording or playback and pauses triggers. Can't be turned off."],
   ];
 
   let section = $state<SectionId>("recording");
@@ -77,16 +78,17 @@
         {@render toggle("capture_keys", "Capture keystrokes")}
         {@render toggle("capture_screen", "Screenshot", "A picture of the screen as recording starts, for the preview. Kept on this PC only.")}
         {@render toggle("countdown", "Count down 3, 2, 1")}
-        {@render toggle("esc_stops_recording", "Esc stops recording", "Turn off to record Esc; stop with F9.")}
+        {@render toggle("esc_stops_recording", "Esc stops recording", `Turn off to record Esc; stop with the player's ■${st.keys.record ? ` or ${st.keys.record}` : ""}.`)}
         {@render toggle("ignore_injected", "Ignore simulated input", "Turn off for Remote Desktop and KVM tools: they send your typing as simulated input.")}
       {:else if section === "keys"}
-        <p class="note">These work from any app.</p>
-        {#each KEYS as [label, hint, combo] (label)}
-          <div class="setting">
-            <span class="what"><b>{label}</b><span>{hint}</span></span>
-            <Keycaps {combo} />
-          </div>
+        <p class="note">These work from any app. Set one to None (Backspace) to use only the buttons.</p>
+        {#each KEYS as [key, label, hint] (key)}
+          <KeyRow {key} {label} {hint} />
         {/each}
+        <div class="setting">
+          <span class="what"><b>Stop</b><span>Stops a recording or playback</span></span>
+          <Keycaps combo={["Esc"]} />
+        </div>
       {:else if section === "window"}
         {@render choice("keep_on_top", "Keep the player on top", [
           ["always", "Always"],
@@ -210,7 +212,8 @@
     font-size: 13px;
     color: var(--text-2);
   }
-  .setting {
+  /* Global, for the rows other components draw (KeyRow). */
+  .settings :global(.setting) {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 4px 16px;
@@ -218,14 +221,14 @@
     padding: 10px 0;
     border-bottom: 1px solid var(--line);
   }
-  .setting:last-child {
+  .settings :global(.setting:last-child) {
     border-bottom: 0;
   }
-  .what b {
+  .settings :global(.what b) {
     display: block;
     font-weight: 700;
   }
-  .what span {
+  .settings :global(.what span) {
     font-size: 13px;
     color: var(--text-2);
   }

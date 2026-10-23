@@ -663,6 +663,12 @@ pub fn set_relay_key(app: AppHandle, key: RelayKey, combo: Option<String>) -> Re
     update_settings(app, Settings { keys, ..current })
 }
 
+/// A key field listens (`on`), or stopped: the hotkeys let go of the keys meanwhile.
+#[tauri::command]
+pub fn hold_hotkeys(app: AppHandle, on: bool) {
+    hotkeys::hold(&app, on);
+}
+
 /// What to know before using `combo` as a global key: the character it
 /// types on the keyboard layout in use, or an app that uses it.
 #[tauri::command]

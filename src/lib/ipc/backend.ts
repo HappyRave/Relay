@@ -19,6 +19,7 @@ import type { FinishReason } from "./bindings/FinishReason";
 import { DEFAULT_LOOK, DEFAULT_SETTINGS } from "../defaults";
 import { slug } from "../format";
 import type { SystemLook } from "./bindings/SystemLook";
+import type { RelayKey } from "./bindings/RelayKey";
 import { isTauri } from "../platform/window";
 
 export interface Backend {
@@ -57,6 +58,12 @@ export interface Backend {
   /** What Windows offers for the look: frosted glass by default, transparency effects. */
   systemLook(): Promise<SystemLook>;
   updateSettings(settings: Settings): Promise<Settings>;
+  /** Sets one of Relay's keys (null: off); rejects one that can't be, saying why. */
+  setRelayKey(key: RelayKey, combo: string | null): Promise<Settings>;
+  /** What to know before using `combo` as a global key (an AltGr character, an app that uses it), or null. */
+  keyWarning(combo: string): Promise<string | null>;
+  /** While a key field listens, Relay's and the macros' hotkeys let go of the keys, so they reach it. */
+  holdHotkeys(on: boolean): Promise<void>;
   /** The color of a screen pixel as "#RRGGBB", or null if unreadable. */
   samplePixel(x: number, y: number): Promise<string | null>;
   /** After `delayMs`, the position and color under the cursor. */
@@ -157,6 +164,9 @@ export const tauriBackend: Backend = {
   getSettings: () => invoke("get_settings"),
   systemLook: () => invoke("system_look"),
   updateSettings: (settings) => invoke("update_settings", { settings }),
+  setRelayKey: (key, combo) => invoke("set_relay_key", { key, combo }),
+  keyWarning: (combo) => invoke("key_warning", { combo }),
+  holdHotkeys: (on) => invoke("hold_hotkeys", { on }),
   samplePixel: (x, y) => invoke("sample_pixel", { x, y }),
   pickPixel: (delayMs) => invoke("pick_pixel", { delayMs }),
   pasteImage: () => invoke("paste_image"),
@@ -394,6 +404,9 @@ export function browserBackend(): Backend {
     getSettings: async () => settings,
     systemLook: async () => DEFAULT_LOOK,
     updateSettings: async (s) => (settings = s),
+    setRelayKey: async () => unavailable(),
+    keyWarning: async () => null,
+    holdHotkeys: async () => {},
     samplePixel: async () => null,
     pickPixel: async () => unavailable(),
     pasteImage: async () => unavailable(),

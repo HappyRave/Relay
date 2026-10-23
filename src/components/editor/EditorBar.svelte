@@ -9,6 +9,9 @@
   import WindowControls from "../window/WindowControls.svelte";
   import { relay } from "../../lib/state/relay.svelte";
   import { playSummary } from "../../lib/editor/summary";
+  import { ariaKeys, keyHint } from "../../lib/hotkeys";
+
+  const keys = $derived(relay.settings.keys);
 
   /** How long "Saved" shows after a change. */
   const SAVED_MS = 2000;
@@ -102,14 +105,16 @@
     round
     live={relay.recording}
     aria-label={relay.recording ? "Stop recording" : "Record a new macro"}
-    title="{relay.recording ? 'Stop recording' : 'Record a new macro'} (F9)"
+    aria-keyshortcuts={ariaKeys(keys.record)}
+    title="{relay.recording ? 'Stop recording' : 'Record a new macro'}{keyHint(keys.record)}"
     disabled={relay.playing}
     onclick={relay.toggleRec}><Icon name="record" size={14} /></Key
   >
   <Key
     variant="ink"
     aria-label={pausing ? "Pause" : "Play"}
-    title="{pausing ? 'Pause' : 'Play from the playhead'} (F10)"
+    aria-keyshortcuts={ariaKeys(keys.play)}
+    title="{pausing ? 'Pause' : 'Play from the playhead'}{keyHint(keys.play)}"
     disabled={!relay.view || relay.recording || relay.playingElsewhere}
     onclick={relay.togglePlay}><Icon name={pausing ? "pause" : "play"} size={14} /><span class="wide">{pausing ? "Pause" : "Play"}</span></Key
   >
@@ -137,8 +142,8 @@
     size="sm"
     iconOnly
     aria-label="Switch to the player"
-    aria-keyshortcuts="Control+Shift+M"
-    title="Switch to the player (Ctrl + Shift + M)"
+    aria-keyshortcuts={ariaKeys(keys.player)}
+    title="Switch to the player{keyHint(keys.player)}"
     onclick={() => relay.setPlayerMode(true)}><Icon name="collapse" /></Key
   >
   <WindowControls />

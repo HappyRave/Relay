@@ -1768,8 +1768,8 @@ describe("the browser preview (npm run dev)", () => {
     expect(r.toast).toBeNull(); // nothing tried the missing IPC
   });
 
-  test("F10 plays and Esc stops", async () => {
-    key("F10");
+  test("the play key plays and Esc stops", async () => {
+    key("F10", { code: "F10", ctrlKey: true, shiftKey: true });
     await settle();
     expect(r.mode).toBe("playing");
     key("Escape");
@@ -1777,8 +1777,11 @@ describe("the browser preview (npm run dev)", () => {
     expect(r.mode).toBe("idle");
   });
 
-  test("F9 starts the countdown and Ctrl + Shift + M toggles the player", async () => {
-    key("F9");
+  test("the record key starts the countdown and the player key toggles the player, as set", async () => {
+    key("F9", { code: "F9" });
+    await settle();
+    expect(r.mode).toBe("idle"); // not Relay's key here
+    key("F9", { code: "F9", ctrlKey: true, shiftKey: true });
     await settle();
     expect(r.mode).toBe("countdown");
     key("Escape");

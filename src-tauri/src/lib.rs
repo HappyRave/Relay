@@ -105,6 +105,7 @@ pub fn run() {
             commands::update_settings,
             commands::set_relay_key,
             commands::key_warning,
+            commands::hold_hotkeys,
             commands::get_triggers,
             commands::set_triggers,
             commands::set_triggers_paused,

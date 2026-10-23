@@ -566,10 +566,10 @@ describe("triggers, like hotkeys.rs", () => {
   const withHotkey = (combo: string, enabled = true) => ({ ...defaultTriggers(), hotkey: { enabled, combo } });
 
   test.each([
-    ["F9", "F9 is one of Relay's own hotkeys"],
-    ["F10", "F10 is one of Relay's own hotkeys"],
-    ["Shift + Ctrl + M", "Shift + Ctrl + M is one of Relay's own hotkeys"],
-    ["Ctrl+Alt+End", "Ctrl+Alt+End is one of Relay's own hotkeys"],
+    ["Ctrl + Shift + F9", "Ctrl + Shift + F9 is Relay's “Record” key"],
+    ["Shift + Ctrl + F10", "Shift + Ctrl + F10 is Relay's “Play / pause” key"],
+    ["Shift + Ctrl + M", "Shift + Ctrl + M is Relay's “Show the player” key"],
+    ["Ctrl+Alt+Backspace", "Ctrl+Alt+Backspace is Relay's “Stop everything” key"],
     ["Q", "Add Ctrl, Alt, Shift or Win, so the key still types normally"],
     ["Ctrl + Banana", "“Banana” isn't a key Relay can use"],
     ["Hyper + A", "“Hyper” isn't a modifier (use Ctrl, Alt, Shift or Win)"],
@@ -578,6 +578,12 @@ describe("triggers, like hotkeys.rs", () => {
     ["Ctrl + + K", "The hotkey is empty or incomplete"],
   ])("%s is refused", async (combo, message) => {
     await expect(b.setTriggers(A, withHotkey(combo))).rejects.toEqual({ code: "hotkey", message });
+  });
+
+  test("Relay's keys are the ones set: an upgrade's F9 is Relay's, a new install's isn't", async () => {
+    await expect(b.setTriggers(A, withHotkey("F9"))).resolves.toBeTruthy();
+    core.settings = { ...core.settings, keys: { record: "F9", play: "F10", player: "Ctrl + Shift + M", kill: "Ctrl + Alt + End" } };
+    await expect(b.setTriggers(B, withHotkey("F9"))).rejects.toEqual({ code: "hotkey", message: "F9 is Relay's “Record” key" });
   });
 
   test("another macro's hotkey is refused while it's on, written either way", async () => {
@@ -717,5 +723,56 @@ describe("images, like commands.rs", () => {
     core.found = { x: 1, y: 2, w: 6, h: 6, score: 93 };
     expect(await b.testFindImage(png(6, 6), 85, { x: 0, y: 0, w: 100, h: 100 })).toEqual(core.found);
     await expect(b.testFindImage("nope", 85, null)).rejects.toContain("invalid image");
+  });
+});
+
+describe("Relay's keys, like hotkeys.rs check_key", () => {
+  const setKey = (key: string, combo: string | null) => invoke<{ keys: Record<string, string | null> }>("set_relay_key", { key, combo });
+
+  test("a key is set, or turned off; the kill switch can't be", async () => {
+    expect((await setKey("record", "F8")).keys.record).toBe("F8");
+    expect(core.settings.keys.record).toBe("F8");
+    expect((await setKey("play", null)).keys.play).toBeNull();
+    await expect(setKey("kill", null)).rejects.toEqual({
+      code: "hotkey",
+      message: "Stop everything can't be turned off. Choose another combination.",
+    });
+    await expect(setKey("player", "Q")).rejects.toEqual({ code: "hotkey", message: "Add Ctrl, Alt, Shift or Win, so the key still types normally" });
+    await expect(setKey("nope", "F8")).rejects.toMatch(/invalid args `key`/);
+  });
+
+  test("a key can't be another of Relay's, or a macro's", async () => {
+    await expect(setKey("play", "Shift + Ctrl + F9")).rejects.toEqual({
+      code: "hotkey",
+      message: "Shift + Ctrl + F9 is already Relay's “Record” key",
+    });
+    await b.setTriggers(B, { ...defaultTriggers(), hotkey: { enabled: true, combo: "Ctrl + Alt + 7" } });
+    await expect(setKey("player", "Ctrl + Alt + 7")).rejects.toEqual({
+      code: "hotkey",
+      message: "Ctrl + Alt + 7 already runs “Fill weekly timesheet”",
+    });
+    expect(core.settings.keys).toEqual(DEFAULT_SETTINGS.keys);
+  });
+
+  test("update_settings refuses keys that clash, and saves nothing", async () => {
+    const keys = { ...DEFAULT_SETTINGS.keys, play: "Ctrl + Shift + F9" };
+    await expect(b.updateSettings({ ...DEFAULT_SETTINGS, countdown: false, keys })).rejects.toEqual({
+      code: "hotkey",
+      // Record is checked first, and finds Play on its combination.
+      message: "Ctrl + Shift + F9 is already Relay's “Play / pause” key",
+    });
+    expect(core.settings.countdown).toBe(true);
+  });
+
+  test("key_warning: a key apps use, or a character the layout types with it", async () => {
+    expect(await invoke("key_warning", { combo: "F9" })).toBe(
+      "F9 recalculates in Excel and updates fields in Word. While Relay runs, they won't get it.",
+    );
+    expect(await invoke("key_warning", { combo: "Ctrl + Alt + Backspace" })).toBeNull();
+    core.altgr = { "Ctrl + Alt + 7": "{" };
+    expect(await invoke("key_warning", { combo: "Alt + Ctrl + 7" })).toBe(
+      "Ctrl + Alt + 7 types “{” on your keyboard (AltGr + 7). You couldn't type it while this is set.",
+    );
+    expect(() => core.fail("key_warning")).toThrow("can't fail");
   });
 });

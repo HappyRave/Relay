@@ -12,6 +12,9 @@
   import { relay } from "../../lib/state/relay.svelte";
   import { fmtClock } from "../../lib/format";
   import { rowText } from "../../lib/editor/rows";
+  import { ariaKeys, keyHint } from "../../lib/hotkeys";
+
+  const keys = $derived(relay.settings.keys);
 
   /** How long DONE shows after a run completes. */
   const DONE_MS = 1600;
@@ -80,16 +83,16 @@
     variant="red"
     live={live}
     aria-label={live ? "Stop recording" : "Record"}
-    aria-keyshortcuts="F9"
-    title="{live ? 'Stop recording' : 'Record'} (F9)"
+    aria-keyshortcuts={ariaKeys(keys.record)}
+    title="{live ? 'Stop recording' : 'Record'}{keyHint(keys.record)}"
     disabled={relay.playing}
     onclick={relay.toggleRec}><span class="rec-dot"></span></Key
   >
   <Key
     variant="ink"
     aria-label={pausing ? "Pause" : "Play"}
-    aria-keyshortcuts="F10"
-    title="{pausing ? 'Pause' : 'Play'} (F10)"
+    aria-keyshortcuts={ariaKeys(keys.play)}
+    title="{pausing ? 'Pause' : 'Play'}{keyHint(keys.play)}"
     disabled={live || !relay.view}
     onclick={relay.togglePlay}><Icon name={pausing ? "pause" : "play"} /></Key
   >
@@ -132,7 +135,7 @@
       <Leds value={relay.duration ? Math.min(relay.cur, relay.duration) / relay.duration : 0} ticks={clicks} />
     {/if}
   </div>
-  <Key aria-label="Open the window" aria-keyshortcuts="Control+Shift+M" title="Open the window (Ctrl + Shift + M)" onclick={relay.openWindow}
+  <Key aria-label="Open the window" aria-keyshortcuts={ariaKeys(keys.player)} title="Open the window{keyHint(keys.player)}" onclick={relay.openWindow}
     ><Icon name="expand" /></Key
   >
   <span class="sr-only" aria-live="polite">{spoken}</span>

@@ -8,6 +8,9 @@
   import MacroTable from "./MacroTable.svelte";
   import Activity from "./Activity.svelte";
   import { relay } from "../../lib/state/relay.svelte";
+  import { ariaKeys, keyHint } from "../../lib/hotkeys";
+
+  const keys = $derived(relay.settings.keys);
 
   const RECENT_MS = 7 * 86_400_000;
   const count = $derived({
@@ -29,7 +32,8 @@
       <Key
         variant="red"
         live={relay.recording}
-        title="{relay.recording ? 'Stop recording' : 'Record a new macro'} (F9)"
+        aria-keyshortcuts={ariaKeys(keys.record)}
+        title="{relay.recording ? 'Stop recording' : 'Record a new macro'}{keyHint(keys.record)}"
         disabled={relay.playing}
         onclick={relay.toggleRec}><Icon name="record" size={14} />{relay.recording ? "Stop" : "Record"}</Key
       >
@@ -37,8 +41,8 @@
         size="sm"
         iconOnly
         aria-label="Switch to the player"
-        aria-keyshortcuts="Control+Shift+M"
-        title="Switch to the player (Ctrl + Shift + M)"
+        aria-keyshortcuts={ariaKeys(keys.player)}
+        title="Switch to the player{keyHint(keys.player)}"
         onclick={() => relay.setPlayerMode(true)}><Icon name="collapse" /></Key
       >
       <Key size="sm" onclick={() => relay.go("settings")}><Icon name="sliders" />Settings</Key>

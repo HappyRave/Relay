@@ -36,7 +36,7 @@ describe("the player's keys", () => {
     render(Player);
     core.emit({ type: "session", mode: "recording", macro_id: null, source: null });
     await settle();
-    expect(button("Stop recording")).toHaveAttribute("title", "Stop recording (F9)");
+    expect(button("Stop recording")).toHaveAttribute("title", "Stop recording (Ctrl + Shift + F9)");
     expect(button("Play")).toBeDisabled();
     expect(button("Stop")).toBeEnabled();
   });
@@ -54,12 +54,19 @@ describe("the player's keys", () => {
     expect(button("Play")).toBeEnabled();
   });
 
-  test("the keys are in the tooltips", () => {
+  test("the keys are in the tooltips, as set", async () => {
     render(Player);
-    expect(button("Record")).toHaveAttribute("title", "Record (F9)");
-    expect(button("Play")).toHaveAttribute("title", "Play (F10)");
+    expect(button("Record")).toHaveAttribute("title", "Record (Ctrl + Shift + F9)");
+    expect(button("Record")).toHaveAttribute("aria-keyshortcuts", "Control+Shift+F9");
+    expect(button("Play")).toHaveAttribute("title", "Play (Ctrl + Shift + F10)");
     expect(button("Stop")).toHaveAttribute("title", "Stop (Esc)");
     expect(button("Open the window")).toHaveAttribute("title", "Open the window (Ctrl + Shift + M)");
+    await relay.setRelayKey("record", null);
+    await relay.setRelayKey("play", "F8");
+    await settle();
+    expect(button("Record")).toHaveAttribute("title", "Record");
+    expect(button("Record")).not.toHaveAttribute("aria-keyshortcuts");
+    expect(button("Play")).toHaveAttribute("title", "Play (F8)");
   });
 
   test("the expand key opens the window on the player's macro", async () => {
