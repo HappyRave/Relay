@@ -78,7 +78,7 @@
         {#if data}
           <span
             class="rows"
-            title={data.error ?? "Plays once per row of the data file (Settings → Playback)"}
+            title={data.error ?? "Plays once per row of the data file (the macro's play options)"}
             >Each row{data.error ? "" : ` (${data.rows})`}</span
           >
         {:else if mode === "narrow"}

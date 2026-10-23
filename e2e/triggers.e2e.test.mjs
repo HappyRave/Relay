@@ -183,7 +183,7 @@ describe("triggers", () => {
       }
       const e = onDisk().at(-1);
       assert.deepEqual([e.macro_id, e.source, e.outcome], [target, "app_launch", { type: "skipped", reason: "data_file" }]);
-      assert.equal(e.note, "customers.csv isn't there anymore: choose it again in Settings → Playback.");
+      assert.equal(e.note, "customers.csv isn't there anymore: choose it again in the macro's play options.");
       assert.equal(await page.store("error"), e.note, "and shown");
     });
 

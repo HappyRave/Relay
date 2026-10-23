@@ -193,7 +193,7 @@ describe("playback and recording", () => {
       const before = runs(ids.rows);
       await page.click("Play");
       await until(async () => (await page.store("toast.kind")) === "error", { what: "the error" });
-      assert.equal(await page.store("toast.message"), "customers.csv isn't there anymore: choose it again in Settings → Playback.");
+      assert.equal(await page.store("toast.message"), "customers.csv isn't there anymore: choose it again in the macro's play options.");
       // Nothing played, so it's back to idle without a "finished".
       await page.waitMode("idle");
       await sleep(300);

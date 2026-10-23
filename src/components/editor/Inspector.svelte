@@ -2,8 +2,7 @@
   // The inspector: the selected steps (Step), or the macro as a whole (Macro).
   import Tabs from "../kit/Tabs.svelte";
   import StepPane from "./StepPane.svelte";
-  import SettingsTab from "../expanded/tabs/SettingsTab.svelte";
-  import TriggersTab from "../expanded/tabs/TriggersTab.svelte";
+  import MacroPane from "./MacroPane.svelte";
   import { relay } from "../../lib/state/relay.svelte";
 
   let panel: HTMLElement | undefined = $state();
@@ -28,8 +27,7 @@
   />
   <div class="panel" id="inspector-panel" role="tabpanel" bind:this={panel}>
     {#if relay.inspector === "macro"}
-      <SettingsTab />
-      <TriggersTab />
+      <MacroPane />
     {:else}
       <StepPane />
     {/if}

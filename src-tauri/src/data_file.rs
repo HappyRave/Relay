@@ -14,7 +14,7 @@ pub fn name(path: &Path) -> String {
 pub fn read(path: &Path) -> Result<DataTable, String> {
     let name = name(path);
     let bytes = std::fs::read(path).map_err(|e| match e.kind() {
-        std::io::ErrorKind::NotFound => format!("{name} isn't there anymore: choose it again in Settings → Playback."),
+        std::io::ErrorKind::NotFound => format!("{name} isn't there anymore: choose it again in the macro's play options."),
         _ => format!("Couldn't read {name}: {e}"),
     })?;
     data::parse(&bytes).map_err(|e| format!("{name}: {e}"))
@@ -75,7 +75,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let csv = dir.path().join("customers.csv");
         let gone = for_playing(&typing("{n}").events, Some(&csv)).unwrap_err();
-        assert_eq!(gone, "customers.csv isn't there anymore: choose it again in Settings → Playback.");
+        assert_eq!(gone, "customers.csv isn't there anymore: choose it again in the macro's play options.");
         assert_eq!(info(&typing("{n}"), &csv).error, Some(gone));
 
         std::fs::write(&csv, "a,b\n1,2,3").unwrap();
@@ -90,7 +90,7 @@ mod tests {
         assert_eq!((shown.columns, shown.rows, shown.error), (vec!["Customer".into()], 1, Some(missing)));
         assert_eq!(
             for_playing(&typing("{col:Total}").events, None).unwrap_err(),
-            "A Text step types {col:Total}: choose a data file in Settings → Playback."
+            "A Text step types {col:Total}: choose a data file in the macro's play options."
         );
     }
 }

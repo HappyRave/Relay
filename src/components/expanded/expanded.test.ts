@@ -284,14 +284,14 @@ describe("Transport", () => {
     await relay.chooseDataFile();
     await settle();
     const rows = screen.getByText("Each row (2)");
-    expect(rows).toHaveAttribute("title", "Plays once per row of the data file (Settings → Playback)");
+    expect(rows).toHaveAttribute("title", "Plays once per row of the data file (the macro's play options)");
     for (const name of ["Fewer repeats", "More repeats", "Loop forever"]) expect(screen.queryByRole("button", { name })).toBeNull();
     core.csv.delete("C:\\customers.csv");
     await relay.loadDataFile();
     await settle();
     expect(screen.getByText("Each row")).toHaveAttribute(
       "title",
-      "customers.csv isn't there anymore: choose it again in Settings → Playback.",
+      "customers.csv isn't there anymore: choose it again in the macro's play options.",
     );
     await relay.removeDataFile();
     await settle();

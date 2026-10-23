@@ -99,7 +99,7 @@ describe("the Text step's editor", () => {
     await withText("");
     await typeText("{col:Customer}");
     const status = within(editor()).getByRole("status");
-    expect(status).toHaveTextContent("A Text step types {col:Customer}: choose a data file in Settings → Playback.");
+    expect(status).toHaveTextContent("A Text step types {col:Customer}: choose a data file in the macro's play options.");
     expect(status).toHaveClass("wrong");
     expect(ops()).toEqual([{ op: "update_text", index: 2, text: "{col:Customer}" }]);
   });

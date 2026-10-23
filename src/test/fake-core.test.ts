@@ -258,7 +258,7 @@ describe("edits, like edit.rs", () => {
     expect(await b.getDataFile(A)).toBeNull();
     await expect(b.previewText(A, "{col:Customer}")).rejects.toEqual({
       code: "data_file",
-      message: "A Text step types {col:Customer}: choose a data file in Settings → Playback.",
+      message: "A Text step types {col:Customer}: choose a data file in the macro's play options.",
     });
     core.dialog.open = null;
     expect(await b.chooseDataFile(A)).toBeNull();
@@ -278,11 +278,11 @@ describe("edits, like edit.rs", () => {
       error: "customers.csv: Row 2 has 3 values, but there are 2 columns.",
     });
     core.csv.delete(csv);
-    expect((await b.getDataFile(A))?.error).toBe("customers.csv isn't there anymore: choose it again in Settings → Playback.");
+    expect((await b.getDataFile(A))?.error).toBe("customers.csv isn't there anymore: choose it again in the macro's play options.");
     core.dialog.open = "C:\\gone.csv";
     await expect(b.chooseDataFile(A)).rejects.toEqual({
       code: "data_file",
-      message: "gone.csv isn't there anymore: choose it again in Settings → Playback.",
+      message: "gone.csv isn't there anymore: choose it again in the macro's play options.",
     });
     expect((await b.getDataFile(A))?.path).toBe(csv);
     await b.removeDataFile(A);

@@ -552,7 +552,7 @@ export class FakeCore {
   private readData(path: string): DataTable {
     const found = this.csv.get(path);
     const name = fileName(path);
-    if (found === undefined) throw dataError(`${name} isn't there anymore: choose it again in Settings → Playback.`);
+    if (found === undefined) throw dataError(`${name} isn't there anymore: choose it again in the macro's play options.`);
     if (typeof found === "string") throw dataError(found);
     return found;
   }
@@ -886,7 +886,7 @@ function value(t: DataTable | null, row: number, name: string): string | null {
 /** relay-core `data::check`: why a macro typing `templates` can't play with `table`. */
 function checkData(templates: string[], table: DataTable | null, file: string): string | null {
   const used = columnsUsed(templates);
-  if (!table) return used.length ? `A Text step types {col:${used[0]}}: choose a data file in Settings → Playback.` : null;
+  if (!table) return used.length ? `A Text step types {col:${used[0]}}: choose a data file in the macro's play options.` : null;
   const missing = used.find((u) => !table.columns.some((c) => sameName(c, u)));
   if (missing) return `${file} has no column “${missing}”.`;
   if (!table.rows.length) return `${file} has no rows to play.`;

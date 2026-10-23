@@ -925,7 +925,7 @@ mod tests {
     fn a_trigger_its_data_file_refused_is_logged_with_why() {
         let at = DateTime::from_timestamp(1_790_000_000, 0).unwrap();
         let m = Macro::new("Invoices", relay_core::model::RecordingMeta::single_1080p(), Vec::new());
-        let why = "customers.csv isn't there anymore: choose it again in Settings → Playback.";
+        let why = "customers.csv isn't there anymore: choose it again in the macro's play options.";
         let e = data_file_skip(&m, RunSource::Hotkey, why, at).unwrap();
         assert_eq!(e.outcome, RunOutcome::Skipped(SkipReason::DataFile));
         assert_eq!((e.macro_id, e.macro_name.as_str(), e.source, e.at), (m.id, "Invoices", RunSource::Hotkey, at));

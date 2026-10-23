@@ -2,6 +2,8 @@
   // The view: where and when, the preview of the screen and the timeline,
   // under the list. It closes to its bar.
   import Icon from "../ui/Icon.svelte";
+  import Choice from "../kit/Choice.svelte";
+  import type { PreviewBackground } from "../../lib/ipc/bindings/PreviewBackground";
   import Preview from "../expanded/Preview.svelte";
   import Timeline from "../expanded/Timeline.svelte";
   import { relay } from "../../lib/state/relay.svelte";
@@ -16,6 +18,14 @@
     <span class="time num" aria-label="Playhead {fmtTime(relay.cur)} of {fmtTime(relay.duration)}">
       {fmtTime(Math.min(relay.cur, relay.duration))} <span class="of">/ {fmtTime(relay.duration)}</span>
     </span>
+    {#if relay.viewOpen}
+      <Choice
+        label="Preview background"
+        options={[["screen", "Screen"], ["sketch", "Outline"]] as [PreviewBackground, string][]}
+        value={relay.settings.preview_background}
+        onchange={(preview_background) => relay.updateSettings({ preview_background })}
+      />
+    {/if}
   </div>
   {#if relay.viewOpen}
     <div class="body legacy" id="view-body">

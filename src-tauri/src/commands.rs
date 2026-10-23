@@ -778,7 +778,7 @@ mod tests {
         let refused = export_bytes(&lib, id, ExportFormat::Exe).map(|_| ()).unwrap_err();
         assert_eq!(
             (refused.code, refused.message.as_str()),
-            ("data_file", "A Text step types {col:Customer}: choose a data file in Settings → Playback.")
+            ("data_file", "A Text step types {col:Customer}: choose a data file in the macro's play options.")
         );
         assert!(export_bytes(&lib, id, ExportFormat::Rly).is_ok(), "a .rly doesn't need it");
 
