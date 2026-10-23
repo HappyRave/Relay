@@ -925,7 +925,13 @@ const EDIT_OPS: Record<string, Spec> = {
   insert_text: { at: "u32", text: "string" },
   update_text: { index: "u32", text: "string" },
   make_editable: { index: "u32" },
+  batch: { ops: (v: unknown) => (Array.isArray(v) ? (v.map(opWhy).find((w) => w) ?? null) : `invalid type: ${JSON.stringify(v)}, expected a sequence`) },
 };
+/** Why serde wouldn't take `op` as an `EditOp`, or null. */
+function opWhy(op: { op?: string } | null): string | null {
+  const spec = op ? EDIT_OPS[op.op ?? ""] : undefined;
+  return spec ? why(op, spec) : `unknown variant \`${op?.op}\``;
+}
 
 const PANES: Spec = {
   preview_w: optional(nullable("f64")),

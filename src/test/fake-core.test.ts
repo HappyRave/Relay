@@ -335,6 +335,20 @@ describe("history, like history.rs", () => {
     expect((await b.undoEdit(A, true)).steps).toHaveLength(17);
   });
 
+  test("a batch applies its edits in order, as one undo; a failing one changes nothing", async () => {
+    const original = core.view(A);
+    // Deleting from the end keeps the earlier indices.
+    const v = await edit({ op: "batch", ops: [{ op: "delete_step", index: 17 }, { op: "set_label", index: 1, label: "File" }, { op: "delete_step", index: 0 }] });
+    expect(v.steps).toHaveLength(16);
+    expect(v.steps[0]).toMatchObject({ kind: "click", label: "File" });
+    const undone = await b.undoEdit(A, false);
+    expect(undone.steps).toEqual(original.steps);
+    expect(undone.can_undo).toBe(false);
+    await expect(edit({ op: "batch", ops: [{ op: "delete_step", index: 0 }, { op: "delete_step", index: 40 }] })).rejects.toMatchObject({ message: "there is no step 40" });
+    expect(core.view(A).steps).toEqual(original.steps);
+    await expect(edit({ op: "batch", ops: [{ op: "delete_step" }] } as unknown as EditOp)).rejects.toContain("missing field `index`");
+  });
+
   test("renames less than 2 s apart are one undo step", async () => {
     vi.useFakeTimers();
     for (const name of ["R", "Re", "Rel"]) {
