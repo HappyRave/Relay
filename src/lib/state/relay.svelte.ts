@@ -888,7 +888,11 @@ export class RelayStore {
     if (!this.view || this.view === before) return;
     // Inserted just after the step under the playhead: the first empty one from there.
     const i = this.view.steps.findIndex((s) => s.kind === "text" && s.text === "" && s.t >= at);
-    if (i >= 0) this.selected = i;
+    if (i >= 0) {
+      this.selected = i;
+      this.selection = [i];
+      this.inspector = "step";
+    }
   };
 
   /** Changes what Text step `index` types. */

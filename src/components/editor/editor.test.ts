@@ -4,7 +4,8 @@ import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import EditorBar from "./EditorBar.svelte";
 import StepList from "./StepList.svelte";
-import { core, freshStore, settle } from "../../test/app";
+import { core, freshStore, png, settle } from "../../test/app";
+import { browserBackend } from "../../lib/ipc/backend";
 import type { RelayStore } from "../../lib/state/relay.svelte";
 
 let relay: RelayStore;
@@ -261,6 +262,49 @@ describe("the steps list", () => {
     expect(onenter).toHaveBeenCalledOnce();
   });
 
+  test("long pauses are marked above their step, until they're shortened to 1 s", async () => {
+    render(StepList);
+    // The sample's pauses are short: the cursor moves between its steps.
+    expect(screen.queryByText(/s pause$/)).toBeNull();
+    await relay.setPause(4, 1400);
+    await settle();
+    expect(screen.getByText("1.4 s pause")).toBeInTheDocument();
+    await relay.trimPauses();
+    await settle();
+    expect(screen.queryByText(/s pause$/)).toBeNull();
+  });
+
+  test("while recording, the live steps, and nothing can be added", async () => {
+    render(StepList);
+    core.emit({ type: "session", mode: "recording", macro_id: null });
+    await settle();
+    expect(button("Add")).toBeDisabled();
+    expect(screen.getByText("No steps yet")).toBeInTheDocument();
+    const step = core.view(A).steps[1];
+    core.emit({ type: "rec_progress", elapsed_ms: 900, desktop: { x: 0, y: 0, w: 1920, h: 1080 }, moves: [], steps: [step] });
+    await settle();
+    expect(options()).toHaveLength(1);
+  });
+
+  test.each(["paused", "countdown"] as const)("nothing can be added while %s", async (mode) => {
+    render(StepList);
+    core.emit({ type: "session", mode, macro_id: A });
+    await settle();
+    expect(button("Add")).toBeDisabled();
+  });
+
+  test("the browser preview shows the steps read-only", async () => {
+    core.uninstall();
+    try {
+      await freshStore({ backend: browserBackend() });
+      render(StepList);
+      expect(options()).toHaveLength(12);
+      expect(button("Add")).toBeDisabled();
+    } finally {
+      core.install();
+    }
+  });
+
   test("while a session runs, nothing can be added", async () => {
     render(StepList);
     core.emit({ type: "session", mode: "playing", macro_id: A });
@@ -268,5 +312,111 @@ describe("the steps list", () => {
     expect(button("Add")).toBeDisabled();
     expect(screen.queryByText("+ insert here")).toBeNull();
     expect(screen.queryAllByRole("button", { name: "Insert after this step" })).toEqual([]);
+  });
+});
+
+describe("adding steps", () => {
+  const IMAGE = png(40, 20);
+  const inserted = { image: IMAGE, click_x: 20, click_y: 10, btn: "Left", threshold: 85, timeout_ms: 5000, area: null };
+  const ops = () => core.argsOf("edit_macro").map((a) => a.op);
+  async function add(name: string) {
+    await userEvent.click(button("Add"));
+    await userEvent.click(within(screen.getByRole("menu", { name: "Add a step" })).getByRole("menuitem", { name }));
+    await settle();
+  }
+
+  test("Text inserts an empty Text step at the playhead, and selects it", async () => {
+    render(StepList);
+    relay.seek(1000);
+    await add("Text");
+    expect(ops()).toEqual([{ op: "insert_text", at: 1000, text: "" }]);
+    expect(relay.selection).toEqual([2]);
+    expect(screen.getByRole("option", { name: "Text, “”" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  test("Find image snips, then inserts a step at the playhead that clicks the image's middle", async () => {
+    render(StepList);
+    core.snip = IMAGE;
+    relay.seek(1000);
+    await add("Find image");
+    expect(core.commands()).toContain("snip_image");
+    expect(ops()).toEqual([{ op: "insert_find_image", at: 1000, dur: 800, ...inserted, label: "" }]);
+    expect(screen.getByRole("option", { name: "Find, image" })).toHaveTextContent("≤ 5 s");
+  });
+
+  test("a cancelled snip inserts nothing", async () => {
+    render(StepList);
+    await add("Find image");
+    expect(core.commands()).toContain("snip_image");
+    expect(ops()).toEqual([]);
+  });
+
+  test("while the snip waits, Paste or File… instead, or Cancel", async () => {
+    render(StepList);
+    core.hold("snip_image");
+    await add("Find image");
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent("Snip the image to find, or");
+    expect(button("Add")).toBeDisabled();
+    core.clipboard = png(30, 30);
+    await userEvent.click(within(status).getByRole("button", { name: "Paste" }));
+    await settle();
+    const images = ["snip_image", "cancel_snip", "paste_image", "edit_macro"];
+    expect(core.commands().filter((c) => images.includes(c))).toEqual(images);
+    expect(ops()).toEqual([{ op: "insert_find_image", at: 0, dur: 800, ...inserted, image: png(30, 30), click_x: 15, click_y: 15, label: "" }]);
+    // The cancelled snip lands later: nothing more is inserted.
+    core.held[0].resolve(IMAGE);
+    await settle();
+    expect(ops()).toHaveLength(1);
+
+    core.release("snip_image");
+    core.hold("snip_image");
+    await add("Find image");
+    await userEvent.click(within(screen.getByRole("status")).getByRole("button", { name: "Cancel" }));
+    await settle();
+    expect(core.commands().at(-1)).toBe("cancel_snip");
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  test("File… reads the chosen image", async () => {
+    render(StepList);
+    core.hold("snip_image");
+    await add("Find image");
+    core.dialog.open = "C:\shots\ok.png";
+    core.images.set("C:\shots\ok.png", IMAGE);
+    await userEvent.click(within(screen.getByRole("status")).getByRole("button", { name: "File…" }));
+    await settle();
+    expect(core.lastArgs("load_image")).toEqual({ path: "C:\shots\ok.png" });
+    expect(ops()).toEqual([{ op: "insert_find_image", at: 0, dur: 800, ...inserted, label: "" }]);
+  });
+
+  test("an image that can't be used says why, and inserts nothing", async () => {
+    render(StepList);
+    core.hold("snip_image");
+    await add("Find image");
+    await userEvent.click(within(screen.getByRole("status")).getByRole("button", { name: "Paste" }));
+    await settle();
+    expect(relay.toast).toMatchObject({ kind: "error", message: "There's no picture on the clipboard. Copy or snip one first." });
+    expect(ops()).toEqual([]);
+  });
+
+  test("another macro opened during the snip gets nothing", async () => {
+    render(StepList);
+    core.hold("snip_image");
+    await add("Find image");
+    await relay.loadMacro("00000000-0000-0000-0000-000000000002");
+    await settle();
+    core.held[0].resolve(IMAGE);
+    await settle();
+    expect(ops()).toEqual([]);
+  });
+
+  test("Wait for pixel waits for the color at where the cursor was, there", async () => {
+    render(StepList);
+    relay.seek(1000);
+    const { x, y } = relay.cursorAt(1000);
+    await add("Wait for pixel");
+    expect(core.lastArgs("sample_pixel")).toEqual({ x: Math.round(x), y: Math.round(y) });
+    expect(ops()).toEqual([expect.objectContaining({ op: "insert_pixel_wait", at: 1000, x: Math.round(x), y: Math.round(y), tolerance: 8, timeout_ms: 5000 })]);
   });
 });

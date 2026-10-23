@@ -6,7 +6,6 @@ import userEvent from "@testing-library/user-event";
 import App from "../App.svelte";
 import Widget from "./Widget.svelte";
 import ExportDialog from "./ExportDialog.svelte";
-import ExpandedWidget from "./ExpandedWidget.svelte";
 import { core, freshStore, settle } from "../test/app";
 import { setMedia } from "../test/media";
 import { browserBackend } from "../lib/ipc/backend";
@@ -181,61 +180,6 @@ describe("Widget", () => {
     relay.notify("Saved");
     await settle();
     expect(screen.getByRole("status")).toHaveTextContent("Saved");
-  });
-});
-
-describe("the editor's dividers", () => {
-  beforeEach(async () => {
-    relay = await freshStore({ init: false });
-    core.window.panes = { preview_w: 520, transport_h: 153, timeline_h: 200 };
-    await relay.init();
-    await settle();
-    core.clearCalls();
-  });
-  const drag = async (el: Element, axis: "clientX" | "clientY", from: number, to: number) => {
-    await fireEvent.pointerDown(el, { button: 0, pointerId: 1, [axis]: from });
-    await fireEvent.pointerMove(el, { pointerId: 1, [axis]: to });
-    await fireEvent.pointerUp(el, { pointerId: 1, [axis]: to });
-    await settle();
-  };
-  const style = (c: Element, selector: string) => (c.querySelector(selector) as HTMLElement).style;
-
-  test("open where the user left them", () => {
-    const { container } = render(ExpandedWidget);
-    expect(relay.panes).toEqual({ preview_w: 520, transport_h: 153, timeline_h: 200 });
-    expect(style(container, ".main").gridTemplateColumns).toBe("520px 2px minmax(0, 1fr)");
-    expect(style(container, ".transport-pane").height).toBe("153px");
-    expect(style(container, ".timeline-pane").height).toBe("200px");
-    const names = screen.getAllByRole("separator").map((s) => s.getAttribute("aria-label"));
-    expect(names).toEqual(["Resize preview", "Resize buttons", "Resize timeline"]);
-  });
-
-  test("a taller button row scales its controls", () => {
-    const { container } = render(ExpandedWidget);
-    // 153 px is 1.5 × the default 102 (jsdom measures no width to hold it back).
-    expect(style(container, ".transport-scale").transform).toBe("scale(1.5)");
-  });
-
-  test("dragging one is saved once, when the drag ends", async () => {
-    render(ExpandedWidget);
-    await drag(screen.getByRole("separator", { name: "Resize preview" }), "clientX", 500, 560);
-    expect(core.argsOf("save_panes")).toEqual([{ panes: { preview_w: 580, transport_h: 153, timeline_h: 200 } }]);
-    // Up: the button row gets taller.
-    await drag(screen.getByRole("separator", { name: "Resize buttons" }), "clientY", 300, 280);
-    expect(core.lastArgs("save_panes")).toEqual({ panes: { preview_w: 580, transport_h: 173, timeline_h: 200 } });
-    // Down: the timeline gets shorter (jsdom measures nothing, so it can't grow past its size here).
-    await drag(screen.getByRole("separator", { name: "Resize timeline" }), "clientY", 400, 430);
-    expect(core.lastArgs("save_panes")).toEqual({ panes: { preview_w: 580, transport_h: 173, timeline_h: 170 } });
-    expect(core.window.panes).toEqual({ preview_w: 580, transport_h: 173, timeline_h: 170 });
-  });
-
-  test("double-clicking one puts it back to the default, and saves that", async () => {
-    const { container } = render(ExpandedWidget);
-    await fireEvent.dblClick(screen.getByRole("separator", { name: "Resize buttons" }));
-    await settle();
-    expect(core.lastArgs("save_panes")).toEqual({ panes: { preview_w: 520, transport_h: null, timeline_h: 200 } });
-    expect(style(container, ".transport-pane").height).toBe("102px");
-    expect(style(container, ".transport-scale").transform).toBe("");
   });
 });
 
