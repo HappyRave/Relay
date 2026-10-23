@@ -385,13 +385,13 @@ Counts are issues across all states (one bad control on 10 screens counts 10). T
 | 21 | During playback the inspector said *No step selected* | Screenshots | Priya (P7), Aisha (P1) | It shows the step playing now, and the data row |
 | 22 | Undo brought steps back but not the selection | The keyboard test | Viktor (P9), Sam (P6) | Undo restores the selection too |
 | 23 | The picker sampled Relay's own window | Screenshots | Everyone | Relay steps aside while picking |
-| 24 | Near the top of the screen, the loupe covered the picker's help bar | Screenshots | Ruth (P5), everyone | The help bar drops to the bottom while the loupe is near it |
 | 24 | The exported program's name was cut to "E…" | Screenshots | Dee (P4) | Name on the top line, progress and time below |
 | 25 | Secondary text in dark fell to 4.4:1 on yellow rows | The audit | Ruth (P5) | Dark secondary text `#B3B1AB` |
 | 26 | Green *✓ Yesterday* fell to 4.3:1 on a hovered row | The audit | Ruth (P5) | Green text `#0E6B3D` |
 | 27 | A triggered run's announcement (*started by its schedule*) was replaced at once by a plain *Playing…* | Hannah's second task | Priya (P7) | The trigger's announcement is the one heard |
 | 28 | During another macro's run, the open macro's Play showed a disabled *Pause* | Screenshots | Hannah (P12), Linda (P11) | It shows *Play*, off, with a tooltip saying what's running; the lock note names it too |
 | 29 | The record key stayed clickable during playback, though Relay can't record then | Screenshots | Everyone | Off during playback, in the window and the player |
+| 30 | Near the top of the screen, the loupe covered the picker's help bar | Screenshots | Ruth (P5), everyone | The help bar drops to the bottom while the loupe is near it |
 
 **Checked and working from the first round:** key capture's warnings (F9, AltGr, Remote Desktop) and refusals, the first run's preselected keys, reduce motion (no animation running), the Tab order and focus rings, the accessibility tree's names and roles, and the protanopia, deuteranopia and achromatopsia views, where the shapes carry the categories.
 
