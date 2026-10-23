@@ -41,6 +41,7 @@ import type { Panes } from "../ipc/bindings/Panes";
 import { lastIndexAtOrBefore } from "../preview/geometry";
 import { currentStepIndex, jumpTarget } from "../timeline/lanes";
 import { deleteRows, type Row } from "../editor/rows";
+import { failed } from "../runs";
 import { plural, slug } from "../format";
 import { followStep } from "./selection";
 import { pngSize, testResult } from "../image";
@@ -143,8 +144,12 @@ export class RelayStore {
   panes = $state.raw<Panes>(NO_PANES);
   place = $state<Place>("library");
   tab = $state<Tab>("steps");
-  /** The Library shows the run history instead of the macros. */
-  runsOpen = $state(false);
+  /** What the Library shows: its macros, or Activity (every run, or only the problems). */
+  libraryShows = $state<"macros" | "runs" | "problems">("macros");
+  /** Which macros it lists: all, those with triggers, or those run lately. */
+  libFilter = $state<"all" | "triggers" | "recent">("all");
+  /** The macros selected in the Library, to export or delete together. */
+  libSelection = $state.raw<string[]>([]);
   /** The run history shows only this macro's runs (null: every macro's). */
   runsFilter = $state<string | null>(null);
   exportOpen = $state(false);
@@ -259,7 +264,13 @@ export class RelayStore {
   unsaved = $derived(this.toasts.some((t) => t.unsaved));
   /** The newest error shown. */
   error = $derived([...this.toasts].reverse().find((t) => t.kind === "error")?.message ?? null);
-  shownRuns = $derived(this.runsFilter ? this.runs.filter((r) => r.macro_id === this.runsFilter) : this.runs);
+  shownRuns = $derived(
+    this.runs.filter((r) => (!this.runsFilter || r.macro_id === this.runsFilter) && (this.libraryShows !== "problems" || failed(r))),
+  );
+  /** Runs that didn't end as planned: the Library's Problems. */
+  problems = $derived(this.runs.filter(failed).length);
+  /** Each macro's latest run, from the run history (newest first). */
+  lastRuns = $derived(new Map([...this.runs].reverse().map((r) => [r.macro_id, r])));
   /** Never "relay.exe": a program named like Relay would pass for it. */
   exportName = $derived.by(() => {
     const base = slug(this.name) || "macro";
@@ -278,6 +289,7 @@ export class RelayStore {
     this.settingsSaves.saved = this.settings;
     this.systemLook = (await this.run(this.backend.systemLook())) ?? this.systemLook;
     await this.refreshLibrary();
+    await this.refreshRuns();
     if (this.library[0]) await this.loadMacro(this.library[0].id);
     // The Library is home, unless there's only one macro to go to.
     this.place = this.library.length === 1 ? "macro" : "library";
@@ -396,7 +408,7 @@ export class RelayStore {
         this.refreshLibrary();
         break;
       case "runs_changed":
-        if (this.runsOpen) this.refreshRuns();
+        this.refreshRuns();
         break;
       case "system_look":
         this.systemLook = msg.look;
@@ -587,10 +599,81 @@ export class RelayStore {
     this.library = (await this.run(this.backend.listMacros())) ?? this.library;
   }
 
-  /** Library → Runs, and back to the macros. */
-  showRuns = async (open: boolean) => {
-    this.runsOpen = open;
-    if (open) await this.refreshRuns();
+  /** The Library's macros, or its Activity: every run, or only the problems. */
+  showLibrary = async (shows: "macros" | "runs" | "problems") => {
+    this.libraryShows = shows;
+    if (shows !== "macros") await this.refreshRuns();
+  };
+
+  /** A macro's runs, from its More menu: Activity, only them. */
+  showRunsOf = (id: string) => {
+    this.runsFilter = id;
+    this.go("library");
+    return this.showLibrary("runs");
+  };
+
+  /** Plays a macro from its Library row, from the start, without leaving the Library. */
+  playMacro = async (id: string) => {
+    if (this.mode !== "idle") return;
+    if (this.view?.id !== id) await this.loadMacro(id);
+    if (this.view?.id !== id) return;
+    this.cur = 0;
+    return this.togglePlay();
+  };
+
+  /** A Library row's "Also runs": the macro, on its triggers. */
+  openTriggers = async (id: string) => {
+    await this.openMacro(id);
+    if (this.view?.id !== id) return;
+    this.inspector = "macro";
+    this.macroSection = "triggers";
+    this.inspectorOpen = true;
+  };
+
+  /** A run that stopped on a step: the macro, on that step (1-based), marked when it timed out. */
+  openAt = async (id: string, step: number, timedOut = false) => {
+    await this.openMacro(id);
+    if (this.view?.id !== id || !this.steps[step - 1]) return;
+    this.select([step - 1]);
+    this.inspectorOpen = true;
+    if (timedOut) this.failedStep = step - 1;
+  };
+
+  /** Moves these macros to the trash, with one Undo. */
+  deleteMacros = async (ids: string[]) => {
+    if (ids.length === 1) return this.deleteMacro(ids[0]);
+    await this.flushRename();
+    const open = this.view?.id;
+    const gone: string[] = [];
+    for (const id of ids) {
+      try {
+        await this.backend.deleteMacro(id);
+        gone.push(id);
+      } catch (e) {
+        this.fail(e);
+        break;
+      }
+    }
+    this.libSelection = this.libSelection.filter((id) => !gone.includes(id));
+    await this.refreshLibrary();
+    if (open && gone.includes(open)) {
+      if (this.library[0]) await this.loadMacro(this.library[0].id);
+      else this.forgetMacro();
+    }
+    if (!gone.length) return;
+    const run = async () => {
+      this.dismissWhere((t) => t.restores === gone[0]);
+      for (const id of [...gone].reverse()) await this.run(this.backend.restoreMacro(id));
+      await this.refreshLibrary();
+    };
+    this.show({ kind: "info", message: `Moved ${plural(gone.length, "macro")} to the trash`, action: { label: "Undo", run }, restores: gone[0] }, 8000);
+  };
+
+  /** Writes these macros to a folder the user picks, as .rly files. */
+  exportMacros = async (ids: string[]) => {
+    const macros = this.library.filter((m) => ids.includes(m.id)).map(({ id, name }) => ({ id, name }));
+    const dir = await this.run(this.backend.exportMacros(macros));
+    if (dir) this.notify(`Exported ${plural(macros.length, "macro")} to ${dir.split(/[\\/]/).pop()}`);
   };
 
   async refreshRuns() {
@@ -697,17 +780,20 @@ export class RelayStore {
     if (this.view?.id === id) {
       const next = this.library[Math.min(idx, this.library.length - 1)];
       if (next) await this.loadMacro(next.id);
-      else {
-        this.view = null;
-        this.setScreen(null);
-        this.triggerStatus = null;
-        this.triggersFailed = false;
-      }
+      else this.forgetMacro();
       this.place = "library";
     }
     const action = { label: "Undo", run: () => this.restoreMacro(id, wasOpen) };
     this.show({ kind: "info", message: `Moved “${name}” to the trash`, action, restores: id }, 8000);
   };
+
+  /** No macro open (the last one went to the trash). */
+  private forgetMacro() {
+    this.view = null;
+    this.setScreen(null);
+    this.triggerStatus = null;
+    this.triggersFailed = false;
+  }
 
   /** Brings a macro back from the trash; `reopen` it when it was the open one. */
   restoreMacro = async (id: string, reopen = false) => {

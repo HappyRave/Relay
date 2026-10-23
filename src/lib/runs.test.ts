@@ -81,6 +81,7 @@ describe("run history labels", () => {
   it("describes each check, with its loop when there were several", () => {
     expect(checkLabel(check(), 1)).toBe("Step 4 · Pixel check matched after 1.2 s");
     expect(checkLabel(check({ loop_idx: 1 }), 3)).toBe("Loop 2 · Step 4 · Pixel check matched after 1.2 s");
+    expect(checkLabel(check({ loop_idx: 111 }), 112, 200)).toBe("Row 112 of 200 · Step 4 · Pixel check matched after 1.2 s");
     expect(checkLabel(check({ after_ms: 5000, outcome: { type: "timed_out" } }), 1)).toBe(
       "Step 4 · Pixel check timed out after 5.0 s",
     );

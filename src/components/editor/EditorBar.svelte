@@ -30,6 +30,7 @@
   const MORE: MenuItem[] = [
     { id: "export", label: "Export…", icon: "export" },
     { id: "duplicate", label: "Duplicate", icon: "duplicate" },
+    { id: "runs", label: "Runs", icon: "history" },
     "separator",
     { id: "delete", label: "Delete", icon: "trash", danger: true },
   ];
@@ -38,6 +39,7 @@
     const macro = relay.view?.id;
     if (!macro) return;
     if (id === "export") relay.exportOpen = true;
+    else if (id === "runs") await relay.showRunsOf(macro);
     else if (id === "duplicate") {
       await relay.duplicateMacro(macro);
       relay.go("macro");

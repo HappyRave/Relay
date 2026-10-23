@@ -48,6 +48,7 @@ describe("App", () => {
       "get_settings",
       "system_look",
       "list_macros",
+      "list_runs",
       "load_macro",
       "screenshot",
       "get_triggers",

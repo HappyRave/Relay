@@ -34,7 +34,7 @@ describe("the window", () => {
 
   test("Enter on a macro opens it too", async () => {
     render(AppWindow);
-    screen.getByText("Fill weekly timesheet").closest<HTMLElement>("[role=button]")!.focus();
+    screen.getByText("Fill weekly timesheet").closest<HTMLElement>("button")!.focus();
     await userEvent.keyboard("{Enter}");
     await settle();
     expect(relay.place).toBe("macro");

@@ -62,8 +62,11 @@ export function fmtRunTime(iso: string, now = new Date()): string {
   return `${short}, ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-/** "Step 4 · Pixel check matched after 1.2 s", with its loop when the run had several. */
-export function checkLabel(c: CheckResult, loops: number): string {
+/**
+ * "Step 4 · Pixel check matched after 1.2 s", with its loop when the run had
+ * several, or its row when it played from a data file (`rows`).
+ */
+export function checkLabel(c: CheckResult, loops: number, rows?: number): string {
   const after = fmtDuration(c.after_ms);
   const o = c.outcome;
   let what: string;
@@ -82,7 +85,8 @@ export function checkLabel(c: CheckResult, loops: number): string {
       interrupted: `Stopped during the pixel check (${after})`,
     }[o.type];
   }
-  return `${loops > 1 ? `Loop ${c.loop_idx + 1} · ` : ""}Step ${c.step} · ${what}`;
+  const where = rows ? `Row ${c.loop_idx + 1} of ${rows} · ` : loops > 1 ? `Loop ${c.loop_idx + 1} · ` : "";
+  return `${where}Step ${c.step} · ${what}`;
 }
 
 /** The run's settings worth mentioning: "From 00:03.20 · 2× speed · Humanized"; for a skip, why, if it says. */

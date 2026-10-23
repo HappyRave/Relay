@@ -37,6 +37,7 @@ describe("startup", () => {
       "get_settings",
       "system_look",
       "list_macros",
+      "list_runs",
       "load_macro",
       "screenshot",
       "get_triggers",
@@ -830,6 +831,33 @@ describe("library", () => {
     expect(core.commands()).toEqual(["delete_macro"]);
     expect(relay.toast).toMatchObject({ kind: "error", message: "Stop the recording or playback first" });
     expect(relay.view?.id).toBe(A);
+  });
+
+  test("deleting several stops at the first refusal, and offers Undo for those that went", async () => {
+    relay.libSelection = [B, C, D];
+    await relay.deleteMacros([A, B]);
+    expect(core.argsOf("delete_macro")).toEqual([{ id: A }, { id: B }]);
+    expect(relay.view?.id).toBe(C); // the open one went: the first left opens
+    expect(relay.libSelection).toEqual([C, D]);
+    expect(relay.toast).toMatchObject({ message: "Moved 2 macros to the trash" });
+
+    core.fail("delete_macro", "Stop the recording or playback first", "busy");
+    await relay.deleteMacros([C, D]);
+    expect(core.argsOf("delete_macro")).toHaveLength(3);
+    expect(relay.toast).toMatchObject({ kind: "error", message: "Stop the recording or playback first" });
+    expect(relay.library.map((m) => m.id)).toEqual([C, D]);
+  });
+
+  test("Play from the Library plays that macro from the start, and Open at step opens it on the step", async () => {
+    relay.seek(4000);
+    await relay.playMacro(C);
+    expect(relay.view?.id).toBe(C);
+    expect(core.lastArgs("toggle_play")).toEqual({ from: 0 });
+    core.emit(session("idle", C));
+    await relay.openAt(A, 12, true);
+    expect([relay.place, relay.view?.id, relay.selection, relay.failedStep]).toEqual(["macro", A, [11], 11]);
+    await relay.openAt(A, 99);
+    expect(relay.selection).toEqual([11]); // no such step: nothing selected anew
   });
 
   test("a failed restore is shown", async () => {

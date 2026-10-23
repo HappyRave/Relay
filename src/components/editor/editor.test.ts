@@ -112,7 +112,7 @@ describe("the top bar", () => {
     render(EditorBar);
     await userEvent.click(button("More"));
     const menu = within(screen.getByRole("menu", { name: "More" }));
-    expect(menu.getAllByRole("menuitem").map((m) => m.textContent?.trim())).toEqual(["Export…", "Duplicate", "Delete"]);
+    expect(menu.getAllByRole("menuitem").map((m) => m.textContent?.trim())).toEqual(["Export…", "Duplicate", "Runs", "Delete"]);
     await userEvent.click(menu.getByRole("menuitem", { name: "Export…" }));
     expect(relay.exportOpen).toBe(true);
 
@@ -129,6 +129,14 @@ describe("the top bar", () => {
     await settle();
     expect(core.lastArgs("delete_macro")).toEqual({ id: copy });
     expect(relay.place).toBe("library");
+  });
+
+  test("More → Runs shows this macro's runs in the Library", async () => {
+    render(EditorBar);
+    await userEvent.click(button("More"));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Runs" }));
+    await settle();
+    expect([relay.place, relay.libraryShows, relay.runsFilter]).toEqual(["library", "runs", A]);
   });
 
   test("the player key switches to the player", async () => {

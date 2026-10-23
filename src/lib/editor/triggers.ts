@@ -2,6 +2,7 @@
 // one-line summary the Macro tab's Runs automatically shows when closed.
 import type { MacroTriggers, TriggerStatus } from "../types";
 import { nextRunLabel } from "../format";
+import type { TriggerOn } from "../ipc/bindings/TriggerOn";
 
 export type TriggerKind = keyof MacroTriggers;
 export const TRIGGER_KINDS: TriggerKind[] = ["hotkey", "schedule", "app_launch", "pixel", "image"];
@@ -73,6 +74,21 @@ export function triggerNote(kind: TriggerKind, status: TriggerStatus): string {
   if (kind === "hotkey") return status.hotkey_error ?? "Runs from any app";
   if (kind === "schedule") return t.schedule.enabled ? (t.schedule.schedule.days.some(Boolean) ? nextRunLabel(status.next_run) : "Pick a day") : "Off";
   return t[kind].enabled ? "On" : "Off";
+}
+
+/** A Library row's "Also runs": what else runs the macro, in words. */
+export function alsoText(also: TriggerOn[]): string {
+  return also
+    .map((t) =>
+      t.kind === "schedule"
+        ? `${daysText(t.schedule.days)} at ${t.schedule.time}`
+        : t.kind === "app_launch"
+          ? `When ${t.exe} starts`
+          : t.kind === "pixel"
+            ? "When a pixel changes"
+            : "When an image appears",
+    )
+    .join(" · ");
 }
 
 /** Runs automatically, in one line: the triggers that are on. */

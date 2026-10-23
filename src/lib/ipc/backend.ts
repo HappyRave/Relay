@@ -17,6 +17,7 @@ import type { DataFileInfo } from "./bindings/DataFileInfo";
 import type { RunEntry } from "./bindings/RunEntry";
 import type { FinishReason } from "./bindings/FinishReason";
 import { DEFAULT_LOOK, DEFAULT_SETTINGS } from "../defaults";
+import { slug } from "../format";
 import type { SystemLook } from "./bindings/SystemLook";
 import { isTauri } from "../platform/window";
 
@@ -41,6 +42,8 @@ export interface Backend {
   setPlaybackOptions(id: string, options: PlaybackOptions): Promise<MacroView>;
   /** Asks where to save, then writes the export. Returns the path, or null if cancelled. */
   exportMacro(id: string, format: ExportFormat, defaultName: string): Promise<string | null>;
+  /** Asks for a folder, then writes each macro there as a .rly file. Returns the folder, or null if cancelled. */
+  exportMacros(macros: { id: string; name: string }[]): Promise<string | null>;
   /** Asks for files, then imports them. Returns null if cancelled. */
   importMacros(): Promise<ImportResult | null>;
   /** Returns the copy's id. */
@@ -123,6 +126,19 @@ export const tauriBackend: Backend = {
     if (!path) return null;
     await invoke("export_macro", { id, format, path });
     return path;
+  },
+  exportMacros: async (macros) => {
+    const dir = await open({ directory: true });
+    if (!dir || Array.isArray(dir)) return null;
+    const taken = new Set<string>();
+    for (const m of macros) {
+      const base = slug(m.name) || "macro";
+      let name = base;
+      for (let n = 2; taken.has(name); n++) name = `${base}-${n}`;
+      taken.add(name);
+      await invoke("export_macro", { id: m.id, format: "rly", path: `${dir}\\${name}.rly` });
+    }
+    return dir;
   },
   importMacros: async () => {
     const picked = await open({
@@ -366,6 +382,7 @@ export function browserBackend(): Backend {
     },
     // The fixture has views, not the events a .rly holds.
     exportMacro: async () => unavailable(),
+    exportMacros: async () => unavailable(),
     importMacros: async () => unavailable(),
     duplicateMacro: async () => unavailable(),
     deleteMacro: async () => unavailable(),
