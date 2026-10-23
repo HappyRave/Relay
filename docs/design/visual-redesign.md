@@ -6,7 +6,8 @@ Relay's new look: minimalist and modernist, with subtly rounded corners, frosted
 > **Try it:** open [`Design/redesign/prototype.html`](../../Design/redesign/prototype.html) in a browser (a double-click is enough). It's a clickable prototype of every screen, with static data and simulated sessions; it never touches the real app.
 >
 > - The dark bar at the top is the prototype's, not Relay's. It switches the screen and simulates the PC: Windows 10 or 11, transparency effects, reduce motion, the keyboard layout, and the window size.
-> - Things to try: press **Record**, or <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F9</kbd>, and stop it. Play *Claims from customers.csv*, and watch it fail at row 112. Drag a number sideways to scrub it, use the steps list with the keyboard, **Pick from screen**, and set a key in **Settings → Keys** with a Swedish or German layout.
+> - Things to try: press **Record**, or <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F9</kbd>, and stop it. Play *Claims from customers.csv*, and watch it fail at row 112. Press **Fire a trigger** while editing. Drag a number sideways to scrub it, use the steps list with the keyboard, **Pick from screen**, and set a key in **Settings → Keys** with a Swedish or German layout.
+> - It stays in `Design/redesign/` as the reference while `m24-redesign` is built, and the last commit of that milestone removes it: from then on the app and its end-to-end tests are the reference, and this page keeps the spec and the pictures.
 
 > [!NOTE]
 > **Decided** by the maintainer, 2026-10-23:
