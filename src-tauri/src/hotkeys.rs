@@ -22,14 +22,14 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 use uuid::Uuid;
 
 use crate::coordinator::{Cmd, CoordinatorHandle};
-use crate::ipc::{Emitter, EngineMsg};
+use crate::ipc::Emitter;
 use crate::library::Library;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 enum Action {
     Record,
     Play,
-    Compact,
+    Player,
     Kill,
 }
 
@@ -37,12 +37,12 @@ fn shortcut(a: Action) -> Shortcut {
     match a {
         Action::Record => Shortcut::new(None, Code::F9),
         Action::Play => Shortcut::new(None, Code::F10),
-        Action::Compact => Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyM),
+        Action::Player => Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyM),
         Action::Kill => Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::End),
     }
 }
 
-const ALL: [Action; 4] = [Action::Record, Action::Play, Action::Compact, Action::Kill];
+const ALL: [Action; 4] = [Action::Record, Action::Play, Action::Player, Action::Kill];
 
 fn actions(set: HotkeySet) -> &'static [Action] {
     match set {
@@ -272,7 +272,10 @@ pub fn plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
                     Action::Record => coordinator.send(Cmd::Input(Input::ToggleRecord)),
                     Action::Play => coordinator.send(Cmd::HotkeyPlay),
                     Action::Kill => coordinator.send(Cmd::Input(Input::Kill)),
-                    Action::Compact => app.state::<std::sync::Arc<Emitter>>().send(EngineMsg::ToggleCompact),
+                    Action::Player => {
+                        let on = !app.state::<crate::window_ctl::WindowState>().prefs().player_mode;
+                        crate::presence::set_player_mode(app, on);
+                    }
                 }
                 return;
             }
@@ -352,7 +355,7 @@ mod tests {
         assert_eq!(action_for(&Shortcut::new(None, Code::F10)), Some(Action::Play));
         assert_eq!(
             action_for(&Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyM)),
-            Some(Action::Compact)
+            Some(Action::Player)
         );
         assert_eq!(
             action_for(&Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::End)),

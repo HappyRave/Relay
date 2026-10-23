@@ -1,8 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capabilities for the main Relay widget window",
-  "windows": ["main"],
+  "description": "Capabilities for Relay's windows: the main one and the player",
+  "windows": [
+    "main",
+    "player"
+  ],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",

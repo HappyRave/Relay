@@ -1,5 +1,5 @@
 //! The tray icon: Relay keeps running (hotkeys and triggers) while
-//! the widget is hidden. Left-click toggles the widget; the menu has the
+//! its windows are hidden. Left-click shows or hides Relay; the menu has the
 //! session controls, the macros folder and Quit.
 
 use relay_core::session::{FinishReason, Input, Mode};
@@ -57,22 +57,15 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Shows and focuses the widget, or hides it.
+/// Brings Relay back from the tray (or a minimized window), or puts it there.
 pub fn toggle(app: &AppHandle) {
-    let Some(w) = app.get_webview_window("main") else { return };
-    if w.is_visible().unwrap_or(false) {
-        let _ = w.hide();
-    } else {
-        show(app);
-    }
+    let minimized = app.get_webview_window("main").is_some_and(|w| w.is_minimized().unwrap_or(false));
+    crate::presence::set_tucked(app, !crate::presence::tucked(app) && !minimized);
 }
 
+/// Shows Relay: the window, focused, or the player in player mode.
 pub fn show(app: &AppHandle) {
-    if let Some(w) = app.get_webview_window("main") {
-        let _ = w.show();
-        let _ = w.unminimize();
-        let _ = w.set_focus();
-    }
+    crate::presence::set_tucked(app, false);
 }
 
 /// The tooltip says what Relay is doing, since the widget may be hidden.

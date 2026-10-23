@@ -91,8 +91,14 @@ fn report_unsaved(app: &AppHandle, r: std::io::Result<()>) {
 // — session —
 
 #[tauri::command]
-pub fn subscribe_engine(emit: State<'_, Arc<Emitter>>, channel: Channel<EngineMsg>) {
-    emit.subscribe(channel);
+pub fn subscribe_engine(window: tauri::WebviewWindow, emit: State<'_, Arc<Emitter>>, channel: Channel<EngineMsg>) {
+    emit.subscribe(window.label(), channel);
+}
+
+/// The macro Relay's play key and the player play.
+#[tauri::command]
+pub fn current_macro(mode: State<'_, SessionMode>) -> Option<Uuid> {
+    mode.current()
 }
 
 #[tauri::command]
@@ -137,6 +143,7 @@ fn view_of(m: &Macro, history: &EditHistory) -> MacroView {
 
 #[tauri::command]
 pub fn load_macro(
+    window: tauri::WebviewWindow,
     lib: State<'_, Mutex<Library>>,
     history: State<'_, EditHistory>,
     c: State<'_, CoordinatorHandle>,
@@ -144,7 +151,7 @@ pub fn load_macro(
 ) -> Result<MacroView> {
     let lib = lib.lock();
     let entry = lib.get(id).ok_or(IpcError::not_found(id))?;
-    c.send(Cmd::Select(id));
+    c.send(Cmd::Select { id, by: window.label().to_owned() });
     Ok(view_of(&entry.macro_, &history))
 }
 
@@ -591,29 +598,32 @@ pub fn set_autostart(app: AppHandle, enabled: bool) -> Result<bool> {
 
 // — window —
 
-/// The UI measured the widget at this size (CSS px); fit the window around it.
-#[tauri::command]
-pub fn fit_window(
-    window: tauri::WebviewWindow,
-    state: State<'_, crate::window_ctl::WindowState>,
-    width: f64,
-    height: f64,
-    expanded: bool,
-) {
-    crate::window_ctl::fit(&window, &state, (width, height), expanded);
-}
-
 #[derive(Debug, Serialize, TS)]
 #[ts(export)]
 pub struct WindowPrefsView {
-    pub expanded: bool,
+    pub player_mode: bool,
     pub panes: crate::window_ctl::Panes,
 }
 
 #[tauri::command]
 pub fn window_prefs(state: State<'_, crate::window_ctl::WindowState>) -> WindowPrefsView {
     let prefs = state.prefs();
-    WindowPrefsView { expanded: prefs.expanded, panes: prefs.panes }
+    WindowPrefsView { player_mode: prefs.player_mode, panes: prefs.panes }
+}
+
+/// The player takes the window's place, or gives it back.
+#[tauri::command]
+pub fn set_player_mode(app: AppHandle, on: bool) {
+    crate::presence::set_player_mode(&app, on);
+}
+
+/// The player's expand key: the window, on the player's macro.
+#[tauri::command]
+pub fn show_window(app: AppHandle, mode: State<'_, SessionMode>) {
+    if let Some(macro_id) = mode.current() {
+        app.state::<Arc<Emitter>>().send(EngineMsg::Open { macro_id });
+    }
+    crate::presence::set_player_mode(&app, false);
 }
 
 /// Where the user put the editor's dividers, saved to window.json.
@@ -624,9 +634,9 @@ pub fn save_panes(state: State<'_, crate::window_ctl::WindowState>, panes: crate
 
 /// The close button: like closing the window (see `window_ctl::close_or_hide`).
 #[tauri::command]
-pub fn hide_to_tray(window: tauri::WebviewWindow) {
-    if !crate::window_ctl::close_or_hide(&window) {
-        window.app_handle().exit(0);
+pub fn hide_to_tray(app: AppHandle) {
+    if !crate::window_ctl::close_or_hide(&app) {
+        app.exit(0);
     }
 }
 
@@ -643,7 +653,7 @@ pub fn get_settings(s: State<'_, Mutex<SettingsStore>>) -> Settings {
 }
 
 #[tauri::command(async)]
-pub fn update_settings(app: AppHandle, window: tauri::WebviewWindow, settings: Settings) -> Result<Settings> {
+pub fn update_settings(app: AppHandle, settings: Settings) -> Result<Settings> {
     let current = {
         let s = app.state::<Mutex<SettingsStore>>();
         let mut s = s.lock();
@@ -651,10 +661,15 @@ pub fn update_settings(app: AppHandle, window: tauri::WebviewWindow, settings: S
         s.current.clone()
     };
     // Not under the settings lock: these call into the main thread.
-    crate::window_ctl::apply_on_top(&window, current.keep_on_top, !app.state::<SessionMode>().is_idle());
     let look = *app.state::<Mutex<crate::look::SystemLook>>().lock();
-    crate::look::apply(&window, &current, look);
-    crate::window_ctl::set_text_size(&window, &app.state::<crate::window_ctl::WindowState>(), current.text_size);
+    for w in app.webview_windows().values() {
+        crate::look::apply(w, &current, look);
+    }
+    if let Some(main) = app.get_webview_window("main") {
+        crate::window_ctl::set_text_size(&main, &app.state::<crate::window_ctl::WindowState>(), current.text_size);
+    }
+    crate::presence::resize_player(&app);
+    crate::presence::refresh(&app, false);
     Ok(current)
 }
 
