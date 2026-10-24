@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fmtLastRun, fmtTime, nextRunLabel, pad4, slug } from "./format";
+import { fmtClock, fmtLastRun, fmtTime, nextRunLabel, pad4, slug } from "./format";
 
 describe("format", () => {
   it("formats playhead times", () => {
@@ -36,5 +36,15 @@ describe("format", () => {
     expect(nextRunLabel(at(25, 7, 0), now)).toBe("Next run: Tomorrow 07:00");
     expect(nextRunLabel(at(28, 7, 5), now)).toBe("Next run: Mon 07:05");
     expect(nextRunLabel(null, now)).toBe("No schedule");
+  });
+});
+
+describe("fmtClock", () => {
+  it("minutes and whole seconds, for the player", () => {
+    expect(fmtClock(0)).toBe("00:00");
+    expect(fmtClock(4999)).toBe("00:04");
+    expect(fmtClock(61_000)).toBe("01:01");
+    expect(fmtClock(-5)).toBe("00:00");
+    expect(fmtClock(100 * 60_000)).toBe("100:00");
   });
 });

@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/editor.png" alt="The Relay editor: the mouse path over the desktop, the list of steps, the transport and a four-lane timeline" width="800">
+  <img src="docs/images/editor.png" alt="The Relay editor: the steps of a macro, the inspector, and the view with the mouse path, the timeline and the macro's size" width="800">
 </p>
 
 <p align="center">
@@ -28,29 +28,29 @@
 
 | | |
 | --- | --- |
-| 🔴 **Record** | Press <kbd>F9</kbd> and work as usual. Every click, drag, scroll and keystroke is captured with its timing, across all your monitors and at any display scaling. |
-| ✏️ **Edit as steps** | Recordings become readable steps: *Click · Save*, *Ctrl + S*, *"invoice_2026"*. Label them, delete them, add waits, trim the pauses, speed up or smooth the mouse moves. Undo anything. |
-| ▶️ **Play back** | <kbd>F10</kbd> replays it at 0.5× to 4×, once, N times or forever, with optional *Humanize* timing. Accurate to about a millisecond. |
+| 🔴 **Record** | Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F9</kbd> and work as usual. Every click, drag, scroll and keystroke is captured with its timing, across all your monitors and at any display scaling. |
+| ✏️ **Edit as steps** | Recordings become readable steps: *Click · Save*, *Ctrl + S*, *"invoice_2026"*. Label them, select several and change them at once, add waits, trim the pauses, speed up or smooth the mouse moves. Undo anything. |
+| ▶️ **Play back** | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F10</kbd> replays it at 0.5× to 4×, once, N times or forever, with timing that can vary a little. Accurate to about a millisecond. |
 | 🎯 **Pixel checks** | Wait until something appears on screen before continuing, instead of guessing how long to wait. |
 | 🔍 **Find image** | Wait for a button or icon to appear anywhere on screen, even at another size, then click it. Snip it, paste it or pick a file. |
 | 🔤 **Text that changes** | Type today's date, the time, what you copied or the repeat number: *"Invoice {date} #{n}"*. It types the same on any keyboard layout. |
 | ⏰ **Triggers** | Run a macro on a hotkey, on a weekly schedule, when an app starts, when a pixel changes color, or when an image appears. |
-| 🛑 **Safe** | <kbd>Esc</kbd>, any key, or the <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd> kill switch stops everything. Nothing is ever left pressed. |
+| 🛑 **Safe** | <kbd>Esc</kbd>, any key, or the <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Backspace</kbd> kill switch stops everything. Nothing is ever left pressed. |
 | 📦 **Portable** | Macros are plain JSON `.rly` files. Export, import, back up, keep them in Git. Or export one as a small `.exe` that plays it on any PC, without Relay. |
 | 🔒 **Private** | Everything stays on your PC. Relay never connects to the internet. |
 
 <table>
 <tr>
 <td width="50%"><img src="docs/images/step-editor.png" alt="Editing a pixel check"><br><sub>Edit any step. Here, a pixel check.</sub></td>
-<td width="50%"><img src="docs/images/triggers.png" alt="The Triggers tab"><br><sub>Hotkeys, schedules, app launches and pixel triggers.</sub></td>
+<td width="50%"><img src="docs/images/triggers.png" alt="A macro's triggers in its Macro tab"><br><sub>Hotkeys, schedules, app launches, pixels and images.</sub></td>
 </tr>
 <tr>
-<td width="50%"><img src="docs/images/playing.png" alt="Playback, loop 1 of 3"><br><sub>Playback with loops and a live timeline.</sub></td>
+<td width="50%"><img src="docs/images/playing.png" alt="Playback, the step playing shown in the inspector"><br><sub>Playback with loops and a live timeline.</sub></td>
 <td width="50%"><img src="docs/images/library.png" alt="The Library"><br><sub>Every recording saved in the Library.</sub></td>
 </tr>
 </table>
 
-<p align="center"><img src="docs/images/compact.png" alt="The compact player" width="600"><br><sub>Or keep just the compact player on screen (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd>).</sub></p>
+<p align="center"><img src="docs/images/player.png" alt="Relay's player, playing a macro" width="600"><br><sub>Or keep just the player on screen (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd>). It shows on its own while you record.</sub></p>
 
 ## Install
 
@@ -70,13 +70,13 @@ Then follow [Getting started](docs/user-guide/01-getting-started.md) to make you
 
 | Key | Does |
 | --- | --- |
-| <kbd>F9</kbd> | Start or stop recording |
-| <kbd>F10</kbd> | Play or pause |
+| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F9</kbd> | Start or stop recording |
+| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F10</kbd> | Play or pause |
 | <kbd>Esc</kbd> | Stop (only while recording or playing) |
-| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd> | Compact player ↔ editor |
-| <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd> | Kill switch: stop everything and pause triggers |
+| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd> | The player ↔ the window |
+| <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Backspace</kbd> | Kill switch: stop everything and pause triggers |
 
-More in [Keyboard shortcuts](docs/user-guide/keyboard-shortcuts.md).
+Each can be changed in **Settings → Keys**. After an upgrade from an older Relay, they stay <kbd>F9</kbd>, <kbd>F10</kbd> and <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd>. More in [Keyboard shortcuts](docs/user-guide/keyboard-shortcuts.md).
 
 ## Documentation
 
@@ -148,14 +148,14 @@ Relay is a Rust workspace (`relay-core` for the pure logic, `relay-platform` for
 - [ ] **Remapping macros to a different monitor layout**: docked and undocked, another PC, a VM; *Window* coordinates that follow a resized window too
 - [ ] **Reliable batches**: see which data row failed and resume from it, `--data` for exported programs, a command line to run a macro, a JSON log, exit codes per failure and a screenshot on failure, per-row and per-loop run history
 - [ ] **Editing**: insert a click or a key press by hand, copy, paste and reorder steps, an undo history that survives a restart
-- [ ] **Hotkeys and defaults**: rebindable F9, F10 and kill switch, toggle or hold-to-run macro hotkeys, defaults for new recordings (Humanize, Stop on key press, Coordinates)
+- [ ] **Hotkeys and defaults**: toggle or hold-to-run macro hotkeys, defaults for new recordings (Vary timing, Stop on key, Clicks land)
 - [ ] **More triggers**: every N minutes, monthly, catching up on a schedule missed while asleep
 - [ ] **Secrets**: a placeholder for a password kept in Windows' credential store, never in the macro or an export
 - [ ] **For sharing and review**: a diff-friendly `.rly` (an event per line, pictures beside it), triggers in exports
 - [ ] Code signing
 - [ ] macOS and Linux backends
 
-Smaller ideas: a step-by-step dry run, speeds above 4× in the app, a higher mouse sampling rate, controller buttons, closer AutoHotkey exports (mouse paths, Find image at other sizes), plainer names for Humanize, Tolerance and Sketch.
+Smaller ideas: a step-by-step dry run, speeds above 4× in the app, a higher mouse sampling rate, controller buttons, closer AutoHotkey exports (mouse paths, Find image at other sizes), a plainer name for Tolerance.
 
 See [CHANGELOG.md](CHANGELOG.md) for what changed in each version.
 

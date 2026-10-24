@@ -11,7 +11,7 @@
           "outcome": {
             "type": "matched"
           },
-          "step": 12
+          "step": 8
         },
         {
           "after_ms": 910,
@@ -20,7 +20,7 @@
           "outcome": {
             "type": "matched"
           },
-          "step": 12
+          "step": 8
         },
         {
           "after_ms": 420,
@@ -29,7 +29,7 @@
           "outcome": {
             "type": "matched"
           },
-          "step": 12
+          "step": 8
         }
       ],
       "checks_dropped": 0,
@@ -99,7 +99,7 @@
           "outcome": {
             "type": "timed_out"
           },
-          "step": 7
+          "step": 6
         }
       ],
       "checks_dropped": 0,

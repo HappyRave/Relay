@@ -86,7 +86,7 @@ A rule of thumb: if it can be a pure function, it goes in `relay-core`, takes ti
 **TypeScript and Svelte**
 - Svelte 5 runes only (`$state`, `$derived`, `$effect`, `$props`).
 - Components talk to the `relay` store, never to `backend` or `invoke`.
-- Colors and spacing come from `var(--…)` tokens in `src/styles/tokens.css`. Corners stay square.
+- Colors, radii, spacing and motion come from the `var(--…)` tokens in `src/styles/theme.css`, and controls from the kit in `src/components/kit/`.
 - Match the surrounding formatting: 2-space indent, double quotes, semicolons, lines up to about 120 columns.
 
 **User-facing text**

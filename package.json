@@ -17,7 +17,7 @@
     "verify": "npm run verify:quick && tauri build --debug --no-bundle && npm run test:e2e"
   },
   "dependencies": {
-    "@fontsource/archivo": "^5.3.0",
+    "@fontsource-variable/archivo": "^5.3.0",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-dialog": "^2.7.3"
   },

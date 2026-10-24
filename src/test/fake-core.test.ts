@@ -258,7 +258,7 @@ describe("edits, like edit.rs", () => {
     expect(await b.getDataFile(A)).toBeNull();
     await expect(b.previewText(A, "{col:Customer}")).rejects.toEqual({
       code: "data_file",
-      message: "A Text step types {col:Customer}: choose a data file in Settings → Playback.",
+      message: "A Text step types {col:Customer}: choose a data file in the macro's play options.",
     });
     core.dialog.open = null;
     expect(await b.chooseDataFile(A)).toBeNull();
@@ -278,11 +278,11 @@ describe("edits, like edit.rs", () => {
       error: "customers.csv: Row 2 has 3 values, but there are 2 columns.",
     });
     core.csv.delete(csv);
-    expect((await b.getDataFile(A))?.error).toBe("customers.csv isn't there anymore: choose it again in Settings → Playback.");
+    expect((await b.getDataFile(A))?.error).toBe("customers.csv isn't there anymore: choose it again in the macro's play options.");
     core.dialog.open = "C:\\gone.csv";
     await expect(b.chooseDataFile(A)).rejects.toEqual({
       code: "data_file",
-      message: "gone.csv isn't there anymore: choose it again in Settings → Playback.",
+      message: "gone.csv isn't there anymore: choose it again in the macro's play options.",
     });
     expect((await b.getDataFile(A))?.path).toBe(csv);
     await b.removeDataFile(A);
@@ -335,6 +335,20 @@ describe("history, like history.rs", () => {
     expect((await b.undoEdit(A, true)).steps).toHaveLength(17);
   });
 
+  test("a batch applies its edits in order, as one undo; a failing one changes nothing", async () => {
+    const original = core.view(A);
+    // Deleting from the end keeps the earlier indices.
+    const v = await edit({ op: "batch", ops: [{ op: "delete_step", index: 17 }, { op: "set_label", index: 1, label: "File" }, { op: "delete_step", index: 0 }] });
+    expect(v.steps).toHaveLength(16);
+    expect(v.steps[0]).toMatchObject({ kind: "click", label: "File" });
+    const undone = await b.undoEdit(A, false);
+    expect(undone.steps).toEqual(original.steps);
+    expect(undone.can_undo).toBe(false);
+    await expect(edit({ op: "batch", ops: [{ op: "delete_step", index: 0 }, { op: "delete_step", index: 40 }] })).rejects.toMatchObject({ message: "there is no step 40" });
+    expect(core.view(A).steps).toEqual(original.steps);
+    await expect(edit({ op: "batch", ops: [{ op: "delete_step" }] } as unknown as EditOp)).rejects.toContain("missing field `index`");
+  });
+
   test("renames less than 2 s apart are one undo step", async () => {
     vi.useFakeTimers();
     for (const name of ["R", "Re", "Rel"]) {
@@ -358,6 +372,25 @@ describe("history, like history.rs", () => {
 });
 
 describe("the library, like library.rs", () => {
+  test("each row says what else runs it, as MacroTriggers::also_on, and when it was made", async () => {
+    const t = defaultTriggers();
+    await b.setTriggers(A, {
+      ...t,
+      hotkey: { enabled: true, combo: "Ctrl + Alt + 1" },
+      schedule: { ...t.schedule, enabled: true },
+      app_launch: { enabled: true, exe: "", delay_ms: 0 }, // no program: it can't fire
+      pixel: { ...t.pixel, enabled: true },
+    });
+    const row = (await b.listMacros())[0];
+    expect(row.hotkey).toBe("Ctrl + Alt + 1");
+    expect(row.also).toEqual([{ kind: "schedule", schedule: t.schedule.schedule }, { kind: "pixel" }]);
+    expect(row.created_at).toBe("2026-09-01T09:00:00Z");
+    await b.duplicateMacro(A);
+    const copy = (await b.listMacros())[1];
+    expect(new Date(copy.created_at).getTime()).toBeGreaterThan(Date.parse("2026-09-02"));
+    expect(copy.also).toEqual([]);
+  });
+
   test("the samples' hotkeys are seeded off, and the list only shows hotkeys that are on", async () => {
     expect((await b.getTriggers(A)).triggers.hotkey).toEqual({ enabled: false, combo: "Ctrl + Alt + 1" });
     expect((await b.listMacros()).map((m) => m.hotkey)).toEqual([null, null, null, null]);
@@ -466,33 +499,60 @@ describe("the run history, like run_history.rs", () => {
 });
 
 describe("the window, like window_ctl.rs", () => {
-  test("dividers are saved sanitized, as Panes::sanitized does, and a reset clears them", async () => {
-    await invoke("save_panes", { panes: { preview_w: -5, transport_h: 90, timeline_h: 1e9 } });
-    expect((await invoke<{ panes: unknown }>("window_prefs")).panes).toEqual({ preview_w: null, transport_h: 90, timeline_h: 10_000 });
-    await invoke("save_panes", { panes: { preview_w: 480 } });
-    expect(core.window.panes).toEqual({ preview_w: 480, transport_h: null, timeline_h: null });
-    await invoke("reset_layout");
-    expect(core.window.panes).toEqual({ preview_w: null, transport_h: null, timeline_h: null });
-    await expect(invoke("save_panes", { panes: { preview_w: "wide" } })).rejects.toMatch(/invalid args `panes`/);
-    // NaN is null over JSON, which Rust drops like any other non-size.
-    await invoke("save_panes", { panes: { preview_w: NaN, transport_h: 90, timeline_h: null } });
-    expect(core.window.panes).toEqual({ preview_w: null, transport_h: 90, timeline_h: null });
+  test("the divider is saved sanitized, as Panes::sanitized does", async () => {
+    await invoke("save_panes", { panes: { inspector_w: 1e9 } });
+    expect((await invoke<{ panes: unknown }>("window_prefs")).panes).toEqual({ inspector_w: 10_000 });
+    await invoke("save_panes", { panes: { inspector_w: -5 } });
+    expect(core.window.panes).toEqual({ inspector_w: null });
+    await invoke("save_panes", { panes: {} });
+    expect(core.window.panes).toEqual({ inspector_w: null });
+    await expect(invoke("save_panes", { panes: { inspector_w: "wide" } })).rejects.toMatch(/invalid args `panes`/);
+    await invoke("save_panes", { panes: { inspector_w: NaN } });
+    expect(core.window.panes).toEqual({ inspector_w: null });
   });
 
-  test("fit_window remembers the mode, as window_ctl::fit does, and checks its arguments", async () => {
-    await invoke("fit_window", { width: 604, height: 68, expanded: false });
-    expect((await invoke<{ expanded: boolean }>("window_prefs")).expanded).toBe(false);
-    await invoke("fit_window", { width: 0, height: 0, expanded: true });
-    expect((await invoke<{ expanded: boolean }>("window_prefs")).expanded).toBe(true);
-    await expect(invoke("fit_window", { width: 604, height: 68 })).rejects.toMatch(/invalid args `expanded`/);
-    expect(() => core.fail("fit_window")).toThrow();
+  test("player mode is saved and both windows hear, as presence::set_player_mode does", async () => {
+    await invoke("set_player_mode", { on: true });
+    expect((await invoke<{ player_mode: boolean }>("window_prefs")).player_mode).toBe(true);
+    expect(got).toEqual([{ type: "player_mode", on: true }]);
+    await expect(invoke("set_player_mode", {})).rejects.toMatch(/invalid args `on`/);
+    expect(() => core.fail("set_player_mode")).toThrow();
+  });
+
+  test("the player's expand key opens the current macro in the window, and leaves player mode", async () => {
+    core.window.player_mode = true;
+    await invoke("show_window");
+    // Nothing to open before a macro is current.
+    expect(got).toEqual([{ type: "player_mode", on: false }]);
+    await b.loadMacro(B);
+    got = [];
+    await invoke("show_window");
+    expect(got).toEqual([
+      { type: "open", macro_id: B },
+      { type: "player_mode", on: false },
+    ]);
+    expect(core.window.player_mode).toBe(false);
+  });
+
+  test("opening a macro makes it current while Relay is idle, as the coordinator's Select does", async () => {
+    expect(await invoke("current_macro")).toBeNull();
+    await b.loadMacro(B);
+    expect(await invoke("current_macro")).toBe(B);
+    expect(got).toEqual([{ type: "current", macro_id: B, by: "main" }]);
+    await b.loadMacro(B);
+    expect(got).toHaveLength(1); // the same macro again changes nothing
+    core.emit({ type: "session", mode: "playing", macro_id: B, source: null });
+    got = [];
+    await b.loadMacro(C);
+    expect(await invoke("current_macro")).toBe(B); // not during a session
+    expect(got).toEqual([]);
   });
 });
 
 describe("the busy guard", () => {
   test("deletes, edits and undo are refused during a session, as the session messages say", async () => {
     await edit({ op: "delete_step", index: 0 });
-    core.emit({ type: "session", mode: "playing", macro_id: A });
+    core.emit({ type: "session", mode: "playing", macro_id: A, source: null });
     const busy = { code: "busy", message: "Stop the recording or playback first" };
     await expect(b.deleteMacro(B)).rejects.toEqual(busy);
     await expect(edit({ op: "delete_step", index: 0 })).rejects.toEqual(busy);
@@ -506,10 +566,10 @@ describe("triggers, like hotkeys.rs", () => {
   const withHotkey = (combo: string, enabled = true) => ({ ...defaultTriggers(), hotkey: { enabled, combo } });
 
   test.each([
-    ["F9", "F9 is one of Relay's own hotkeys"],
-    ["F10", "F10 is one of Relay's own hotkeys"],
-    ["Shift + Ctrl + M", "Shift + Ctrl + M is one of Relay's own hotkeys"],
-    ["Ctrl+Alt+End", "Ctrl+Alt+End is one of Relay's own hotkeys"],
+    ["Ctrl + Shift + F9", "Ctrl + Shift + F9 is Relay's “Record” key"],
+    ["Shift + Ctrl + F10", "Shift + Ctrl + F10 is Relay's “Play / pause” key"],
+    ["Shift + Ctrl + M", "Shift + Ctrl + M is Relay's “Show the player” key"],
+    ["Ctrl+Alt+Backspace", "Ctrl+Alt+Backspace is Relay's “Stop everything” key"],
     ["Q", "Add Ctrl, Alt, Shift or Win, so the key still types normally"],
     ["Ctrl + Banana", "“Banana” isn't a key Relay can use"],
     ["Hyper + A", "“Hyper” isn't a modifier (use Ctrl, Alt, Shift or Win)"],
@@ -518,6 +578,12 @@ describe("triggers, like hotkeys.rs", () => {
     ["Ctrl + + K", "The hotkey is empty or incomplete"],
   ])("%s is refused", async (combo, message) => {
     await expect(b.setTriggers(A, withHotkey(combo))).rejects.toEqual({ code: "hotkey", message });
+  });
+
+  test("Relay's keys are the ones set: an upgrade's F9 is Relay's, a new install's isn't", async () => {
+    await expect(b.setTriggers(A, withHotkey("F9"))).resolves.toBeTruthy();
+    core.settings = { ...core.settings, keys: { record: "F9", play: "F10", player: "Ctrl + Shift + M", kill: "Ctrl + Alt + End" } };
+    await expect(b.setTriggers(B, withHotkey("F9"))).rejects.toEqual({ code: "hotkey", message: "F9 is Relay's “Record” key" });
   });
 
   test("another macro's hotkey is refused while it's on, written either way", async () => {
@@ -578,13 +644,16 @@ describe("settings and saving", () => {
     expect(await invoke("update_settings", { settings: { countdown: false } })).toEqual({ ...DEFAULT_SETTINGS, countdown: false });
     await expect(invoke("update_settings", { settings: { keep_on_top: "sometimes" } })).rejects.toContain("unknown variant");
     await expect(invoke("update_settings", { settings: { preview_background: "photo" } })).rejects.toContain("unknown variant");
+    await expect(invoke("update_settings", { settings: { text_size: 140 } })).rejects.toContain("140% isn't a text size");
+    const look = { ...DEFAULT_SETTINGS, glass: false, text_size: 150, theme: "dark" };
+    expect(await invoke("update_settings", { settings: look })).toEqual(look);
   });
 
   test("a change that couldn't be written is kept, and the engine stream says so", async () => {
     core.saveError = "disk full";
     const v = await edit({ op: "delete_step", index: 0 });
     expect(v.steps).toHaveLength(17);
-    expect(got).toEqual([{ type: "error", message: "Couldn't save the change: disk full. It's kept until you quit." }]);
+    expect(got).toEqual([{ type: "unsaved", message: "Couldn't save the change: disk full. It's kept until you quit." }]);
   });
 });
 
@@ -654,5 +723,56 @@ describe("images, like commands.rs", () => {
     core.found = { x: 1, y: 2, w: 6, h: 6, score: 93 };
     expect(await b.testFindImage(png(6, 6), 85, { x: 0, y: 0, w: 100, h: 100 })).toEqual(core.found);
     await expect(b.testFindImage("nope", 85, null)).rejects.toContain("invalid image");
+  });
+});
+
+describe("Relay's keys, like hotkeys.rs check_key", () => {
+  const setKey = (key: string, combo: string | null) => invoke<{ keys: Record<string, string | null> }>("set_relay_key", { key, combo });
+
+  test("a key is set, or turned off; the kill switch can't be", async () => {
+    expect((await setKey("record", "F8")).keys.record).toBe("F8");
+    expect(core.settings.keys.record).toBe("F8");
+    expect((await setKey("play", null)).keys.play).toBeNull();
+    await expect(setKey("kill", null)).rejects.toEqual({
+      code: "hotkey",
+      message: "Stop everything can't be turned off. Choose another combination.",
+    });
+    await expect(setKey("player", "Q")).rejects.toEqual({ code: "hotkey", message: "Add Ctrl, Alt, Shift or Win, so the key still types normally" });
+    await expect(setKey("nope", "F8")).rejects.toMatch(/invalid args `key`/);
+  });
+
+  test("a key can't be another of Relay's, or a macro's", async () => {
+    await expect(setKey("play", "Shift + Ctrl + F9")).rejects.toEqual({
+      code: "hotkey",
+      message: "Shift + Ctrl + F9 is already Relay's “Record” key",
+    });
+    await b.setTriggers(B, { ...defaultTriggers(), hotkey: { enabled: true, combo: "Ctrl + Alt + 7" } });
+    await expect(setKey("player", "Ctrl + Alt + 7")).rejects.toEqual({
+      code: "hotkey",
+      message: "Ctrl + Alt + 7 already runs “Fill weekly timesheet”",
+    });
+    expect(core.settings.keys).toEqual(DEFAULT_SETTINGS.keys);
+  });
+
+  test("update_settings refuses keys that clash, and saves nothing", async () => {
+    const keys = { ...DEFAULT_SETTINGS.keys, play: "Ctrl + Shift + F9" };
+    await expect(b.updateSettings({ ...DEFAULT_SETTINGS, countdown: false, keys })).rejects.toEqual({
+      code: "hotkey",
+      // Record is checked first, and finds Play on its combination.
+      message: "Ctrl + Shift + F9 is already Relay's “Play / pause” key",
+    });
+    expect(core.settings.countdown).toBe(true);
+  });
+
+  test("key_warning: a key apps use, or a character the layout types with it", async () => {
+    expect(await invoke("key_warning", { combo: "F9" })).toBe(
+      "F9 recalculates in Excel and updates fields in Word. While Relay runs, they won't get it.",
+    );
+    expect(await invoke("key_warning", { combo: "Ctrl + Alt + Backspace" })).toBeNull();
+    core.altgr = { "Ctrl + Alt + 7": "{" };
+    expect(await invoke("key_warning", { combo: "Alt + Ctrl + 7" })).toBe(
+      "Ctrl + Alt + 7 types “{” on your keyboard (AltGr + 7). You couldn't type it while this is set.",
+    );
+    expect(() => core.fail("key_warning")).toThrow("can't fail");
   });
 });

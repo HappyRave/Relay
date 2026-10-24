@@ -4,7 +4,7 @@
 //! %APPDATA%\Relay\
 //!   settings.json
 //!   library.json        order, runs, last run, triggers (machine-local)
-//!   window.json         where the widget sits
+//!   window.json         where the windows sit, player mode, the inspector's width
 //!   macros\<id>.rly     one file per macro (portable)
 //! ```
 //! `RELAY_DATA_DIR` overrides the root, for tests and throwaway runs.
