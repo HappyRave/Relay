@@ -1,18 +1,9 @@
 // The small controls every tab is built from.
 import { describe, expect, test, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/svelte";
+import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
-import Kbd from "./Kbd.svelte";
 import HotkeyCapture from "./HotkeyCapture.svelte";
 import Icon from "./Icon.svelte";
-
-describe("Kbd", () => {
-  test("shows the combo, optionally muted", () => {
-    const { container } = render(Kbd, { combo: "Ctrl + Alt + 1", muted: true });
-    expect(screen.getByText("Ctrl + Alt + 1")).toHaveClass("kbd", "muted");
-    expect(container.querySelectorAll(".kbd")).toHaveLength(1);
-  });
-});
 
 describe("Icon", () => {
   test.each(["record", "play", "pause", "stop", "square", "prev", "next", "loop", "undo", "redo", "export", "import", "copy", "trash", "x", "expand", "collapse", "grip"] as const)(
@@ -44,7 +35,7 @@ describe("HotkeyCapture", () => {
 
   test("click, then press the keys", async () => {
     const { onchange, button } = setup();
-    expect(button).toHaveTextContent("Ctrl + Alt + 1");
+    expect(within(button).getByRole("img", { name: "Ctrl + Alt + 1" })).toBeInTheDocument();
     expect(button).toHaveAttribute("data-captures-keys");
     await userEvent.click(button);
     expect(button).toHaveTextContent("Press keys…");
@@ -80,7 +71,7 @@ describe("HotkeyCapture", () => {
     await userEvent.click(button);
     await press("Escape", { code: "Escape" });
     expect(onchange).not.toHaveBeenCalled();
-    expect(button).toHaveTextContent("Ctrl + Alt + 1");
+    expect(within(button).getByRole("img", { name: "Ctrl + Alt + 1" })).toBeInTheDocument();
     await userEvent.click(button);
     await press("Backspace", { code: "Backspace" });
     expect(onchange).toHaveBeenCalledExactlyOnceWith("");
@@ -92,7 +83,7 @@ describe("HotkeyCapture", () => {
     await fireEvent.blur(window);
     await press("K", { code: "KeyK", ctrlKey: true });
     expect(onchange).not.toHaveBeenCalled();
-    expect(button).toHaveTextContent("Ctrl + Alt + 1");
+    expect(within(button).getByRole("img", { name: "Ctrl + Alt + 1" })).toBeInTheDocument();
   });
 
   test("keys pressed while capturing don't reach the rest of the page", async () => {

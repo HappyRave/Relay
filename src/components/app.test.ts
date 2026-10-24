@@ -1,7 +1,7 @@
 // The app shell: the main window or the player, the export dialog, and the
 // demo desktop of the browser preview.
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/svelte";
+import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import App from "../App.svelte";
 import ExportDialog from "./ExportDialog.svelte";
@@ -130,7 +130,7 @@ describe("App", () => {
     await settle();
     await userEvent.click(screen.getByRole("button", { name: "More" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Export…" }));
-    expect(screen.getByRole("dialog", { name: "Export macro" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Export “Export invoice to PDF”" })).toBeInTheDocument();
   });
 
   test("unmounting stops the store", async () => {
@@ -151,20 +151,30 @@ describe("Export dialog", () => {
     relay.exportOpen = true;
   });
 
-  test("is a modal with the formats", () => {
+  test("is a modal with the formats as radios", () => {
     render(ExportDialog);
-    const dialog = screen.getByRole("dialog", { name: "Export macro" });
+    const dialog = screen.getByRole("dialog", { name: "Export “Export invoice to PDF”" });
     expect(dialog).toHaveAttribute("open");
-    const formats = [...dialog.querySelectorAll(".fmt")] as HTMLButtonElement[];
+    const formats = within(screen.getByRole("radiogroup", { name: "Format" })).getAllByRole("radio");
     expect(formats.map((f) => f.querySelector(".label")!.textContent)).toEqual([
       "Relay macro",
-      "JSON events",
       "Standalone program",
       "AutoHotkey v2",
+      "JSON events",
     ]);
-    expect(formats.map((f) => f.disabled)).toEqual([false, false, false, false]);
-    expect(formats[0]).toHaveClass("selected");
+    expect(formats.map((f) => f.getAttribute("aria-checked"))).toEqual(["true", "false", "false", "false"]);
+    expect(formats.map((f) => f.tabIndex)).toEqual([0, -1, -1, -1]);
     expect(screen.getByText("export-invoice-to-pdf.rly")).toBeInTheDocument();
+  });
+
+  test("arrow keys move the choice", async () => {
+    render(ExportDialog);
+    screen.getByRole("radio", { name: /Relay macro/ }).focus();
+    await userEvent.keyboard("{ArrowDown}");
+    expect(relay.exportFmt).toBe("exe");
+    expect(screen.getByRole("radio", { name: /Standalone program/ })).toHaveFocus();
+    await userEvent.keyboard("{ArrowUp}{ArrowUp}");
+    expect(relay.exportFmt).toBe("json");
   });
 
   test("choosing JSON changes the file name", async () => {
@@ -252,7 +262,7 @@ describe("Export dialog", () => {
     render(ExportDialog);
     const dialog = screen.getByRole("dialog");
     vi.spyOn(dialog, "getBoundingClientRect").mockReturnValue({ left: 250, top: 150, right: 690, bottom: 450, width: 440, height: 300 } as DOMRect);
-    await fireEvent.click(screen.getByText("Export macro"), { clientX: 300, clientY: 170 });
+    await fireEvent.click(screen.getByText("Export “Export invoice to PDF”"), { clientX: 300, clientY: 170 });
     expect(relay.exportOpen).toBe(true);
     await fireEvent.click(dialog, { clientX: 255, clientY: 440 }); // the padding: the target is the dialog itself
     expect(relay.exportOpen).toBe(true);

@@ -28,14 +28,18 @@
 
 <style>
   .grip {
-    width: 28px;
+    width: 20px;
+    align-self: stretch;
     flex: none;
     display: flex;
     align-items: center;
     justify-content: center;
+    border-radius: var(--r-sm);
     cursor: grab;
-    border-right: 2px solid var(--color-divider);
-    color: var(--color-neutral-600);
+    color: var(--text-2);
+  }
+  .grip:hover {
+    background: var(--hover);
   }
   .grip:active {
     cursor: grabbing;

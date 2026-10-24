@@ -1,7 +1,7 @@
 <script lang="ts">
   // Click, then press the combination. Esc cancels, Backspace clears. While it
   // listens, the hotkeys let go of the keys, so a taken combination arrives too.
-  import Kbd from "./Kbd.svelte";
+  import Keycaps from "../kit/Keycaps.svelte";
   import { relay } from "../../lib/state/relay.svelte";
   import { listenForCombo } from "../../lib/keycapture";
 
@@ -45,30 +45,36 @@
   {#if capturing}
     <span class="hint">{hint}</span>
   {:else}
-    <Kbd combo={combo || "Set…"} />
+    <Keycaps combo={combo ? combo.split(" + ") : []} none="Set…" />
   {/if}
 </button>
 
 <style>
   .capture {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--key-sm);
+    padding: 2px 4px;
     border: 0;
+    border-radius: var(--r-sm);
     background: transparent;
-    padding: 2px;
     cursor: pointer;
     font: inherit;
-    color: var(--color-text);
+    color: var(--text);
+  }
+  .capture:hover:not(:disabled) {
+    background: var(--hover);
   }
   .capture:disabled {
     opacity: 0.45;
     cursor: not-allowed;
   }
   .capturing {
-    outline: 2px solid var(--color-accent);
+    box-shadow: inset 0 0 0 1.5px var(--text);
   }
   .hint {
-    font-size: 11px;
-    font-weight: 800;
-    padding: 2px 7px;
-    color: var(--color-accent-700);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--red-text);
   }
 </style>
