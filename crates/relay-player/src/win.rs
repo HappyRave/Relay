@@ -11,18 +11,18 @@ use relay_core::format;
 use relay_core::model::{Macro, Ms, Rect};
 use relay_core::session::FinishReason;
 use relay_platform::{HookConfig, HookMode, HookSession, Platform, RawKind};
-use relay_playback::{EngineHandle, PlayPlan, PlaybackSink, Tick, plan};
+use relay_playback::{EngineCmd, EngineHandle, PlayPlan, PlaybackSink, Tick, plan};
 use relay_player::args::{self, Cli, Parsed, USAGE};
 use relay_player::exit::Exit;
-use relay_player::place::{Layout, busy_points, choose_place, layout};
-use relay_player::status::{Phase, Status};
+use relay_player::place::{Layout, busy_points, choose_place, click_marks, layout, leds};
+use relay_player::status::{Phase, Status, Tone};
 use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
     BeginPaint, BitBlt, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, CreateCompatibleBitmap, CreateCompatibleDC,
-    CreateFontW, CreateSolidBrush, DEFAULT_CHARSET, DT_END_ELLIPSIS, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER,
-    DT_WORDBREAK, DeleteDC, DeleteObject, DrawTextW, EndPaint, FF_DONTCARE, FW_NORMAL, FW_SEMIBOLD, FillRect, HDC,
-    HFONT, InvalidateRect, OUT_DEFAULT_PRECIS, PAINTSTRUCT, SRCCOPY, ScreenToClient, SelectObject, SetBkMode,
-    SetTextColor, TRANSPARENT,
+    CreateFontW, CreatePen, CreateSolidBrush, DEFAULT_CHARSET, DT_CALCRECT, DT_CENTER, DT_END_ELLIPSIS, DT_NOPREFIX,
+    DT_RIGHT, DT_SINGLELINE, DT_VCENTER, DeleteDC, DeleteObject, DrawTextW, EndPaint, FF_DONTCARE, FW_BOLD,
+    FW_SEMIBOLD, FillRect, HDC, HFONT, InvalidateRect, OUT_DEFAULT_PRECIS, PAINTSTRUCT, PS_SOLID, Polygon, RoundRect,
+    SRCCOPY, ScreenToClient, SelectObject, SetBkMode, SetTextColor, TRANSPARENT,
 };
 use windows::Win32::System::Console::{ATTACH_PARENT_PROCESS, AttachConsole, GetStdHandle, STD_ERROR_HANDLE};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -54,13 +54,32 @@ const HOTKEY_KILL: i32 = 1;
 const CLOSE_AFTER_MS: u32 = 1500;
 const MARGIN: i32 = 16;
 
-// Relay's colors (src/styles/tokens.css), as 0x00BBGGRR.
-const BG: COLORREF = COLORREF(0x00F2_F2F3);
-const INK: COLORREF = COLORREF(0x001D_1E20);
-const MUTED: COLORREF = COLORREF(0x005D_5D60);
-const TRACK: COLORREF = COLORREF(0x00E7_E7EA);
-const ACCENT: COLORREF = COLORREF(0x0013_30EC);
-const WHITE: COLORREF = COLORREF(0x00FF_FFFF);
+// Relay's colors (src/styles/theme.css).
+const PAPER: COLORREF = rgb(0xF4, 0xF3, 0xEF);
+const PLATE: COLORREF = rgb(0xFB, 0xFA, 0xF7);
+const LINE: COLORREF = rgb(0xC9, 0xC8, 0xC3);
+const INK: COLORREF = rgb(0x14, 0x14, 0x15);
+const INK_HOVER: COLORREF = rgb(0x2A, 0x2A, 0x2C);
+const LCD: COLORREF = rgb(0x10, 0x10, 0x11);
+const ALU: COLORREF = rgb(0xCF, 0xCD, 0xC6);
+const GRAPHITE: COLORREF = rgb(0x2A, 0x2A, 0x2C);
+const RED: COLORREF = rgb(0xE0, 0x30, 0x0F);
+const GREEN: COLORREF = rgb(0x1D, 0xB4, 0x6A);
+const ERROR_TEXT: COLORREF = rgb(0xFF, 0xB4, 0xA6);
+const LED_OFF: COLORREF = rgb(0x2E, 0x2E, 0x31);
+const LED_MARK: COLORREF = rgb(0x57, 0x35, 0x2E);
+const WHITE: COLORREF = rgb(0xFF, 0xFF, 0xFF);
+
+const fn rgb(r: u8, g: u8, b: u8) -> COLORREF {
+    COLORREF(r as u32 | (g as u32) << 8 | (b as u32) << 16)
+}
+
+/// The window's keys.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Part {
+    Pause,
+    Stop,
+}
 
 /// Everything the window works with, on its thread.
 struct App {
@@ -72,7 +91,9 @@ struct App {
     status: Status,
     layout: Layout,
     fonts: Fonts,
-    hover: bool,
+    /// Where the macro clicks along it, for the progress's red segments.
+    marks: Vec<f32>,
+    hover: Option<Part>,
     tracking: bool,
     countdown_from: f64,
     hook: Option<Box<dyn HookSession>>,
@@ -123,7 +144,7 @@ impl PlaybackSink for WinSink {
 
 struct Fonts {
     name: HFONT,
-    text: HFONT,
+    small: HFONT,
 }
 
 impl Fonts {
@@ -146,7 +167,7 @@ impl Fonts {
                 w!("Segoe UI"),
             )
         };
-        Fonts { name: font(l.name_px, FW_SEMIBOLD.0), text: font(l.text_px, FW_NORMAL.0) }
+        Fonts { name: font(l.name_px, FW_BOLD.0), small: font(l.small_px, FW_SEMIBOLD.0) }
     }
 }
 
@@ -154,7 +175,7 @@ impl Drop for Fonts {
     fn drop(&mut self) {
         unsafe {
             let _ = DeleteObject(self.name.into());
-            let _ = DeleteObject(self.text.into());
+            let _ = DeleteObject(self.small.into());
         }
     }
 }
@@ -223,7 +244,9 @@ fn run(mut m: Macro, data: Option<DataTable>, cli: Cli) -> i32 {
         tell("Couldn't open the player's window.", cli.quiet);
         return Exit::Error.code();
     };
-    let status = Status::new(m.name.clone(), relay_core::timeline::duration(&m.events), cli.countdown);
+    let duration = relay_core::timeline::duration(&m.events);
+    let status = Status::new(m.name.clone(), duration, cli.countdown, data.is_some());
+    let marks = click_marks(&m);
     let app = App {
         countdown_from: (platform.now_ms)(),
         platform,
@@ -233,7 +256,8 @@ fn run(mut m: Macro, data: Option<DataTable>, cli: Cli) -> i32 {
         status,
         fonts: Fonts::new(&l),
         layout: l,
-        hover: false,
+        marks,
+        hover: None,
         tracking: false,
         hook: None,
         engine: None,
@@ -299,10 +323,25 @@ fn create_window(title: &str, at: Rect, click_through: bool, quiet: bool) -> Opt
         if click_through {
             let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);
         }
+        round_corners(hwnd);
         if !quiet {
             let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         }
         Some(hwnd)
+    }
+}
+
+/// Rounded like Relay's windows on Windows 11; Windows 10 has square corners.
+fn round_corners(hwnd: HWND) {
+    use windows::Win32::Graphics::Dwm::{DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute};
+    let corner = DWMWCP_ROUND;
+    unsafe {
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            &corner as *const _ as *const std::ffi::c_void,
+            size_of_val(&corner) as u32,
+        );
     }
 }
 
@@ -398,6 +437,17 @@ impl App {
         self.redraw();
     }
 
+    /// The Pause key: pauses, or plays on.
+    fn toggle_pause(&mut self) {
+        if !self.status.can_pause() {
+            return;
+        }
+        let Some(engine) = &self.engine else { return };
+        self.status.paused = !self.status.paused;
+        engine.send(if self.status.paused { EngineCmd::Pause } else { EngineCmd::Resume });
+        self.redraw();
+    }
+
     /// Stop, Esc, a key or the kill switch.
     fn stop(&mut self, reason: FinishReason) {
         if matches!(self.status.phase, Phase::Ended { .. }) {
@@ -454,44 +504,150 @@ impl App {
         self.fonts = Fonts::new(&self.layout);
     }
 
-    fn in_stop(&self, x: i32, y: i32) -> bool {
-        self.layout.stop.contains(x, y)
+    /// The key at `(x, y)`, if any.
+    fn part_at(&self, x: i32, y: i32) -> Option<Part> {
+        if self.layout.pause.contains(x, y) {
+            Some(Part::Pause)
+        } else if self.layout.stop.contains(x, y) {
+            Some(Part::Stop)
+        } else {
+            None
+        }
     }
 
     fn paint(&self, dc: HDC) {
         let l = &self.layout;
+        let ended = matches!(self.status.phase, Phase::Ended { .. });
         unsafe {
             let fill = |r: Rect, c: COLORREF| {
                 let brush = CreateSolidBrush(c);
                 FillRect(dc, &rect(r), brush);
                 let _ = DeleteObject(brush.into());
             };
+            let round = |r: Rect, radius: i32, bg: COLORREF, edge: COLORREF| {
+                let brush = CreateSolidBrush(bg);
+                let pen = CreatePen(PS_SOLID, l.line, edge);
+                let (ob, op) = (SelectObject(dc, brush.into()), SelectObject(dc, pen.into()));
+                let _ = RoundRect(dc, r.x, r.y, r.x + r.w, r.y + r.h, radius, radius);
+                SelectObject(dc, ob);
+                SelectObject(dc, op);
+                let _ = DeleteObject(brush.into());
+                let _ = DeleteObject(pen.into());
+            };
             let text = |s: &str, r: Rect, font: HFONT, color: COLORREF, flags| {
                 SelectObject(dc, font.into());
                 SetTextColor(dc, color);
                 let mut buf: Vec<u16> = s.encode_utf16().collect();
                 let mut r = rect(r);
-                DrawTextW(dc, &mut buf, &mut r, flags | DT_NOPREFIX);
+                DrawTextW(dc, &mut buf, &mut r, flags | DT_NOPREFIX | DT_SINGLELINE | DT_VCENTER);
+            };
+            // How wide `s` is in `font`.
+            let width = |s: &str, font: HFONT| {
+                SelectObject(dc, font.into());
+                let mut buf: Vec<u16> = s.encode_utf16().collect();
+                let mut r = RECT::default();
+                DrawTextW(dc, &mut buf, &mut r, DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX);
+                r.right - r.left
             };
             SetBkMode(dc, TRANSPARENT);
-            fill(Rect { x: 0, y: 0, w: l.w, h: l.h }, INK);
-            fill(Rect { x: l.border, y: l.border, w: l.w - 2 * l.border, h: l.h - 2 * l.border }, BG);
-            let one_line = DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS;
-            text(&self.status.name, l.name, self.fonts.name, INK, one_line);
-            text(&self.status.line(), l.line, self.fonts.text, MUTED, one_line);
-            if let Some(n) = &self.status.notice {
-                text(n, l.notice, self.fonts.text, ACCENT, DT_WORDBREAK | DT_END_ELLIPSIS);
+            fill(Rect { x: 0, y: 0, w: l.w, h: l.h }, PAPER);
+
+            // Pause (ink), or Play while paused; off once it ended.
+            let hover = |p: Part| self.hover == Some(p);
+            let p = l.pause;
+            let can_pause = self.status.can_pause();
+            let pause_bg = if !can_pause {
+                GRAPHITE
+            } else if hover(Part::Pause) {
+                INK_HOVER
+            } else {
+                INK
+            };
+            round(p, l.key_radius, pause_bg, pause_bg);
+            let glyph = if can_pause { PAPER } else { rgb(0x6B, 0x6A, 0x66) };
+            let (cx, cy, g) = (p.x + p.w / 2, p.y + p.h / 2, l.small_px);
+            if self.status.paused {
+                let brush = CreateSolidBrush(glyph);
+                let pen = CreatePen(PS_SOLID, 1, glyph);
+                let (ob, op) = (SelectObject(dc, brush.into()), SelectObject(dc, pen.into()));
+                let pts = [
+                    windows::Win32::Foundation::POINT { x: cx - g / 3, y: cy - g / 2 },
+                    windows::Win32::Foundation::POINT { x: cx + g / 2, y: cy },
+                    windows::Win32::Foundation::POINT { x: cx - g / 3, y: cy + g / 2 },
+                ];
+                let _ = Polygon(dc, &pts);
+                SelectObject(dc, ob);
+                SelectObject(dc, op);
+                let _ = DeleteObject(brush.into());
+                let _ = DeleteObject(pen.into());
+            } else {
+                let bar = (g / 4).max(2);
+                fill(Rect { x: cx - bar - bar / 2, y: cy - g / 2, w: bar, h: g }, glyph);
+                fill(Rect { x: cx + bar / 2, y: cy - g / 2, w: bar, h: g }, glyph);
             }
-            fill(l.bar, TRACK);
-            let done = (l.bar.w as f32 * self.status.progress()).round() as i32;
-            fill(Rect { w: done, ..l.bar }, ACCENT);
+
             // Stop, or Close once it ended and stays open.
-            let b = l.stop;
-            let label = if matches!(self.status.phase, Phase::Ended { .. }) { "Close" } else { "Stop" };
-            let (face, ink) = if self.hover { (ACCENT, WHITE) } else { (BG, INK) };
-            fill(b, if self.hover { ACCENT } else { INK });
-            fill(Rect { x: b.x + l.border, y: b.y + l.border, w: b.w - 2 * l.border, h: b.h - 2 * l.border }, face);
-            text(label, b, self.fonts.name, ink, one_line | windows::Win32::Graphics::Gdi::DT_CENTER);
+            let s = l.stop;
+            round(s, l.key_radius, if hover(Part::Stop) { WHITE } else { PLATE }, LINE);
+            let (cx, cy, half) = (s.x + s.w / 2, s.y + s.h / 2, l.small_px * 5 / 12);
+            if ended {
+                let pen = CreatePen(PS_SOLID, (l.line * 2).max(2), INK);
+                let op = SelectObject(dc, pen.into());
+                let _ = windows::Win32::Graphics::Gdi::MoveToEx(dc, cx - half, cy - half, None);
+                let _ = windows::Win32::Graphics::Gdi::LineTo(dc, cx + half, cy + half);
+                let _ = windows::Win32::Graphics::Gdi::MoveToEx(dc, cx + half, cy - half, None);
+                let _ = windows::Win32::Graphics::Gdi::LineTo(dc, cx - half, cy + half);
+                SelectObject(dc, op);
+                let _ = DeleteObject(pen.into());
+            } else {
+                fill(Rect { x: cx - half, y: cy - half, w: 2 * half, h: 2 * half }, INK);
+            }
+
+            // The screen.
+            round(l.screen, l.screen_radius, LCD, LCD);
+            let (word, tone) = self.status.state();
+            let badge_w = width(word, self.fonts.small) + 2 * l.small_px / 2;
+            let t = l.top;
+            let badge = Rect { x: t.x, y: t.y + l.line * 2, w: badge_w, h: t.h - l.line * 4 };
+            let (badge_bg, badge_fg) = match tone {
+                Tone::Live => (RED, WHITE),
+                Tone::Done => (GREEN, INK),
+                Tone::Failed => (RED, WHITE),
+                Tone::Plain => (GRAPHITE, ALU),
+            };
+            round(badge, l.line * 6, badge_bg, badge_bg);
+            text(word, badge, self.fonts.small, badge_fg, DT_CENTER);
+            let right = self.status.right();
+            let right_w = width(&right, self.fonts.small);
+            let rr = Rect { x: t.x + t.w - right_w, w: right_w, ..t };
+            text(&right, rr, self.fonts.small, ALU, DT_RIGHT);
+            let gap = l.small_px * 2 / 3;
+            let name = Rect { x: badge.x + badge.w + gap, w: rr.x - gap - (badge.x + badge.w + gap), ..t };
+            text(&self.status.name, name, self.fonts.name, PAPER, DT_END_ELLIPSIS);
+
+            // The progress, or what's worth knowing.
+            let b = l.bottom;
+            if let Some(n) = &self.status.notice {
+                text(n, b, self.fonts.small, ERROR_TEXT, DT_END_ELLIPSIS);
+            } else {
+                let segs = leds(self.status.progress(), &self.marks);
+                let gap = l.line * 2;
+                let led_h = (l.line * 5).min(b.h);
+                let y = b.y + (b.h - led_h) / 2;
+                let n = segs.len() as i32;
+                for (i, &(on, mark)) in segs.iter().enumerate() {
+                    let i = i as i32;
+                    let x0 = b.x + (b.w + gap) * i / n;
+                    let x1 = b.x + (b.w + gap) * (i + 1) / n - gap;
+                    let c = match (on, mark) {
+                        (true, true) => RED,
+                        (true, false) => PAPER,
+                        (false, true) => LED_MARK,
+                        (false, false) => LED_OFF,
+                    };
+                    fill(Rect { x: x0, y, w: (x1 - x0).max(1), h: led_h }, c);
+                }
+            }
         }
     }
 }
@@ -535,15 +691,15 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             WM_HOTKEY if wp.0 as i32 == HOTKEY_KILL => with_app(|a| a.stop(FinishReason::Killed)).map(|_| LRESULT(0)),
             // Clicking never takes the focus from the app being automated.
             WM_MOUSEACTIVATE => Some(LRESULT(MA_NOACTIVATE as isize)),
-            // Dragged anywhere but the button.
+            // Dragged anywhere but the keys.
             WM_NCHITTEST => with_app(|a| {
                 let mut p = windows::Win32::Foundation::POINT { x: point(lp).0, y: point(lp).1 };
                 let _ = ScreenToClient(hwnd, &mut p);
-                LRESULT(if a.in_stop(p.x, p.y) { HTCLIENT } else { HTCAPTION } as isize)
+                LRESULT(if a.part_at(p.x, p.y).is_some() { HTCLIENT } else { HTCAPTION } as isize)
             }),
             WM_MOUSEMOVE => with_app(|a| {
                 let (x, y) = point(lp);
-                let hover = a.in_stop(x, y);
+                let hover = a.part_at(x, y);
                 if !a.tracking {
                     let mut t = TRACKMOUSEEVENT {
                         cbSize: size_of::<TRACKMOUSEEVENT>() as u32,
@@ -561,21 +717,25 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             }),
             WM_MOUSELEAVE => with_app(|a| {
                 a.tracking = false;
-                a.hover = false;
+                a.hover = None;
                 a.redraw();
                 LRESULT(0)
             }),
             WM_LBUTTONUP => {
                 let (x, y) = point(lp);
-                let ended = with_app(|a| {
-                    if !a.in_stop(x, y) {
-                        return false;
+                let ended = with_app(|a| match a.part_at(x, y) {
+                    Some(Part::Pause) => {
+                        a.toggle_pause();
+                        false
                     }
-                    let ended = matches!(a.status.phase, Phase::Ended { .. });
-                    if !ended {
-                        a.stop(FinishReason::Stopped);
+                    Some(Part::Stop) => {
+                        let ended = matches!(a.status.phase, Phase::Ended { .. });
+                        if !ended {
+                            a.stop(FinishReason::Stopped);
+                        }
+                        ended
                     }
-                    ended
+                    None => false,
                 });
                 if ended == Some(true) {
                     let _ = DestroyWindow(hwnd);
