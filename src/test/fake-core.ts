@@ -141,7 +141,7 @@ export class FakeCore {
   saveError: string | null = null;
   /** The pixel color `sample_pixel` reads, or null when unreadable. */
   pixel: string | null = "#123456";
-  picked = { x: 640, y: 360, color: "#00FF00" };
+  picked: { x: number; y: number; color: string; frozen: boolean } | null = { x: 640, y: 360, color: "#00FF00", frozen: false };
   /** The picture on the clipboard (a base64 PNG, as `paste_image` makes it), or null. */
   clipboard: string | null = null;
   /** The text on the clipboard, for `{clipboard}`, or null. */
@@ -211,7 +211,7 @@ export class FakeCore {
     this.files = new Map();
     this.saveError = null;
     this.pixel = "#123456";
-    this.picked = { x: 640, y: 360, color: "#00FF00" };
+    this.picked = { x: 640, y: 360, color: "#00FF00", frozen: false };
     this.clipboard = null;
     this.clipboardText = null;
     this.localNow = "2026-10-01T09:05:07";
@@ -522,7 +522,7 @@ export class FakeCore {
         check("y", a.y, "i32");
         return this.pixel;
       case "pick_pixel":
-        check("delayMs", a.delayMs, "u32");
+        if (this.mode !== "idle") throw BUSY;
         return this.picked;
       case "paste_image":
         if (!this.clipboard) throw { code: "image", message: "There's no picture on the clipboard. Copy or snip one first." } satisfies IpcError;

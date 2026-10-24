@@ -349,15 +349,15 @@ describe("runs automatically", () => {
       expect(core.argsOf("set_triggers")).toEqual([]);
     });
 
-    test("Pick from screen watches the pixel under the cursor after a countdown", async () => {
+    test("Pick from screen watches the pixel picked", async () => {
       await openTriggers();
       await add("When a pixel changes");
-      vi.useFakeTimers();
       core.hold("pick_pixel");
       await fireEvent.click(button("Pick from screen"));
       await settle();
-      expect(core.argsOf("pick_pixel")).toEqual([{ delayMs: 3000 }]);
-      core.held[0].resolve({ x: 11, y: 22, color: "#FFFFFF" });
+      expect(core.argsOf("pick_pixel")).toEqual([{}]);
+      expect(button("Picking…")).toBeDisabled();
+      core.held[0].resolve({ x: 11, y: 22, color: "#FFFFFF", frozen: false });
       await settle();
       expect(sent().pixel).toMatchObject({ x: 11, y: 22, color: "#FFFFFF" });
     });

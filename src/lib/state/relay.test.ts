@@ -1008,7 +1008,7 @@ describe("step edits", () => {
     await vi.advanceTimersByTimeAsync(1000);
     expect(core.commands()).toEqual([]);
     expect(relay.name).toBe("Export invoice to PDF");
-    expect(relay.picking).toBe(0);
+    expect(relay.picking).toBe(false);
   });
 
   test("an edit response for a macro the user left is dropped", async () => {
@@ -1331,29 +1331,36 @@ describe("undo and redo", () => {
   });
 });
 
-describe("Pick (pixel under the real cursor)", () => {
-  beforeEach(() => vi.useFakeTimers());
+describe("Pick from screen (the picker)", () => {
   const pixelStep = 11;
 
-  test("counts down 3 s, then points the pixel check there", async () => {
+  test("Relay waits for the picker, then points the pixel check at what was picked, and says so", async () => {
     core.hold("pick_pixel");
     const picking = relay.pickPixel(pixelStep);
     await settle();
-    expect(core.argsOf("pick_pixel")).toEqual([{ delayMs: 3000 }]);
-    expect(relay.picking).toBe(3);
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(relay.picking).toBe(2);
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(relay.picking).toBe(1);
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(relay.picking).toBe(1); // never shows 0 while waiting
-    core.held[0].resolve({ x: 5, y: 6, color: "#0000FF" });
+    expect(core.argsOf("pick_pixel")).toEqual([{}]);
+    expect(relay.picking).toBe(true);
+    core.held[0].resolve({ x: 5, y: 6, color: "#0000FF", frozen: false });
     await picking;
-    expect(relay.picking).toBe(0);
+    expect(relay.picking).toBe(false);
     expect(core.lastArgs("edit_macro")).toEqual({
       id: A,
       op: { op: "update_pixel_wait", index: pixelStep, x: 5, y: 6, color: "#0000FF", tolerance: 8, timeout_ms: 5000 },
     });
+    expect(relay.toast?.message).toBe("Picked 5, 6 · #0000FF");
+  });
+
+  test("picked from the frozen screen, it says so", async () => {
+    core.picked = { x: 566, y: 66, color: "#FFC21A", frozen: true };
+    await relay.pickPixel(pixelStep);
+    expect(relay.toast?.message).toBe("Picked 566, 66 · #FFC21A from the frozen screen");
+  });
+
+  test("cancelled (Esc), nothing changes and nothing is said", async () => {
+    core.picked = null;
+    await relay.pickPixel(pixelStep);
+    expect(core.argsOf("edit_macro")).toEqual([]);
+    expect([relay.picking, relay.toasts]).toEqual([false, []]);
   });
 
   test("a second Pick while one is running is ignored", async () => {
@@ -1374,7 +1381,7 @@ describe("Pick (pixel under the real cursor)", () => {
     core.held[0].resolve(core.picked);
     await p;
     expect(core.argsOf("edit_macro")).toEqual([]);
-    expect(relay.picking).toBe(0);
+    expect(relay.picking).toBe(false);
   });
 
   test("Pick on a step that isn't a pixel check does nothing", async () => {
@@ -1386,7 +1393,7 @@ describe("Pick (pixel under the real cursor)", () => {
     ["deleted", { op: "delete_step", index: pixelStep }],
     ["moved by a deletion before it", { op: "delete_step", index: 0 }],
     ["moved by an insertion before it", { op: "insert_wait", at: 0, dur: 500, label: "" }],
-  ] as const)("if the pixel check was %s during the countdown, nothing is changed", async (_what, op) => {
+  ] as const)("if the pixel check was %s while picking, nothing is changed", async (_what, op) => {
     core.hold("pick_pixel");
     const p = relay.pickPixel(pixelStep);
     await settle();
@@ -1395,13 +1402,13 @@ describe("Pick (pixel under the real cursor)", () => {
     core.held[0].resolve(core.picked);
     await p;
     expect(core.argsOf("edit_macro")).toEqual([]);
-    expect(relay.picking).toBe(0);
+    expect(relay.picking).toBe(false);
   });
 
-  test("a failed pick is shown and the countdown ends", async () => {
+  test("a refused pick is shown, and picking ends", async () => {
     core.fail("pick_pixel", "The screen can't be read");
     await relay.pickPixel(pixelStep);
-    expect(relay.picking).toBe(0);
+    expect(relay.picking).toBe(false);
     expect(relay.error).toBe("The screen can't be read");
   });
 

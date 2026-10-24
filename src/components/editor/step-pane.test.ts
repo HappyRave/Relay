@@ -164,16 +164,14 @@ describe("the Step tab", () => {
       expect(ops()).toEqual([]);
     });
 
-    test("Pick from screen counts down, then points the check at the pixel under the cursor", async () => {
+    test("Pick from screen opens the picker, then points the check at the pixel picked", async () => {
       await open(11);
-      vi.useFakeTimers();
       core.hold("pick_pixel");
       await fireEvent.click(button("Pick from screen"));
       await settle();
-      expect(core.argsOf("pick_pixel")).toEqual([{ delayMs: 3000 }]);
-      expect(button(/Point at it/)).toHaveTextContent("Point at it… 3");
-      expect(button(/Point at it/)).toBeDisabled();
-      core.held[0].resolve({ x: 5, y: 6, color: "#FF0000" });
+      expect(core.argsOf("pick_pixel")).toEqual([{}]);
+      expect(button("Picking…")).toBeDisabled();
+      core.held[0].resolve({ x: 5, y: 6, color: "#FF0000", frozen: false });
       await settle();
       expect(ops()).toEqual([{ op: "update_pixel_wait", ...base, x: 5, y: 6, color: "#FF0000" }]);
     });

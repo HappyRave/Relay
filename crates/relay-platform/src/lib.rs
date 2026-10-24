@@ -3,6 +3,7 @@
 //! key map are OS-independent so they can be tested anywhere.
 
 pub mod keymap;
+pub mod picker;
 pub mod processes;
 pub mod recorder;
 pub mod types;
@@ -63,6 +64,12 @@ pub trait Screen: Send + Sync {
     /// and out of every capture; returns at once. Nothing where the OS can't.
     fn mark(&self, area: Rect, dot: (i32, i32), ms: u32) {
         let _ = (area, dot, ms);
+    }
+    /// Lets the user pick a pixel on the screen with a loupe, live or frozen
+    /// (see [`picker`]); blocks until they pick one or cancel (`None`). `None`
+    /// where the OS can't.
+    fn pick(&self) -> Option<picker::Picked> {
+        None
     }
 }
 

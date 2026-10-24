@@ -67,7 +67,8 @@ export interface Backend {
   /** The color of a screen pixel as "#RRGGBB", or null if unreadable. */
   samplePixel(x: number, y: number): Promise<string | null>;
   /** After `delayMs`, the position and color under the cursor. */
-  pickPixel(delayMs: number): Promise<PickedPixel>;
+  /** Relay steps aside for the picker; the pixel picked, or null if the user cancelled. */
+  pickPixel(): Promise<PickedPixel | null>;
   /** The picture on the clipboard, for a Find image step (a base64 PNG). */
   pasteImage(): Promise<string>;
   /** Asks for a PNG or JPEG file and reads it. Returns null if cancelled. */
@@ -168,7 +169,7 @@ export const tauriBackend: Backend = {
   keyWarning: (combo) => invoke("key_warning", { combo }),
   holdHotkeys: (on) => invoke("hold_hotkeys", { on }),
   samplePixel: (x, y) => invoke("sample_pixel", { x, y }),
-  pickPixel: (delayMs) => invoke("pick_pixel", { delayMs }),
+  pickPixel: () => invoke("pick_pixel"),
   pasteImage: () => invoke("paste_image"),
   chooseImage: async () => {
     const picked = await open({ filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg"] }] });

@@ -274,8 +274,8 @@
           <UnitField label="Y" pre="Y" value={step.y} decimals={0} disabled={!editing} oncommit={(v) => updatePixel({ y: Math.round(v) })} />
         </span>
         <span></span>
-        <Key size="sm" disabled={!editing || relay.picking > 0} onclick={() => row && relay.pickPixel(row.index)}>
-          <Icon name="pick" size={14} />{relay.picking > 0 ? `Point at it… ${relay.picking}` : "Pick from screen"}
+        <Key size="sm" disabled={!editing || relay.picking} onclick={() => row && relay.pickPixel(row.index)}>
+          <Icon name="pick" size={14} />{relay.picking ? "Picking…" : "Pick from screen"}
         </Key>
         <label class="k" for="f-color">Color</label>
         <span class="color field">

@@ -330,24 +330,27 @@ pub struct PickedPixel {
     pub x: i32,
     pub y: i32,
     pub color: Rgb,
+    /// Picked from the frozen screen.
+    pub frozen: bool,
 }
 
-/// Waits `delay_ms` (so the user can point at something), then reads the
-/// pixel under the cursor.
+/// Relay steps aside and the picker shows on the screen (see
+/// `relay_platform::picker`); `None` when the user cancelled.
 #[tauri::command]
-pub async fn pick_pixel(platform: State<'_, Arc<Platform>>, delay_ms: u32) -> Result<PickedPixel> {
+pub async fn pick_pixel(app: AppHandle, platform: State<'_, Arc<Platform>>) -> Result<Option<PickedPixel>> {
+    when_idle(&app)?;
     let platform = platform.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        std::thread::sleep(std::time::Duration::from_millis(delay_ms.min(10_000) as u64));
-        let (x, y) = platform.screen.cursor_pos();
-        platform
-            .screen
-            .pixel(x, y)
-            .map(|color| PickedPixel { x, y, color })
-            .ok_or(IpcError { code: "unavailable", message: "Couldn't read the screen there".into() })
+    crate::presence::step_aside(&app, true);
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        // Windows fades a window out as it hides.
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        platform.screen.pick()
     })
     .await
-    .unwrap_or(Err(IpcError { code: "unavailable", message: "Couldn't read the screen".into() }))
+    .ok()
+    .flatten();
+    crate::presence::step_aside(&app, false);
+    Ok(picked.map(|p| PickedPixel { x: p.x, y: p.y, color: p.color, frozen: p.frozen }))
 }
 
 // — images —

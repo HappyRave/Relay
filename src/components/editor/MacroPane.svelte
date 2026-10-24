@@ -253,8 +253,8 @@
                   <input id="t-color" value={t.pixel.color} maxlength="7" spellcheck="false" disabled={!editable} onchange={setPixelColor} />
                 </span>
                 <span></span>
-                <Key size="sm" disabled={!editable || relay.picking > 0} onclick={relay.pickTriggerPixel}>
-                  <Icon name="pick" size={14} />{relay.picking > 0 ? `Point at it… ${relay.picking}` : "Pick from screen"}
+                <Key size="sm" disabled={!editable || relay.picking} onclick={relay.pickTriggerPixel}>
+                  <Icon name="pick" size={14} />{relay.picking ? "Picking…" : "Pick from screen"}
                 </Key>
               </span>
             {:else if k === "image"}

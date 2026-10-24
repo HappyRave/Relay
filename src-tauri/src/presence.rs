@@ -43,6 +43,8 @@ pub struct Presence {
     pub player_mode: bool,
     /// Relay put away in the tray.
     pub tucked: bool,
+    /// Relay steps aside while the user picks from the screen.
+    pub aside: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,6 +57,9 @@ pub struct Shown {
 /// if the settings say so); the player shows whenever a session runs without
 /// the window, when a trigger started the run, and in player mode.
 pub fn shown(p: Presence, session: Session, settings: &Settings) -> Shown {
+    if p.aside {
+        return Shown { main: false, player: false };
+    }
     let aside = match session {
         Session::Idle => false,
         Session::Recording => settings.hide_while_recording,
@@ -105,6 +110,7 @@ pub struct PresenceState(Mutex<Inner>);
 #[derive(Default)]
 struct Inner {
     tucked: bool,
+    aside: bool,
     session: Session,
     player: Option<Rect>,
 }
@@ -125,7 +131,7 @@ pub fn update<R: Runtime>(
         let state = app.state::<PresenceState>();
         let mut s = state.0.lock();
         s.session = session;
-        (shown(Presence { player_mode, tucked: s.tucked }, session, &settings), s.player)
+        (shown(Presence { player_mode, tucked: s.tucked, aside: s.aside }, session, &settings), s.player)
     };
     // Not under the lock: these call into the main thread.
     if let Some(main) = app.get_webview_window("main") {
@@ -186,6 +192,12 @@ pub fn set_player_mode<R: Runtime>(app: &AppHandle<R>, on: bool) {
 pub fn set_tucked<R: Runtime>(app: &AppHandle<R>, tucked: bool) {
     app.state::<PresenceState>().0.lock().tucked = tucked;
     refresh(app, !tucked);
+}
+
+/// Relay's windows step aside while the user picks from the screen, and come back after.
+pub fn step_aside<R: Runtime>(app: &AppHandle<R>, on: bool) {
+    app.state::<PresenceState>().0.lock().aside = on;
+    refresh(app, !on);
 }
 
 /// Whether Relay is in the tray.
@@ -254,9 +266,9 @@ mod tests {
     const REC: Session = Session::Recording;
     const PLAY: Session = Session::Playing { triggered: false };
     const TRIGGERED: Session = Session::Playing { triggered: true };
-    const WINDOW: Presence = Presence { player_mode: false, tucked: false };
-    const PLAYER: Presence = Presence { player_mode: true, tucked: false };
-    const TRAY: Presence = Presence { player_mode: false, tucked: true };
+    const WINDOW: Presence = Presence { player_mode: false, tucked: false, aside: false };
+    const PLAYER: Presence = Presence { player_mode: true, tucked: false, aside: false };
+    const TRAY: Presence = Presence { player_mode: false, tucked: true, aside: false };
 
     fn show(p: Presence, s: Session) -> (bool, bool) {
         let r = shown(p, s, &Settings::default());
@@ -299,9 +311,16 @@ mod tests {
         assert_eq!(show(TRAY, IDLE), (false, false));
         assert_eq!(show(TRAY, REC), (false, true));
         assert_eq!(show(TRAY, PLAY), (false, true));
-        let tucked_player = Presence { player_mode: true, tucked: true };
+        let tucked_player = Presence { player_mode: true, tucked: true, aside: false };
         assert_eq!(show(tucked_player, IDLE), (false, false));
         assert_eq!(show(tucked_player, PLAY), (false, true));
+    }
+
+    #[test]
+    fn picking_from_the_screen_steps_every_window_aside() {
+        for p in [WINDOW, PLAYER] {
+            assert_eq!(show(Presence { aside: true, ..p }, IDLE), (false, false));
+        }
     }
 
     #[test]

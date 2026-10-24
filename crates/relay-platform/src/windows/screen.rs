@@ -96,6 +96,10 @@ impl Screen for WinScreen {
         super::marker::mark(area, dot, ms);
     }
 
+    fn pick(&self) -> Option<crate::picker::Picked> {
+        super::picker::pick()
+    }
+
     /// Leaves `exclude` out with `WDA_EXCLUDEFROMCAPTURE` (Windows 10 2004
     /// and later; on older versions the window shows in the picture) for the
     /// moment of the capture only, so other screenshot tools still see it.

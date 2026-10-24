@@ -54,8 +54,6 @@ const RENAME_DEBOUNCE_MS = 250;
 export const TRIM_PAUSE_MS = 1000;
 /** How far past the last tick the playhead may run before the next one arrives. */
 const MAX_EXTRAPOLATION_MS = 100;
-/** Seconds "Pick" waits before reading the pixel under the cursor. */
-const PICK_SECONDS = 3;
 /** What an image is for, besides a step: a step being inserted, or the image trigger. */
 export const INSERTING = -1;
 export const TRIGGER = -2;
@@ -175,8 +173,8 @@ export class RelayStore {
   shownToasts = $derived(this.toasts.slice(-MAX_TOASTS));
   /** The newest toast. */
   toast = $derived<ShownToast | null>(this.toasts.at(-1) ?? null);
-  /** Seconds left before "Pick" reads the cursor's pixel, or 0 when not picking. */
-  picking = $state(0);
+  /** The picker is on the screen. */
+  picking = $state(false);
   /**
    * While an image is coming (a snip waits for the user): where from, and
    * what for: a Find image step's index, INSERTING one, or the TRIGGER.
@@ -1223,20 +1221,21 @@ export class RelayStore {
   };
 
   /**
-   * "Pick": counts down, reads the pixel under the real cursor, then calls
-   * `use` if the same macro is still open (the user may have moved on).
+   * "Pick from screen": Relay steps aside for the picker; once the user picks,
+   * calls `use` if the same macro is still open, and says what was picked.
    */
   private async pick(use: (p: PickedPixel) => Promise<unknown> | void) {
     const id = this.view?.id;
     if (!id || this.picking || this.mode !== "idle") return;
-    this.picking = PICK_SECONDS;
-    const countdown = setInterval(() => (this.picking = Math.max(1, this.picking - 1)), 1000);
+    this.picking = true;
     try {
-      const p = await this.run(this.backend.pickPixel(PICK_SECONDS * 1000));
-      if (p && this.view?.id === id) await use(p);
+      const p = await this.run(this.backend.pickPixel());
+      if (p && this.view?.id === id) {
+        await use(p);
+        this.notify(`Picked ${p.x}, ${p.y} · ${p.color}${p.frozen ? " from the frozen screen" : ""}`);
+      }
     } finally {
-      clearInterval(countdown);
-      this.picking = 0;
+      this.picking = false;
     }
   }
 
