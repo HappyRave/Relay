@@ -2,7 +2,7 @@
 import type { TriggerOn } from "./TriggerOn";
 
 /**
- * A row of the Library tab.
+ * A row of the Library.
  */
 export type MacroListItem = { id: string, name: string, duration: number, step_count: number, runs: number, last_run: string | null, hotkey: string | null, 
 /**

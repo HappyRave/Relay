@@ -44,7 +44,6 @@
     if (error) return { word: "STOPPED", live: false };
     return { word: "READY", live: false };
   });
-  const countdown = $derived(Math.max(1, Math.ceil(relay.countLeft / 1000)));
   const row = $derived(rows ? `Row ${Math.min(relay.loopIdx + 1, rows)} / ${rows}` : null);
   const time = $derived(`${fmtClock(Math.min(relay.cur, relay.duration))} / ${fmtClock(relay.duration)}`);
   const last = $derived.by(() => {
@@ -56,7 +55,7 @@
   const clicks = $derived(relay.steps.filter((s) => s.kind === "click").map((s) => s.t / (relay.duration || 1)));
   /** What a screen reader hears when the state changes (not every tick). */
   const spoken = $derived.by(() => {
-    if (relay.mode === "countdown") return `Get ready, ${countdown}`;
+    if (relay.mode === "countdown") return `Get ready, ${relay.countdown}`;
     if (relay.mode === "recording") return "Recording";
     if (relay.mode === "playing") return `Playing ${relay.name}`;
     if (relay.mode === "paused") return "Paused";
@@ -115,7 +114,7 @@
         >
       </span>
       <span class="rt num">
-        {#if relay.mode === "countdown"}<span class="digit">{countdown}</span>
+        {#if relay.mode === "countdown"}<span class="digit">{relay.countdown}</span>
         {:else if relay.mode === "recording"}{relay.steps.length} {relay.steps.length === 1 ? "step" : "steps"}
         {:else if relay.playing && row}{row}
         {:else}{time}{/if}

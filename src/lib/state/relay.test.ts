@@ -48,7 +48,7 @@ describe("startup", () => {
     expect(core.lastArgs("load_macro")).toEqual({ id: A });
     expect(r.ready).toBe(true);
     expect(r.name).toBe("Export invoice to PDF");
-    expect(r.tab).toBe("steps");
+    expect(r.inspector).toBe("step");
     expect(r.place).toBe("library");
   });
 
@@ -693,6 +693,11 @@ describe("places", () => {
     relay.start();
     key("ArrowLeft", { altKey: true });
     expect(relay.place).toBe("library");
+    // Not from the editor during a session, where its Back is off too.
+    relay.go("macro");
+    core.emit(session("playing", B));
+    key("ArrowLeft", { altKey: true });
+    expect(relay.place).toBe("macro");
   });
 
   test("opening the macro already open loads nothing", async () => {
@@ -728,8 +733,8 @@ describe("places", () => {
 });
 
 describe("library", () => {
-  test("opening a macro loads it, its triggers and data file, on the Steps tab", async () => {
-    relay.tab = "triggers";
+  test("opening a macro loads it, its triggers and data file, on the Step tab", async () => {
+    relay.inspector = "macro";
     relay.cur = 3000;
     await relay.loadMacro(B);
     expect(core.calls).toEqual([
@@ -740,7 +745,7 @@ describe("library", () => {
     ]);
     expect(relay.view?.id).toBe(B);
     expect(relay.triggers?.hotkey.combo).toBe("Ctrl + Alt + 2");
-    expect(relay.tab).toBe("steps");
+    expect(relay.inspector).toBe("step");
     expect(relay.cur).toBe(0);
   });
 
@@ -866,7 +871,7 @@ describe("library", () => {
   });
 
   test("deleting another macro keeps the open one, and so does its Undo", async () => {
-    relay.tab = "triggers";
+    relay.inspector = "macro";
     await relay.deleteMacro(C);
     expect(core.commands()).toEqual(["delete_macro", "list_macros"]);
     expect(relay.view?.id).toBe(A);
@@ -877,7 +882,7 @@ describe("library", () => {
     expect(core.commands()).toEqual(["restore_macro", "list_macros"]);
     expect(relay.library.map((m) => m.id)).toEqual([A, B, C, D]);
     expect(relay.view?.id).toBe(A);
-    expect(relay.tab).toBe("triggers");
+    expect(relay.inspector).toBe("macro");
   });
 
   test("a macro whose hotkey was taken while it was in the trash comes back with it off, and says so", async () => {
@@ -905,7 +910,7 @@ describe("library", () => {
     expect(relay.library).toEqual([]);
     expect(relay.view).toBeNull();
     expect(relay.screenUrl).toBeNull(); // its screenshot goes with it
-    expect(relay.triggerStatus).toBeNull(); // nothing for the Triggers tab to write to
+    expect(relay.triggerStatus).toBeNull(); // nothing for the Macro tab to write to
   });
 
   test("a refused delete (a session is running) is explained and nothing moves", async () => {
@@ -1687,10 +1692,19 @@ describe("export", () => {
 });
 
 describe("keyboard", () => {
-  beforeEach(() => relay.start());
+  beforeEach(() => {
+    relay.start();
+    relay.go("macro");
+  });
 
   test("Ctrl + Z undoes, Ctrl + Y and Ctrl + Shift + Z redo", async () => {
     await relay.edit({ op: "delete_step", index: 0 });
+    relay.go("library");
+    key("z", { ctrlKey: true });
+    key("y", { ctrlKey: true });
+    await settle();
+    expect(core.argsOf("undo_edit")).toEqual([]); // only where the macro shows
+    relay.go("macro");
     key("z", { ctrlKey: true });
     await settle();
     key("y", { ctrlKey: true });

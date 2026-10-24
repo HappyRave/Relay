@@ -15,7 +15,6 @@
   import { relay, TRIGGER } from "../../lib/state/relay.svelte";
   import { playSummary } from "../../lib/editor/summary";
   import { CLEARED, DAY_NAMES, hasTrigger, TRIGGER_KINDS, TRIGGER_NAME, triggerNote, triggersSummary, triggerText, type TriggerKind } from "../../lib/editor/triggers";
-  import { SPEEDS } from "../../lib/transport";
   import { plural } from "../../lib/format";
   import { toMs } from "../../lib/fields";
   import { areaChoice, pngUrl } from "../../lib/image";
@@ -109,7 +108,7 @@
         </span>
       {/if}
       <span class="k" id="m-speed">Speed</span>
-      <Choice labelledby="m-speed" options={SPEEDS.map((s): [number, string] => [s, `${s}×`])} value={pb.speed} onchange={(speed) => relay.setPlayback({ speed })} />
+      <Choice labelledby="m-speed" options={[0.5, 1, 2, 4].map((s): [number, string] => [s, `${s}×`])} value={pb.speed} onchange={(speed) => relay.setPlayback({ speed })} />
 
       <span class="k">Data file</span>
       <span class="data">

@@ -42,7 +42,7 @@ const MISSED_AFTER: TimeDelta = TimeDelta::minutes(2);
 pub type AllTriggers = Arc<[(Uuid, MacroTriggers)]>;
 
 /// Whether triggers may fire (paused by the kill switch, resumed from the
-/// tray or the Triggers tab), and a nudge for the app watcher when they change.
+/// tray or the Library), and a nudge for the app watcher when they change.
 pub struct TriggerState {
     paused: AtomicBool,
     /// Each change sends a sender the watcher answers once it has looked.

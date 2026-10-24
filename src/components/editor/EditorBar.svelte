@@ -108,7 +108,8 @@
     aria-keyshortcuts={ariaKeys(keys.record)}
     title="{relay.recording ? 'Stop recording' : 'Record a new macro'}{keyHint(keys.record)}"
     disabled={relay.playing}
-    onclick={relay.toggleRec}><Icon name="record" size={14} /></Key
+    onclick={relay.toggleRec}
+    >{#if relay.mode === "countdown"}<span class="num">{relay.countdown}</span>{:else}<Icon name="record" size={14} />{/if}</Key
   >
   <Key
     variant="ink"

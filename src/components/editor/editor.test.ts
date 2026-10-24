@@ -78,9 +78,14 @@ describe("the top bar", () => {
     render(EditorBar);
     await userEvent.click(button("Record a new macro"));
     expect(core.commands()).toEqual(["toggle_record"]);
+    core.emit({ type: "session", mode: "countdown", macro_id: null, source: null });
+    core.emit({ type: "countdown", left_ms: 2400 });
+    await settle();
+    expect(button("Stop recording")).toHaveTextContent("3"); // the window kept while recording counts down too
     core.emit({ type: "session", mode: "recording", macro_id: null, source: null });
     await settle();
     expect(button("Stop recording")).toBeInTheDocument();
+    expect(button("Stop recording")).not.toHaveTextContent("3");
     core.emit({ type: "session", mode: "playing", macro_id: A, source: null });
     await settle();
     expect(screen.getByRole("button", { name: /record/i })).toBeDisabled();
@@ -248,6 +253,9 @@ describe("the steps list", () => {
     await userEvent.click(screen.getByRole("menuitem", { name: "Text" }));
     await settle();
     expect(core.lastArgs("edit_macro")?.op).toEqual({ op: "insert_text", at: relay.steps[4].t, text: "" });
+    // Selected, and the inspector open on it (it slides over the list in a narrow window).
+    expect(relay.steps[relay.selected]).toMatchObject({ kind: "text", text: "" });
+    expect([relay.inspector, relay.inspectorOpen]).toEqual(["step", true]);
   });
 
   test("Find a step filters the rows, and Ctrl + F goes there", async () => {

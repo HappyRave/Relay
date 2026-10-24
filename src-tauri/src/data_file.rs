@@ -30,7 +30,7 @@ pub fn for_playing(events: &[Event], path: Option<&Path>) -> Result<Option<DataT
     Ok(table)
 }
 
-/// What the Settings tab shows: the file's columns and rows, or why `m`
+/// What the Macro tab shows: the file's columns and rows, or why `m`
 /// can't play with it.
 pub fn info(m: &Macro, path: &Path) -> DataFileInfo {
     let (columns, rows, error) = match read(path) {

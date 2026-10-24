@@ -17,10 +17,10 @@ use crate::storage::write_atomic;
 
 /// The window's default size at 100% zoom, in CSS pixels (the user can resize it).
 pub const EXPANDED: (f64, f64) = (944.0, 612.0);
-/// The smallest editor: room for the transport, the four tabs, and the
-/// preview and side panel at their narrowest (the UI's `layout.ts`).
+/// The smallest window: the editor at its narrowest, its inspector sliding
+/// over the steps list (`layout.ts`).
 pub const MIN_EXPANDED: (f64, f64) = (760.0, 520.0);
-/// Space kept between the widget and the edges of the work area (CSS px).
+/// Space kept between the window and the edges of the work area (CSS px).
 const MARGIN: f64 = 16.0;
 /// Default distance from the bottom of the work area, as in the design.
 const BOTTOM_GAP: f64 = 24.0;
@@ -33,7 +33,7 @@ pub struct WindowPrefs {
     /// The player stands in for the window.
     pub player_mode: bool,
     /// Where the user put the window's bottom-center, in physical
-    /// virtual-desktop pixels. Placing the widget may keep it off an edge,
+    /// virtual-desktop pixels. Placing the window may keep it off an edge,
     /// but only a drag changes this.
     pub anchor: Option<(i32, i32)>,
     /// The editor's size, in CSS px, if the user resized it.
@@ -114,7 +114,7 @@ pub struct WindowState {
     text: Mutex<f64>,
     /// When the anchor last changed and hasn't been saved yet.
     dirty: Mutex<Option<Instant>>,
-    /// The bottom-center [`place`] last put the widget at, so the Moved
+    /// The bottom-center [`place`] last put the window at, so the Moved
     /// events that raises aren't taken for a drag. Cleared by a drag.
     placed: Mutex<Option<(i32, i32)>>,
     /// The same for the player.
@@ -143,7 +143,7 @@ impl WindowState {
         self.prefs.lock().clone()
     }
 
-    /// Where a widget of `css` size goes in `work` (see [`layout`]), noted as
+    /// Where a window of `css` size goes in `work` (see [`layout`]), noted as
     /// placed there. The user's anchor stays as it is.
     fn placement(&self, work: Rect, sf: f64, zoom: f64, css: (f64, f64), anchor: Option<(i32, i32)>) -> Rect {
         let r = layout(work, sf, zoom, css, anchor);
@@ -151,7 +151,7 @@ impl WindowState {
         r
     }
 
-    /// The widget's bottom-center is now `at`. Arriving where it was placed
+    /// The window's bottom-center is now `at`. Arriving where it was placed
     /// changes nothing; anywhere else, the user dragged it, and that's the new anchor.
     fn moved(&self, at: (i32, i32)) {
         let mut placed = self.placed.lock();
@@ -276,8 +276,8 @@ impl Rect {
     }
 }
 
-/// Which of the `monitors` (their full bounds) the widget goes on: the one
-/// its `anchor` is on (the taskbar included, as the widget is then kept above
+/// Which of the `monitors` (their full bounds) the window goes on: the one
+/// its `anchor` is on (the taskbar included, as the window is then kept above
 /// it), else the nearest one (its monitor was unplugged, or the anchor is in
 /// a gap between monitors), else the `primary` one. `monitors` isn't empty.
 pub fn choose_monitor(monitors: &[Rect], anchor: Option<(i32, i32)>, primary: usize) -> usize {
@@ -289,7 +289,7 @@ pub fn choose_monitor(monitors: &[Rect], anchor: Option<(i32, i32)>, primary: us
     (0..monitors.len()).min_by_key(|&i| (monitors[i].distance2(a), i != primary)).expect("a monitor")
 }
 
-/// Where a widget of `css` size goes in the `work` area at `sf` scale and
+/// Where a window of `css` size goes in the `work` area at `sf` scale and
 /// `zoom`: its bottom-center at `anchor` (or the default spot, centered near
 /// the bottom), kept inside the work area with margins, and centered when it
 /// can't fit them.
@@ -304,7 +304,7 @@ pub fn layout(work: Rect, sf: f64, zoom: f64, css: (f64, f64), anchor: Option<(i
     Rect { x, y, w, h }
 }
 
-/// Sizes and positions the window for a widget of `css` size, keeping its
+/// Sizes and positions the window for a window of `css` size, keeping its
 /// bottom-center at the saved anchor (or the default spot on the primary
 /// monitor), inside the work area of the monitor [`choose_monitor`] picks.
 /// The saved anchor stays where the user put it, so switching sizes near an
@@ -445,7 +445,7 @@ fn hold_size(w: u32, h: u32) {
     HELD_SIZE.store((w as u64) << 32 | h as u64, Ordering::SeqCst);
 }
 
-/// Once the widget is dropped after a scale change, it stops holding its size,
+/// Once the window is dropped after a scale change, it stops holding its size,
 /// is sized again and is kept inside the work area of the monitor it's on.
 fn rescale_after_drag(window: &WebviewWindow) {
     static WATCHING: AtomicBool = AtomicBool::new(false);
@@ -538,7 +538,7 @@ pub fn close_or_hide<R: Runtime>(app: &AppHandle<R>) -> bool {
     to_tray
 }
 
-/// Tracks the widget's bottom-center while the user drags it; saved shortly after it stops.
+/// Tracks the window's bottom-center while the user drags it; saved shortly after it stops.
 pub fn on_moved(window: &WebviewWindow, state: &WindowState) {
     let (Ok(pos), Ok(size)) = (window.inner_position(), window.inner_size()) else { return };
     state.moved((pos.x + size.width as i32 / 2, pos.y + size.height as i32));
@@ -682,7 +682,7 @@ mod tests {
 
     #[test]
     fn zoom_fits_small_screens_only() {
-        // 1920x1080 at 100% (taskbar 48 px): the widget fits as designed.
+        // 1920x1080 at 100% (taskbar 48 px): the window fits as designed.
         assert_eq!(zoom_for_work_area(1920, 1032, 1.0), 1.0);
         // 1366x768 at 125%: 1093x590 logical, so it shrinks to fit the height.
         let z = zoom_for_work_area(1366, 720, 1.25);

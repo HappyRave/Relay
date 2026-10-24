@@ -64,7 +64,7 @@ pub fn cursor_path(events: &[Event]) -> Vec<MovePoint> {
         .collect()
 }
 
-/// A row of the Library tab.
+/// A row of the Library.
 #[derive(Debug, Clone, Serialize, TS)]
 #[ts(export)]
 pub struct MacroListItem {

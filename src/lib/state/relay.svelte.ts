@@ -21,7 +21,6 @@ import type {
   Step,
   StepOf,
   Place,
-  Tab,
   TriggerStatus,
 } from "../types";
 import type { SystemLook } from "../ipc/bindings/SystemLook";
@@ -40,7 +39,6 @@ import { backend as defaultBackend, type Backend, type IpcError } from "../ipc/b
 import { DEFAULT_LOOK, DEFAULT_PLAYBACK, DEFAULT_SETTINGS } from "../defaults";
 import { isTauri, savePanes, savedWindow, setPlayerMode, showWindow } from "../platform/window";
 import { NO_PANES } from "../layout";
-import { nextRepeat, nextSpeed } from "../transport";
 import type { Panes } from "../ipc/bindings/Panes";
 import { lastIndexAtOrBefore } from "../preview/geometry";
 import { currentStepIndex, jumpTarget } from "../timeline/lanes";
@@ -58,7 +56,6 @@ const MAX_EXTRAPOLATION_MS = 100;
 /** What an image is for, besides a step: a step being inserted, or the image trigger. */
 export const INSERTING = -1;
 export const TRIGGER = -2;
-export const MAX_REPEATS = 99;
 const EMPTY_DESKTOP: Rect = { x: 0, y: 0, w: 1920, h: 1080 };
 /** Inputs with their own Ctrl + Z. */
 const TEXT_INPUTS = ["text", "search", "number"];
@@ -110,6 +107,8 @@ export class RelayStore {
   /** What makes the sounds (tests listen in). */
   soundPlayer: (name: SoundName) => void = playSound;
   countLeft = $state(0);
+  /** The countdown's seconds left, as shown. */
+  countdown = $derived(Math.max(1, Math.ceil(this.countLeft / 1000)));
   loopIdx = $state(0);
   /** The loops (null: forever) and speed of the playback running, from its ticks; null before the first. */
   playInfo = $state.raw<{ loops: number | null; speed: number } | null>(null);
@@ -132,7 +131,7 @@ export class RelayStore {
   screenUrl = $state<string | null>(null);
   /** The open macro's triggers, with the next scheduled run and hotkey problems. */
   triggerStatus = $state.raw<TriggerStatus | null>(null);
-  /** The open macro's triggers couldn't be loaded (the Triggers tab offers to retry). */
+  /** The open macro's triggers couldn't be loaded (the Macro tab offers to retry). */
   triggersFailed = $state(false);
   /** The open macro's data file (its columns and rows, or why it can't be used); null without one. */
   dataFile = $state.raw<DataFileInfo | null>(null);
@@ -142,7 +141,7 @@ export class RelayStore {
   autostart = $state(false);
   /** Running programs, for the "When app launches" suggestions. */
   processes = $state.raw<string[]>([]);
-  /** The run history, newest first (loaded while the Library tab shows it). */
+  /** The run history, newest first (loaded while Activity shows it). */
   runs = $state.raw<RunEntry[]>([]);
 
   // — UI —
@@ -159,7 +158,6 @@ export class RelayStore {
   settingsSection = $state<"recording" | "keys" | "window" | "appearance" | "sound">("recording");
   /** The settings came from Rust (until then, they're the defaults). */
   private settingsKnown = $state(false);
-  tab = $state<Tab>("steps");
   /** What the Library shows: its macros, or Activity (every run, or only the problems). */
   libraryShows = $state<"macros" | "runs" | "problems">("macros");
   /** Which macros it lists: all, those with triggers, or those run lately. */
@@ -512,7 +510,7 @@ export class RelayStore {
     // (a focused slider or switch doesn't).
     const t = e.target;
     const typing = t instanceof HTMLTextAreaElement || (t instanceof HTMLInputElement && TEXT_INPUTS.includes(t.type));
-    if ((e.ctrlKey || e.metaKey) && !e.altKey && !typing && (key === "z" || key === "y")) {
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !typing && (key === "z" || key === "y") && this.place === "macro") {
       e.preventDefault();
       if (key === "y" || e.shiftKey) this.redo();
       else this.undo();
@@ -524,7 +522,7 @@ export class RelayStore {
       this.inspectorOpen = true;
       return;
     }
-    if (e.altKey && !e.ctrlKey && !e.shiftKey && e.key === "ArrowLeft" && !typing) {
+    if (e.altKey && !e.ctrlKey && !e.shiftKey && e.key === "ArrowLeft" && !typing && !(this.place === "macro" && this.mode !== "idle")) {
       e.preventDefault();
       this.back();
       return;
@@ -775,7 +773,6 @@ export class RelayStore {
   loadMacro = async (id: string) => {
     if (this.recording || this.playing) return;
     await this.showMacro(id);
-    this.tab = "steps";
   };
 
   /** A recording was saved: it opens, ready to be named, and says so. */
@@ -909,7 +906,7 @@ export class RelayStore {
       return this.fail(e);
     }
     await this.refreshLibrary();
-    if (!reopen) return; // stay on the macro and tab the user is on
+    if (!reopen) return; // stay where the user is
     await this.loadMacro(id);
     this.place = "library";
   };
@@ -1085,6 +1082,7 @@ export class RelayStore {
       this.selected = i;
       this.selection = [i];
       this.inspector = "step";
+      this.inspectorOpen = true;
     }
   };
 
@@ -1270,8 +1268,8 @@ export class RelayStore {
   pickPixel = (index: number) => {
     const picked = this.steps[index];
     if (picked?.kind !== "pixel_wait") return;
-    // Steps may be edited during the countdown: only the same check, still in
-    // its row with its first event where it was, is updated.
+    // The macro may change while picking: only the same check, still in its
+    // row with its first event where it was, is updated.
     const item = picked.items[0];
     return this.pick((p) => {
       const step = this.steps[index];
@@ -1308,30 +1306,6 @@ export class RelayStore {
     if (r === "forever") return this.setPlayback({ repeat: { count: this.repeatCount } });
     this.lastCounts = { ...this.lastCounts, [this.view.id]: r.count };
     return this.setPlayback({ repeat: "forever" });
-  };
-
-  /** One repeat fewer, down to 1; while looping forever, back to the remembered count. */
-  fewerRepeats = () => {
-    if (this.playback.repeat === "forever") return this.setPlayback({ repeat: { count: this.repeatCount } });
-    if (this.repeatCount > 1) return this.setPlayback({ repeat: { count: this.repeatCount - 1 } });
-  };
-
-  /** One repeat more, up to 99 (not while looping forever). */
-  moreRepeats = () => {
-    if (this.playback.repeat !== "forever" && this.repeatCount < MAX_REPEATS) {
-      return this.setPlayback({ repeat: { count: this.repeatCount + 1 } });
-    }
-  };
-
-  /** The narrow bar's speed button: the next speed (0.5× → 1× → 2× → 4× → 0.5×). */
-  cycleSpeed = () => this.setPlayback({ speed: nextSpeed(this.playback.speed) });
-
-  /** The narrow bar's folded repeat: 1 → 2 → 3 → 5 → 10 → forever → 1. */
-  cycleRepeat = () => {
-    if (!this.view) return;
-    const r = this.playback.repeat;
-    if (r !== "forever") this.lastCounts = { ...this.lastCounts, [this.view.id]: r.count };
-    return this.setPlayback({ repeat: nextRepeat(r) });
   };
 
   // — data file —

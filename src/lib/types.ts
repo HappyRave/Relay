@@ -19,7 +19,6 @@ export type { Mode } from "./ipc/bindings/Mode";
 export type { Settings } from "./ipc/bindings/Settings";
 
 /** The editor's side panel. */
-export type Tab = "steps" | "triggers" | "macro";
 /** Where the window is: the Library, a macro, or Relay's settings. */
 export type Place = "library" | "macro" | "settings";
 /** Where a Find image step's image comes from: Windows' snip, the clipboard, or a file. */

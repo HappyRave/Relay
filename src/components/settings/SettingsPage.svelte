@@ -145,7 +145,7 @@
           ["system", "Like Windows"],
           ["always", "Always"],
         ])}
-        {@render toggle("show_click_labels", "Show click labels", "Next to the numbered clicks in the preview.")}
+        {@render toggle("show_click_labels", "Show click labels", "Next to the selected click in the preview.")}
         {@render choice("path_mode", "Mouse path", [
           ["full", "Whole path"],
           ["trail", "Played part"],
