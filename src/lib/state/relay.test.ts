@@ -1849,3 +1849,55 @@ describe("Relay's keys and the first run", () => {
     expect(core.lastArgs("hold_hotkeys")).toEqual({ on: false });
   });
 });
+
+describe("sounds", () => {
+  const heard = () => {
+    const names: string[] = [];
+    relay.soundPlayer = (n) => void names.push(n);
+    return names;
+  };
+
+  test("off by default: nothing plays", async () => {
+    const names = heard();
+    core.emit(session("recording", null));
+    core.emit(session("idle", null));
+    expect(names).toEqual([]);
+  });
+
+  test("recording starts and stops, a step is recorded, a run finishes, fails or is stopped", async () => {
+    await relay.updateSettings({ sounds: true });
+    const names = heard();
+    core.emit(session("countdown", null));
+    core.emit(session("recording", null));
+    const step = relay.view!.steps[0];
+    const desktop = { x: 0, y: 0, w: 1920, h: 1080 };
+    core.emit({ type: "rec_progress", elapsed_ms: 100, desktop, moves: [], steps: [step] });
+    core.emit({ type: "rec_progress", elapsed_ms: 200, desktop, moves: [], steps: [step] });
+    core.emit(session("idle", null));
+    expect(names).toEqual(["record", "step", "stop"]);
+    names.length = 0;
+    for (const reason of ["completed", "pixel_timeout", "error", "stopped", "killed"] as const) {
+      core.emit(session("playing"));
+      core.emit({ type: "finished", reason, timing: null });
+      core.emit(session("idle"));
+    }
+    expect(names).toEqual(["done", "error", "error", "stop", "stop"]);
+  });
+
+  test("only the main window plays them", async () => {
+    const r = await freshStore({ init: false, settings: { sounds: true } });
+    r.role = "player";
+    await r.init();
+    const names: string[] = [];
+    r.soundPlayer = (n) => void names.push(n);
+    core.emit(session("recording", null));
+    expect(names).toEqual([]);
+    r.dispose();
+  });
+
+  test("Try plays one, whatever the setting", () => {
+    const names = heard();
+    relay.trySound("done");
+    expect(names).toEqual(["done"]);
+  });
+});

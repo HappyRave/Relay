@@ -6,6 +6,9 @@
   import Choice from "../kit/Choice.svelte";
   import Keycaps from "../kit/Keycaps.svelte";
   import KeyRow from "./KeyRow.svelte";
+  import Key from "../kit/Key.svelte";
+  import Icon from "../ui/Icon.svelte";
+  import type { SoundName } from "../../lib/sound";
   import Toast from "../shared/Toast.svelte";
   import { relay } from "../../lib/state/relay.svelte";
   import { isTauri } from "../../lib/platform/window";
@@ -32,6 +35,12 @@
   ];
 
   const section = $derived(relay.settingsSection);
+  const TRIES: [SoundName, string][] = [
+    ["record", "Record"],
+    ["stop", "Stop"],
+    ["done", "Done"],
+    ["error", "Error"],
+  ];
   const st = $derived(relay.settings);
   const look = $derived(relay.systemLook);
   const set = (patch: Partial<Settings>) => relay.updateSettings(patch);
@@ -143,6 +152,14 @@
         ])}
       {:else}
         {@render toggle("sounds", "Sounds", "Short clicks when recording starts and stops, and when a macro finishes or fails.")}
+        <div class="setting">
+          <span class="what"><b>Try them</b></span>
+          <span class="tries">
+            {#each TRIES as [name, label] (name)}
+              <Key size="sm" disabled={!st.sounds} onclick={() => relay.trySound(name)}><Icon name="sound" size={14} />{label}</Key>
+            {/each}
+          </span>
+        </div>
       {/if}
     </section>
     <div class="toasts"><Toast /></div>
@@ -231,6 +248,11 @@
   .settings :global(.what span) {
     font-size: 13px;
     color: var(--text-2);
+  }
+  .tries {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
   }
   .toasts:empty {
     display: none;

@@ -34,6 +34,7 @@ import type { RunEntry } from "../ipc/bindings/RunEntry";
 import type { RunSource } from "../ipc/bindings/RunSource";
 import type { RelayKey } from "../ipc/bindings/RelayKey";
 import { comboOf } from "../hotkeys";
+import { playSound, type SoundName } from "../sound";
 import type { DataFileInfo } from "../ipc/bindings/DataFileInfo";
 import { backend as defaultBackend, type Backend, type IpcError } from "../ipc/backend";
 import { DEFAULT_LOOK, DEFAULT_PLAYBACK, DEFAULT_SETTINGS } from "../defaults";
@@ -106,6 +107,8 @@ export class RelayStore {
   mode = $state<Mode>("idle");
   /** The playhead, in macro ms. */
   cur = $state(0);
+  /** What makes the sounds (tests listen in). */
+  soundPlayer: (name: SoundName) => void = playSound;
   countLeft = $state(0);
   loopIdx = $state(0);
   /** The loops (null: forever) and speed of the playback running, from its ticks; null before the first. */
@@ -371,6 +374,8 @@ export class RelayStore {
     switch (msg.type) {
       case "session": {
         const mode = msg.mode;
+        if (mode === "recording" && this.mode !== "recording") this.sound("record");
+        if (mode === "idle" && this.mode === "recording") this.sound("stop");
         const live = mode === "playing" || mode === "paused";
         this.playingId = live ? msg.macro_id : null;
         this.runSource = live ? msg.source : null;
@@ -409,6 +414,7 @@ export class RelayStore {
         break;
       case "rec_progress":
         this.recDesktop = msg.desktop;
+        if (msg.steps && msg.steps.length > this.recSteps.length) this.sound("step");
         for (const m of msg.moves) this.recMoves.push(m);
         if (msg.steps) this.recSteps = msg.steps;
         if (msg.moves.length || msg.steps) this.recVersion++;
@@ -429,6 +435,8 @@ export class RelayStore {
         this.tick.advancing = false;
         this.lastFinish = msg.reason;
         if (msg.timing) this.lastTiming = msg.timing;
+        const ended = { completed: "done", pixel_timeout: "error", error: "error" } as const;
+        this.sound(ended[msg.reason as keyof typeof ended] ?? "stop");
         if (this.playingElsewhere) break;
         this.finishes++;
         this.loopIdx = 0;
@@ -558,6 +566,14 @@ export class RelayStore {
   private withdrawUndo() {
     this.dismissWhere((t) => !!t.undoes);
   }
+
+  /** Plays a sound, if sounds are on; one window plays them (the main one), not both. */
+  private sound(name: SoundName) {
+    if (this.settings.sounds && this.role === "main") this.soundPlayer(name);
+  }
+
+  /** Settings → Sound's Try keys. */
+  trySound = (name: SoundName) => this.soundPlayer(name);
 
   /** Dismisses one toast. */
   dismissToast = (id: number) => this.dismissWhere((t) => t.id === id);

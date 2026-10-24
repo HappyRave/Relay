@@ -172,6 +172,17 @@ describe("Settings", () => {
     }
   });
 
+  test("Sound: the Try keys play each sound, once sounds are on", async () => {
+    const played: string[] = [];
+    relay.soundPlayer = (n) => void played.push(n);
+    await open("Sound");
+    expect(screen.getByRole("button", { name: "Done" })).toBeDisabled();
+    await userEvent.click(toggle("Sounds"));
+    await settle();
+    for (const name of ["Record", "Stop", "Done", "Error"]) await userEvent.click(screen.getByRole("button", { name }));
+    expect(played).toEqual(["record", "stop", "done", "error"]);
+  });
+
   describe("setting a key", () => {
     const row = (name: string) => screen.getByText(name).closest<HTMLElement>(".setting")!;
     const change = (name: string) => userEvent.click(within(row(name)).getByRole("button", { name: "Change" }));
