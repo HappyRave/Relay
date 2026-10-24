@@ -147,16 +147,17 @@ pub enum HookMode {
         /// Relay's windows: clicks and scrolls on them, and keys typed while
         /// one is in front, are UI, not macro input.
         own: OwnWindows,
-        /// Virtual keys passed through but not recorded (the control hotkeys).
-        skip_vks: Vec<u16>,
+        /// Keys passed through but not recorded (Relay's own hotkeys), each
+        /// with its modifiers: the same key without them is recorded.
+        skip: Vec<KeyChord>,
         /// Swallow Esc and report [`RawKind::Escape`] instead of recording it.
         esc_stops: bool,
     },
     /// Playback: report Esc (swallowed) and, with `stop_on_key`, any other key
-    /// but modifiers and `pass_vks` (swallowed too). Nothing is recorded.
+    /// but modifiers and `pass` (swallowed too). Nothing is recorded.
     Watch {
         stop_on_key: bool,
-        pass_vks: Vec<u16>,
+        pass: Vec<KeyChord>,
         /// Also report the kill switch, for a program that can't register it
         /// as a hotkey (Relay has).
         report_kill_switch: bool,

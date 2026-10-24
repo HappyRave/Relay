@@ -77,8 +77,8 @@ pub fn show(app: &AppHandle) {
 /// The tooltip says what Relay is doing, since its windows may be hidden.
 pub fn set_mode<R: Runtime>(app: &AppHandle<R>, mode: Mode) {
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
-        let keys = app.state::<parking_lot::Mutex<crate::settings::SettingsStore>>().lock().current.keys.clone();
-        let _ = tray.set_tooltip(Some(tooltip(mode, keys.record.as_deref())));
+        let settings = app.state::<parking_lot::Mutex<crate::settings::SettingsStore>>().lock().current.clone();
+        let _ = tray.set_tooltip(Some(tooltip(mode, settings.keys.record.as_deref(), settings.esc_stops_recording)));
     }
 }
 
@@ -93,11 +93,15 @@ fn record_label(keys: &crate::settings::RelayKeys) -> String {
     keys.record.as_deref().map_or("Record".into(), |k| format!("Record\t{k}"))
 }
 
-fn tooltip(mode: Mode, record: Option<&str>) -> String {
+fn tooltip(mode: Mode, record: Option<&str>, esc_stops: bool) -> String {
     match mode {
         Mode::Idle => "Relay".into(),
         Mode::Countdown => "Relay — get ready".into(),
-        Mode::Recording => format!("Relay — recording ({} to stop)", record.unwrap_or("Esc")),
+        Mode::Recording => match (record, esc_stops) {
+            (Some(key), _) => format!("Relay — recording ({key} to stop)"),
+            (None, true) => "Relay — recording (Esc to stop)".into(),
+            (None, false) => "Relay — recording".into(),
+        },
         Mode::Playing => "Relay — playing (Esc to stop)".into(),
         Mode::Paused => "Relay — paused".into(),
     }
@@ -122,16 +126,17 @@ mod tests {
 
     #[test]
     fn the_tooltip_says_what_relay_is_doing() {
-        assert_eq!(tooltip(Mode::Idle, Some("F9")), "Relay");
-        assert_eq!(tooltip(Mode::Countdown, Some("F9")), "Relay — get ready");
-        assert_eq!(tooltip(Mode::Paused, Some("F9")), "Relay — paused");
+        assert_eq!(tooltip(Mode::Idle, Some("F9"), true), "Relay");
+        assert_eq!(tooltip(Mode::Countdown, Some("F9"), true), "Relay — get ready");
+        assert_eq!(tooltip(Mode::Paused, Some("F9"), true), "Relay — paused");
         // While input is being captured or sent, it says how to stop, with the key set.
         assert_eq!(
-            tooltip(Mode::Recording, Some("Ctrl + Shift + F9")),
+            tooltip(Mode::Recording, Some("Ctrl + Shift + F9"), false),
             "Relay — recording (Ctrl + Shift + F9 to stop)"
         );
-        assert_eq!(tooltip(Mode::Recording, None), "Relay — recording (Esc to stop)");
-        assert_eq!(tooltip(Mode::Playing, None), "Relay — playing (Esc to stop)");
+        assert_eq!(tooltip(Mode::Recording, None, true), "Relay — recording (Esc to stop)");
+        assert_eq!(tooltip(Mode::Recording, None, false), "Relay — recording", "nothing to press: the player's Stop");
+        assert_eq!(tooltip(Mode::Playing, None, true), "Relay — playing (Esc to stop)");
     }
 
     #[test]

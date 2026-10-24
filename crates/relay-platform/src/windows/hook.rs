@@ -34,8 +34,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use super::now_ms;
 use crate::keymap::is_modifier_vk;
 use crate::{
-    HookConfig, HookMode, HookSession, InputHook, OwnWindows, PlatformError, RELAY_MAGIC, RawInput, RawKind, Result,
-    is_own,
+    HookConfig, HookMode, HookSession, InputHook, KeyChord, OwnWindows, PlatformError, RELAY_MAGIC, RawInput, RawKind,
+    Result, is_own,
 };
 
 pub struct LowLevelHook;
@@ -193,8 +193,14 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
                 let _ = ctx.tx.try_send(RawInput { time, kind });
             };
             // The kill switch must always reach its hotkey.
-            let win = is_down(VK_LWIN.0) || is_down(VK_RWIN.0);
-            if ctx.cfg.kill_switch.pressed(vk, is_down(VK_CONTROL.0), is_down(VK_MENU.0), is_down(VK_SHIFT.0), win) {
+            let mods = (
+                is_down(VK_CONTROL.0),
+                is_down(VK_MENU.0),
+                is_down(VK_SHIFT.0),
+                is_down(VK_LWIN.0) || is_down(VK_RWIN.0),
+            );
+            let chord = |c: &KeyChord| c.pressed(vk, mods.0, mods.1, mods.2, mods.3);
+            if chord(&ctx.cfg.kill_switch) {
                 if down && matches!(ctx.cfg.mode, HookMode::Watch { report_kill_switch: true, .. }) {
                     report(ctx, RawKind::KillSwitch);
                 }
@@ -221,7 +227,7 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
                 return None;
             }
             match &ctx.cfg.mode {
-                HookMode::Record { own, skip_vks, esc_stops } => {
+                HookMode::Record { own, skip, esc_stops } => {
                     if !ctx.reported.has(vk) {
                         if *esc_stops && vk == VK_ESCAPE.0 {
                             ctx.swallowed.set(vk, true);
@@ -229,7 +235,7 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
                             return SWALLOW;
                         }
                         let into_relay = is_own(own, unsafe { GetForegroundWindow() }.0 as isize);
-                        if skip_vks.contains(&vk) || into_relay {
+                        if skip.iter().any(chord) || into_relay {
                             ctx.skipped.set(vk, true);
                             return None;
                         }
@@ -239,10 +245,10 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
                     report(ctx, RawKind::Key { vk, scan: info.scanCode as u16, ext, down: true });
                     None
                 }
-                HookMode::Watch { stop_on_key, pass_vks, .. } => {
+                HookMode::Watch { stop_on_key, pass, .. } => {
                     let kind = if vk == VK_ESCAPE.0 {
                         RawKind::Escape
-                    } else if *stop_on_key && !pass_vks.contains(&vk) && !is_modifier_vk(vk) {
+                    } else if *stop_on_key && !pass.iter().any(chord) && !is_modifier_vk(vk) {
                         RawKind::StopKey
                     } else {
                         return None;

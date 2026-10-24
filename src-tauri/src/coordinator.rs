@@ -73,7 +73,7 @@ pub enum Cmd {
         source: RunSource,
         reason: SkipReason,
     },
-    /// From the tray or the Triggers tab.
+    /// From the tray or the Library.
     SetTriggersPaused(bool),
     /// The recorder's watchdog saw the cursor move without hook events.
     HookLost,
@@ -149,9 +149,9 @@ fn kill_switch(settings: &Settings) -> KeyChord {
     KeyChord::parse(&settings.keys.kill).unwrap_or(KeyChord::CTRL_ALT_END)
 }
 
-/// The virtual key of one of Relay's keys, if it's set.
-fn key_vk(combo: Option<&str>) -> Option<u16> {
-    combo.and_then(KeyChord::parse).map(|c| c.vk)
+/// One of Relay's keys as the hook matches it, if it's set.
+fn key_chord(combo: Option<&str>) -> Option<KeyChord> {
+    combo.and_then(KeyChord::parse)
 }
 
 /// The screenshot to keep with a new recording: only one of the desktop the
@@ -396,7 +396,7 @@ impl<R: Runtime> Coordinator<R> {
                 if !self.app.state::<TriggerState>().paused() {
                     self.set_triggers_paused(true);
                     self.emit.send(EngineMsg::Notice {
-                        message: "Triggers are paused. Resume them from the tray or the Triggers tab.".into(),
+                        message: "Triggers are paused. Resume them from the tray or the Library.".into(),
                     });
                 }
             }
@@ -531,9 +531,9 @@ impl<R: Runtime> Coordinator<R> {
         let mouse_pulse = Arc::new(MousePulse::default());
         let kill_switch = kill_switch(&settings);
         // The record key stops a recording through its global hotkey; keep it out of the macro.
-        let skip_vks = key_vk(settings.keys.record.as_deref()).into_iter().collect();
+        let skip = key_chord(settings.keys.record.as_deref()).into_iter().collect();
         let hook_cfg = HookConfig {
-            mode: HookMode::Record { own, skip_vks, esc_stops: settings.esc_stops_recording },
+            mode: HookMode::Record { own, skip, esc_stops: settings.esc_stops_recording },
             kill_switch,
             ignore_injected: settings.ignore_injected,
             mouse_pulse: Some(mouse_pulse.clone()),
@@ -734,7 +734,7 @@ impl<R: Runtime> Coordinator<R> {
             mode: HookMode::Watch {
                 stop_on_key: m.playback.stop_on_key,
                 // The play key pauses through its global hotkey: it isn't "any key".
-                pass_vks: key_vk(settings.keys.play.as_deref()).into_iter().collect(),
+                pass: key_chord(settings.keys.play.as_deref()).into_iter().collect(),
                 report_kill_switch: false,
             },
             kill_switch: kill_switch(&settings),

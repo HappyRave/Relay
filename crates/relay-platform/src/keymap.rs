@@ -355,7 +355,9 @@ mod tests {
         assert!(c.pressed(0x08, true, true, true, false), "a stray Shift still stops everything");
         assert!(!c.pressed(0x08, true, false, false, false));
         assert!(!c.pressed(0x23, true, true, false, false));
-        assert_eq!(KeyChord::parse("Ctrl + Shift + F9").map(|c| (c.vk, c.shift)), Some((0x78, true)));
+        let record = KeyChord::parse("Ctrl + Shift + F9").unwrap();
+        assert_eq!((record.vk, record.shift), (0x78, true));
+        assert!(!record.pressed(0x78, false, false, false, false), "F9 alone is recorded");
         assert_eq!(KeyChord::parse("Ctrl + Alt + End"), Some(KeyChord::CTRL_ALT_END));
         assert_eq!(KeyChord::parse("Hyper + F9"), None);
         assert_eq!(KeyChord::parse(""), None);

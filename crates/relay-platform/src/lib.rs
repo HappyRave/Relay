@@ -54,7 +54,7 @@ pub trait Screen: Send + Sync {
     fn pixel(&self, x: i32, y: i32) -> Option<Rgb>;
     /// A picture of `area` (physical virtual-desktop pixels), scaled down to
     /// at most `max_w` wide (see [`types::snapshot_size`]), leaving out the
-    /// window `exclude` (0: none) where the OS can. `None` if the screen
+    /// windows `exclude` where the OS can. `None` if the screen
     /// can't be read (a locked or secure desktop) or the OS can't do it.
     fn capture(&self, area: Rect, max_w: u32, exclude: OwnWindows) -> Option<Snapshot> {
         let _ = (area, max_w, exclude);

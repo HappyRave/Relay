@@ -371,7 +371,7 @@ impl App {
     fn watch(&mut self, stop_on_key: bool) {
         self.hook = None;
         let cfg = HookConfig {
-            mode: HookMode::Watch { stop_on_key, pass_vks: Vec::new(), report_kill_switch: true },
+            mode: HookMode::Watch { stop_on_key, pass: Vec::new(), report_kill_switch: true },
             kill_switch: relay_platform::KeyChord::CTRL_ALT_END,
             ignore_injected: true,
             mouse_pulse: None,
