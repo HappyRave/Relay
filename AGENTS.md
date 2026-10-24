@@ -29,17 +29,17 @@ The deeper references are in the repo, and this file links to them rather than r
 
 ## The project in brief
 
-Relay is a **Windows desktop macro recorder**: it records mouse and keyboard input, shows it as editable steps (*Click · Save*, *Ctrl + S*, *"invoice_2026"*), and plays it back with the original timing, faster, looped or slightly randomized. Macros can be triggered by a hotkey, a weekly schedule, a program starting, or a pixel changing color. It's a small floating widget (a 600×64 compact player, or a ~944×612 editor) that stays on top of other windows.
+Relay is a **Windows desktop macro recorder**: it records mouse and keyboard input, shows it as editable steps (*Click · Save*, *Ctrl + S*, *"invoice_2026"*), and plays it back with the original timing, faster, looped or slightly randomized. Macros can be triggered by a hotkey, a weekly schedule, a program starting, a pixel changing color or an image appearing. It has two windows: a normal, resizable **main window** (944×612 by default, frosted on Windows 11) with three places, the Library, a macro's editor and Settings; and the **player**, a small 600×64 bar on top that never takes the keyboard, shown whenever the main window isn't (while recording, in player mode, for a triggered run from the tray).
 
 - **Stack:** Rust (edition 2024) + [Tauri 2](https://tauri.app/) + a [Svelte 5](https://svelte.dev/) (runes) and TypeScript UI built with Vite. WebView2 on Windows.
 - **Five crates:** `crates/relay-core` (pure logic, no OS, builds anywhere), `crates/relay-platform` (OS traits plus the Windows backend and a stub for other OSes), `crates/relay-playback` (the engine, shared by the app and the player), `crates/relay-player` (the program a macro is exported as), `src-tauri` (the app: threads, commands, storage, window, tray).
-- **Design:** built from the prototype in `Design/Macro Recorder.dc.html` (the *Modernist* design system in `Design/_ds/`): Archivo font, red accent `#EC3013`, square corners, 2 px rules. The demo "desktop" drawn around the widget in the prototype is only the browser preview's backdrop.
+- **Design:** the m24 redesign, specified in [`docs/design/`](https://github.com/HappyRave/Relay/pull/14) (the UX research panel and the visual redesign): Archivo as a variable font, aluminium and ink with a red kept for recording, playing and danger, rounded corners, frosted glass, Relay's own icons, light and dark themes. The tokens are `src/styles/theme.css`. The original v1 prototype (`Design/Macro Recorder.dc.html`, the *Modernist* system in `Design/_ds/`) is history now.
 - **License:** MIT. Repository: https://github.com/HappyRave/Relay (public).
 
 ## Where things stand
 
 - **Latest release: v1.5.0** (2026-10-23), from `main`. Releases so far: v1.0.0, v1.1.0, v1.2.0, v1.3.0, v1.4.0, v1.5.0. Each has an NSIS installer and a portable exe.
-- **Milestone history:** M0–M8 built v1.0. Then: m9 editor polish (v1.1.0), m10 Keep on top, m11 dependency upgrades, m12 a four-reviewer architecture refactor, m13 the three-layer test suite, m14 a four-reviewer audit of every test against the user guide (about 90 findings fixed), then v1.2.0. Then fix-multi-monitor-scale and m15 the control bar, preview bar, screenshots and resizable editor (v1.3.0). Then m16 mouse moves as steps, m17 Find image (with fix-find-image-own-window), m18 the run history, m19 standalone `.exe` export (v1.4.0). Then m20 Text steps with placeholders, m21 data files that drive repeats, m22 AutoHotkey v2 export, m23 known limitations (stacked toasts, diff-based undo, unsaved trash retried, data-file skips in the run history, the coordinator's crash recovery tested on Tauri's mock runtime), with fix-vite-launch-editor (v1.5.0). `git log --first-parent main` shows them as merges.
+- **Milestone history:** M0–M8 built v1.0. Then: m9 editor polish (v1.1.0), m10 Keep on top, m11 dependency upgrades, m12 a four-reviewer architecture refactor, m13 the three-layer test suite, m14 a four-reviewer audit of every test against the user guide (about 90 findings fixed), then v1.2.0. Then fix-multi-monitor-scale and m15 the control bar, preview bar, screenshots and resizable editor (v1.3.0). Then m16 mouse moves as steps, m17 Find image (with fix-find-image-own-window), m18 the run history, m19 standalone `.exe` export (v1.4.0). Then m20 Text steps with placeholders, m21 data files that drive repeats, m22 AutoHotkey v2 export, m23 known limitations (stacked toasts, diff-based undo, unsaved trash retried, data-file skips in the run history, the coordinator's crash recovery tested on Tauri's mock runtime), with fix-vite-launch-editor (v1.5.0). Then m24, the redesign from the UX research panel (unreleased): two windows, the new editor, Library and Activity, the player, Relay's keys as settings, the first run, the picker's loupe, sounds, exported programs in the player's look. `git log --first-parent main` shows them as merges.
 - **Tests at v1.5.0:** about 440 Rust (unit, property, snapshot), about 670 Vitest (store, backend contract, fake core, every component), about 125 end-to-end tests against the built app. Rust unit coverage is about 76% of lines; the coordinator, commands, tray and Windows backend are exercised end to end instead. The frontend is at about 99.8% of lines.
 - **Next, per the [roadmap](README.md#roadmap):** code signing (needs a certificate; free options for open source: SignPath Foundation, Certum's open-source certificate, Azure Trusted Signing), remapping macros to a different monitor layout, macOS and Linux backends.
 - **Also open:** see [Known limitations and open items](#known-limitations-and-open-items).
@@ -67,16 +67,16 @@ npm test
 
 Install `gh` (the GitHub CLI: `winget install GitHub.cli`) and sign in with `gh auth login`: pull requests are how changes reach `main`. A shell opened before installing it may need `C:\Program Files\GitHub CLI` added to its `PATH`.
 
-**Never develop against your real data.** Set `RELAY_DATA_DIR` to a scratch folder (`$env:RELAY_DATA_DIR = "$env:TEMP\relay-dev"` in PowerShell) before `npm run tauri dev`. A fresh folder seeds the four sample macros.
+**Never develop against your real data.** Set `RELAY_DATA_DIR` to a scratch folder (`$env:RELAY_DATA_DIR = "$env:TEMP\relay-dev"` in PowerShell) before `npm run tauri dev`. A fresh folder starts empty, with the first run; copy the sample macros from `e2e/samples.json` into its `macros\` (one `<id>.rly` each) if you want them, as the E2E harness does.
 
 ## Repository map
 
 ```text
 crates/relay-core/src/       pure logic, heavily tested
-  model.rs  keys.rs          Event, Macro, Rect/Rgb; key labels, split_combo, key_for_char
+  model.rs  keys.rs          Event, Macro, Rect/Rgb; key labels, split_combo, key_for_char, key_warning
   runlog.rs                  the run history: RunEntry, RunLog (newest 200), CheckLog
   steps.rs                   raw events → editor steps (click/drag/scroll/keys/type/wait/pixel_wait)
-  edit.rs                    EditOp, apply, normalize, check_invariants
+  edit.rs                    EditOp (Batch: several as one), apply, normalize, check_invariants
   path.rs  view.rs           smoothing/straightening a MOVE path; MacroView, what the UI receives
   format.rs                  .rly / JSON export, migrations (v0 → v1)
   playback.rs  timeline.rs   PlayClock, plan_times (humanize); durations
@@ -87,12 +87,13 @@ crates/relay-core/src/       pure logic, heavily tested
   data.rs                    data files: CSV parse, DataTable, check (why a macro can't play with its file)
   splice.rs                  what an edit changed in the events, for undo (a run of events + one time shift)
   ahk.rs                     the AutoHotkey v2 export: a script with a block per step
-  samples.rs  proptests.rs   the four design samples; property tests
+  samples.rs  proptests.rs   the four design samples (unit tests, fixtures, e2e/samples.json); property tests
 crates/relay-platform/src/
   lib.rs  types.rs           the OS traits (InputHook, Screen, WindowQuery, Injector, Timer…), RawInput, HookConfig
-  recorder.rs  keymap.rs     RawInput → Events; scan code ↔ W3C code
+  recorder.rs  keymap.rs     RawInput → Events; scan code ↔ W3C code; KeyChord (Relay's keys in the hook)
+  picker.rs                  picking a pixel: where the loupe and help bar go, what its keys do
   processes.rs               running programs (sysinfo)
-  windows/                   the Win32 backend: clipboard (and the snip), hook, inject, marker, screen, text, timer, window
+  windows/                   the Win32 backend: clipboard (and the snip), hook, inject, marker, picker, screen, text, timer, window
   stub.rs                    placeholder backend for non-Windows builds
 crates/relay-playback/src/
   engine.rs                  the playback engine (pure Engine + thread), reporting through a PlaybackSink
@@ -106,7 +107,7 @@ crates/relay-player/
 src-tauri/build.rs           Tauri's build, and the release player that relay.exe embeds (target/player)
 src-tauri/src/
   lib.rs                     app setup, plugins, commands list, RELAY_DEVTOOLS_PORT, shutdown
-  coordinator.rs             owns the session: commands in, effects out; F10 playhead; trigger admission
+  coordinator.rs             owns the session: commands in, effects out; the play key's playhead; trigger admission
   engine.rs                  the app's PlaybackSink: ticks and notices to the UI, the end to the coordinator
   rec_thread.rs              recorder thread and hook watchdog
   commands.rs  ipc.rs        Tauri commands; the EngineMsg stream (queues errors until the UI subscribes)
@@ -116,24 +117,29 @@ src-tauri/src/
   screens.rs                 the screenshot drawn under the preview (screens\<id>.jpg, machine-local)
   settings.rs  storage.rs    settings.json (field by field); data dir, atomic writes
   triggers.rs  hotkeys.rs    schedule/app-launch/pixel watchers; global hotkeys (RegisterHotKey)
-  window_ctl.rs  tray.rs     placement (anchor, choose_monitor, layout), zoom, frame; tray menu
+  presence.rs                which windows show (shown: the main window, the player), free_corner for the player
+  window_ctl.rs  tray.rs     placement (anchor, choose_monitor, layout), zoom, frame, the player's anchor; tray menu
+  look.rs                    frosted glass or solid, the theme, what this Windows offers
   logging.rs                 daily rolling log, flushed on quit
 src/                         the Svelte UI
   lib/state/relay.svelte.ts  THE store (RelayStore); resetRelay() for tests
-  lib/state/selection.ts     the step editor's selection following its step across edits
+  lib/state/selection.ts     the selection following its step across edits
   lib/ipc/backend.ts         Backend interface: tauriBackend and the read-only browserBackend
   lib/ipc/bindings/          GENERATED from Rust by ts-rs (never edit by hand)
   lib/dev/sample-*.json      GENERATED browser fixtures (by relay-core's tests); devDesktop.svelte.ts, the demo desktop
   lib/types.ts  defaults.ts  types shared by the UI (re-exporting the bindings); defaults matching Rust's
-  lib/layout.ts              the editor's three dividers
-  lib/transport.ts           the control bar: its widths and how it compacts
-  lib/fields.ts  format.ts  hotkeys.ts  image.ts  runs.ts  state/display.ts  actions/seekable.ts  timeline/  preview/  platform/window.ts
-  components/                Widget, CompactBar, ExportDialog, expanded/{Header,Preview,SidePanel,Transport,Timeline,tabs/*}, ui/*, shared/*
+  lib/editor/                the steps list's rows (moves folded), the play summary, triggers in words
+  lib/layout.ts              the editor's divider and narrow windows
+  lib/look.svelte.ts  sound.ts  the look as data-* attributes on <html>; Relay's sounds
+  lib/keycapture.ts          listening for a key combination (a macro's hotkey, Settings → Keys)
+  lib/fields.ts  format.ts  hotkeys.ts  image.ts  runs.ts  categories.ts  actions/seekable.ts  timeline/  preview/  platform/window.ts
+  components/                window/ (AppWindow, TopBar, FirstRun), library/, editor/ (+ view/), settings/, player/, kit/ (the component kit), ui/, shared/, ExportDialog
+  styles/                    theme.css (the tokens, themes, spacing, glass), base.css, app.css
   test/                      fake-core.ts (+ fake-edit.ts, fake-path.ts, fake-core.test.ts), path-cases.json (GENERATED), app.ts, setup.ts
-e2e/                         end-to-end suites (*.e2e.test.mjs), harness.mjs, image-window.ps1, github-reporter.mjs, ci-diagnose.mjs
+e2e/                         end-to-end suites (*.e2e.test.mjs), harness.mjs, samples.json (GENERATED), image-window.ps1, github-reporter.mjs, ci-diagnose.mjs
 scripts/                     cdp.mjs (run JS in a running Relay), docs-screenshots.ps1 (regenerates docs/images)
 docs/                        user-guide/, engineering/, images/
-Design/                      the original prototype and design system (reference only)
+Design/                      the v1 prototype and design system (history)
 .github/workflows/           ci.yml, e2e.yml, release.yml
 ```
 
@@ -182,7 +188,10 @@ These came out of two full reviews (m12, m14). Breaking one has caused real bugs
 - **Locks are `parking_lot`** (no poisoning).
 - **Every mode change goes through `coordinator::set_mode`**, which also updates the shared `SessionMode` the commands read (including after a panic, so nothing stays "busy").
 - **Playbacks carry a generation**; a late `EngineDone` from an older one is ignored. `Finished` is emitted only by the coordinator.
-- **The F10 playhead is Rust's (`idle_playhead`)** and mirrors the UI's after each finish: Stop/key/kill/error → 0, Completed → end (F10 restarts), pixel timeout → the check's time.
+- **The play key's playhead is Rust's (`idle_playhead`)** and mirrors the UI's after each finish: Stop/key/kill/error → 0, Completed → end (the key restarts), pixel timeout → the check's time.
+- **Which windows show is `presence::shown`** (pure, tested): never show or hide the main window or the player anywhere else. The player never takes the keyboard (`show_inactive`).
+- **Both windows follow one current macro.** Messages go to both (`Emitter`); a store knows its `role` (`main` or `player`), and the player reloads its macro whenever it shows.
+- **Relay's keys are settings** (`RelayKeys`). Never hard-code F9, F10 or a kill switch: read `settings.keys`, and match them as `KeyChord`s in the hook.
 - **Trigger admission:** paused → ignore; deleted macro → ignore; busy → notice *"Skipped “X”: Relay was busy"*; locked screen → silent skip. A delayed app-launch run re-checks the trigger when the delay ends.
 - **Saving triggers waits (≤ 1 s) for the app watcher's baseline**, so a program started right after is a launch; a program already running then isn't.
 - **Hook callbacks stay minimal:** no allocation, locks, logging or blocking. The hook beats `HookConfig.mouse_pulse` (an atomic) on every mouse event it sees, filtered or not, so the watchdog doesn't false-alarm.
@@ -201,7 +210,7 @@ These came out of two full reviews (m12, m14). Breaking one has caused real bugs
 - **Components talk to the `relay` store only**, never to `backend` or `invoke`.
 - **Every async result is guarded** by macro id and `viewSeq` (`apply()`), so a slow response can't land on another macro or overwrite a newer state. Settings, trigger and trigger-pause saves carry sequence numbers too.
 - **Toasts stack** (the newest three show, each with its own timer and Dismiss). **Undo toasts belong to their macro** (`undoes`) and are withdrawn by another edit, a rename, or opening another macro; a trash toast belongs to the macro it restores (`restores`). **Error toasts stay until dismissed**; info toasts time out (5 s, 8 s with an action).
-- Svelte 5 runes only. Colors and spacing from `var(--…)` tokens (`src/styles/tokens.css`); corners stay square.
+- Svelte 5 runes only. Colors, radii, spacing and motion from the `var(--…)` tokens in `src/styles/theme.css`; build from the kit (`src/components/kit/`) before adding a new control. Red is for recording, playing and danger only.
 - User-facing text: short plain sentences saying what happened and what to do; sentence case for labels.
 
 ## Testing
@@ -210,15 +219,18 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 
 1. **Rust unit, property and snapshot tests**, next to the code. Property tests in `crates/relay-core/src/proptests.rs` generate random recordings and edit sequences; failures are saved in `crates/relay-core/proptest-regressions/` (commit that file). Snapshots with `insta` (`cargo insta review`).
 2. **Vitest in jsdom** with Testing Library. The UI runs its **real** `tauriBackend`; Tauri's `mockIPC` routes every `invoke` to **`src/test/fake-core.ts`, which must answer exactly like the Rust side** (library rules, edit semantics incl. event renumbering, history, hotkey refusals with Rust's messages, `busy`, argument types). A fake that drifts from Rust makes tests pass on behavior the app doesn't have; that happened before and the m14 audit fixed it. Helpers: `freshStore()`, `settle()`, `core.fail/on/hold/held/emit/emitLater/saveError/mode/files`. Compare against literal expected values, never against the fake's own post-call state.
-3. **End to end** (`e2e/`, node:test): the harness starts the **real built app** on a scratch data folder with `RELAY_DEVTOOLS_PORT`, drives the page over the Chrome DevTools Protocol (clicks by accessible name, reads `window.__relay`, invokes commands where the UI would open a native dialog), and checks the files Relay writes.
+3. **End to end** (`e2e/`, node:test): the harness starts the **real built app** on a scratch data folder with `RELAY_DEVTOOLS_PORT`, drives both windows over the Chrome DevTools Protocol (`page` is the main window, `app.player` the player; clicks by accessible name, reads `window.__relay`, invokes commands where the UI would open a native dialog), and checks the files Relay writes.
 
-**Hard rule: never write code that synthesizes OS keyboard or mouse input for testing.** No fake OS input layers, SendInput helpers or input-generating companion apps. The E2E tests only use the page's DOM and Relay's commands. Macros they play contain only waits and pixel checks (`waitingMacro()`), and triggers fire on real events: `ping.exe` launching, a scheduled minute, and a patch of Relay's own window changing color (for the pixel trigger). Playback injection is covered by the engine's unit tests with a recording injector. What needs real input (recording actual clicks/keys, Esc, stop on key press, pressing a macro hotkey, the kill switch, the tray menu) stays on the manual checklist in testing.md.
+**Hard rule: never write code that synthesizes OS keyboard or mouse input for testing.** No fake OS input layers, SendInput helpers or input-generating companion apps. The E2E tests only use the page's DOM and Relay's commands. Macros they play contain only waits and pixel checks (`waitingMacro()`), and triggers fire on real events: `ping.exe` launching, a scheduled minute, and a patch drawn in Relay's player changing color (for the pixel trigger: the player is on top, the main window isn't). Setting Relay's keys dispatches DOM keyboard events in the page, which is not OS input. Playback injection is covered by the engine's unit tests with a recording injector. What needs real input (recording actual clicks/keys, Esc, stop on key press, pressing a macro hotkey or one of Relay's keys, the kill switch, the tray menu, the picker, dragging the player) stays on the manual checklist in testing.md.
 
 **E2E harness notes** (`e2e/harness.mjs`):
 - Only one Relay can run (single-instance plugin): the harness refuses to start if one is running. Ask the user to quit theirs; don't kill it.
-- `page.click(name)` needs exactly one **visible** control with that exact accessible name; pass `{ nth }` for repeated names (the steps' ×) or `{ within: ".header" }` to scope (Undo is both in the header and in toasts).
-- Library Duplicate/Delete only show on hover or focus: use `page.rowAction("Delete", "Macro name")`, which focuses the row first.
-- `page.tab("Steps")` and `page.open(id)` wait for what they did; `page.reset()` runs after every test (stops any session, expands the widget, closes the step editor, dismisses the toast); `page.playTimed()` times a playback inside the page.
+- A new folder starts empty, so `App` seeds it before the first start: the samples (`SAMPLES`, from `e2e/samples.json`) unless `samples: false`, and `settings` (by default the first run done and the new install's keys, `KEYS`). Pass `settings: null` to see the first run.
+- `page.click(name)` needs exactly one **visible** control with that exact accessible name; pass `{ nth }` for repeated names, `{ role }`, or `{ within: "header.bar" }` to scope (Undo is both in the top bar and in toasts).
+- Menus: `page.menu(opener, item)` opens one and picks an item; `page.rowAction("Delete", "Macro name")` does it through the row's *More for …* menu.
+- `page.go(place)`, `page.open(id)`, `page.inspector(tab, section)`, `page.selectStep(i)`, `page.addStep(kind)` and `page.setField(name, value)` wait for what they did; `page.reset()` runs after every test (stops any session, turns player mode off unless `{ keepPlayer: true }`, clears the selection and the toasts); `page.playTimed()` times a playback inside the page.
+- `page.reset()` puts the inspector back on its Step tab: a suite on the Macro tab opens it in `beforeEach`. Triggers set by `invoke` while the macro is open need `loadTriggers()` to show.
+- The main window isn't kept in front: call `plugin:window|set_focus` before drawing something a search must find in it.
 - **After a file changes on disk, wait for the UI too**: Rust writes the file slightly before the UI gets its answer (the editing suite's `saved()` compares `view.modified_at` with the file's).
 - Before a keyboard shortcut or a click, wait until the UI state allows it (e.g. `canUndo` before Ctrl+Z).
 - Watch "nothing happened" assertions for their whole window (`staysIdle`), and check run counts in `library.json`, not a single sample.
@@ -236,7 +248,7 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 
 `main` only changes through pull requests that pass CI. CI minutes are limited (2,000 a month, and Windows minutes count double), so everyday checking happens locally and the expensive CI job runs once per PR, when it's ready.
 
-- **Branches:** short-lived, off `main`. Milestones `mN-short-name` (next is `m24-…`), fixes `fix-…`, docs `docs-…`, CI and tooling `ci-…`, releases `release-X.Y.Z`.
+- **Branches:** short-lived, off `main`. Milestones `mN-short-name` (next is `m25-…`), fixes `fix-…`, docs `docs-…`, CI and tooling `ci-…`, releases `release-X.Y.Z`.
 - **Commits:** small, [Conventional Commits](https://www.conventionalcommits.org/) (`feat(recorder): …`, `fix(engine): …`, `test(e2e): …`, `docs: …`, `ci: …`, `chore: …`), with a body explaining why when it isn't obvious. Push as often as you like: pushing a branch runs nothing.
 - **The pull request is the milestone's workspace.** Open it as a **draft** when the branch starts (`gh pr create --draft --base main`), with the plan and progress in its description, kept up to date. That's where the next session (or contributor) picks up. Drafts only run the quick CI job.
 - **Ready means checked:** run `npm run verify` locally, then `gh pr ready`. That runs the full CI once; every later push to a ready PR runs it again, so push fixes in one go. Put a PR back to draft (`gh pr ready --undo`) to keep working on it.
@@ -289,9 +301,12 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 - Tauri pins the `windows` crate: the app uses 0.61, while `relay-platform` uses 0.62.
 
 **Behavior worth knowing** (all tested and documented)
-- Inserts (+ Wait, + Pixel check) go just after the step under the playhead, and push everything after them later.
+- Inserts (Add → Wait, Text, Wait for pixel, Find image) go just after the step under the playhead, and push everything after them later.
 - Every cursor move belongs to a step: the click or drag it happened during, or a MOVE step (the run between two other events). MOVE steps are grouped after everything else, so they never break a double click or a Ctrl-click, and humanize ignores them (their samples follow the step before). `pause` is idle time only. Smooth and Straighten keep every sample's time and both ends, because playback replays each sample without interpolating.
-- The sample macros have a MOVE before each click: the invoice sample has 18 steps, 12 of them the design's.
+- The sample macros have a MOVE before each click: the invoice sample has 18 steps, 12 of them the design's. The steps list folds each move into the step it leads to (12 rows) unless *Show moves* is on.
+- Relay's keys: a new install gets Ctrl+Shift+F9 (record), Ctrl+Shift+F10 (play), Ctrl+Shift+M (player) and Ctrl+Alt+Backspace (kill switch); a data folder an older Relay used (settings.json without `keys`, or macros without settings.json) keeps F9, F10, Ctrl+Shift+M and Ctrl+Alt+End, and shows the keys screen once (`Settings::upgraded`). Exported programs keep Ctrl+Alt+End. On the maintainer's PC another program holds Ctrl+Alt+Backspace, so every start says the kill switch doesn't work: E2E tests check toasts with `some()`, not the only one.
+- While a key field listens (Settings → Keys, a macro's hotkey), `hold_hotkeys` unregisters every hotkey, so a combination Relay or a macro uses reaches it.
+- The picker (pixel checks, the pixel trigger) has no countdown: Relay's windows step aside (`presence::step_aside`) and three layered, non-activating windows draw the catcher, the loupe and the help bar; a low-level keyboard hook reads its keys, so the app under it keeps the focus.
 - A trailing `+` in a hotkey is the plus key ("Ctrl + +"). "Ctrl + + K" is refused. Shift alone with a key that types (Shift + A) is refused. So is a hotkey ending in a modifier.
 - A pixel trigger fires when the pixel matches twice in a row after two non-matching samples, and re-arms only after two non-matches. The image trigger works the same way, a sample being "the image is on screen".
 - Image searches never look inside Relay's own window: what shows of it is painted flat in the capture (`shown_rect` minus `covering`: a window in front of Relay is still searched), so the editor's thumbnail is never found. `WDA_EXCLUDEFROMCAPTURE` isn't enough for this: on multiple monitors it can still be applying when the capture is taken. The E2E tests show their image in a separate PowerShell window for this reason.
@@ -307,7 +322,9 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 
 Not fixed yet; each is a candidate task:
 
-- **Zoom margin:** `zoom_for_work_area` keeps one 16 px margin vertically, so on a short work area the expanded widget sits 8 px from the top and bottom.
+- **Zoom margin:** `zoom_for_work_area` keeps one 16 px margin vertically, so on a short work area the window sits 8 px from the top and bottom.
+- **Step numbers count moves in some places:** the engine's *timed out at step N*, Activity's *Open at step N* and the AutoHotkey export number every step, moves included, while the steps list (moves folded) numbers rows. Which numbering wins is a decision to make.
+- **From the redesign spec, not built yet:** the picker for a Find image step's click point; the player saying *Waiting for pixel* or *Looking for the image* (exported programs do); key warnings and in-card refusals for a macro's hotkey (Settings → Keys has them); the Problems badge clearing once seen; Backspace as Back; the next run in *Also runs*; the export dialog's line about typed text; the note when a recording has no keys while *Ignore simulated input* is on; failed triggered runs on the tray icon; solid glass under Remote Desktop and contrast themes (contrast themes get `forced-colors` CSS).
 - **Real-input paths** are on the manual checklist only (see [Testing](#testing)).
 - **Dead keys:** a dead key alone records as a KEYS step, and the following letter records unaccented ("e", not "ê"). It's display only, and pinned by a test.
 - **Exported programs aren't signed**, and can't be: appending the macro to the player would break a signature. SmartScreen warns on a downloaded one, and an antivirus may flag it.

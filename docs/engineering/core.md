@@ -24,9 +24,9 @@
 | Module | Contents |
 | --- | --- |
 | [`model`](../../crates/relay-core/src/model.rs) | `Macro`, `Event`, `RecordingMeta`, `PlaybackOptions`, `Rgb`, `Rect`, `ImagePng`, `MonitorInfo`, `WindowInfo` |
-| [`keys`](../../crates/relay-core/src/keys.rs) | `KeyStroke`, modifiers, key labels, `code_for_label`, `key_for_char` |
+| [`keys`](../../crates/relay-core/src/keys.rs) | `KeyStroke`, modifiers, key labels, `code_for_label`, `key_for_char`, `split_combo`, `normalize_combo`, `key_warning` |
 | [`steps`](../../crates/relay-core/src/steps.rs) | `group_steps`: raw events → `Step`s |
-| [`edit`](../../crates/relay-core/src/edit.rs) | `EditOp`, `apply`, `normalize`, `check_invariants` |
+| [`edit`](../../crates/relay-core/src/edit.rs) | `EditOp` (`Batch` included), `apply`, `normalize`, `check_invariants` |
 | [`path`](../../crates/relay-core/src/path.rs) | `smooth`, `straighten`, `simplify`: reshaping a MOVE step's path |
 | [`text`](../../crates/relay-core/src/text.rs) | A Text step's template: `parse`, `validate`, `fill`, `typing_ms`, `escape` |
 | [`ahk`](../../crates/relay-core/src/ahk.rs) | The AutoHotkey v2 export: `script(macro, data)` |
@@ -37,11 +37,11 @@
 | [`playback`](../../crates/relay-core/src/playback.rs) | `PlayClock`, `plan_times` (humanize) |
 | [`session`](../../crates/relay-core/src/session.rs) | `Mode`, `Input`, `Effect`, `step` |
 | [`schedule`](../../crates/relay-core/src/schedule.rs) | `WeeklySchedule`, `next_run` |
-| [`triggers`](../../crates/relay-core/src/triggers.rs) | `MacroTriggers` (including `ImageTrigger`), `PixelEdge`, `ProcessLaunchEdge` |
-| [`runlog`](../../crates/relay-core/src/runlog.rs) | `RunEntry`, `RunOutcome`, `SkipReason`, `CheckResult`; `RunLog` (the newest 200) and `CheckLog` (a run's last 50 checks) |
+| [`triggers`](../../crates/relay-core/src/triggers.rs) | `MacroTriggers` (including `ImageTrigger`), `TriggerOn` and `also_on`, `PixelEdge`, `ProcessLaunchEdge` |
+| [`runlog`](../../crates/relay-core/src/runlog.rs) | `RunEntry` (with `rows`, for a run from a data file), `RunOutcome`, `SkipReason`, `CheckResult`; `RunLog` (the newest 200) and `CheckLog` (a run's last 50 checks) |
 | [`timeline`](../../crates/relay-core/src/timeline.rs) | `duration`, shared by the editor and the engine |
 | [`view`](../../crates/relay-core/src/view.rs) | `MacroView` and `MacroListItem`, what the UI receives |
-| [`samples`](../../crates/relay-core/src/samples.rs) | The four sample macros from the design |
+| [`samples`](../../crates/relay-core/src/samples.rs) | The four sample macros from the design, for the browser preview and the tests (a new library starts empty) |
 | [`proptests`](../../crates/relay-core/src/proptests.rs) | Property tests for grouping and edits |
 
 Every type the UI sees derives [`ts_rs::TS`](https://crates.io/crates/ts-rs), so its TypeScript definition is generated (see [IPC](ipc.md#generated-bindings)).
@@ -89,6 +89,15 @@ pub struct KeyStroke { pub code: String, pub vk: u16, pub scan: u16, pub ext: bo
 
 `keys::label` and `key_label` turn a key into what the UI shows. For letters and digits they use the **virtual key**, which follows the layout, so the AZERTY key in the QWERTY "Q" position shows as **A**. Other keys have fixed names (*Enter*, *PgUp*, *Del*, *Num 5*). `code_for_label` goes the other way, for parsing hotkey combos. `key_for_char` maps a character to a US key, and is used by the v0 migration.
 
+A combo is labels joined by `" + "` (*Ctrl + Alt + 1*). `split_combo` splits one (a trailing `+` is the plus key), and `normalize_combo` puts its modifiers in Relay's order (Ctrl, Alt, Shift, Win), so *Shift + Ctrl + F9* and *Ctrl + Shift + F9* read the same.
+
+**Key warnings.** `key_warning(combo, altgr)` says what setting a combination as a global key costs, or `None`. It's used for Relay's keys and macro hotkeys alike, and refuses nothing:
+
+1. With Ctrl and Alt in the combo and `altgr` the character the layout in use types for it (the app asks Windows, see [relay-platform → Character translation](platform.md#character-translation)): *Ctrl + Alt + 7 types “{” on your keyboard (AltGr + 7). You couldn't type it while this is set.*
+2. Otherwise, a combination in `TAKEN`, the keys other software uses: F9 and F10 (Excel, Word, menus, debuggers), Ctrl + Shift + F9 (Word), and those remote-desktop and virtual-machine clients take: Ctrl + Alt + End, Home and Pause (Remote Desktop), Ctrl + Alt + Ins (VMware Horizon), Ctrl + F1 and Ctrl + F3 (Citrix Workspace), Ctrl + Alt + Left (Hyper-V). For example *Remote Desktop sends this as Ctrl + Alt + Del. In a remote session, Relay won't get it.*
+
+The kill switch's new default, Ctrl + Alt + Backspace, gets no warning.
+
 ## Step grouping
 
 `group_steps(events, GroupOptions { double_click_ms, double_click_px })` makes one pass over the events and produces the editor's steps. Each `Step` has a start `t`, an `end`, a `pause`, the `items` (indices of the events it owns) and a `kind`:
@@ -133,6 +142,7 @@ The UI edits macros only through `EditOp`, applied by `edit::apply(&mut Macro, o
 | `CapPauses { max }` | Retimes every pause above `max` to `max`, in the same single monotone pass |
 | `SetMoveDuration { index, dur }` | On a `Move`: retimes it from its first sample (which stays) to its last, the same way, so the samples are scaled into `t..t + dur` and everything after shifts by the difference. A single sample has no length: nothing changes. |
 | `SmoothMove { index }`, `StraightenMove { index }` | On a `Move`: moves its samples onto a reshaped path (see [Reshaping a move](#reshaping-a-move)). Times don't change. |
+| `Batch { ops }` | Several edits as one, applied in order to a copy of the macro: each op's indices are of the steps as the ops before it left them (so the UI deletes several rows from the last). If one fails, none is applied and its error is returned. The app records it as one change, so it undoes in one step. |
 
 Steps are addressed by index into `group_steps` of the current events. The UI always re-renders from the `MacroView` an edit returns, so indices can't go stale.
 
@@ -176,7 +186,7 @@ A Text step's `text` is a template ([`text.rs`](../../crates/relay-core/src/text
 
 [`data.rs`](../../crates/relay-core/src/data.rs) reads a macro's data file. `parse` takes the file's bytes: UTF-8 (a BOM is dropped) or, if that fails, Windows-1252, which is what Excel's plain "CSV" writes. The separator is the one the header row uses most, outside quotes: comma, semicolon or tab. Quoted values may hold separators, `""` and line breaks. Blank records are skipped; a short row is padded with empty values when read, a long one is refused (`TooManyValues`), as are two columns with the same name (any case) and an empty file.
 
-`check(events, table, file)` is the one rule for whether a macro can play: a column one of its Text steps types (`columns_used`) must be in the file (matched in any case), the file must have rows, and a macro typing a column needs a file. Its `Err` is the message the user sees. The app calls it before playing and before exporting a program; `PlayPlan::for_macro` then makes the repeat `Count(rows)`.
+`check(events, table, file)` is the one rule for whether a macro can play: a column one of its Text steps types (`columns_used`) must be in the file (matched in any case), the file must have rows, and a macro typing a column needs a file. Its `Err` is the message the user sees (*A Text step types {col:Customer}: choose a data file in the macro's play options.*). The app calls it before playing and before exporting a program; `PlayPlan::for_macro` then makes the repeat `Count(rows)`.
 
 ## Finding an image
 
@@ -283,7 +293,7 @@ The effects it returns, in order, are what the coordinator performs:
 | `PauseTriggers` | After the kill switch |
 | `EmitMode(mode)` | Always last on a transition: tell the UI, the tray and the window |
 
-`Input::Stop` carries its reason too (`Esc` and the stop button: `stopped`; another key with *Stop on key press*: `key_pressed`), so it travels with the transition instead of through a side field. Every input not listed is ignored: F9 while playing, F10 while recording, a `PlaybackFinished` after a stop, a trigger while busy (the coordinator tells the user it was skipped). Tests cover each transition.
+`Input::Stop` carries its reason too (`Esc` and the stop button: `stopped`; another key with *Stop on key press*: `key_pressed`), so it travels with the transition instead of through a side field. Every input not listed is ignored: the record key while playing, the play key while recording, a `PlaybackFinished` after a stop, a trigger while busy (the coordinator tells the user it was skipped). Tests cover each transition.
 
 ## Schedules
 
@@ -305,7 +315,7 @@ The polling triggers feed one sample per poll into an edge detector and fire on 
 
 ## Views for the UI
 
-The UI never receives raw events. `MacroView::of(&Macro)` sends the id, name, recording metadata, playback options, the **derived steps**, the **cursor path** (`MovePoint`s from moves and button events) and the **duration** (end of the last event + 500 ms of tail; 2 s for an empty macro). `MacroListItem` is a Library row, built by the app's library from counts it caches.
+The UI never receives raw events. `MacroView::of(&Macro)` sends the id, name, recording metadata, playback options, the **derived steps**, the **cursor path** (`MovePoint`s from moves and button events) and the **duration** (end of the last event + 500 ms of tail; 2 s for an empty macro). `MacroListItem` is a Library row, built by the app's library from counts it caches: the name, step count and length, runs and last run, the hotkey (only when it's on), `also` (the macro's other triggers that would fire, from `MacroTriggers::also_on`: a schedule with at least one day, an app launch with a program, the pixel trigger, an image trigger with an image; as `TriggerOn` values, without the image) and `created_at`.
 
 ---
 

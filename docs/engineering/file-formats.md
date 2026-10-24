@@ -9,14 +9,16 @@ Everything Relay stores is JSON (and one JPEG per recorded macro) in the data di
 ├── screens\<uuid>.jpg       machine-local: the screen as each recording started
 ├── library.json            machine-local: order, stats, triggers, trash
 ├── runs.json               machine-local: the run history
-├── settings.json           machine-local
-├── window.json             machine-local
+├── settings.json           machine-local: settings, Relay's keys, the first run
+├── window.json             machine-local: player mode, where the windows are, the editor's size and divider
 └── logs\relay.YYYY-MM-DD.log
 ```
 
-**Portable** files can be copied to another PC. **Machine-local** files describe this PC's use of the macros (run counts, the run history, hotkeys, schedules) and are never exported.
+**Portable** files can be copied to another PC. **Machine-local** files describe this PC's use of the macros (run counts, the run history, hotkeys, schedules) and of Relay (its settings and keys, its windows) and are never exported.
 
-**Screenshots** (`screens\<uuid>.jpg`) are taken when a recording starts, with *Screenshot* on: the whole virtual desktop at the macro's `recording.virtual_desktop`, scaled down to at most 3200 px wide, JPEG quality 80, with Relay's own window left out. The preview draws it at that rect. It's machine-local because it can show anything that was on screen: exports and imports never carry it. A duplicate gets a copy; a trashed macro keeps its screenshot for a restore. A macro without one (recorded before 1.3, imported, or with the setting off) shows the sketch.
+A folder with none of `settings.json`, `library.json` and `macros\` is a **new install**: the Library starts empty, and nothing is written until there's something to keep. A folder an older Relay used is an upgrade (see [settings.json](#settingsjson)).
+
+**Screenshots** (`screens\<uuid>.jpg`) are taken when a recording starts, with *Screenshot* on: the whole virtual desktop at the macro's `recording.virtual_desktop`, scaled down to at most 3200 px wide, JPEG quality 80, with Relay's own windows left out. The preview draws it at that rect. It's machine-local because it can show anything that was on screen: exports and imports never carry it. A duplicate gets a copy; a trashed macro keeps its screenshot for a restore. A macro without one (recorded before 1.3, imported, or with the setting off) shows the sketch.
 
 - [The .rly macro file](#the-rly-macro-file)
 - [The JSON export](#the-json-export)
@@ -221,7 +223,7 @@ To change the format:
 | --- | --- |
 | `order` | Library order, top first. Macro files not listed are shown after, newest first. |
 | `entries` | Per-macro stats and triggers. Every field has a default, so partial entries load. |
-| `triggers.hotkey.combo` | Labels joined by `" + "`, modifiers first: `Ctrl`, `Alt`, `Shift`, `Win` |
+| `triggers.hotkey.combo` | Labels joined by `" + "`, modifiers first: `Ctrl`, `Alt`, `Shift`, `Win`. Never one of Relay's keys (see `keys` in [settings.json](#settingsjson)). |
 | `triggers.schedule.schedule.days` | Monday first |
 | `triggers.schedule.schedule.time` | Local `"HH:MM"` |
 | `triggers.app_launch.exe` | File name, matched case-insensitively |
@@ -232,7 +234,7 @@ Before triggers existed (up to M6), entries had a plain `hotkey` label. It's rea
 
 ## runs.json
 
-The run history (Library → Runs), oldest first. Relay keeps the newest 200 entries (`runlog::MAX_RUNS`).
+The run history (the Library's **All runs**, and its **Problems**), oldest first. Relay keeps the newest 200 entries (`runlog::MAX_RUNS`).
 
 ```json
 {
@@ -253,7 +255,8 @@ The run history (Library → Runs), oldest first. Relay keeps the newest 200 ent
         { "step": 4, "loop_idx": 0, "image": true, "after_ms": 380, "outcome": { "type": "found", "x": 812, "y": 344, "score": 93 } },
         { "step": 7, "loop_idx": 0, "image": false, "after_ms": 5000, "outcome": { "type": "timed_out" } }
       ],
-      "checks_dropped": 0
+      "checks_dropped": 0,
+      "rows": 3
     },
     {
       "at": "2026-09-30T08:00:00Z",
@@ -271,16 +274,19 @@ The run history (Library → Runs), oldest first. Relay keeps the newest 200 ent
 | --- | --- |
 | `at` | When the run started, or when the skipped trigger fired |
 | `macro_name` | The name at that time: the macro may be renamed or deleted since |
-| `source` | `manual` (the Play button or F10), `hotkey`, `schedule`, `app_launch`, `pixel` or `image` |
+| `source` | `manual` (Play, in the window or the player, or the play key), `hotkey`, `schedule`, `app_launch`, `pixel` or `image` |
 | `outcome` | `finished` with a `FinishReason` (`completed`, `stopped`, `key_pressed`, `killed`, `pixel_timeout`, `error`), or `skipped` with `busy`, `locked`, `missed` (a schedule slept through) or `data_file` (its data file couldn't be played) |
 | `note` | Only on a skip whose reason needs saying: the data file's problem, as the user was told |
 | `duration_ms` | Wall time, pauses included; 0 for a skip |
 | `loops` | Loops played, the last one included even if it didn't finish |
+| `rows` | Only for a run played from a data file: the file's rows, one per loop. Activity names the row a run stopped on. |
 | `checks` | The last 50 pixel checks and Find image steps (`runlog::MAX_CHECKS`), with `checks_dropped` counting earlier ones. `step` is 1-based, `loop_idx` 0-based, `after_ms` excludes pauses. `outcome` is `matched`, `found` (an image's top-left corner and score in percent), `timed_out` or `interrupted` (stopped while waiting). |
 
 A run still going when Relay quits isn't recorded. Paused triggers and deleted macros aren't logged. Like `library.json`, a `runs.json` that exists but can't be read is left alone until Relay restarts, and one that doesn't parse is set aside as `runs.json.bad`. A failed save keeps the entry in memory and tells the user once, until a save succeeds again.
 
 ## settings.json
+
+A new install's, as Relay writes it:
 
 ```json
 {
@@ -294,24 +300,72 @@ A run still going when Relay quits isn't recorded. Paused triggers and deleted m
   "show_click_labels": true,
   "preview_background": "screen",
   "close_to_tray": true,
-  "keep_on_top": "always"
+  "keep_on_top": "always",
+  "hide_while_recording": true,
+  "hide_while_playing": false,
+  "theme": "system",
+  "glass": null,
+  "spacing": "comfortable",
+  "text_size": 100,
+  "player_size": "compact",
+  "reduce_motion": "system",
+  "sounds": false,
+  "show_moves": false,
+  "keys": {
+    "record": "Ctrl + Shift + F9",
+    "play": "Ctrl + Shift + F10",
+    "player": "Ctrl + Shift + M",
+    "kill": "Ctrl + Alt + Backspace"
+  },
+  "intro": "welcome"
 }
 ```
 
-`path_mode` is `"full"` or `"trail"`, `preview_background` is `"screen"` (the screenshot, when the macro has one) or `"sketch"`, and `keep_on_top` is `"always"`, `"sessions"` (while recording or playing) or `"never"`. Missing fields take their defaults (shown above), and unknown fields are ignored. A field with an invalid value (`"keep_on_top": "sometimes"`, or a value from a newer Relay) takes its default and the others are kept; the original file is set aside as `settings.json.bad`, the recovered settings are saved, and the user is told. *Start with Windows* isn't stored here: it's an entry in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (managed by `tauri-plugin-autostart`) that starts Relay with `--autostart`.
+| Field | Values |
+| --- | --- |
+| `capture_moves`, `capture_keys`, `countdown`, `esc_stops_recording`, `ignore_injected`, `capture_screen` | Settings → Recording |
+| `path_mode` | `"full"` or `"trail"` |
+| `show_click_labels` | The preview's callouts show a selected click's label |
+| `preview_background` | `"screen"` (the screenshot, when the macro has one) or `"sketch"` (the view's *Outline*) |
+| `close_to_tray` | The × and Alt + F4 put Relay in the tray instead of quitting |
+| `keep_on_top` | When the **player** is on top: `"always"`, `"sessions"` (while recording or playing) or `"never"`. The main window never is. |
+| `hide_while_recording`, `hide_while_playing` | The main window steps aside (and the player shows) while recording, or playing |
+| `theme` | `"system"` (Windows' app mode), `"light"` or `"dark"` |
+| `glass` | Frosted glass: `true`, `false`, or `null` for this Windows' default (on for Windows 11, off for Windows 10). Windows' *Transparency effects* off makes Relay solid whatever this says. |
+| `spacing` | `"compact"`, `"comfortable"` or `"large"` |
+| `text_size` | `100`, `125`, `150` or `200` (percent): everything scales, the window too; the player up to 150% |
+| `player_size` | `"compact"` (600 × 64) or `"large"` (760 × 88) |
+| `reduce_motion` | `"system"` (Windows' animation setting) or `"always"` |
+| `sounds` | Short sounds for recording, steps, and a run's end |
+| `show_moves` | The steps list shows cursor moves as rows of their own, instead of folded into the step they lead to |
+| `keys` | Relay's keys, as the UI shows them: `record`, `play` and `player` (each a combo, or `null` for none) and `kill` (a combo, never `null`) |
+| `intro` | What the first run shows when the window next opens: `"welcome"` (the three screens), `"keys"` (the keys screen once, after an upgrade) or `"done"` |
+
+**A new install or an upgrade.** A missing field takes its default, but which default depends on the folder: in a folder an older Relay used (it has `settings.json`, `library.json` or `macros\`), `keys` defaults to the keys Relay had before they could be set (`"F9"`, `"F10"`, `"Ctrl + Shift + M"`, `"Ctrl + Alt + End"`) and `intro` to `"keys"`, so an upgrade keeps its keys and sees the keys screen once. In a new folder, they're the new install's above. Relay's keys are checked when saved: each a usable hotkey, none twice, none a macro's hotkey.
+
+Unknown fields are ignored. A field with an invalid value (`"keep_on_top": "sometimes"`, `"text_size": 110`, or a value from a newer Relay) takes its default and the others are kept; the original file is set aside as `settings.json.bad`, the recovered settings are saved, and the user is told. *Start with Windows* isn't stored here: it's an entry in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (managed by `tauri-plugin-autostart`) that starts Relay with `--autostart`.
 
 ## window.json
 
 ```json
 {
-  "expanded": true,
+  "player_mode": false,
   "anchor": [1280, 1384],
   "size": [1100, 720],
-  "panes": { "preview_w": 520, "transport_h": null, "timeline_h": null }
+  "panes": { "inspector_w": 380 },
+  "player_anchor": [2240, 120]
 }
 ```
 
-`anchor` is the widget's bottom-center in physical virtual-desktop pixels, or `null` for the default position. `size` is the editor's size in CSS px if the user resized it (`null`: 944 × 612); it never goes below 760 × 520. `panes` are the editor's dividers in CSS px: the preview's width, the button row's height and the timeline's height, each `null` for the default (600, 102 and 146); the UI keeps them inside the window. Every field may be missing (older files), and only Rust writes this file.
+| Field | Notes |
+| --- | --- |
+| `player_mode` | The player stands in for the main window; Relay starts that way. Saved as soon as it changes. |
+| `anchor` | The main window's bottom-center in physical virtual-desktop pixels, or `null` for the default position. Only a drag changes it. |
+| `size` | The main window's size in CSS px if the user resized it (`null`: 944 × 612, at most 80% of the work area); never below 760 × 520 |
+| `panes` | The editor's divider: the inspector's width in CSS px, `null` for the default (340). The UI keeps it inside the window without changing what's saved. |
+| `player_anchor` | The player's bottom-center, once the user dragged it (`null`: centered near the bottom of the primary work area) |
+
+Every field may be missing, and only Rust writes this file. An older Relay's file keeps its anchor and size; its `expanded` (the old compact player) and its three dividers (`preview_w`, `transport_h`, `timeline_h`) are ignored.
 
 ---
 
