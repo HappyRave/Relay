@@ -280,7 +280,7 @@ The run history (the Library's **All runs**, and its **Problems**), oldest first
 | `duration_ms` | Wall time, pauses included; 0 for a skip |
 | `loops` | Loops played, the last one included even if it didn't finish |
 | `rows` | Only for a run played from a data file: the file's rows, one per loop. Activity names the row a run stopped on. |
-| `checks` | The last 50 pixel checks and Find image steps (`runlog::MAX_CHECKS`), with `checks_dropped` counting earlier ones. `step` is 1-based, `loop_idx` 0-based, `after_ms` excludes pauses. `outcome` is `matched`, `found` (an image's top-left corner and score in percent), `timed_out` or `interrupted` (stopped while waiting). |
+| `checks` | The last 50 pixel checks and Find image steps (`runlog::MAX_CHECKS`), with `checks_dropped` counting earlier ones. `step` is the step's number as the UI shows it (`steps::step_number`: moves don't count; runs logged by Relay 1.5 counted them), `loop_idx` 0-based, `after_ms` excludes pauses. `outcome` is `matched`, `found` (an image's top-left corner and score in percent), `timed_out` or `interrupted` (stopped while waiting). |
 
 A run still going when Relay quits isn't recorded. Paused triggers and deleted macros aren't logged. Like `library.json`, a `runs.json` that exists but can't be read is left alone until Relay restarts, and one that doesn't parse is set aside as `runs.json.bad`. A failed save keeps the entry in memory and tells the user once, until a save succeeds again.
 

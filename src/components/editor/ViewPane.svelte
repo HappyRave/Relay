@@ -10,7 +10,7 @@
   import Icon from "../ui/Icon.svelte";
   import { relay } from "../../lib/state/relay.svelte";
   import { fmtTime } from "../../lib/format";
-  import { rowOf, rowText, stepRows } from "../../lib/editor/rows";
+  import { rowOf, rowText, stepLabel, stepRows } from "../../lib/editor/rows";
   import type { Zoom } from "../../lib/preview/geometry";
   import type { PreviewBackground } from "../../lib/ipc/bindings/PreviewBackground";
 
@@ -23,7 +23,8 @@
   const hereText = $derived.by(() => {
     if (!here) return "";
     const t = rowText(relay.steps[here.index], here.move == null ? null : relay.steps[here.move], { anchor: null });
-    return `Step ${rows.indexOf(here) + 1} · ${t.kind} · ${t.what}`;
+    const label = stepLabel(relay.steps, here.index);
+    return `${label[0].toUpperCase()}${label.slice(1)} · ${t.kind} · ${t.what}`;
   });
   const pointer = $derived(relay.steps.some((s) => s.kind !== "keys" && s.kind !== "type" && s.kind !== "text" && s.kind !== "wait"));
   const hasScreen = $derived(!!relay.screenUrl && relay.mode !== "recording");

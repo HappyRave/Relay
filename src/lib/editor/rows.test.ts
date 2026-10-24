@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import samples from "../dev/sample-views.json";
-import { deleteRows, notches, rowMatches, rowOf, rowText, stepRows } from "./rows";
+import { deleteRows, notches, rowMatches, rowOf, rowText, stepCount, stepIndex, stepLabel, stepNumber, stepRows } from "./rows";
 import type { MacroView, Step } from "../types";
 
 const invoice = (samples[0] as unknown as { view: MacroView }).view;
@@ -30,6 +30,17 @@ describe("rows", () => {
       { index: 0, move: null },
       { index: 2, move: 1 },
     ]);
+  });
+
+  test("steps keep their number whether moves show or not: a move goes by the step it leads to", () => {
+    // The invoice: 18 steps, 6 of them moves.
+    expect(stepCount(steps)).toBe(12);
+    expect(stepRows(steps, false).map((r) => stepNumber(steps, r.index))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    expect([stepLabel(steps, 0), stepLabel(steps, 1), stepLabel(steps, 11)]).toEqual(["move before step 1", "step 1", "step 8"]);
+    expect(stepIndex(steps, 8)).toBe(11); // the pixel check
+    expect([stepIndex(steps, 13), stepIndex(steps, 0)]).toEqual([-1, -1]);
+    const tail = [...steps, { ...steps[0], t: 99_000, end: 99_500 }] as Step[];
+    expect(stepLabel(tail, steps.length)).toBe("move after step 12");
   });
 
   test("a step's row, whether it's the row's step or its move", () => {

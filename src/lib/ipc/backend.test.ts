@@ -224,7 +224,7 @@ describe("browserBackend (npm run dev)", () => {
     ]);
     expect(Date.now() - new Date(runs[0].at).getTime()).toBe(3 * 3600_000);
     expect(runs[0].checks.map((c) => c.loop_idx)).toEqual([0, 1, 2]);
-    expect(runs[3].checks).toEqual([{ step: 7, loop_idx: 0, image: false, after_ms: 5000, outcome: { type: "timed_out" } }]);
+    expect(runs[3].checks).toEqual([{ step: 6, loop_idx: 0, image: false, after_ms: 5000, outcome: { type: "timed_out" } }]);
   });
 
   test("a simulated playback goes into the run history", async () => {

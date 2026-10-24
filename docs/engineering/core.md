@@ -100,7 +100,7 @@ The kill switch's new default, Ctrl + Alt + Backspace, gets no warning.
 
 ## Step grouping
 
-`group_steps(events, GroupOptions { double_click_ms, double_click_px })` makes one pass over the events and produces the editor's steps. Each `Step` has a start `t`, an `end`, a `pause`, the `items` (indices of the events it owns) and a `kind`:
+`group_steps(events, GroupOptions { double_click_ms, double_click_px })` makes one pass over the events and produces the editor's steps. `step_number(steps, i)` is the number a step goes by everywhere (the inspector, messages, Activity, the AutoHotkey export): the steps before it that aren't moves, plus one, so a move takes the number of the step it leads to and numbers don't change with *Show moves* (`src/lib/editor/rows.ts` has the same rule). Each `Step` has a start `t`, an `end`, a `pause`, the `items` (indices of the events it owns) and a `kind`:
 
 | Kind | Rule |
 | --- | --- |

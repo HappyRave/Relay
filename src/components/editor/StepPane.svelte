@@ -12,7 +12,7 @@
   import Icon from "../ui/Icon.svelte";
   import { relay } from "../../lib/state/relay.svelte";
   import { category } from "../../lib/categories";
-  import { rowOf, rowSteps, rowText, stepRows, type Row } from "../../lib/editor/rows";
+  import { rowOf, rowSteps, rowText, stepCount, stepLabel, stepRows, type Row } from "../../lib/editor/rows";
   import { clamp, toMs } from "../../lib/fields";
   import { areaChoice, pngSize, pngUrl } from "../../lib/image";
   import type { MouseBtn, Step } from "../../lib/types";
@@ -37,6 +37,7 @@
   const steps = $derived(relay.steps);
   const rows = $derived(stepRows(steps, relay.settings.show_moves));
   const anchor = $derived(relay.playback.coord_mode === "window" ? (relay.view?.recording.anchor_window?.rect ?? null) : null);
+  const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
   const textOf = (r: Row) => rowText(steps[r.index], r.move == null ? null : steps[r.move], { anchor });
   const chosen = $derived(rows.filter((r) => relay.selection.includes(r.index)));
   const row = $derived(rows[rowOf(rows, relay.selected)] ?? null);
@@ -174,7 +175,7 @@
   {/if}
 
   {#if playingHere && now}
-    {@render title(now, `Now · step ${rowOf(rows, now.index) + 1} of ${rows.length}`)}
+    {@render title(now, `Now · ${stepLabel(steps, now.index)}${steps[now.index].kind === "move" ? "" : ` of ${stepCount(steps)}`}`)}
     {#if relay.dataFile && !relay.dataFile.error}
       <div class="spec"><span class="k">Row</span><span class="num">{relay.loopIdx + 1} of {relay.dataFile.rows}</span></div>
     {/if}
@@ -200,7 +201,7 @@
       <Key size="sm" variant="danger" disabled={!editing} onclick={() => relay.deleteRows(chosen)}><Icon name="trash" size={14} />Delete {chosen.length} steps</Key>
     </span>
   {:else if row && step}
-    {@render title(row, `${textOf(row).kind} · step ${rowOf(rows, row.index) + 1}`)}
+    {@render title(row, steps[row.index].kind === "move" ? cap(stepLabel(steps, row.index)) : `${textOf(row).kind} · ${stepLabel(steps, row.index)}`)}
     {#if failed?.kind === "pixel_wait"}
       <div class="notice failed" role="alert">
         <Icon name="error" size={14} /><span>Timed out in the last run: the pixel at {where(failed.x, failed.y)} wasn't {failed.color} within {s(failed.timeout_ms)} s, so the macro stopped.</span>

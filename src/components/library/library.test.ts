@@ -25,8 +25,8 @@ const run = (over: Partial<RunEntry> = {}): RunEntry => ({
   speed: 1,
   humanize: false,
   checks: [
-    { step: 12, loop_idx: 0, image: false, after_ms: 640, outcome: { type: "matched" } },
-    { step: 12, loop_idx: 1, image: false, after_ms: 910, outcome: { type: "matched" } },
+    { step: 8, loop_idx: 0, image: false, after_ms: 640, outcome: { type: "matched" } },
+    { step: 8, loop_idx: 1, image: false, after_ms: 910, outcome: { type: "matched" } },
   ],
   checks_dropped: 0,
   ...over,
@@ -51,7 +51,7 @@ const history = [
     loops: 1,
     from_ms: 3200,
     speed: 2,
-    checks: [{ step: 12, loop_idx: 0, image: false, after_ms: 5000, outcome: { type: "timed_out" } }],
+    checks: [{ step: 8, loop_idx: 0, image: false, after_ms: 5000, outcome: { type: "timed_out" } }],
     checks_dropped: 4,
   }),
 ];
@@ -351,14 +351,14 @@ describe("activity", () => {
     const [first, , timedOut] = runRows();
     await userEvent.click(first);
     expect(first).toHaveAttribute("aria-expanded", "true");
-    expect(first.parentElement).toHaveTextContent("Loop 1 · Step 12 · Pixel check matched after 0.6 s");
-    expect(first.parentElement).toHaveTextContent("Loop 2 · Step 12 · Pixel check matched after 0.9 s");
+    expect(first.parentElement).toHaveTextContent("Loop 1 · Step 8 · Pixel check matched after 0.6 s");
+    expect(first.parentElement).toHaveTextContent("Loop 2 · Step 8 · Pixel check matched after 0.9 s");
     await userEvent.click(timedOut);
     expect(first).toHaveAttribute("aria-expanded", "false");
     const detail = timedOut.parentElement!;
     expect(detail).toHaveTextContent("From 00:03.20 · 2× speed");
     expect(detail).toHaveTextContent("4 earlier checks not kept");
-    expect(within(detail).getByText("Step 12 · Pixel check timed out after 5.0 s")).toHaveClass("bad");
+    expect(within(detail).getByText("Step 8 · Pixel check timed out after 5.0 s")).toHaveClass("bad");
   });
 
   test("Problems: the runs that didn't end as planned, with a count", async () => {
@@ -373,18 +373,18 @@ describe("activity", () => {
   test("Open at step N opens the macro on the step it timed out on", async () => {
     await openRuns(/Problems/);
     await userEvent.click(runRows()[1]);
-    await userEvent.click(button("Open at step 12"));
+    await userEvent.click(button("Open at step 8")); // the pixel check: step 8, moves not counted
     await settle();
     expect([relay.place, relay.view?.id, relay.selected, relay.failedStep]).toEqual(["macro", A, 11, 11]);
   });
 
   test("a run from a data file says which row", async () => {
-    core.runLog = [run({ loops: 112, rows: 200, outcome: { type: "finished", reason: "pixel_timeout" }, checks: [{ step: 12, loop_idx: 111, image: false, after_ms: 5000, outcome: { type: "timed_out" } }] })];
+    core.runLog = [run({ loops: 112, rows: 200, outcome: { type: "finished", reason: "pixel_timeout" }, checks: [{ step: 8, loop_idx: 111, image: false, after_ms: 5000, outcome: { type: "timed_out" } }] })];
     await relay.refreshRuns();
     await openRuns();
     expect(runRows()[0]).toHaveTextContent("200 rows");
     await userEvent.click(runRows()[0]);
-    expect(screen.getByText("Row 112 of 200 · Step 12 · Pixel check timed out after 5.0 s")).toBeInTheDocument();
+    expect(screen.getByText("Row 112 of 200 · Step 8 · Pixel check timed out after 5.0 s")).toBeInTheDocument();
   });
 
   test("the filter shows one macro's runs", async () => {

@@ -9,7 +9,7 @@
   import { seekable } from "../../../lib/actions/seekable";
   import { keyChips, moveBars, moveSegments, pauseSpans, pct } from "../../../lib/timeline/lanes";
   import { fmtTime } from "../../../lib/format";
-  import { rowOf, rowText, stepRows } from "../../../lib/editor/rows";
+  import { rowOf, rowText, stepCount, stepLabel, stepRows } from "../../../lib/editor/rows";
   import type { Step } from "../../../lib/types";
 
   const d = $derived(relay.duration);
@@ -36,7 +36,8 @@
     const at = `${fmtTime(cur)} of ${fmtTime(d)}`;
     if (!here) return at;
     const t = rowText(steps[here.index], here.move == null ? null : steps[here.move], { anchor: null });
-    return `${at}, step ${rows.indexOf(here) + 1} of ${rows.length}, ${t.kind} · ${t.what}`;
+    const of = steps[here.index].kind === "move" ? "" : ` of ${stepCount(steps)}`;
+    return `${at}, ${stepLabel(steps, here.index)}${of}, ${t.kind} · ${t.what}`;
   });
 
   function key(e: KeyboardEvent) {

@@ -246,9 +246,10 @@ impl Engine {
 
     /// Why playback stopped at `timed_out_step`, for the notice.
     pub fn timeout_notice(&self) -> Option<String> {
-        let n = self.timed_out_step?;
-        let image = self.plan.steps.get(n - 1).is_some_and(|s| matches!(s.kind, StepKind::FindImage { .. }));
+        let i = self.timed_out_step? - 1;
+        let image = self.plan.steps.get(i).is_some_and(|s| matches!(s.kind, StepKind::FindImage { .. }));
         let what = if image { "Image not found" } else { "Pixel check timed out" };
+        let n = relay_core::steps::step_number(&self.plan.steps, i);
         Some(format!("{what} at step {n}; playback stopped."))
     }
 
@@ -446,7 +447,7 @@ impl Engine {
         // Paused by the user: the wait stopped counting when the pause began.
         let end = self.user_paused.unwrap_or(now);
         let check = CheckResult {
-            step: self.step_of(w.event).unwrap_or(0) as u32,
+            step: self.step_of(w.event).map_or(0, |n| relay_core::steps::step_number(&self.plan.steps, n - 1)),
             loop_idx: self.loop_idx,
             image: matches!(w.check, Check::Image { .. }),
             after_ms: (end - w.started).max(0.0).round() as u32,
@@ -1313,6 +1314,19 @@ mod tests {
         run_to(&mut e, &now, 100.0);
         run_to(&mut e, &now, 5100.0);
         assert_eq!(e.timeout_notice().as_deref(), Some("Pixel check timed out at step 1; playback stopped."));
+    }
+
+    #[test]
+    fn a_timed_out_check_is_numbered_without_the_moves() {
+        let mut events = vec![Event::Move { t: 0, x: 1, y: 1 }, Event::Move { t: 50, x: 9, y: 9 }];
+        events.extend(pixel_macro());
+        let (mut e, _, now) = pixel_engine_for(events, f64::INFINITY);
+        run_to(&mut e, &now, 100.0);
+        run_to(&mut e, &now, 5100.0);
+        assert_eq!(e.timeout_notice().as_deref(), Some("Pixel check timed out at step 1; playback stopped."));
+        assert_eq!(e.timed_out_at(), Some(100), "the check itself, not the move before it");
+        let (checks, _) = std::mem::take(&mut e.checks).into_parts();
+        assert_eq!(checks.iter().map(|c| c.step).collect::<Vec<_>>(), [1], "its run history too");
     }
 
     #[test]

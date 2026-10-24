@@ -115,6 +115,7 @@ describe("the Step tab", () => {
       await relay.loadMacro("00000000-0000-0000-0000-000000000004"); // Open standup tools
       await relay.updateSettings({ show_moves: true });
       await open(1);
+      expect(screen.getByText("Move before step 2")).toBeInTheDocument(); // numbered as with moves folded: Keys is step 1
       expect(field("Takes in seconds")).toBeDisabled();
       expect(button("Smooth the path")).toBeDisabled();
       expect(button("Straighten")).toBeDisabled();

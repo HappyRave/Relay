@@ -108,9 +108,15 @@ pub fn script(m: &Macro, data: Option<&DataTable>) -> String {
     let _ = writeln!(o, "Play(N) {{");
     let mut image = 0;
     let mut prev = 0;
+    let last = crate::steps::step_number(&steps, steps.len()) - 1;
     for (i, s) in steps.iter().enumerate() {
-        let n = i + 1;
-        let _ = writeln!(o, "    ; {n}. {}", describe(&s.kind));
+        // Numbered as in the steps list: a move goes by the step it leads to.
+        let n = crate::steps::step_number(&steps, i) as usize;
+        let _ = match s.kind {
+            StepKind::Move { .. } if n as u32 > last => writeln!(o, "    ; Move after step {last}"),
+            StepKind::Move { .. } => writeln!(o, "    ; Move before step {n}"),
+            _ => writeln!(o, "    ; {n}. {}", describe(&s.kind)),
+        };
         let wait = s.t.saturating_sub(prev);
         prev = s.t;
         if matches!(s.kind, StepKind::Move { .. }) {

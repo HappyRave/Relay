@@ -21,6 +21,29 @@ export function stepRows(steps: Step[], showMoves: boolean): Row[] {
   return rows;
 }
 
+/**
+ * The number step `index` goes by, the same whether moves show or not (as
+ * relay-core's `step_number`): the steps before it that aren't moves, plus
+ * one. A move takes the number of the step it leads to.
+ */
+export const stepNumber = (steps: Step[], index: number) => steps.slice(0, index).filter((s) => s.kind !== "move").length + 1;
+
+/** How many steps a macro has, moves left out. */
+export const stepCount = (steps: Step[]) => stepNumber(steps, steps.length) - 1;
+
+/** Step `index` by its number: "step 3", "move before step 3", or after the last step "move after step 12". */
+export function stepLabel(steps: Step[], index: number): string {
+  const n = stepNumber(steps, index);
+  if (steps[index]?.kind !== "move") return `step ${n}`;
+  return n > stepCount(steps) ? `move after step ${n - 1}` : `move before step ${n}`;
+}
+
+/** The index of the step numbered `n` (not a move), or -1. */
+export function stepIndex(steps: Step[], n: number): number {
+  let seen = 0;
+  return steps.findIndex((s) => s.kind !== "move" && ++seen === n);
+}
+
 /** The row showing step `index` (as its own step or as its folded move), or -1. */
 export const rowOf = (rows: Row[], index: number) => rows.findIndex((r) => r.index === index || r.move === index);
 

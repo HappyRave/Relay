@@ -12,6 +12,7 @@
 - **Picking a pixel:** no countdown anymore. Relay steps aside and a loupe follows the cursor over the live screen; the arrow keys move it a pixel at a time, <kbd>Space</kbd> freezes the screen for what blinks or shows only on hover, a click or <kbd>Enter</kbd> picks, <kbd>Esc</kbd> cancels.
 - **Sounds:** short sounds for recording, stopping, finishing and errors, off by default (**Settings → Sound**).
 - **Exported programs** look like Relay's player, with a new **Pause** key.
+- **Step numbers** leave out mouse moves, so a step keeps its number whether moves show or not, in the editor, in messages (*Pixel check timed out at step 8*), in Activity and in AutoHotkey exports. A move goes by the step it leads to: *Move before step 3*.
 - **The export dialog** names the macro, and its formats are radios you can move through with the arrow keys.
 
 ## v1.5.0: Text steps, data files and AutoHotkey export

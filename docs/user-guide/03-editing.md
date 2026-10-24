@@ -133,6 +133,8 @@ Each of these is **one change**: a single Undo puts all the steps back as they w
 
 A **move** is the cursor going from where it was to where it goes next: to the next click, usually. It's folded into the row of that step, whose note says how long it takes; with **Show moves**, it's a row of its own: *Move · 134, 70 → 230, 324*, *0.63 s*. When you select it (or the step it's folded into), the preview draws its path thicker.
 
+Moves don't count in step numbers, so a step keeps its number whether moves show or not: *step 8* is the eighth step that isn't a move, in the inspector, in messages such as *Pixel check timed out at step 8*, and in Activity. A move goes by the step it leads to: *Move before step 3*, or *Move after step 12* for one after the last step.
+
 - **Moving there** (or **Takes**, on a move's own row): how long the move takes, from its first recorded position to its last. Shorter is faster. The path keeps its shape, and everything after the move comes earlier or later by the difference.
 - **Smooth the path** takes the wobble out of a shaky path and keeps its big turns. Press it again to smooth more.
 - **Straighten** makes the path a straight line.

@@ -42,7 +42,7 @@ import { NO_PANES } from "../layout";
 import type { Panes } from "../ipc/bindings/Panes";
 import { lastIndexAtOrBefore } from "../preview/geometry";
 import { currentStepIndex, jumpTarget } from "../timeline/lanes";
-import { deleteRows, type Row } from "../editor/rows";
+import { deleteRows, stepIndex, type Row } from "../editor/rows";
 import { failed } from "../runs";
 import { plural, slug } from "../format";
 import { followStep } from "./selection";
@@ -718,13 +718,14 @@ export class RelayStore {
     this.inspectorOpen = true;
   };
 
-  /** A run that stopped on a step: the macro, on that step (1-based), marked when it timed out. */
+  /** A run that stopped on a step: the macro, on the step with that number (moves not counted), marked when it timed out. */
   openAt = async (id: string, step: number, timedOut = false) => {
     await this.openMacro(id);
-    if (this.view?.id !== id || !this.steps[step - 1]) return;
-    this.select([step - 1]);
+    const index = stepIndex(this.steps, step);
+    if (this.view?.id !== id || index < 0) return;
+    this.select([index]);
     this.inspectorOpen = true;
-    if (timedOut) this.failedStep = step - 1;
+    if (timedOut) this.failedStep = index;
   };
 
   /** Moves these macros to the trash, with one Undo. */

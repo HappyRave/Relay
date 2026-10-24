@@ -244,7 +244,8 @@ pub fn runs() -> Vec<(TimeDelta, RunEntry)> {
     let pixel_step = |i: usize| {
         let m = &samples[i].macro_;
         let steps = group_steps(&m.events, (&m.recording).into());
-        steps.iter().position(|s| matches!(s.kind, StepKind::PixelWait { .. })).expect("a pixel check") as u32 + 1
+        let i = steps.iter().position(|s| matches!(s.kind, StepKind::PixelWait { .. })).expect("a pixel check");
+        crate::steps::step_number(&steps, i)
     };
     let check =
         |i, loop_idx, after_ms, outcome| CheckResult { step: pixel_step(i), loop_idx, image: false, after_ms, outcome };

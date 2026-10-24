@@ -7,7 +7,7 @@
   import { relay } from "../../../lib/state/relay.svelte";
   import { cumulativeLengths, lastIndexAtOrBefore, pan, pathD, PREVIEW_ASPECT, zoomAround, zoomedView, type Zoom } from "../../../lib/preview/geometry";
   import { placeCallouts } from "../../../lib/preview/callouts";
-  import { rowOf, stepRows } from "../../../lib/editor/rows";
+  import { rowOf, stepNumber, stepRows } from "../../../lib/editor/rows";
   import { plural } from "../../../lib/format";
   import type { StepOf } from "../../../lib/types";
 
@@ -49,7 +49,7 @@
   const pixel = $derived(steps[relay.selected]?.kind === "pixel_wait" ? (steps[relay.selected] as StepOf<"pixel_wait">) : null);
 
   const clicks = $derived(
-    steps.flatMap((s, i) => (s.kind === "click" ? [{ s, n: rowOf(rows, i) + 1, selected: relay.selection.includes(i) }] : [])),
+    steps.flatMap((s, i) => (s.kind === "click" ? [{ s, n: stepNumber(steps, i), selected: relay.selection.includes(i) }] : [])),
   );
   const callouts = $derived(w && h ? placeCallouts(clicks.map((c) => toStage(c.s.x, c.s.y)), w, h) : []);
 

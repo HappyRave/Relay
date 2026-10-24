@@ -188,17 +188,20 @@ In a script, wait for it to end: `start /wait export-invoice.exe --quiet` in `cm
 
 ## AutoHotkey scripts
 
-A macro exported as **AutoHotkey v2** is a script you can read, change and run with [AutoHotkey](https://www.autohotkey.com/) v2, without Relay. Each step is a short block, numbered like the steps list with *Show moves* on:
+A macro exported as **AutoHotkey v2** is a script you can read, change and run with [AutoHotkey](https://www.autohotkey.com/) v2, without Relay. Each step is a short block, numbered like the steps list (a move goes by the step it leads to):
 
 ```autohotkey
 Play(N) {
-    ; 2. Click · Save
+    ; Move before step 1
+    Pause(0, false)
+    MouseMove 840, 412
+    ; 1. Click · Save
     Pause(100)
     Click "840 412"
-    ; 3. Keys · Ctrl + S
+    ; 2. Keys · Ctrl + S
     Pause(300)
     Send "^s"
-    ; 6. Text
+    ; 3. Text
     Pause(300)
     SendText "Invoice " . FormatTime(, "yyyy-MM-dd") . " #" . N
 }

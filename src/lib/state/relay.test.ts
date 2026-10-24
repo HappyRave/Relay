@@ -942,7 +942,7 @@ describe("library", () => {
     expect(relay.view?.id).toBe(C);
     expect(core.lastArgs("toggle_play")).toEqual({ from: 0 });
     core.emit(session("idle", C));
-    await relay.openAt(A, 12, true);
+    await relay.openAt(A, 8, true); // the pixel check: step 8 of 12, its index 11 with the moves
     expect([relay.place, relay.view?.id, relay.selection, relay.failedStep]).toEqual(["macro", A, [11], 11]);
     await relay.openAt(A, 99);
     expect(relay.selection).toEqual([11]); // no such step: nothing selected anew
