@@ -377,13 +377,16 @@ export class RelayStore {
         if (mode === "recording" && this.mode !== "recording") this.sound("record");
         if (mode === "idle" && this.mode === "recording") this.sound("stop");
         const live = mode === "playing" || mode === "paused";
+        const wasLive = this.mode === "playing" || this.mode === "paused";
         this.playingId = live ? msg.macro_id : null;
         this.runSource = live ? msg.source : null;
-        // The player shows the macro that plays; the window keeps its own, and
-        // drops the run's first tick (it comes before this message).
-        if (live && msg.macro_id && msg.macro_id !== this.view?.id) {
-          if (this.role === "player") this.showMacro(msg.macro_id);
-          else this.tick.advancing = false;
+        // The player shows the macro that plays, as saved (it was maybe edited in
+        // the window since); the window keeps its own, and drops the run's first
+        // tick (it comes before this message).
+        if (live && msg.macro_id) {
+          if (this.role === "player") {
+            if (!wasLive || msg.macro_id !== this.view?.id) this.showMacro(msg.macro_id);
+          } else if (msg.macro_id !== this.view?.id) this.tick.advancing = false;
         }
         if (mode === "recording") {
           this.recMoves = [];
@@ -479,6 +482,8 @@ export class RelayStore {
         break;
       case "player_mode":
         this.playerMode = msg.on;
+        // Shown now: as the macro is saved, not as it was when the player last showed.
+        if (msg.on && this.role === "player" && this.mode === "idle" && this.view) this.showMacro(this.view.id);
         break;
       case "error":
         this.fail({ code: msg.type, message: msg.message });

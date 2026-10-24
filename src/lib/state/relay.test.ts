@@ -393,6 +393,31 @@ describe("engine messages", () => {
     r.dispose();
   });
 
+  test("the player shows its macro as saved when it shows: a run starting, player mode turning on", async () => {
+    const r = await freshStore({ init: false });
+    r.role = "player";
+    await r.init();
+    const id = r.view!.id;
+    await relay.openMacro(id);
+    const length = r.duration;
+    await relay.setPause(1, relay.steps[1].pause + 2000);
+    await settle();
+    expect(r.duration).toBe(length); // edits in the window don't reach it
+    core.emit({ type: "player_mode", on: true });
+    await settle();
+    expect(r.duration).toBe(length + 2000);
+    await relay.setPause(1, relay.steps[1].pause + 1000);
+    core.emit({ type: "session", mode: "playing", macro_id: id, source: "manual" });
+    await settle();
+    expect(r.duration).toBe(length + 3000);
+    core.clearCalls();
+    core.emit({ type: "session", mode: "paused", macro_id: id, source: "manual" });
+    core.emit({ type: "session", mode: "playing", macro_id: id, source: "manual" });
+    await settle();
+    expect(core.argsOf("load_macro")).toEqual([]); // pausing isn't showing again
+    r.dispose();
+  });
+
   test("a macro opened in the other window, or by Relay, is opened here too while idle", async () => {
     core.emit({ type: "current", macro_id: B, by: "player" });
     await settle();
