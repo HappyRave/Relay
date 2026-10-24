@@ -1,5 +1,6 @@
-// Sessions against the real engine and coordinator. The macros played here
-// only wait (and check a pixel), so nothing is sent to the desktop.
+// Sessions against the real engine and coordinator, and which of Relay's
+// windows shows during them. The macros played here only wait (and check a
+// pixel), so nothing is sent to the desktop.
 import { after, afterEach, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
@@ -29,10 +30,10 @@ describe("playback and recording", () => {
   after(() => app.dispose());
   afterEach(() => app.page?.reset());
 
-  const open = async (id) => {
-    await page.run((id) => window.__relay.loadMacro(id), id);
-    await until(async () => (await page.store("view.id")) === id, { what: "the macro to open" });
-  };
+  const open = (id) => page.open(id);
+  /** Which windows show: [the main window, the player]. */
+  const shown = async () => [await app.visible("main"), await app.visible("player")];
+  const showing = (want, what) => until(async () => JSON.stringify(await shown()) === JSON.stringify(want), { what });
   const runs = (id) => app.json("library.json").entries[id]?.runs ?? 0;
 
   test("Play runs the macro to the end and counts the run", async () => {
@@ -43,7 +44,7 @@ describe("playback and recording", () => {
     assert.equal(await page.store("cur"), await page.store("duration"), "stays at the end");
     await until(() => runs(ids.short) === 1, { what: "the run count on disk" });
     assert.ok(app.json("library.json").entries[ids.short].last_run);
-    await until(async () => (await page.store("library")).find((m) => m.id === ids.short).runs === 1, { what: "the Library tab to update" });
+    await until(async () => (await page.store("library")).find((m) => m.id === ids.short).runs === 1, { what: "the Library to update" });
   });
 
   test("Play at the end starts over", async () => {
@@ -128,14 +129,12 @@ describe("playback and recording", () => {
     await page.click("Play");
     await page.waitMode("playing");
     const started = Date.now();
-    // The default-size bar's Speed button cycles: 1× → 2× → 4×.
-    await page.click("Speed 1×");
-    await page.click("Speed 2×");
+    // The play options can change while it plays.
+    await page.inspector("macro", "play");
+    await page.click("4×", { role: "radio", within: ".inspector" });
     await page.waitMode("idle");
     assert.ok(Date.now() - started < 2500, `took ${Date.now() - started} ms`);
-    // 4× → 0.5× → 1×.
-    await page.click("Speed 4×");
-    await page.click("Speed 0.5×");
+    await page.click("1×", { role: "radio", within: ".inspector" });
     await until(async () => (await page.store("playback.speed")) === 1, { what: "back to 1×" });
   });
 
@@ -160,11 +159,9 @@ describe("playback and recording", () => {
     assert.deepEqual(info, { path: csv, columns: ["Customer", "Total"], rows: 3, error: null });
     assert.equal(app.json("library.json").entries[ids.rows].data_file, csv);
     await page.run(() => window.__relay.loadDataFile());
-    await page.tab("Settings");
-    await until(async () => (await page.text(".list"))?.includes("customers.csv: 3 rows, played once each"), {
-      what: "the Data file row",
-    });
-    assert.match(await page.text(".transport"), /Each row \(3\)/);
+    await page.inspector("macro", "play");
+    await until(async () => (await page.text(".inspector"))?.includes("customers.csv · 3 rows"), { what: "the Data file" });
+    assert.match(await page.text("header.bar"), /Each row \(3\)/);
 
     const before = runs(ids.rows);
     const seen = new Set();
@@ -217,33 +214,35 @@ describe("playback and recording", () => {
     await page.waitMode("idle");
   });
 
-  test("recording: the countdown, then recording, then stop", async () => {
+  test("recording: the window steps aside for the player, which counts down, then records; Stop brings the window back", async () => {
+    await open(ids.short);
     await page.run(() => window.__relay.updateSettings({ countdown: true }));
-    await page.click("Record");
+    await page.click("Record a new macro");
     await page.waitMode("countdown");
-    // Both read in one go: the number shown matches the time left.
-    const { left, shown } = await page.run(() => ({
+    await showing([false, true], "the player instead of the window");
+    // Both read in one go, in the player: the number shown matches the time left.
+    const { left, digit } = await app.player.run(() => ({
       left: window.__relay.countLeft,
-      shown: document.querySelector(".countdown")?.innerText.trim(),
+      digit: document.querySelector(".player .digit")?.textContent.trim(),
     }));
     assert.ok(left > 0 && left <= 3000, `${left} ms left`);
-    assert.equal(shown, String(Math.ceil(left / 1000)));
+    assert.equal(digit, String(Math.ceil(left / 1000)));
+    assert.match(await app.player.text(".screen"), /^GET READY/);
     await page.waitMode("recording", 5000);
-    assert.equal(await page.store("recording"), true);
-    await until(async () => (await page.store("cur")) > 200, { what: "the recording clock" });
-    assert.match(await page.text(".transport"), /\/ recording/);
-    await page.click("Stop recording");
+    await until(async () => /^REC\s+New recording/.test((await app.player.text(".screen")) ?? ""), { what: "REC in the player" });
+    await app.player.click("Stop recording");
     await page.waitMode("idle");
+    await showing([true, false], "the window back");
   });
 
   test("recording without the countdown starts at once; Record during the countdown cancels it", async () => {
     await page.run(() => window.__relay.updateSettings({ countdown: false }));
-    await page.click("Record");
+    await page.click("Record a new macro");
     await page.waitMode("recording", 2000);
     await page.click("Stop recording");
     await page.waitMode("idle");
     await page.run(() => window.__relay.updateSettings({ countdown: true }));
-    await page.click("Record");
+    await page.click("Record a new macro");
     await page.waitMode("countdown");
     await page.click("Stop recording");
     await page.waitMode("idle");
@@ -253,7 +252,7 @@ describe("playback and recording", () => {
 
   test("Play is ignored while recording", async () => {
     await page.run(() => window.__relay.updateSettings({ countdown: false }));
-    await page.click("Record");
+    await page.click("Record a new macro");
     await page.waitMode("recording");
     await page.invoke("toggle_play", { from: 0 });
     await sleep(300);
@@ -262,14 +261,46 @@ describe("playback and recording", () => {
     await page.waitMode("idle");
   });
 
-  test("the compact player's buttons drive the same session", async () => {
+  test("playing keeps the window where it is, unless Hide the window while playing is on", async () => {
     await open(ids.short);
-    await page.click("Compact player");
-    await until(() => page.run(() => !!document.querySelector(".compact")), { what: "the compact player" });
     await page.click("Play");
     await page.waitMode("playing");
-    assert.match(await page.text(".compact .badge"), /playing/i);
+    assert.deepEqual(await shown(), [true, false]);
     await page.waitMode("idle");
-    await page.click("Expand");
+    await page.run(() => window.__relay.updateSettings({ hide_while_playing: true }));
+    try {
+      await page.click("Play");
+      await page.waitMode("playing");
+      await showing([false, true], "the player instead");
+      await page.waitMode("idle");
+      await showing([true, false], "the window back");
+    } finally {
+      await page.run(() => window.__relay.updateSettings({ hide_while_playing: false }));
+    }
+  });
+
+  test("player mode: the player stands in for the window, its keys drive the session, ⤢ brings the window back", async () => {
+    await open(ids.short);
+    await page.click("Switch to the player");
+    await showing([false, true], "the player");
+    assert.equal(app.json("window.json").player_mode, true, "remembered");
+    assert.equal(await app.player.store("view.id"), ids.short, "on the window's macro");
+    await app.player.click("Play");
+    await page.waitMode("playing");
+    await until(async () => /^PLAYING\s+Short/.test((await app.player.text(".screen")) ?? ""), { what: "PLAYING in the player" });
+    await page.waitMode("idle");
+    await app.player.click("Open the window");
+    await showing([true, false], "the window");
+    assert.equal(await page.store("place"), "macro");
+    assert.equal(app.json("window.json").player_mode, false);
+  });
+
+  test("the player's menu switches macros, and the window follows", async () => {
+    await page.invoke("set_player_mode", { on: true });
+    await showing([false, true], "the player");
+    await app.player.menu("Macro: Short. Switch macros", "Long");
+    await until(async () => (await page.store("view.id")) === ids.long, { what: "the window on Long too" });
+    assert.equal(await app.player.store("view.id"), ids.long);
+    await page.invoke("set_player_mode", { on: false });
   });
 });

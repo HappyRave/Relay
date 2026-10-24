@@ -331,8 +331,9 @@ mod tests {
         );
     }
 
-    /// Writes the fixture the UI uses when it runs in a plain browser
-    /// (`npm run dev`), like ts-rs does for the bindings.
+    /// Writes the fixtures the UI uses when it runs in a plain browser
+    /// (`npm run dev`), like ts-rs does for the bindings, and the samples the
+    /// end-to-end tests start with.
     #[test]
     fn export_browser_fixture() {
         let items: Vec<_> = all()
@@ -348,6 +349,14 @@ mod tests {
             .collect();
         let body = serde_json::to_string_pretty(&items).unwrap() + "\n";
         write_fixture("sample-views.json", body);
+        // The end-to-end tests seed a library with them as .rly files (a new one starts empty).
+        // As Relay writes them, its keys in its order.
+        let docs: Vec<String> = all().iter().map(|s| crate::format::to_rly(&s.macro_)).collect();
+        let e2e = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../e2e/samples.json");
+        let body = format!("[\n{}\n]\n", docs.join(",\n"));
+        if std::fs::read_to_string(&e2e).ok().as_deref() != Some(body.as_str()) {
+            std::fs::write(&e2e, body).unwrap();
+        }
         let runs: Vec<_> = runs()
             .into_iter()
             .map(|(ago, entry)| json!({ "ago_ms": ago.num_milliseconds(), "entry": entry }))
