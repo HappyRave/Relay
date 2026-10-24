@@ -459,6 +459,12 @@ export class RelayStore {
       case "system_look":
         this.systemLook = msg.look;
         break;
+      case "settings": {
+        // Saved from the other window (or this one): shown, unless a change here is still being saved.
+        const saves = this.settingsSaves;
+        if (saves.seq === saves.savedSeq) this.settings = saves.saved = msg.settings;
+        break;
+      }
       case "triggers_paused":
         this.triggersPaused = this.pauseSaves.saved = msg.paused;
         break;

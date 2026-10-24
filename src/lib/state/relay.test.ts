@@ -1901,3 +1901,17 @@ describe("sounds", () => {
     expect(names).toEqual(["done"]);
   });
 });
+
+describe("settings saved in the other window", () => {
+  test("are shown here, unless a change here is still being saved", async () => {
+    core.emit({ type: "settings", settings: { ...relay.settings, player_size: "large" } });
+    expect(relay.settings.player_size).toBe("large");
+    core.hold("update_settings");
+    const mine = relay.updateSettings({ theme: "dark" });
+    core.emit({ type: "settings", settings: { ...relay.settings, theme: "light", player_size: "compact" } });
+    expect(relay.settings.theme).toBe("dark");
+    core.held[0].resolve({ ...relay.settings });
+    await mine;
+    expect(relay.settings.theme).toBe("dark");
+  });
+});

@@ -498,6 +498,7 @@ export class FakeCore {
         if (why) throw { code: "hotkey", message: why } satisfies IpcError;
         this.settings = next;
         this.saved();
+        this.tell({ type: "settings", settings: structuredClone(next) });
         return this.settings;
       }
       case "set_relay_key": {

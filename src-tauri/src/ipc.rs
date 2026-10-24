@@ -92,6 +92,10 @@ pub enum EngineMsg {
     SystemLook {
         look: crate::look::SystemLook,
     },
+    /// The settings were saved (from either window).
+    Settings {
+        settings: crate::settings::Settings,
+    },
 }
 
 /// How many errors and notices are kept for a UI that hasn't subscribed yet.

@@ -342,15 +342,15 @@ class Page {
 
   /**
    * Back to a known state between tests: no session, the window rather than
-   * the player, no step selected, no message. A failing test then doesn't
-   * leave its mess to the next one.
+   * the player (unless `keepPlayer`), no step selected, no message. A
+   * failing test then doesn't leave its mess to the next one.
    */
-  async reset() {
+  async reset({ keepPlayer = false } = {}) {
     if ((await this.store("mode")) !== "idle") {
       await this.invoke("stop_session");
       await this.waitMode("idle");
     }
-    if (await this.store("playerMode")) await this.invoke("set_player_mode", { on: false });
+    if (!keepPlayer && (await this.store("playerMode"))) await this.invoke("set_player_mode", { on: false });
     await this.run(() => {
       const r = window.__relay;
       r.exportOpen = false;

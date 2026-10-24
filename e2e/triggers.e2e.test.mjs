@@ -1,11 +1,11 @@
 // Triggers against the real app: what's saved, the hotkey checks Rust
 // makes, and the app-launch, pixel and schedule triggers actually firing.
 // The macros they run only wait, so nothing is sent to the desktop.
-import { after, afterEach, before, describe, test } from "node:test";
+import { after, afterEach, before, beforeEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { App, sleep, until, waitingMacro, writeRly } from "./harness.mjs";
+import { App, KEYS, sleep, until, waitingMacro, writeRly } from "./harness.mjs";
 
 describe("triggers", () => {
   const app = new App();
@@ -18,11 +18,9 @@ describe("triggers", () => {
     sample = await page.store("view.id");
     const [path] = writeRly(app.path("import"), [waitingMacro({ name: "Triggered", waits: [1500] })]);
     [target] = (await page.invoke("import_macros", { paths: [path] })).imported;
-    await page.run(async (id) => {
-      await window.__relay.refreshLibrary();
-      await window.__relay.loadMacro(id);
-    }, target);
-    await page.tab("Triggers");
+    await page.run(() => window.__relay.refreshLibrary());
+    await page.open(target);
+    await page.inspector("macro", "triggers");
   });
   after(() => app.dispose());
   afterEach(() => app.page?.reset());
@@ -38,7 +36,7 @@ describe("triggers", () => {
   const firesAndRuns = async (id, timeout) => {
     const before = runs(id);
     await until(
-      () => page.run((id) => window.__relay.mode === "playing" && window.__relay.view?.id === id, id),
+      () => page.run((id) => window.__relay.mode === "playing" && window.__relay.playingId === id, id),
       { timeout, every: 50, what: "the trigger to run the macro" },
     );
     const startedAt = Date.now();
@@ -76,9 +74,9 @@ describe("triggers", () => {
       assert.equal(list.find((m) => m.id === target).hotkey, "Ctrl + Alt + Shift + F11");
     });
 
-    test("Relay's own hotkeys are refused", async () => {
-      for (const combo of ["F9", "F10", "Ctrl + Shift + M", "Ctrl + Alt + End"]) {
-        await assert.rejects(set({ hotkey: { enabled: true, combo } }), /one of Relay's own hotkeys/, combo);
+    test("Relay's own keys are refused, as set", async () => {
+      for (const combo of Object.values(KEYS)) {
+        await assert.rejects(set({ hotkey: { enabled: true, combo } }), /is Relay's “.+” key/, combo);
       }
       assert.equal(saved().hotkey.combo, "Ctrl + Alt + Shift + F11", "the old one is kept");
     });
@@ -98,19 +96,22 @@ describe("triggers", () => {
       await assert.rejects(set({ hotkey: { enabled: true, combo: "Ctrl + Banana" } }), /isn't a key Relay can use/);
     });
 
-    test("the Triggers tab shows it", async () => {
-      await page.run((id) => window.__relay.loadMacro(id), target);
-      await page.tab("Triggers");
-      assert.match(await page.text(".list"), /Ctrl \+ Alt \+ Shift \+ F11/);
-      assert.equal(await page.run(() => document.querySelector('[aria-label="Hotkey trigger"]').getAttribute("aria-checked")), "true");
+    test("the Macro tab shows it", async () => {
+      await page.open(target);
+      await page.inspector("macro", "triggers");
+      // Set by commands above, not by the window: it reads them again, as opening the macro does.
+      await page.run(() => window.__relay.loadTriggers().then(() => true));
+      await until(async () => /Ctrl\s*\+?\s*Alt/.test((await page.text('[role="group"][aria-label="Hotkey"]')) ?? ""), { what: "the card" });
+      assert.equal(await page.run(() => document.querySelector('[aria-label="Hotkey on"]').getAttribute("aria-checked")), "true");
     });
   });
 
   describe("schedule", () => {
-    test("days and time from the tab are saved, and Rust says when it runs next", async () => {
-      await page.click("Schedule trigger", { role: "switch" });
+    test("days and time from the Macro tab are saved, and Rust says when it runs next", async () => {
+      await page.inspector("macro", "triggers");
+      await page.menu("Add", "Schedule", { within: ".inspector" });
       await until(() => saved()?.schedule?.enabled === true, { what: "the schedule on" });
-      await page.run(() => document.querySelectorAll('[aria-label="Days"] button')[6].click()); // Sunday
+      await page.click("Sunday", { within: '[aria-label="Days"]' });
       await until(() => saved().schedule.schedule.days[6] === true, { what: "Sunday" });
       await page.fill('input[aria-label="Time"]', "23:59");
       await until(() => saved().schedule.schedule.time === "23:59", { what: "the time" });
@@ -119,8 +120,9 @@ describe("triggers", () => {
       const next = new Date(s.next_run);
       assert.equal(next.getHours(), 23);
       assert.equal(next.getMinutes(), 59);
-      await until(async () => /^Next run: (Today|Tomorrow|Mon|Tue|Wed|Thu|Fri|Sat|Sun) 23:59$/.test((await page.text(".sub.accent")) ?? ""), {
-        what: "the label",
+      const note = () => page.text('[role="group"][aria-label="Schedule"] .what span');
+      await until(async () => /Next run: (Today|Tomorrow|Mon|Tue|Wed|Thu|Fri|Sat|Sun) 23:59/.test((await note()) ?? ""), {
+        what: "the next run in the card",
       });
     });
 
@@ -147,24 +149,39 @@ describe("triggers", () => {
   });
 
   describe("app launch", () => {
-    test("the program and delay from the tab are saved; the switch needs a program", async () => {
-      assert.equal(await page.disabled("App launch trigger", { role: "switch" }), true, "no program yet");
+    test("the program and delay from the Macro tab are saved; the switch needs a program", async () => {
+      await page.inspector("macro", "triggers");
+      await page.menu("Add", "When an app starts", { within: ".inspector" });
+      assert.equal(await page.disabled("When an app starts on", { role: "switch" }), true, "no program yet");
       assert.equal(saved()?.app_launch?.enabled ?? false, false);
-      await page.fill('input[aria-label="Program"]', "  PING.EXE  ");
-      await until(() => saved().app_launch.exe === "PING.EXE", { what: "the program" });
+      // A trigger just added comes on once it has a program.
+      await page.fill("#t-exe", "  PING.EXE  ");
+      await until(() => saved().app_launch.exe === "PING.EXE" && saved().app_launch.enabled === true, { what: "the program, on" });
       await page.fill('input[aria-label="Delay in seconds"]', "0.5");
       await until(() => saved().app_launch.delay_ms === 500, { what: "the delay" });
-      await page.click("App launch trigger", { role: "switch" });
-      await until(() => saved().app_launch.enabled === true, { what: "on" });
+      await page.click("When an app starts on", { role: "switch" });
+      await until(() => saved().app_launch.enabled === false, { what: "off" });
+      await page.click("When an app starts on", { role: "switch" });
+      await until(() => saved().app_launch.enabled === true, { what: "on again" });
     });
 
-    test("starting the program runs the macro", async () => {
+    test("starting the program runs the macro; the player shows beside the window, which says what runs", async () => {
+      // Another macro open in the window: the run doesn't take it over.
+      await page.open(sample);
       const p = await ping(6);
       try {
-        await firesAndRuns(target, 8000);
+        await until(() => page.run((id) => window.__relay.playingId === id, target), { timeout: 8000, every: 50, what: "the run" });
+        assert.equal(await page.store("view.id"), sample, "the window keeps its macro");
+        await until(async () => (await app.visible("player")) && (await app.visible("main")), { what: "both windows" });
+        const notice = await until(() => page.text(".toast.run"), { what: "the notice" });
+        assert.match(notice, /Running “Triggered”, started by its app trigger/);
+        assert.match(await app.player.text(".screen"), /PLAYING\s+Triggered/);
+        await page.waitMode("idle");
+        await until(async () => !(await app.visible("player")), { what: "the player to go" });
       } finally {
         p.kill();
       }
+      await page.open(target);
     });
 
     test("a run its data file refuses is logged as skipped, with why", async () => {
@@ -229,9 +246,8 @@ describe("triggers", () => {
     });
 
     test("while Relay is busy, the trigger is skipped with a notice", async () => {
-      await page.run((id) => window.__relay.loadMacro(id), sample);
       await page.run(() => window.__relay.updateSettings({ countdown: false }));
-      await page.click("Record");
+      await page.invoke("toggle_record");
       await page.waitMode("recording");
       const p = await ping(4);
       try {
@@ -241,16 +257,16 @@ describe("triggers", () => {
         });
       } finally {
         p.kill();
-        await page.click("Stop recording");
+        await page.invoke("toggle_record");
         await page.waitMode("idle");
       }
     });
 
     test("paused triggers don't run; Resume turns them back on", async () => {
       await page.invoke("set_triggers_paused", { paused: true });
-      await page.run((id) => window.__relay.loadMacro(id), target);
-      await page.tab("Triggers");
-      await until(async () => /Triggers are paused/.test((await page.text(".paused")) ?? ""), { what: "the banner" });
+      await page.open(target);
+      await page.inspector("macro", "triggers");
+      await until(async () => /Triggers are paused/.test((await page.text(".triggers .notice")) ?? ""), { what: "the notice" });
       const p = await ping(4);
       try {
         await staysIdle(5000);
@@ -258,8 +274,8 @@ describe("triggers", () => {
         p.kill();
       }
 
-      await page.click("Resume");
-      await until(async () => (await page.text(".paused")) == null, { what: "the banner to go" });
+      await page.click("Resume", { within: ".inspector" });
+      await until(async () => (await page.text(".triggers .notice")) == null, { what: "the notice to go" });
       assert.equal((await status()).paused, false);
       const again = await ping(6);
       try {
@@ -272,15 +288,21 @@ describe("triggers", () => {
   });
 
   describe("pixel", () => {
-    /** A patch of Relay's own window, and the screen pixel at its center. */
+    // The patch is drawn in the player, which is on top of every other window.
+    beforeEach(async () => {
+      await page.invoke("set_player_mode", { on: true });
+      await until(() => app.visible("player"), { what: "the player" });
+    });
+
+    /** A patch of Relay's player, and the screen pixel at its center. */
     async function patch(color) {
-      const pos = await page.invoke("plugin:window|inner_position", { label: "main" });
-      const at = await page.run((color) => {
+      const pos = await page.invoke("plugin:window|inner_position", { label: "player" });
+      const at = await app.player.run((color) => {
         let el = document.getElementById("e2e-patch");
         if (!el) {
           el = document.createElement("div");
           el.id = "e2e-patch";
-          Object.assign(el.style, { position: "fixed", left: "40px", top: "300px", width: "40px", height: "40px", zIndex: 99999 });
+          Object.assign(el.style, { position: "fixed", left: "200px", top: "12px", width: "40px", height: "40px", zIndex: 99999 });
           document.body.append(el);
         }
         el.style.background = color;
@@ -303,18 +325,18 @@ describe("triggers", () => {
       await until(async () => (await page.invoke("sample_pixel", { x, y })) === "#FFFFFF");
       await set({ pixel: { enabled: true, x, y, color: "#EC3013", tolerance: 8 } });
       assert.deepEqual(saved().pixel, { enabled: true, x, y, color: "#EC3013", tolerance: 8 });
-      await sleep(800); // a white baseline first
+      await sleep(1500); // a white baseline first: two samples that don't match
       await patch("#E83410"); // within the tolerance
       await firesAndRuns(target, 5000);
       // Still red: not again.
       await sleep(1500);
       assert.equal(await page.store("mode"), "idle");
       await patch("#FFFFFF");
-      await sleep(800);
+      await sleep(1500);
       await patch("#EC3013");
       await firesAndRuns(target, 5000);
       await set({ pixel: { enabled: false, x, y, color: "#EC3013", tolerance: 8 } });
-      await page.run(() => document.getElementById("e2e-patch")?.remove());
+      await app.player.run(() => document.getElementById("e2e-patch")?.remove());
     });
   });
 

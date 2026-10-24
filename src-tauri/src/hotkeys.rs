@@ -200,8 +200,7 @@ fn register<R: Runtime>(app: &AppHandle<R>) {
     let _ = gs.unregister_all();
     let mut failed = Vec::new();
     for (k, s) in shortcuts(&keys).into_iter().filter(|(k, _)| actions(wanted).contains(k)) {
-        if let Err(e) = gs.register(s) {
-            tracing::warn!("couldn't register the {k:?} key: {e}");
+        if gs.register(s).is_err() {
             failed.push((k, keys.get(k).unwrap_or_default().to_owned()));
         }
     }

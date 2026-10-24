@@ -717,6 +717,7 @@ pub fn update_settings(app: AppHandle, settings: Settings) -> Result<Settings> {
     }
     crate::presence::resize_player(&app);
     crate::presence::refresh(&app, false);
+    app.state::<Arc<Emitter>>().send(EngineMsg::Settings { settings: current.clone() });
     Ok(current)
 }
 
