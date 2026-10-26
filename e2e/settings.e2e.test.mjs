@@ -255,6 +255,8 @@ describe("settings and windows", () => {
     await until(() => panes()?.inspector_w === start + 60, { what: "the width saved" });
     assert.equal(await width(), start + 60, "dragged left: a wider inspector");
     page = await app.restart();
+    // As big as before: on a small screen a new window is smaller, and the inspector is kept inside it.
+    await page.invoke("plugin:window|set_size", { label: "main", value: { Logical: { width: 944, height: 612 } } });
     await page.open(waits);
     await until(async () => (await width()) === start + 60, { what: "as it was left" });
     await page.run(() => {

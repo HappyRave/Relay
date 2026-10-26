@@ -193,8 +193,11 @@ describe("library", () => {
     assert.ok(script.startsWith(`; ${name}, exported from Relay.\n`), script.slice(0, 200));
     assert.ok(script.includes("#Requires AutoHotkey v2.0\n"));
     await page.open(macro);
-    const steps = (await page.store("view.steps")).length;
-    assert.equal(script.match(/\n {4}; \d+\. /g).length, steps);
+    const kinds = (await page.store("view.steps")).map((s) => s.kind);
+    const steps = kinds.filter((k) => k !== "move").length;
+    assert.equal(script.match(/\n {4}; /g).length, kinds.length, "a block per step, moves too");
+    assert.equal(script.match(/\n {4}; \d+\. /g).length, steps, "moves aren't numbered");
+    assert.equal(script.match(/\n {4}; Move (before|after) step \d+\n/g).length, kinds.length - steps, "they go by the step they lead to");
     assert.ok(script.includes(`\n    ; ${steps}. `), "numbered like the steps list");
   });
 
