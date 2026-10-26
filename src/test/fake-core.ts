@@ -12,7 +12,8 @@
 import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import type { Channel } from "@tauri-apps/api/core";
 import samples from "../lib/dev/sample-views.json";
-import { DEFAULT_SETTINGS } from "../lib/defaults";
+import { DEFAULT_LOOK, DEFAULT_SETTINGS } from "../lib/defaults";
+import type { SystemLook } from "../lib/ipc/bindings/SystemLook";
 import type { EditOp, MacroListItem, MacroTriggers, MacroView, Mode, PlaybackOptions, Settings } from "../lib/types";
 import type { EngineMsg } from "../lib/ipc/bindings/EngineMsg";
 import type { Panes } from "../lib/ipc/bindings/Panes";
@@ -20,6 +21,9 @@ import type { FoundImage } from "../lib/ipc/bindings/FoundImage";
 import type { IpcError } from "../lib/ipc/backend";
 import type { RunEntry } from "../lib/ipc/bindings/RunEntry";
 import type { DataFileInfo } from "../lib/ipc/bindings/DataFileInfo";
+import type { TriggerOn } from "../lib/ipc/bindings/TriggerOn";
+import type { RelayKey } from "../lib/ipc/bindings/RelayKey";
+import type { RelayKeys } from "../lib/ipc/bindings/RelayKeys";
 import { applyEdit, columnsUsed, fillTemplate, History, parseTemplate } from "./fake-edit";
 
 /** A data file's contents, as relay-core reads them. */
@@ -35,6 +39,8 @@ export interface Call {
 
 interface Entry {
   view: MacroView;
+  /** When it was made (the Library sorts by it). */
+  created: string;
   runs: number;
   last_run: string | null;
   history: History;
@@ -83,15 +89,19 @@ const INFALLIBLE = new Set([
   "list_runs",
   "import_macros",
   "get_settings",
+  "system_look",
   "list_processes",
   "get_autostart",
   "window_prefs",
-  "fit_window",
+  "key_warning",
+  "hold_hotkeys",
+  "set_player_mode",
+  "show_window",
+  "current_macro",
   "hide_to_tray",
   "quit",
   "screenshot",
   "save_panes",
-  "reset_layout",
   "cancel_snip",
   "show_match",
 ]);
@@ -103,6 +113,7 @@ export class FakeCore {
   entries: Entry[] = [];
   trash: { entry: Entry; position: number }[] = [];
   settings: Settings = { ...DEFAULT_SETTINGS };
+  look: SystemLook = { ...DEFAULT_LOOK };
   triggers = new Map<string, MacroTriggers>();
   /** Why a macro's hotkey didn't register (e.g. another app owns it), as the hotkey thread would report. */
   hotkeyErrors = new Map<string, string>();
@@ -130,7 +141,7 @@ export class FakeCore {
   saveError: string | null = null;
   /** The pixel color `sample_pixel` reads, or null when unreadable. */
   pixel: string | null = "#123456";
-  picked = { x: 640, y: 360, color: "#00FF00" };
+  picked: { x: number; y: number; color: string; frozen: boolean } | null = { x: 640, y: 360, color: "#00FF00", frozen: false };
   /** The picture on the clipboard (a base64 PNG, as `paste_image` makes it), or null. */
   clipboard: string | null = null;
   /** The text on the clipboard, for `{clipboard}`, or null. */
@@ -148,8 +159,16 @@ export class FakeCore {
   images = new Map<string, string | IpcError>();
   /** What `test_find_image` finds. */
   found: FoundImage | null = null;
-  /** window.json as Rust holds it: the mode and the editor's dividers (the size isn't the page's to see). */
-  window: { expanded: boolean; panes: Panes } = { expanded: true, panes: { preview_w: null, transport_h: null, timeline_h: null } };
+  /** window.json as Rust holds it: player mode and the editor's dividers (the size isn't the page's to see). */
+  window: { player_mode: boolean; panes: Panes } = { player_mode: false, panes: { inspector_w: null } };
+  /** The macro Relay's play key and the player play (the coordinator's `current`). */
+  current: string | null = null;
+  /** The window the page is in. */
+  label: "main" | "player" = "main";
+  /** What Ctrl + Alt (+ Shift) and a key type on the keyboard layout in use, by combo ("Ctrl + Alt + 7": "{"). */
+  altgr: Record<string, string> = {};
+  /** A key field is listening: hotkeys.rs let go of every hotkey. */
+  hotkeysHeld = false;
   private channel: Channel<EngineMsg> | null = null;
   /** Errors and notices sent before the UI subscribed, delivered when it does. */
   private queued: EngineMsg[] = [];
@@ -168,6 +187,7 @@ export class FakeCore {
     this.screens = new Map();
     this.entries = SAMPLES.map((s) => ({
       view: structuredClone(s.view),
+      created: s.view.modified_at,
       runs: s.runs,
       last_run: s.last_run_ago_ms == null ? null : new Date(NOW - s.last_run_ago_ms).toISOString(),
       history: new History(),
@@ -175,6 +195,7 @@ export class FakeCore {
     this.trash = [];
     this.runLog = [];
     this.settings = { ...DEFAULT_SETTINGS };
+    this.look = { ...DEFAULT_LOOK };
     this.triggers = new Map();
     // Like library.rs seed_samples: the design's hotkeys are shown but off.
     SAMPLES.forEach((s) => {
@@ -190,14 +211,17 @@ export class FakeCore {
     this.files = new Map();
     this.saveError = null;
     this.pixel = "#123456";
-    this.picked = { x: 640, y: 360, color: "#00FF00" };
+    this.picked = { x: 640, y: 360, color: "#00FF00", frozen: false };
     this.clipboard = null;
     this.clipboardText = null;
     this.localNow = "2026-10-01T09:05:07";
     this.snip = null;
     this.images = new Map();
     this.found = null;
-    this.window = { expanded: true, panes: { preview_w: null, transport_h: null, timeline_h: null } };
+    this.window = { player_mode: false, panes: { inspector_w: null } };
+    this.current = null;
+    this.altgr = {};
+    this.hotkeysHeld = false;
     this.channel = null;
     this.queued = [];
     this.failures = new Map();
@@ -206,9 +230,10 @@ export class FakeCore {
     this.held = [];
   }
 
-  /** Routes the webview's IPC here (the app's window is "main"). */
-  install() {
-    mockWindows("main");
+  /** Routes the webview's IPC here, as in Relay's window `label`. */
+  install(label: "main" | "player" = "main") {
+    this.label = label;
+    mockWindows(label);
     mockIPC((cmd, args) => this.handle(cmd, (args ?? {}) as Record<string, unknown>));
   }
 
@@ -249,6 +274,11 @@ export class FakeCore {
    * errors and notices are queued (Rust delivers them on subscribe); anything
    * else is a mistake in the test.
    */
+  /** What Rust sends on its own (a command's side effect): nobody hears it before the UI subscribes. */
+  private tell(msg: EngineMsg) {
+    if (this.channel) this.emit(msg);
+  }
+
   emit(msg: EngineMsg) {
     if (msg.type === "session") this.mode = msg.mode;
     if (!this.channel) {
@@ -340,14 +370,21 @@ export class FakeCore {
       case "hide_to_tray":
       case "quit":
       case "plugin:window|start_dragging":
+      case "plugin:window|minimize":
         return null;
-      case "fit_window":
-        check("width", a.width, "f64");
-        check("height", a.height, "f64");
-        check("expanded", a.expanded, "bool");
-        // window_ctl::fit remembers the mode, for the next start.
-        this.window.expanded = a.expanded as boolean;
+      case "set_player_mode":
+        check("on", a.on, "bool");
+        // presence::set_player_mode saves it and tells both windows.
+        this.window.player_mode = a.on as boolean;
+        this.tell({ type: "player_mode", on: a.on as boolean });
         return null;
+      case "show_window":
+        if (this.current) this.tell({ type: "open", macro_id: this.current });
+        this.window.player_mode = false;
+        this.tell({ type: "player_mode", on: false });
+        return null;
+      case "current_macro":
+        return this.current;
       case "list_runs":
         return structuredClone(this.runLog);
       case "window_prefs":
@@ -357,16 +394,20 @@ export class FakeCore {
         // As Panes::sanitized: what isn't a size is dropped, a huge one capped.
         const ok = (v: number | null | undefined) => (v != null && Number.isFinite(v) && v > 0 ? Math.min(v, 10_000) : null);
         const p = a.panes as Partial<Panes>;
-        this.window.panes = { preview_w: ok(p.preview_w), transport_h: ok(p.transport_h), timeline_h: ok(p.timeline_h) };
+        this.window.panes = { inspector_w: ok(p.inspector_w) };
         return null;
       }
-      case "reset_layout":
-        this.window.panes = { preview_w: null, transport_h: null, timeline_h: null };
-        return null;
       case "list_macros":
         return this.list();
-      case "load_macro":
-        return this.withHistory(this.entry(id));
+      case "load_macro": {
+        const e = this.entry(id);
+        // The coordinator's Select: the macro becomes current while Relay is idle, and both windows hear.
+        if (this.mode === "idle" && this.current !== id) {
+          this.current = id;
+          this.tell({ type: "current", macro_id: id, by: this.label });
+        }
+        return this.withHistory(e);
+      }
       case "screenshot": {
         // Raw bytes, as a Tauri `Response` arrives: empty when there's none (never an error).
         check("id", id, "string");
@@ -402,7 +443,7 @@ export class FakeCore {
         const copyId = this.newId();
         const view = { ...structuredClone(e.view), id: copyId, name: this.uniqueName(`${e.view.name} (copy)`) };
         // A copy starts with no triggers (two macros on one hotkey would collide) and no history.
-        const copy = { view, runs: 0, last_run: null, history: new History(), dataFile: e.dataFile };
+        const copy = { view, created: new Date().toISOString(), runs: 0, last_run: null, history: new History(), dataFile: e.dataFile };
         this.entries.splice(this.entries.indexOf(e) + 1, 0, copy);
         this.triggers.set(copyId, defaultTriggers());
         const screen = this.screens.get(id);
@@ -449,18 +490,40 @@ export class FakeCore {
         return this.dialog.open;
       case "get_settings":
         return this.settings;
-      case "update_settings":
+      case "update_settings": {
         // Missing fields fall back to the defaults (settings.rs has #[serde(default)]).
         check("settings", a.settings, SETTINGS);
-        this.settings = { ...DEFAULT_SETTINGS, ...(a.settings as Partial<Settings>) };
+        const next = { ...DEFAULT_SETTINGS, ...(a.settings as Partial<Settings>) };
+        const why = this.checkKeys(next.keys);
+        if (why) throw { code: "hotkey", message: why } satisfies IpcError;
+        this.settings = next;
         this.saved();
+        this.tell({ type: "settings", settings: structuredClone(next) });
         return this.settings;
+      }
+      case "set_relay_key": {
+        check("key", a.key, oneOf("record", "play", "player", "kill"));
+        check("combo", a.combo, nullable("string"));
+        const key = a.key as RelayKey;
+        const combo = (a.combo as string | null) ?? null;
+        const why = this.checkKey(this.settings.keys, key, combo);
+        if (why) throw { code: "hotkey", message: why } satisfies IpcError;
+        const keys = { ...this.settings.keys, [key]: key === "kill" ? (combo ?? this.settings.keys.kill) : combo };
+        return this.builtin("update_settings", { settings: { ...this.settings, keys } });
+      }
+      case "hold_hotkeys":
+        check("on", a.on, "bool");
+        this.hotkeysHeld = a.on as boolean;
+        return null;
+      case "key_warning":
+        check("combo", a.combo, "string");
+        return keyWarning(a.combo as string, this.altgr[normalizeCombo(a.combo as string) ?? ""] ?? null);
       case "sample_pixel":
         check("x", a.x, "i32");
         check("y", a.y, "i32");
         return this.pixel;
       case "pick_pixel":
-        check("delayMs", a.delayMs, "u32");
+        if (this.mode !== "idle") throw BUSY;
         return this.picked;
       case "paste_image":
         if (!this.clipboard) throw { code: "image", message: "There's no picture on the clipboard. Copy or snip one first." } satisfies IpcError;
@@ -533,6 +596,8 @@ export class FakeCore {
         return this.processes;
       case "get_autostart":
         return this.autostart;
+      case "system_look":
+        return this.look;
       case "set_autostart":
         this.autostart = a.enabled as boolean;
         return this.autostart;
@@ -545,7 +610,7 @@ export class FakeCore {
   private readData(path: string): DataTable {
     const found = this.csv.get(path);
     const name = fileName(path);
-    if (found === undefined) throw dataError(`${name} isn't there anymore: choose it again in Settings → Playback.`);
+    if (found === undefined) throw dataError(`${name} isn't there anymore: choose it again in the macro's play options.`);
     if (typeof found === "string") throw dataError(found);
     return found;
   }
@@ -577,7 +642,7 @@ export class FakeCore {
 
   /** A change was saved: a failed write keeps it in memory and says so (commands.rs report_unsaved). */
   private saved() {
-    if (this.saveError) this.emit({ type: "error", message: `Couldn't save the change: ${this.saveError}. It's kept until you quit.` });
+    if (this.saveError) this.emit({ type: "unsaved", message: `Couldn't save the change: ${this.saveError}. It's kept until you quit.` });
   }
 
   private withHistory(e: Entry): MacroView {
@@ -595,6 +660,8 @@ export class FakeCore {
         runs: e.runs,
         last_run: e.last_run,
         hotkey: t?.hotkey.enabled && t.hotkey.combo ? t.hotkey.combo : null,
+        also: t ? alsoOn(t) : [],
+        created_at: e.created,
       };
     });
   }
@@ -622,7 +689,7 @@ export class FakeCore {
         view.id = this.newId();
       }
       view.name = this.uniqueName(view.name);
-      this.entries.splice(imported.length, 0, { view, runs: 0, last_run: null, history: new History() });
+      this.entries.splice(imported.length, 0, { view, created: new Date().toISOString(), runs: 0, last_run: null, history: new History() });
       this.triggers.set(view.id, defaultTriggers());
       imported.push(view.id);
     }
@@ -646,9 +713,30 @@ export class FakeCore {
   private conflict(id: string, combo: string): string | null {
     const s = parseCombo(combo);
     if (typeof s === "string") return s;
-    if (RELAYS_OWN.some((r) => sameShortcut(r, s))) return `${combo} is one of Relay's own hotkeys`;
+    const own = relayShortcuts(this.settings.keys).find(([, r]) => sameShortcut(r, s));
+    if (own) return `${combo} is Relay's “${KEY_NAMES[own[0]]}” key`;
     const other = this.takenBy(id, combo);
     return other ? `${combo} already runs “${other}”` : null;
+  }
+
+  /** Why `combo` can't be Relay's `key` (hotkeys.rs check_key). */
+  private checkKey(keys: RelayKeys, key: RelayKey, combo: string | null): string | null {
+    if (combo == null) return key === "kill" ? "Stop everything can't be turned off. Choose another combination." : null;
+    const s = parseCombo(combo);
+    if (typeof s === "string") return s;
+    const other = relayShortcuts(keys).find(([k, r]) => k !== key && sameShortcut(r, s));
+    if (other) return `${combo} is already Relay's “${KEY_NAMES[other[0]]}” key`;
+    const macro = this.takenBy("", combo);
+    return macro ? `${combo} already runs “${macro}”` : null;
+  }
+
+  /** hotkeys.rs check_keys. */
+  private checkKeys(keys: RelayKeys): string | null {
+    for (const k of RELAY_KEYS) {
+      const why = this.checkKey(keys, k, keys[k]);
+      if (why) return why;
+    }
+    return null;
   }
 
   private status(id: string) {
@@ -782,12 +870,58 @@ export function parseCombo(combo: string): Shortcut | string {
 
 const sameShortcut = (a: Shortcut, b: Shortcut) => a.mods === b.mods && a.code === b.code;
 
-const RELAYS_OWN: Shortcut[] = [
-  { mods: "", code: "F9" },
-  { mods: "", code: "F10" },
-  { mods: "Ctrl+Shift", code: "KeyM" },
-  { mods: "Ctrl+Alt", code: "End" },
-];
+const RELAY_KEYS: RelayKey[] = ["record", "play", "player", "kill"];
+const KEY_NAMES: Record<RelayKey, string> = {
+  record: "Record",
+  play: "Play / pause",
+  player: "Show the player",
+  kill: "Stop everything",
+};
+
+/** Relay's keys that are set, as shortcuts (hotkeys.rs shortcuts). */
+function relayShortcuts(keys: RelayKeys): [RelayKey, Shortcut][] {
+  return RELAY_KEYS.flatMap((k) => {
+    const s = keys[k] == null ? "" : parseCombo(keys[k]!);
+    return typeof s === "string" ? [] : [[k, s] as [RelayKey, Shortcut]];
+  });
+}
+
+/** relay_core::keys::normalize_combo. */
+export function normalizeCombo(combo: string): string | null {
+  let parts = combo.split("+").map((p) => p.trim());
+  if (parts.length >= 2 && parts.at(-1) === "" && parts.at(-2) === "") parts = [...parts.slice(0, -2), "+"];
+  if (!parts.length || parts.some((p) => p === "")) return null;
+  const key = parts.pop()!;
+  const rank = (m: string) => (MODIFIERS.includes(m) ? MODIFIERS.indexOf(m) : 4);
+  const mods = [...new Set(parts)].sort((a, b) => rank(a) - rank(b));
+  return [...mods, key].join(" + ");
+}
+
+const TAKEN: Record<string, string> = {
+  F9: "F9 recalculates in Excel and updates fields in Word. While Relay runs, they won't get it.",
+  F10: "F10 opens the menu bar in most apps and steps over in debuggers. While Relay runs, they won't get it.",
+  "Ctrl + Shift + F9": "Ctrl + Shift + F9 unlinks fields in Word, a rare command. Word won't get it while Relay runs.",
+  "Ctrl + Alt + End": "Remote Desktop sends this as Ctrl + Alt + Del. In a remote session, Relay won't get it.",
+  "Ctrl + Alt + Home": "Remote Desktop uses this for its connection bar. In a remote session, Relay won't get it.",
+  "Ctrl + Alt + Pause": "Remote Desktop uses this to switch to full screen. In a remote session, Relay won't get it.",
+  "Ctrl + Alt + Ins": "VMware Horizon sends this as Ctrl + Alt + Del. In a Horizon session, Relay won't get it.",
+  "Ctrl + F1": "Citrix Workspace uses this for Ctrl + Alt + Del. In a Citrix session, Relay won't get it.",
+  "Ctrl + F3": "Citrix Workspace uses this to open Task Manager. In a Citrix session, Relay won't get it.",
+  "Ctrl + Alt + Left": "Hyper-V uses this to release the mouse. In a virtual machine's window, Relay won't get it.",
+};
+
+/** relay_core::keys::key_warning, `altgr` what the layout types for the combo. */
+function keyWarning(combo: string, altgr: string | null): string | null {
+  const c = normalizeCombo(combo);
+  if (!c) return null;
+  const parts = c.split(" + ");
+  const key = parts.pop()!;
+  if (altgr?.trim() && parts.includes("Ctrl") && parts.includes("Alt")) {
+    const shift = parts.includes("Shift") ? "Shift + " : "";
+    return `${c} types “${altgr}” on your keyboard (AltGr + ${shift}${key}). You couldn't type it while this is set.`;
+  }
+  return TAKEN[c] ?? null;
+}
 
 // — argument types: what serde would refuse before a command runs —
 
@@ -879,7 +1013,7 @@ function value(t: DataTable | null, row: number, name: string): string | null {
 /** relay-core `data::check`: why a macro typing `templates` can't play with `table`. */
 function checkData(templates: string[], table: DataTable | null, file: string): string | null {
   const used = columnsUsed(templates);
-  if (!table) return used.length ? `A Text step types {col:${used[0]}}: choose a data file in Settings → Playback.` : null;
+  if (!table) return used.length ? `A Text step types {col:${used[0]}}: choose a data file in the macro's play options.` : null;
   const missing = used.find((u) => !table.columns.some((c) => sameName(c, u)));
   if (missing) return `${file} has no column “${missing}”.`;
   if (!table.rows.length) return `${file} has no rows to play.`;
@@ -889,6 +1023,16 @@ function checkData(templates: string[], table: DataTable | null, file: string): 
 const nullable = (s: Spec) => (v: unknown) => (v === null || (typeof v === "number" && !Number.isFinite(v)) ? null : why(v, s));
 const RECT: Spec = { x: "i32", y: "i32", w: "i32", h: "i32" };
 const BUTTON = oneOf("Left", "Right", "Middle", "X1", "X2");
+/** The triggers besides the hotkey that would fire, as MacroTriggers::also_on. */
+function alsoOn(t: MacroTriggers): TriggerOn[] {
+  const on: TriggerOn[] = [];
+  if (t.schedule.enabled && t.schedule.schedule.days.some(Boolean)) on.push({ kind: "schedule", schedule: structuredClone(t.schedule.schedule) });
+  if (t.app_launch.enabled && t.app_launch.exe) on.push({ kind: "app_launch", exe: t.app_launch.exe });
+  if (t.pixel.enabled) on.push({ kind: "pixel" });
+  if (t.image.enabled && t.image.image) on.push({ kind: "image" });
+  return on;
+}
+
 /** A Find image step's settings; `area` is an `Option`, so it may be left out. */
 const FIND_IMAGE = {
   image: "png",
@@ -918,12 +1062,16 @@ const EDIT_OPS: Record<string, Spec> = {
   insert_text: { at: "u32", text: "string" },
   update_text: { index: "u32", text: "string" },
   make_editable: { index: "u32" },
+  batch: { ops: (v: unknown) => (Array.isArray(v) ? (v.map(opWhy).find((w) => w) ?? null) : `invalid type: ${JSON.stringify(v)}, expected a sequence`) },
 };
+/** Why serde wouldn't take `op` as an `EditOp`, or null. */
+function opWhy(op: { op?: string } | null): string | null {
+  const spec = op ? EDIT_OPS[op.op ?? ""] : undefined;
+  return spec ? why(op, spec) : `unknown variant \`${op?.op}\``;
+}
 
 const PANES: Spec = {
-  preview_w: optional(nullable("f64")),
-  transport_h: optional(nullable("f64")),
-  timeline_h: optional(nullable("f64")),
+  inspector_w: optional(nullable("f64")),
 };
 const SETTINGS: Spec = {
   capture_moves: optional("bool"),
@@ -937,6 +1085,18 @@ const SETTINGS: Spec = {
   preview_background: optional(oneOf("screen", "sketch")),
   close_to_tray: optional("bool"),
   keep_on_top: optional(oneOf("always", "sessions", "never")),
+  hide_while_recording: optional("bool"),
+  hide_while_playing: optional("bool"),
+  theme: optional(oneOf("system", "light", "dark")),
+  glass: optional(nullable("bool")),
+  spacing: optional(oneOf("compact", "comfortable", "large")),
+  text_size: optional((v: unknown) => ([100, 125, 150, 200].includes(v as number) ? null : `${v}% isn't a text size`)),
+  player_size: optional(oneOf("compact", "large")),
+  reduce_motion: optional(oneOf("system", "always")),
+  sounds: optional("bool"),
+  show_moves: optional("bool"),
+  keys: optional({ record: nullable("string"), play: nullable("string"), player: nullable("string"), kill: "string" }),
+  intro: optional(oneOf("welcome", "keys", "done")),
 };
 
 const TRIGGERS: Spec = {

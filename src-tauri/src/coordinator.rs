@@ -18,7 +18,7 @@ use relay_core::session::{self, Effect, FinishReason, HotkeySet, Input, Mode, Ru
 use relay_core::steps::GroupOptions;
 use relay_platform::recorder::{Recorder, RecorderConfig, is_meaningful};
 use relay_platform::types::MousePulse;
-use relay_platform::{HookConfig, HookMode, HookSession, Platform, RawInput, RawKind};
+use relay_platform::{HookConfig, HookMode, HookSession, KeyChord, Platform, RawInput, RawKind};
 use tauri::{AppHandle, Manager, Runtime};
 use uuid::Uuid;
 
@@ -26,15 +26,12 @@ use crate::engine::{self, EngineCmd, EngineHandle, PlayPlan, RunReport, TimingSt
 use crate::hotkeys;
 use crate::ipc::{Emitter, EngineMsg};
 use crate::library::Library;
+use crate::presence::{self, Session};
 use crate::rec_thread::{RecContext, RecThread};
 use crate::run_history::RunHistory;
 use crate::settings::{Settings, SettingsStore};
 use crate::triggers::TriggerState;
 
-/// F9 stops a recording through its global hotkey; keep it out of the macro.
-const VK_F9: u16 = 0x78;
-/// F10 pauses playback through its global hotkey; it must not count as "any key".
-const VK_F10: u16 = 0x79;
 /// How often the countdown before a recording is reported.
 const COUNTDOWN_TICK: Duration = Duration::from_millis(50);
 
@@ -54,8 +51,11 @@ pub enum Cmd {
         /// With `PixelTimeout`: the recorded time of the check's step.
         timed_out_at: Option<Ms>,
     },
-    /// The UI selected a macro.
-    Select(Uuid),
+    /// A window (`by` its label) opened a macro.
+    Select {
+        id: Uuid,
+        by: String,
+    },
     Seek(f64),
     /// Macro `id`'s speed changed (applies if it's the one playing).
     Speed {
@@ -73,7 +73,7 @@ pub enum Cmd {
         source: RunSource,
         reason: SkipReason,
     },
-    /// From the tray or the Triggers tab.
+    /// From the tray or the Library.
     SetTriggersPaused(bool),
     /// The recorder's watchdog saw the cursor move without hook events.
     HookLost,
@@ -86,21 +86,29 @@ pub enum Cmd {
 
 /// The current session mode, readable by commands (e.g. to refuse deleting
 /// a macro while it plays). Updated as soon as a transition is decided.
-pub struct SessionMode(RwLock<Mode>);
+pub struct SessionMode {
+    mode: RwLock<Mode>,
+    /// The macro Relay's play key and the player play.
+    current: RwLock<Option<Uuid>>,
+}
 
 impl Default for SessionMode {
     fn default() -> Self {
-        SessionMode(RwLock::new(Mode::Idle))
+        SessionMode { mode: RwLock::new(Mode::Idle), current: RwLock::new(None) }
     }
 }
 
 impl SessionMode {
     pub fn is_idle(&self) -> bool {
-        *self.0.read() == Mode::Idle
+        *self.mode.read() == Mode::Idle
+    }
+
+    pub fn current(&self) -> Option<Uuid> {
+        *self.current.read()
     }
 
     fn set(&self, mode: Mode) {
-        *self.0.write() = mode;
+        *self.mode.write() = mode;
     }
 }
 
@@ -136,6 +144,16 @@ struct Recording {
 /// A JPEG of the desktop, and the desktop's rect when it was taken.
 type Screenshot = (Rect, Vec<u8>);
 
+/// The kill switch the hooks let through.
+fn kill_switch(settings: &Settings) -> KeyChord {
+    KeyChord::parse(&settings.keys.kill).unwrap_or(KeyChord::CTRL_ALT_END)
+}
+
+/// One of Relay's keys as the hook matches it, if it's set.
+fn key_chord(combo: Option<&str>) -> Option<KeyChord> {
+    combo.and_then(KeyChord::parse)
+}
+
 /// The screenshot to keep with a new recording: only one of the desktop the
 /// macro was recorded on (a monitor plugged in or out meanwhile would put it
 /// in the wrong place), and none if none was taken (the setting was off, or
@@ -169,6 +187,8 @@ struct RunStart {
     from: Ms,
     speed: f32,
     humanize: bool,
+    /// The data file's rows, when it played from one.
+    rows: Option<u32>,
 }
 
 struct Coordinator<R: Runtime> {
@@ -186,6 +206,11 @@ struct Coordinator<R: Runtime> {
     generation: u64,
     /// What starts the next playback: a trigger's source, else `Manual`.
     pending_source: RunSource,
+    /// The macro that was current before a trigger played another, to go
+    /// back to when that run ends.
+    before_trigger: Option<Option<Uuid>>,
+    /// A recording was saved: the window comes back to the front for it.
+    focus_window: bool,
     /// Whether the user was told the run history couldn't be saved (once, until it saves again).
     history_unsaved_told: bool,
 }
@@ -205,6 +230,8 @@ pub fn spawn<R: Runtime>(app: AppHandle<R>, platform: Arc<Platform>, emit: Arc<E
         playback: None,
         generation: 0,
         pending_source: RunSource::Manual,
+        before_trigger: None,
+        focus_window: false,
         history_unsaved_told: false,
     };
     std::thread::Builder::new().name("relay-coordinator".into()).spawn(move || c.run(rx)).expect("spawn coordinator");
@@ -275,9 +302,9 @@ impl<R: Runtime> Coordinator<R> {
                 self.emit.send(EngineMsg::Finished { reason, timing });
                 self.input(Input::PlaybackFinished(reason));
             }
-            Cmd::Select(id) => {
+            Cmd::Select { id, by } => {
                 if self.mode == Mode::Idle {
-                    self.current = Some(id);
+                    self.set_current(Some(id), Some(by));
                     self.idle_playhead = 0.0;
                 }
             }
@@ -322,6 +349,27 @@ impl<R: Runtime> Coordinator<R> {
         self.app.state::<SessionMode>().set(mode);
     }
 
+    /// The macro Relay's play key and the player play, shared with the
+    /// commands; both windows hear when it changes.
+    fn set_current(&mut self, id: Option<Uuid>, by: Option<String>) {
+        if self.current != id {
+            self.current = id;
+            *self.app.state::<SessionMode>().current.write() = id;
+            self.emit.send(EngineMsg::Current { macro_id: id, by });
+        }
+    }
+
+    /// What the windows show for `mode` (see `presence`).
+    fn presence_session(&self, mode: Mode) -> Session {
+        match mode {
+            Mode::Idle => Session::Idle,
+            Mode::Countdown | Mode::Recording => Session::Recording,
+            Mode::Playing | Mode::Paused => Session::Playing {
+                triggered: self.playback.as_ref().map_or(self.pending_source, |p| p.run.source) != RunSource::Manual,
+            },
+        }
+    }
+
     fn settings(&self) -> Settings {
         self.app.state::<Mutex<SettingsStore>>().lock().current.clone()
     }
@@ -348,18 +396,24 @@ impl<R: Runtime> Coordinator<R> {
                 if !self.app.state::<TriggerState>().paused() {
                     self.set_triggers_paused(true);
                     self.emit.send(EngineMsg::Notice {
-                        message: "Triggers are paused. Resume them from the tray or the Triggers tab.".into(),
+                        message: "Triggers are paused. Resume them from the tray or the Library.".into(),
                     });
                 }
             }
             Effect::EmitMode(mode) => {
-                let session = mode != Mode::Idle;
                 crate::tray::set_mode(&self.app, mode);
                 if let Some(w) = self.app.get_webview_window("main") {
-                    crate::window_ctl::set_no_activate(&w, session);
-                    crate::window_ctl::apply_on_top(&w, self.settings().keep_on_top, session);
+                    crate::window_ctl::set_no_activate(&w, mode != Mode::Idle);
                 }
-                self.emit.send(EngineMsg::Session { mode, macro_id: self.current });
+                let focus = mode == Mode::Idle && std::mem::take(&mut self.focus_window);
+                presence::update(&self.app, self.presence_session(mode), None, focus);
+                let source = self.playback.as_ref().map(|p| p.run.source);
+                self.emit.send(EngineMsg::Session { mode, macro_id: self.current, source });
+                if mode == Mode::Idle
+                    && let Some(before) = self.before_trigger.take()
+                {
+                    self.set_current(before, None);
+                }
             }
         }
     }
@@ -395,7 +449,11 @@ impl<R: Runtime> Coordinator<R> {
             return;
         }
         tracing::info!(%id, ?source, "running a triggered macro");
+        // Not announced as current: the windows keep their macro, and it's
+        // current again once this run ends.
+        self.before_trigger.get_or_insert(self.current);
         self.current = Some(id);
+        *self.app.state::<SessionMode>().current.write() = Some(id);
         self.idle_playhead = 0.0;
         self.pending_source = source;
         self.input(Input::Trigger(source));
@@ -420,7 +478,7 @@ impl<R: Runtime> Coordinator<R> {
         let p = self.playback.take()?;
         let report = p.engine.stop();
         if p.click_through
-            && let Some(w) = self.app.get_webview_window("main")
+            && let Some(w) = self.app.get_webview_window("player")
         {
             let _ = w.set_ignore_cursor_events(false);
         }
@@ -467,22 +525,16 @@ impl<R: Runtime> Coordinator<R> {
         self.emit.send(EngineMsg::LibraryChanged);
     }
 
-    /// Relay's own window, whose clicks and keys must not be recorded.
-    fn own_window(&self) -> (Option<Rect>, isize) {
-        let Some(w) = self.app.get_webview_window("main") else { return (None, 0) };
-        let rect = match (w.outer_position(), w.outer_size()) {
-            (Ok(p), Ok(s)) => Some(Rect { x: p.x, y: p.y, w: s.width as i32, h: s.height as i32 }),
-            _ => None,
-        };
-        (rect, crate::window_ctl::main_hwnd(&self.app))
-    }
-
     fn start_recording(&mut self) {
         let settings = self.settings();
-        let (_, own_window) = self.own_window();
+        let own = crate::window_ctl::own_windows(&self.app);
         let mouse_pulse = Arc::new(MousePulse::default());
+        let kill_switch = kill_switch(&settings);
+        // The record key stops a recording through its global hotkey; keep it out of the macro.
+        let skip = key_chord(settings.keys.record.as_deref()).into_iter().collect();
         let hook_cfg = HookConfig {
-            mode: HookMode::Record { own_window, skip_vks: vec![VK_F9], esc_stops: settings.esc_stops_recording },
+            mode: HookMode::Record { own, skip, esc_stops: settings.esc_stops_recording },
+            kill_switch,
             ignore_injected: settings.ignore_injected,
             mouse_pulse: Some(mouse_pulse.clone()),
         };
@@ -501,6 +553,7 @@ impl<R: Runtime> Coordinator<R> {
             RecorderConfig {
                 capture_moves: settings.capture_moves,
                 capture_keys: settings.capture_keys,
+                kill_switch,
                 move_interval_ms: 16,
             },
             (self.platform.now_ms)(),
@@ -520,7 +573,7 @@ impl<R: Runtime> Coordinator<R> {
             let screen = self.platform.screen.clone();
             std::thread::spawn(move || {
                 let area = screen.virtual_desktop();
-                let jpeg = crate::screens::encode(&screen.capture(area, crate::screens::MAX_WIDTH, own_window)?)?;
+                let jpeg = crate::screens::encode(&screen.capture(area, crate::screens::MAX_WIDTH, own)?)?;
                 Some((area, jpeg))
             })
         });
@@ -574,7 +627,7 @@ impl<R: Runtime> Coordinator<R> {
             let id = m.id;
             // The recording is in the library either way; only the file may be missing.
             if let Err(e) = lib.insert_front(m) {
-                self.emit.error(format!("Couldn't save the recording to disk: {e}. It's kept until you quit."));
+                self.emit.unsaved(format!("Couldn't save the recording to disk: {e}. It's kept until you quit."));
             }
             id
         };
@@ -586,7 +639,9 @@ impl<R: Runtime> Coordinator<R> {
             self.emit
                 .error(format!("Couldn't save the screenshot of this recording: {e}. The preview shows the sketch."));
         }
-        self.current = Some(id);
+        self.set_current(Some(id), None);
+        presence::untuck(&self.app);
+        self.focus_window = true;
         self.emit.send(EngineMsg::Saved { id });
         self.emit.send(EngineMsg::LibraryChanged);
     }
@@ -606,10 +661,21 @@ impl<R: Runtime> Coordinator<R> {
                 return self.refuse_playback(why);
             }
         };
-        let (own_rect, own_window) = self.own_window();
-        self.hand_focus_back(own_window);
+        let own = crate::window_ctl::own_windows(&self.app);
+        self.hand_focus_back(own);
         let offset = self.window_offset(&m);
-        let click_through = self.click_through_if_needed(&m, own_rect, offset);
+        // The player comes up now, so its rect is known before the first click.
+        let triggered = self.pending_source != RunSource::Manual;
+        let clicks = |r: crate::window_ctl::Rect| {
+            relay_playback::plan::clicks_inside(&m, Rect { x: r.x, y: r.y, w: r.w, h: r.h }, offset)
+        };
+        let player = presence::update(&self.app, Session::Playing { triggered }, Some(&clicks), false).map(|r| Rect {
+            x: r.x,
+            y: r.y,
+            w: r.w,
+            h: r.h,
+        });
+        let click_through = self.click_through_if_needed(&m, player, offset);
         let hook = self.watch_for_stop_keys(&m);
 
         self.generation += 1;
@@ -622,9 +688,10 @@ impl<R: Runtime> Coordinator<R> {
             from,
             speed: m.playback.speed,
             humanize: m.playback.humanize,
+            rows: data.as_ref().map(|d| d.rows.len() as u32),
         };
         let seed = (self.platform.now_ms)().to_bits() ^ (m.id.as_u128() as u64);
-        let plan = PlayPlan::for_macro(m, data, from, seed, offset, own_window);
+        let plan = PlayPlan::for_macro(m, data, from, seed, offset, own);
         let duration = plan.duration;
         let engine = engine::spawn(plan, &self.platform, self.emit.clone(), self.tx.clone(), self.generation);
         self.playback =
@@ -639,11 +706,11 @@ impl<R: Runtime> Coordinator<R> {
     /// Started from Relay's own button: give the keyboard back to the app the
     /// user was working in, or keystrokes would type into Relay. Warns when
     /// Windows will block the input to that app.
-    fn hand_focus_back(&self, own_window: isize) {
+    fn hand_focus_back(&self, own: relay_platform::OwnWindows) {
         let windows = &self.platform.windows;
         let mut target = windows.foreground();
-        if target.is_some_and(|w| w.hwnd == own_window) {
-            target = windows.restore_previous(own_window);
+        if let Some(w) = target.filter(|w| relay_platform::is_own(&own, w.hwnd)) {
+            target = windows.restore_previous(w.hwnd);
         }
         if target.is_some_and(|t| windows.input_blocked(t.pid)) {
             self.emit.send(EngineMsg::Notice {
@@ -654,21 +721,24 @@ impl<R: Runtime> Coordinator<R> {
         }
     }
 
-    /// Clicks and scrolling under the always-on-top widget must reach the app beneath it.
-    fn click_through_if_needed(&self, m: &Macro, own_rect: Option<Rect>, offset: (i32, i32)) -> bool {
-        own_rect.is_some_and(|r| relay_playback::plan::clicks_inside(m, r, offset))
-            && self.app.get_webview_window("main").is_some_and(|w| w.set_ignore_cursor_events(true).is_ok())
+    /// Clicks and scrolling under the player, which is on top, must reach the app beneath it.
+    fn click_through_if_needed(&self, m: &Macro, player: Option<Rect>, offset: (i32, i32)) -> bool {
+        player.is_some_and(|r| relay_playback::plan::clicks_inside(m, r, offset))
+            && self.app.get_webview_window("player").is_some_and(|w| w.set_ignore_cursor_events(true).is_ok())
     }
 
     /// Watches for Esc and, if the macro wants it, any other key.
     fn watch_for_stop_keys(&self, m: &Macro) -> Option<Box<dyn HookSession>> {
+        let settings = self.settings();
         let cfg = HookConfig {
             mode: HookMode::Watch {
                 stop_on_key: m.playback.stop_on_key,
-                pass_vks: vec![VK_F10],
+                // The play key pauses through its global hotkey: it isn't "any key".
+                pass: key_chord(settings.keys.play.as_deref()).into_iter().collect(),
                 report_kill_switch: false,
             },
-            ignore_injected: self.settings().ignore_injected,
+            kill_switch: kill_switch(&settings),
+            ignore_injected: settings.ignore_injected,
             mouse_pulse: None,
         };
         let (raw_tx, raw_rx) = crossbeam_channel::bounded(64);
@@ -756,6 +826,7 @@ fn run_entry(start: RunStart, reason: FinishReason, report: RunReport, now: f64)
         checks,
         checks_dropped,
         note: None,
+        rows: start.rows,
     }
 }
 
@@ -775,6 +846,7 @@ fn skip_entry(id: Uuid, name: String, source: RunSource, reason: SkipReason, at:
         checks: Vec::new(),
         checks_dropped: 0,
         note: None,
+        rows: None,
     }
 }
 
@@ -890,6 +962,7 @@ mod tests {
             from: 1500,
             speed: 2.0,
             humanize: true,
+            rows: Some(200),
         }
     }
 
@@ -907,6 +980,7 @@ mod tests {
         assert_eq!((e.duration_ms, e.from_ms, e.loops), (2346, 1500, 3));
         assert_eq!((e.speed, e.humanize), (2.0, true));
         assert_eq!((e.checks, e.checks_dropped), (vec![check], 0));
+        assert_eq!(e.rows, Some(200), "played from a data file");
         // An engine that panicked reports nothing: still one loop, no checks.
         let e = run_entry(started(), FinishReason::Error, RunReport::default(), 10_000.0);
         assert_eq!((e.loops, e.duration_ms, e.checks.len()), (1, 0, 0));
@@ -918,14 +992,14 @@ mod tests {
         let e = skip_entry(Uuid::from_u128(4), "Backup".into(), RunSource::Schedule, SkipReason::Missed, at);
         assert_eq!(e.outcome, RunOutcome::Skipped(SkipReason::Missed));
         assert_eq!((e.at, e.source, e.macro_name.as_str()), (at, RunSource::Schedule, "Backup"));
-        assert_eq!((e.duration_ms, e.loops, e.checks.len(), e.note), (0, 0, 0, None));
+        assert_eq!((e.duration_ms, e.loops, e.checks.len(), e.note, e.rows), (0, 0, 0, None, None));
     }
 
     #[test]
     fn a_trigger_its_data_file_refused_is_logged_with_why() {
         let at = DateTime::from_timestamp(1_790_000_000, 0).unwrap();
         let m = Macro::new("Invoices", relay_core::model::RecordingMeta::single_1080p(), Vec::new());
-        let why = "customers.csv isn't there anymore: choose it again in Settings → Playback.";
+        let why = "customers.csv isn't there anymore: choose it again in the macro's play options.";
         let e = data_file_skip(&m, RunSource::Hotkey, why, at).unwrap();
         assert_eq!(e.outcome, RunOutcome::Skipped(SkipReason::DataFile));
         assert_eq!((e.macro_id, e.macro_name.as_str(), e.source, e.at), (m.id, "Invoices", RunSource::Hotkey, at));
@@ -943,20 +1017,25 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let app = mock_builder().build(mock_context(noop_assets())).unwrap();
-        app.manage(Mutex::new(Library::open(dir.path()).0));
+        app.manage(Mutex::new(Library::open_with_samples(dir.path()).0));
         app.manage(Mutex::new(SettingsStore::open(dir.path()).0));
         app.manage(Mutex::new(RunHistory::open(dir.path()).0));
         app.manage(TriggerState::default());
         app.manage(SessionMode::default());
         app.manage(hotkeys::Hotkeys::default());
+        app.manage(crate::window_ctl::WindowState::open(dir.path()));
+        app.manage(presence::PresenceState::default());
         let emit = Arc::new(Emitter::default());
         let got = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
         let sink = got.clone();
-        emit.subscribe(Channel::new(move |body| {
-            let InvokeResponseBody::Json(s) = body else { panic!("expected JSON") };
-            sink.lock().push(serde_json::from_str(&s).unwrap());
-            Ok(())
-        }));
+        emit.subscribe(
+            "main",
+            Channel::new(move |body| {
+                let InvokeResponseBody::Json(s) = body else { panic!("expected JSON") };
+                sink.lock().push(serde_json::from_str(&s).unwrap());
+                Ok(())
+            }),
+        );
         app.manage(emit.clone());
         let c = spawn(app.handle().clone(), Arc::new(relay_platform::platform()), emit);
         let idle = || app.state::<SessionMode>().is_idle();

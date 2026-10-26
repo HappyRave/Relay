@@ -18,12 +18,31 @@
         "width": 944,
         "height": 612,
         "decorations": false,
-        "alwaysOnTop": true,
+        "alwaysOnTop": false,
+        "transparent": true,
         "resizable": true,
         "maximizable": false,
         "shadow": true,
         "skipTaskbar": false,
-        "visible": false
+        "visible": false,
+        "create": false
+      },
+      {
+        "label": "player",
+        "title": "Relay player",
+        "width": 600,
+        "height": 64,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "transparent": true,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "shadow": true,
+        "skipTaskbar": true,
+        "focus": false,
+        "visible": false,
+        "create": false
       }
     ],
     "security": {

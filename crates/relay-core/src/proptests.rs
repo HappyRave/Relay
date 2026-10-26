@@ -272,6 +272,7 @@ fn expected(op: &EditOp, steps: &[Step]) -> Result<(), EditError> {
             template(text)
         }
         EditOp::MakeEditable { index } => only(*index, |k| matches!(k, StepKind::Type { .. })),
+        EditOp::Batch { .. } => unreachable!("batches have a property of their own"),
         EditOp::Rename { .. }
         | EditOp::InsertWait { .. }
         | EditOp::InsertPixelWait { .. }
@@ -543,6 +544,26 @@ proptest! {
             splice.revert(&mut m.events);
             prop_assert_eq!(&m.events, &after);
         }
+    }
+
+    #[test]
+    fn a_batch_is_its_edits_in_order_and_undoes_in_one((events, ops) in macro_and_edits()) {
+        let start = Macro::new("p", RecordingMeta::single_1080p(), events);
+        let mut one_by_one = start.clone();
+        let all_ok = ops.iter().all(|op| apply(&mut one_by_one, op.clone()).is_ok());
+        let mut batched = start.clone();
+        let result = apply(&mut batched, EditOp::Batch { ops });
+        prop_assert_eq!(result.is_ok(), all_ok);
+        if all_ok {
+            prop_assert_eq!(&batched.events, &one_by_one.events);
+            prop_assert_eq!(&batched.name, &one_by_one.name);
+        } else {
+            prop_assert_eq!(&batched, &start, "a failed batch changes nothing");
+        }
+        prop_assert_eq!(check_invariants(&batched.events), Ok(()));
+        let mut undone = batched.events.clone();
+        Splice::between(&start.events, &batched.events).revert(&mut undone);
+        prop_assert_eq!(&undone, &start.events);
     }
 
     #[test]

@@ -4,6 +4,7 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, vi } from "vitest";
 import { core } from "./fake-core";
+import { installMedia, resetMedia } from "./media";
 
 class NoResizeObserver {
   observe() {}
@@ -52,8 +53,10 @@ dialog.close ??= function (this: HTMLDialogElement) {
   this.dispatchEvent(new Event("close"));
 };
 
+installMedia();
 core.install();
 
 afterEach(() => {
   vi.useRealTimers();
+  resetMedia();
 });

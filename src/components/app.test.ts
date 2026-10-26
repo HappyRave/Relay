@@ -1,20 +1,19 @@
-// The app shell: the widget in its two sizes, the export dialog, and the
+// The app shell: the main window or the player, the export dialog, and the
 // demo desktop of the browser preview.
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/svelte";
+import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import App from "../App.svelte";
-import Widget from "./Widget.svelte";
 import ExportDialog from "./ExportDialog.svelte";
-import ExpandedWidget from "./ExpandedWidget.svelte";
 import { core, freshStore, settle } from "../test/app";
+import { setMedia } from "../test/media";
 import { browserBackend } from "../lib/ipc/backend";
 import type { RelayStore } from "../lib/state/relay.svelte";
 
 let relay: RelayStore;
 const A = "00000000-0000-0000-0000-000000000001";
 
-/** Resize observers the test can trigger: every one sees the widget at `w` × `h`. */
+/** Resize observers the test can trigger: every one sees the page at `w` × `h`. */
 let observers: ((w: number, h: number) => void)[] = [];
 const resize = (w: number, h: number) => observers.forEach((o) => o(w, h));
 const RealResizeObserver = globalThis.ResizeObserver;
@@ -35,42 +34,103 @@ afterEach(() => {
 
 describe("App", () => {
   beforeEach(async () => {
-    relay = await freshStore({ init: false });
+    relay = await freshStore({ init: false, settings: { intro: "done" } });
   });
 
-  test("starts the store and shows the expanded widget once it's ready", async () => {
+  test("starts the store and shows the window on the Library once it's ready", async () => {
     const { container } = render(App);
     await settle();
     expect(core.commands()).toEqual([
       "window_prefs",
       "subscribe_engine",
-      "fit_window",
       "get_settings",
+      "system_look",
       "list_macros",
+      "list_runs",
       "load_macro",
       "screenshot",
       "get_triggers",
       "get_data_file",
       "get_autostart",
     ]);
-    expect(core.lastArgs("fit_window")).toEqual({ width: 0, height: 0, expanded: true });
-    expect(container.querySelector(".expanded")).not.toBeNull();
-    expect(screen.getByRole("textbox", { name: "Macro name" })).toHaveValue("Export invoice to PDF");
+    expect(container.querySelector(".app-window")).toHaveAttribute("data-place", "library");
+    expect(screen.getByText("Export invoice to PDF")).toBeInTheDocument();
   });
 
-  test("opens compact when it was left compact", async () => {
-    core.window.expanded = false;
+  test("puts the look on the page: the theme, spacing, glass and motion", async () => {
+    render(App);
+    await settle();
+    const html = document.documentElement;
+    expect(html).toHaveAttribute("data-theme", "light");
+    expect(html).not.toHaveAttribute("data-glass");
+    await relay.updateSettings({ theme: "dark", spacing: "large", glass: false, reduce_motion: "always" });
+    await settle();
+    expect(html).toHaveAttribute("data-theme", "dark");
+    expect(html).toHaveAttribute("data-spacing", "large");
+    expect(html).toHaveAttribute("data-glass", "off");
+    expect(html).toHaveAttribute("data-motion", "calm");
+  });
+
+  test("follows Windows' dark mode and animation setting while it runs", async () => {
+    render(App);
+    await settle();
+    const html = document.documentElement;
+    setMedia("(prefers-color-scheme: dark)", true);
+    setMedia("(prefers-reduced-motion: reduce)", true);
+    await settle();
+    expect(html).toHaveAttribute("data-theme", "dark");
+    expect(html).toHaveAttribute("data-motion", "calm");
+    setMedia("(prefers-color-scheme: dark)", false);
+    await settle();
+    expect(html).toHaveAttribute("data-theme", "light");
+  });
+
+  test("in player mode the main window still shows the window (Rust hides it)", async () => {
+    core.window.player_mode = true;
     const { container } = render(App);
     await settle();
-    expect(container.querySelector(".compact")).not.toBeNull();
-    expect(container.querySelector(".expanded")).toBeNull();
+    expect(relay.playerMode).toBe(true);
+    expect(container.querySelector(".app-window")).not.toBeNull();
+    expect(screen.queryByRole("group", { name: "Relay player" })).toBeNull();
+  });
+
+  test("in the player's window, the player: it loads what's current, not the first macro, and no run history", async () => {
+    core.uninstall();
+    core.install("player");
+    try {
+      core.current = "00000000-0000-0000-0000-000000000003";
+      const { container } = render(App);
+      await settle();
+      expect(relay.role).toBe("player");
+      expect(screen.getByRole("group", { name: "Relay player" })).toBeInTheDocument();
+      expect(container.querySelector(".app-window")).toBeNull();
+      expect(core.commands()).toEqual([
+        "window_prefs",
+        "subscribe_engine",
+        "get_settings",
+        "system_look",
+        "list_macros",
+        "current_macro",
+        "load_macro",
+        "screenshot",
+        "get_triggers",
+        "get_data_file",
+      ]);
+      expect(core.lastArgs("load_macro")).toEqual({ id: "00000000-0000-0000-0000-000000000003" });
+    } finally {
+      core.uninstall();
+      core.install();
+    }
   });
 
   test("the export dialog opens over the widget", async () => {
     render(App);
     await settle();
-    await userEvent.click(screen.getByRole("button", { name: "Export" }));
-    expect(screen.getByRole("dialog", { name: "Export macro" })).toBeInTheDocument();
+    await relay.openMacro(A);
+    await settle();
+    await userEvent.click(screen.getByRole("button", { name: "More" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Export…" }));
+    expect(screen.getByRole("dialog", { name: "Export “Export invoice to PDF”" })).toBeInTheDocument();
   });
 
   test("unmounting stops the store", async () => {
@@ -85,146 +145,36 @@ describe("App", () => {
   });
 });
 
-describe("Widget", () => {
-  beforeEach(async () => {
-    relay = await freshStore();
-  });
-
-  test("switches between expanded and compact", async () => {
-    const { container } = render(Widget);
-    expect(container.querySelector(".expanded")).not.toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: "Compact player" }));
-    expect(container.querySelector(".compact")).not.toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: "Expand" }));
-    expect(container.querySelector(".expanded")).not.toBeNull();
-  });
-
-  test("the compact player tells Rust its size; the editor fills the window Rust sizes", async () => {
-    const onresize = (w: number, h: number) => sizes.push([w, h]);
-    const sizes: [number, number][] = [];
-    const { container } = render(Widget, { onresize });
-    await settle();
-    // The editor only says it's the editor: its size is Rust's (the user's, or the default).
-    expect(core.argsOf("fit_window")).toEqual([{ width: 0, height: 0, expanded: true }]);
-    expect(container.querySelector(".widget")).toHaveClass("fill");
-    resize(1200.4, 800.6); // the user resized the window
-    await settle();
-    expect(core.argsOf("fit_window")).toHaveLength(1);
-    expect(sizes).toEqual([[1200, 801]]);
-
-    relay.expanded = false;
-    await settle();
-    expect(container.querySelector(".widget")).not.toHaveClass("fill");
-    resize(604.4, 67.6);
-    await settle();
-    expect(core.lastArgs("fit_window")).toEqual({ width: 604, height: 68, expanded: false });
-    relay.expanded = true;
-    await settle();
-    expect(core.lastArgs("fit_window")).toEqual({ width: 0, height: 0, expanded: true });
-  });
-
-  test("switching to the compact player sends its size even if no resize is seen", async () => {
-    // Expanded, then compact again before the page laid out the bigger window:
-    // the widget measures what it did before, and the observer doesn't fire.
-    const box = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 604.4, 67.6));
-    try {
-      render(Widget);
-      await settle();
-      relay.expanded = false;
-      await settle();
-      expect(core.argsOf("fit_window")).toEqual([
-        { width: 0, height: 0, expanded: true },
-        { width: 604, height: 68, expanded: false },
-      ]);
-    } finally {
-      box.mockRestore();
-    }
-  });
-
-  test("the compact player shows toasts too", async () => {
-    relay.expanded = false;
-    render(Widget);
-    relay.notify("Saved");
-    await settle();
-    expect(screen.getByRole("status")).toHaveTextContent("Saved");
-  });
-});
-
-describe("the editor's dividers", () => {
-  beforeEach(async () => {
-    relay = await freshStore({ init: false });
-    core.window.panes = { preview_w: 520, transport_h: 153, timeline_h: 200 };
-    await relay.init();
-    await settle();
-    core.clearCalls();
-  });
-  const drag = async (el: Element, axis: "clientX" | "clientY", from: number, to: number) => {
-    await fireEvent.pointerDown(el, { button: 0, pointerId: 1, [axis]: from });
-    await fireEvent.pointerMove(el, { pointerId: 1, [axis]: to });
-    await fireEvent.pointerUp(el, { pointerId: 1, [axis]: to });
-    await settle();
-  };
-  const style = (c: Element, selector: string) => (c.querySelector(selector) as HTMLElement).style;
-
-  test("open where the user left them", () => {
-    const { container } = render(ExpandedWidget);
-    expect(relay.panes).toEqual({ preview_w: 520, transport_h: 153, timeline_h: 200 });
-    expect(style(container, ".main").gridTemplateColumns).toBe("520px 2px minmax(0, 1fr)");
-    expect(style(container, ".transport-pane").height).toBe("153px");
-    expect(style(container, ".timeline-pane").height).toBe("200px");
-    const names = screen.getAllByRole("separator").map((s) => s.getAttribute("aria-label"));
-    expect(names).toEqual(["Resize preview", "Resize buttons", "Resize timeline"]);
-  });
-
-  test("a taller button row scales its controls", () => {
-    const { container } = render(ExpandedWidget);
-    // 153 px is 1.5 × the default 102 (jsdom measures no width to hold it back).
-    expect(style(container, ".transport-scale").transform).toBe("scale(1.5)");
-  });
-
-  test("dragging one is saved once, when the drag ends", async () => {
-    render(ExpandedWidget);
-    await drag(screen.getByRole("separator", { name: "Resize preview" }), "clientX", 500, 560);
-    expect(core.argsOf("save_panes")).toEqual([{ panes: { preview_w: 580, transport_h: 153, timeline_h: 200 } }]);
-    // Up: the button row gets taller.
-    await drag(screen.getByRole("separator", { name: "Resize buttons" }), "clientY", 300, 280);
-    expect(core.lastArgs("save_panes")).toEqual({ panes: { preview_w: 580, transport_h: 173, timeline_h: 200 } });
-    // Down: the timeline gets shorter (jsdom measures nothing, so it can't grow past its size here).
-    await drag(screen.getByRole("separator", { name: "Resize timeline" }), "clientY", 400, 430);
-    expect(core.lastArgs("save_panes")).toEqual({ panes: { preview_w: 580, transport_h: 173, timeline_h: 170 } });
-    expect(core.window.panes).toEqual({ preview_w: 580, transport_h: 173, timeline_h: 170 });
-  });
-
-  test("double-clicking one puts it back to the default, and saves that", async () => {
-    const { container } = render(ExpandedWidget);
-    await fireEvent.dblClick(screen.getByRole("separator", { name: "Resize buttons" }));
-    await settle();
-    expect(core.lastArgs("save_panes")).toEqual({ panes: { preview_w: 520, transport_h: null, timeline_h: 200 } });
-    expect(style(container, ".transport-pane").height).toBe("102px");
-    expect(style(container, ".transport-scale").transform).toBe("");
-  });
-});
-
 describe("Export dialog", () => {
   beforeEach(async () => {
     relay = await freshStore();
     relay.exportOpen = true;
   });
 
-  test("is a modal with the formats", () => {
+  test("is a modal with the formats as radios", () => {
     render(ExportDialog);
-    const dialog = screen.getByRole("dialog", { name: "Export macro" });
+    const dialog = screen.getByRole("dialog", { name: "Export “Export invoice to PDF”" });
     expect(dialog).toHaveAttribute("open");
-    const formats = [...dialog.querySelectorAll(".fmt")] as HTMLButtonElement[];
+    const formats = within(screen.getByRole("radiogroup", { name: "Format" })).getAllByRole("radio");
     expect(formats.map((f) => f.querySelector(".label")!.textContent)).toEqual([
       "Relay macro",
-      "JSON events",
       "Standalone program",
       "AutoHotkey v2",
+      "JSON events",
     ]);
-    expect(formats.map((f) => f.disabled)).toEqual([false, false, false, false]);
-    expect(formats[0]).toHaveClass("selected");
+    expect(formats.map((f) => f.getAttribute("aria-checked"))).toEqual(["true", "false", "false", "false"]);
+    expect(formats.map((f) => f.tabIndex)).toEqual([0, -1, -1, -1]);
     expect(screen.getByText("export-invoice-to-pdf.rly")).toBeInTheDocument();
+  });
+
+  test("arrow keys move the choice", async () => {
+    render(ExportDialog);
+    screen.getByRole("radio", { name: /Relay macro/ }).focus();
+    await userEvent.keyboard("{ArrowDown}");
+    expect(relay.exportFmt).toBe("exe");
+    expect(screen.getByRole("radio", { name: /Standalone program/ })).toHaveFocus();
+    await userEvent.keyboard("{ArrowUp}{ArrowUp}");
+    expect(relay.exportFmt).toBe("json");
   });
 
   test("choosing JSON changes the file name", async () => {
@@ -312,7 +262,7 @@ describe("Export dialog", () => {
     render(ExportDialog);
     const dialog = screen.getByRole("dialog");
     vi.spyOn(dialog, "getBoundingClientRect").mockReturnValue({ left: 250, top: 150, right: 690, bottom: 450, width: 440, height: 300 } as DOMRect);
-    await fireEvent.click(screen.getByText("Export macro"), { clientX: 300, clientY: 170 });
+    await fireEvent.click(screen.getByText("Export “Export invoice to PDF”"), { clientX: 300, clientY: 170 });
     expect(relay.exportOpen).toBe(true);
     await fireEvent.click(dialog, { clientX: 255, clientY: 440 }); // the padding: the target is the dialog itself
     expect(relay.exportOpen).toBe(true);
@@ -340,19 +290,19 @@ describe("the browser preview", () => {
   });
   afterEach(() => core.install());
 
-  test("puts the widget on a demo desktop with a hint", async () => {
+  test("puts the window on a demo desktop with a hint", async () => {
     const { container } = render(App);
     await settle();
     await settle();
     expect(container.querySelector(".desktop")).not.toBeNull();
     expect(screen.getByText("Try it")).toBeInTheDocument();
     expect(screen.getByText("Relay.")).toBeInTheDocument();
-    expect(container.querySelector(".expanded")).not.toBeNull();
-    expect(screen.getByRole("textbox", { name: "Macro name" })).toHaveValue("Export invoice to PDF");
+    expect(container.querySelector(".app-window")).toHaveAttribute("data-place", "library");
+    expect(screen.getByText("Export invoice to PDF")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).toBeNull(); // nothing needed the app
   });
 
-  test("the widget scales down to fit a small window", async () => {
+  test("the window scales down to fit a small browser window", async () => {
     const was = [window.innerWidth, window.innerHeight];
     const setWindow = (w: number, h: number) => {
       Object.defineProperty(window, "innerWidth", { value: w, configurable: true });
@@ -374,5 +324,25 @@ describe("the browser preview", () => {
     } finally {
       setWindow(was[0], was[1]);
     }
+  });
+});
+
+describe("the browser preview's player", () => {
+  beforeEach(async () => {
+    core.uninstall();
+    relay = await freshStore({ init: false, backend: browserBackend() });
+  });
+  afterEach(() => core.install());
+
+  test("player mode shows the player on the demo desktop, and its expand key the window again", async () => {
+    const { container } = render(App);
+    await settle();
+    await userEvent.click(screen.getByRole("button", { name: "Switch to the player" }));
+    await settle();
+    expect(screen.getByRole("group", { name: "Relay player" })).toBeInTheDocument();
+    expect(container.querySelector(".app-window")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Open the window" }));
+    await settle();
+    expect(container.querySelector(".app-window")).toHaveAttribute("data-place", "macro");
   });
 });

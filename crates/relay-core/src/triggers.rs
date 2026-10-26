@@ -91,6 +91,39 @@ pub struct MacroTriggers {
     pub image: ImageTrigger,
 }
 
+/// A trigger that's on, as the Library says what else runs a macro (the
+/// hotkey has a column of its own). The image trigger's image isn't in it.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(export)]
+pub enum TriggerOn {
+    Schedule { schedule: WeeklySchedule },
+    AppLaunch { exe: String },
+    Pixel,
+    Image,
+}
+
+impl MacroTriggers {
+    /// The triggers besides the hotkey that would run the macro: on, and set
+    /// up enough to fire.
+    pub fn also_on(&self) -> Vec<TriggerOn> {
+        let mut on = Vec::new();
+        if self.schedule.enabled && self.schedule.schedule.days.iter().any(|d| *d) {
+            on.push(TriggerOn::Schedule { schedule: self.schedule.schedule.clone() });
+        }
+        if self.app_launch.enabled && !self.app_launch.exe.is_empty() {
+            on.push(TriggerOn::AppLaunch { exe: self.app_launch.exe.clone() });
+        }
+        if self.pixel.enabled {
+            on.push(TriggerOn::Pixel);
+        }
+        if self.image.enabled && self.image.image.is_some() {
+            on.push(TriggerOn::Image);
+        }
+        on
+    }
+}
+
 /// Fires when a pixel starts matching the target color: two consecutive
 /// matching samples after two consecutive non-matching ones. So a pixel that
 /// stays red fires once, even if the cursor passes over it for one poll, and
@@ -151,6 +184,34 @@ mod tests {
     fn run(samples: &[u8]) -> Vec<bool> {
         let mut e = PixelEdge::new();
         samples.iter().map(|&m| e.update(m == 1)).collect()
+    }
+
+    #[test]
+    fn the_library_hears_of_the_triggers_that_would_fire() {
+        let mut t = MacroTriggers::default();
+        assert_eq!(t.also_on(), vec![]);
+        // On, but not set up enough to fire: no days, no program, no image.
+        t.schedule =
+            ScheduleTrigger { enabled: true, schedule: WeeklySchedule { days: [false; 7], ..Default::default() } };
+        t.app_launch.enabled = true;
+        t.image.enabled = true;
+        assert_eq!(t.also_on(), vec![]);
+        t.schedule.schedule = WeeklySchedule::default();
+        t.app_launch.exe = "EXCEL.EXE".into();
+        t.pixel.enabled = true;
+        t.image.image = Some(ImagePng(vec![1, 2, 3]));
+        t.hotkey = HotkeyTrigger { enabled: true, combo: "Ctrl + Alt + 1".into() };
+        assert_eq!(
+            t.also_on(),
+            vec![
+                TriggerOn::Schedule { schedule: WeeklySchedule::default() },
+                TriggerOn::AppLaunch { exe: "EXCEL.EXE".into() },
+                TriggerOn::Pixel,
+                TriggerOn::Image,
+            ]
+        );
+        t.pixel.enabled = false;
+        assert_eq!(t.also_on().len(), 3);
     }
 
     #[test]
