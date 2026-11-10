@@ -7,7 +7,8 @@ The deeper references are in the repo, and this file links to them rather than r
 - [README.md](README.md): what Relay is, for users, and the roadmap
 - [CONTRIBUTING.md](CONTRIBUTING.md): setup, commands, code conventions, git workflow, PR checklist
 - [docs/engineering/](docs/engineering/README.md): how it works inside. Start with [architecture.md](docs/engineering/architecture.md); [testing.md](docs/engineering/testing.md) covers the tests, CI and releases.
-- [docs/user-guide/](docs/user-guide/README.md): the behavior users are promised. **This is the spec**: when code and guide disagree, one of them is a bug.
+- [docs/spec/](docs/spec/README.md): every rule of how Relay behaves, numbered, one page per feature. **This is the spec**: when the code, the tests or the guide disagree with it, one of them is a bug.
+- [docs/user-guide/](docs/user-guide/README.md): short task pages for users, linking into the spec for detail.
 - [CHANGELOG.md](CHANGELOG.md): what changed, per version
 
 ## Contents
@@ -41,7 +42,11 @@ Relay is a **Windows desktop macro recorder**: it records mouse and keyboard inp
 - **Latest release: v1.5.0** (2026-10-23), from `main`. Releases so far: v1.0.0, v1.1.0, v1.2.0, v1.3.0, v1.4.0, v1.5.0. Each has an NSIS installer and a portable exe.
 - **Milestone history:** M0–M8 built v1.0. Then: m9 editor polish (v1.1.0), m10 Keep on top, m11 dependency upgrades, m12 a four-reviewer architecture refactor, m13 the three-layer test suite, m14 a four-reviewer audit of every test against the user guide (about 90 findings fixed), then v1.2.0. Then fix-multi-monitor-scale and m15 the control bar, preview bar, screenshots and resizable editor (v1.3.0). Then m16 mouse moves as steps, m17 Find image (with fix-find-image-own-window), m18 the run history, m19 standalone `.exe` export (v1.4.0). Then m20 Text steps with placeholders, m21 data files that drive repeats, m22 AutoHotkey v2 export, m23 known limitations (stacked toasts, diff-based undo, unsaved trash retried, data-file skips in the run history, the coordinator's crash recovery tested on Tauri's mock runtime), with fix-vite-launch-editor (v1.5.0). Then m24, the redesign from the UX research panel (unreleased): two windows, the new editor, Library and Activity, the player, Relay's keys as settings, the first run, the picker's loupe, sounds, exported programs in the player's look. `git log --first-parent main` shows them as merges.
 - **Tests at v1.5.0:** about 440 Rust (unit, property, snapshot), about 670 Vitest (store, backend contract, fake core, every component), about 125 end-to-end tests against the built app. Rust unit coverage is about 76% of lines; the coordinator, commands, tray and Windows backend are exercised end to end instead. The frontend is at about 99.8% of lines.
-- **Next, per the [roadmap](README.md#roadmap):** code signing (needs a certificate; free options for open source: SignPath Foundation, Certum's open-source certificate, Azure Trusted Signing), remapping macros to a different monitor layout, macOS and Linux backends.
+- **Next: the documentation, in three milestones.** The docs grew too long and too hard to follow, so each is rewritten:
+  - **m25-user-guide**: the spec moved out of the user guide into `docs/spec/` (numbered rules), and the guide rewritten as short task pages;
+  - **m26-engineering-guide**: a rewrite of the engineering guide (`docs/engineering/`);
+  - **m27-website**: Relay's website, a static GitHub Pages site.
+- **After that, per the [roadmap](README.md#roadmap):** code signing (needs a certificate; free options for open source: SignPath Foundation, Certum's open-source certificate, Azure Trusted Signing), remapping macros to a different monitor layout, macOS and Linux backends.
 - **Also open:** see [Known limitations and open items](#known-limitations-and-open-items).
 
 Before starting work, check the open pull requests (`gh pr list`, and the description of the one you're continuing), `git log --oneline -15`, `git status`, the README roadmap and the *Unreleased* section of `CHANGELOG.md`.
@@ -138,7 +143,7 @@ src/                         the Svelte UI
   test/                      fake-core.ts (+ fake-edit.ts, fake-path.ts, fake-core.test.ts), path-cases.json (GENERATED), app.ts, setup.ts
 e2e/                         end-to-end suites (*.e2e.test.mjs), harness.mjs, samples.json (GENERATED), image-window.ps1, github-reporter.mjs, ci-diagnose.mjs
 scripts/                     cdp.mjs (run JS in a running Relay), docs-screenshots.ps1 (regenerates docs/images)
-docs/                        user-guide/, engineering/, images/
+docs/                        spec/ (the behavior spec), user-guide/, engineering/, images/
 Design/                      the v1 prototype and design system (history)
 .github/workflows/           ci.yml, e2e.yml, release.yml
 ```
@@ -174,7 +179,7 @@ For any change:
 2. `npm run verify:quick` passes (fmt, clippy, `cargo test`, `npm run check`, `npm test`); commit the bindings and fixture `cargo test` regenerates.
 3. If the app, the UI or IPC changed: `npm run verify` instead, which also builds the debug exe and runs E2E (quit any running Relay first).
 4. If the fake core's counterpart changed in Rust (commands, library, edits, history, hotkey rules, settings), update `src/test/fake-core.ts` / `fake-edit.ts` to match, and `fake-core.test.ts`.
-5. Docs: update the user guide page for any behavior change and the engineering page for any design change; add a `CHANGELOG.md` entry under *Unreleased* for anything users notice.
+5. Docs: update the spec's rules for any behavior change (and the user guide page when what users do changes), and the engineering page for any design change; add a `CHANGELOG.md` entry under *Unreleased* for anything users notice.
 6. Commit on a branch (Conventional Commits) and push, update the draft PR's description, then mark it ready and get its checks green (see [Git, CI and GitHub](#git-ci-and-github)).
 
 ## Rules the code follows
@@ -239,7 +244,8 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 
 ## Documentation
 
-- The user guide is the spec: behavior changes update it in the same branch. The engineering guide explains how and why.
+- The behavior spec (`docs/spec/`) is the spec: behavior changes update its rules in the same branch (a new rule takes the next free number on its page; numbers aren't reused). Cite rules by ID (`PLAY-12`) in tests and PRs. The user guide says how to use Relay, the engineering guide how and why it's built.
+- User guide pages are short tasks: the outcome first, a few numbered steps, an *If it worked* line, and a *More detail* link into the spec instead of restating it. Labels exactly as in the UI.
 - Style: GitHub-flavored Markdown with good navigation (a contents list per page, prev/next links at the bottom, tables, `> [!TIP]`/`> [!NOTE]` callouts, `<kbd>` for keys, mermaid diagrams where they help). Short, plain, active sentences.
 - `scripts/docs-screenshots.ps1` regenerates `docs/images/` from the real app. Rerun it after visible UI changes. It only plays inside a stretched pause, so it never clicks on the desktop.
 - `CHANGELOG.md`: entries go under *Unreleased*; the release renames it to `## vX.Y.Z: <title>`.
@@ -336,7 +342,7 @@ Not fixed yet; each is a candidate task:
 - **You own the versioning here**: commit, push and keep the history clean without being asked, following [Git, CI and GitHub](#git-ci-and-github). They like regular, well-described commits and visible milestones (branches merged with `--no-ff`). Merging into `main` still waits for their go when they're checking something by hand.
 - Documentation quality and GitHub UX matter to them (a user guide and an engineering guide, both polished).
 - Ask before anything outward-facing that can't be undone (deleting releases, force-pushing, publishing something they didn't ask for). A release they asked for is authorized to publish.
-- Prefer to fix root causes rather than loosening tests. When a test fails, first decide whether the test or the app is wrong, using the user guide as the spec.
+- Prefer to fix root causes rather than loosening tests. When a test fails, first decide whether the test or the app is wrong, using the spec (`docs/spec/`).
 
 **How to respond**
 - **Precise and concise.** Answer the question in the first sentence, then only what's genuinely needed.
@@ -347,7 +353,7 @@ Not fixed yet; each is a candidate task:
 - Say what was verified and how. A green build proves it builds: don't imply you checked behavior you didn't run (real mouse and keyboard input is theirs to try).
 
 **Ask rather than guess**
-- Any choice beyond the cosmetic (a design fork, a name that will spread, which existing system to hook into, a behavior the user guide doesn't settle) comes as a one-line question **before** building it. Semi-important counts: an answer is cheaper than unpicking a wrong 300-line change.
+- Any choice beyond the cosmetic (a design fork, a name that will spread, which existing system to hook into, a behavior the spec doesn't settle) comes as a one-line question **before** building it. Semi-important counts: an answer is cheaper than unpicking a wrong 300-line change.
 - Also ask when they'd know instantly and you'd need a long search to find out. One question beats twenty tool calls.
 
 **Scope and simplicity**

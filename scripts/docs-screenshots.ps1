@@ -33,7 +33,8 @@ function Js($code, $window = "main") { $code | Out-File -Encoding utf8 "$s\snipp
 # The tray icon also owns a window titled "Relay"; Relay's own are "Tauri Window"s.
 function Main() { [D1]::FindWindow("Tauri Window", "Relay") }
 function Player() { [D1]::FindWindow("Tauri Window", "Relay player") }
-function Shot($name, $h = (Main)) {
+# A window, or with $box ([x, y, w, h, client width] in device pixels) only that part of it.
+function Shot($name, $h = (Main), $box = $null) {
   # An error from an earlier step would stay on screen.
   Js 'window.__relay.clearToasts(); return true' | Out-Null
   Start-Sleep -Milliseconds 400
@@ -46,9 +47,21 @@ function Shot($name, $h = (Main)) {
   [D1]::PrintWindow($h, $dc, 2) | Out-Null
   $g.ReleaseHdc($dc); $g.Dispose()
   $frame = New-Object System.Drawing.Rectangle ($f.L - $w.L), ($f.T - $w.T), ($f.Ri - $f.L), ($f.B - $f.T)
+  if ($box) {
+    # The page starts inside the frame's border.
+    $edge = [int](($frame.Width - $box[4]) / 2)
+    $frame.Intersect((New-Object System.Drawing.Rectangle ($frame.X + $edge + $box[0]), ($frame.Y + $edge + $box[1]), $box[2], $box[3]))
+  }
   $bmp = $all.Clone($frame, $all.PixelFormat)
   $bmp.Save((Join-Path $outDir $name), [System.Drawing.Imaging.ImageFormat]::Png); $all.Dispose(); $bmp.Dispose()
   "saved $name"
+}
+# `box(...elements)` in a snippet: their bounding box with a margin, for Crop.
+$box = 'const box = (...els) => { const rs = els.flat().filter(Boolean).map((e) => e.getBoundingClientRect()); const p = 8, k = devicePixelRatio; const l = Math.max(0, Math.min(...rs.map((r) => r.left)) - p), t = Math.max(0, Math.min(...rs.map((r) => r.top)) - p); const ri = Math.min(innerWidth, Math.max(...rs.map((r) => r.right)) + p), b = Math.min(innerHeight, Math.max(...rs.map((r) => r.bottom)) + p); return [l, t, ri - l, b - t, innerWidth].map((v) => Math.round(v * k)); }; '
+# A shot cut to what the snippet's `return box(...)` gives.
+function Crop($name, $code, $window = "main") {
+  $b = ((Js ($box + $code) $window) -join "`n") | ConvertFrom-Json
+  Shot $name $(if ($window -eq "player") { Player } else { Main }) $b
 }
 function Park() { [D1]::SetCursorPos(20, 20) | Out-Null }
 function Start-Relay($dir) {
@@ -79,8 +92,13 @@ $now = [DateTime]::UtcNow
 $entries = @($runs | Sort-Object { -$_.ago_ms } | ForEach-Object { $_.entry.at = $now.AddMilliseconds(-$_.ago_ms).ToString("yyyy-MM-ddTHH:mm:ssZ"); $_.entry })
 @{ version = 1; entries = $entries } | ConvertTo-Json -Depth 10 | Out-File -Encoding ascii (Join-Path $data "runs.json")
 
+# A data file of 200 claims.
+$csv = @("Claim,Policy,Amount") + (1..200 | ForEach-Object { "CL-$(1000 + $_),P-$(52000 + 7 * $_),$(100 + ($_ * 37) % 900).$('{0:D2}' -f ($_ * 13 % 100))" })
+$csv | Out-File -Encoding ascii (Join-Path $s "claims.csv")
+
 $relay = Start-Relay $data
 $open = 'const r = window.__relay; await r.openMacro(r.library.find((m) => m.name === "Export invoice to PDF").id); await new Promise((res) => setTimeout(res, 500)); '
+$wait = 'await new Promise((res) => setTimeout(res, 400)); '
 
 # 1. The editor on the invoice macro, its playhead mid-way.
 Js ($open + 'r.select([]); r.seek(4200); return true') | Out-Null
@@ -97,7 +115,7 @@ Shot "playing.png"
 Js $stopAndUndo | Out-Null
 
 # 3. The Step tab on the pixel check.
-Js 'const r = window.__relay; const i = r.steps.findIndex((s) => s.kind === "pixel_wait"); r.select([i]); await new Promise((res) => setTimeout(res, 400)); return i' | Out-Null
+Js ('const r = window.__relay; const i = r.steps.findIndex((s) => s.kind === "pixel_wait"); r.select([i]); ' + $wait + 'return i') | Out-Null
 Shot "step-editor.png"
 
 # 3b. The Step tab on a Find image step, whose image is the top bar's Play key
@@ -110,42 +128,100 @@ $cw = [math]::Min($src.Width, $b[0] + $b[2] + $pad) - $x0; $ch = [math]::Min($sr
 $crop = $src.Clone((New-Object System.Drawing.Rectangle $x0, $y0, $cw, $ch), $src.PixelFormat)
 $crop.Save("$s\button.png", [System.Drawing.Imaging.ImageFormat]::Png); $crop.Dispose(); $src.Dispose()
 $png = ("$s\button.png" -replace '\\', '/')
-Js "const r = window.__relay; const image = await window.__TAURI_INTERNALS__.invoke('load_image', { path: '$png' }); const at = r.steps.find((s) => s.kind === 'click').t; await r.edit({ op: 'insert_find_image', at, dur: 800, image, click_x: $([int]($cw / 2)), click_y: $([int]($ch / 2)), btn: 'Left', threshold: 85, timeout_ms: 5000, area: null, label: 'Play key' }); r.select([r.steps.findIndex((s) => s.kind === 'find_image')]); await new Promise((res) => setTimeout(res, 400)); return true" | Out-Null
-Shot "find-image.png"
+Js "const r = window.__relay; const image = await window.__TAURI_INTERNALS__.invoke('load_image', { path: '$png' }); const at = r.steps.find((s) => s.kind === 'click').t; await r.edit({ op: 'insert_find_image', at, dur: 800, image, click_x: $([int]($cw / 2)), click_y: $([int]($ch / 2)), btn: 'Left', threshold: 85, timeout_ms: 5000, area: null, label: 'Play key' }); r.select([r.steps.findIndex((s) => s.kind === 'find_image')]); $wait return true" | Out-Null
+Crop "find-image-step.png" 'return box(document.querySelector("section.inspector"))'
 Js 'const r = window.__relay; r.select([]); await r.undo(); r.seek(0); return true' | Out-Null
 
-# 4. The Macro tab's triggers, with a hotkey and a schedule set (turned off again afterwards).
-Js 'const r = window.__relay; await r.setTriggers({ hotkey: { enabled: true, combo: "Ctrl + Alt + 1" }, schedule: { enabled: true, schedule: { days: [true, true, true, true, true, false, false], time: "09:00" } } }); r.inspector = "macro"; r.macroSection = "triggers"; return true' | Out-Null
+# 4. The steps list, step 7 (Click · Save) selected.
+Js ('const r = window.__relay; r.select([r.steps.findIndex((s) => s.kind === "click" && s.label === "Save")]); ' + $wait + 'return true') | Out-Null
+Crop "editor-steps.png" 'return box(document.querySelector("section.steps"))'
+
+# 5. The Add menu and the Steps options menu, each closed again by Esc (a
+# pause stretched to 5 s, then undone, so there is one to shorten).
+$menu = 'const m = () => document.querySelector("[role=menu]"); const close = () => m()?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); '
+Js ($menu + '[...document.querySelectorAll(".steps .head button")].find((b) => b.textContent.trim() === "Add").click(); ' + $wait + 'document.activeElement.blur(); return true') | Out-Null
+Crop "add-menu.png" ($menu + 'return box(document.querySelector(".steps .head"), m())')
+Js ($menu + 'close(); const r = window.__relay; await r.setPause(r.steps.length - 1, 5000); document.querySelector("[aria-label=\"Steps options\"]").click(); ' + $wait + 'document.activeElement.blur(); return true') | Out-Null
+Crop "steps-options-menu.png" ($menu + 'return box(document.querySelector(".steps .head"), m())')
+Js ($menu + 'close(); await window.__relay.undo(); return true') | Out-Null
+
+# 6. Saved, after a change (a pause 0.1 s longer, undone after).
+Js 'const r = window.__relay; await r.setPause(1, r.steps[1].pause + 100); return true' | Out-Null
+Crop "saved.png" 'const q = (s) => document.querySelector(s); return box(q("header.bar [aria-label=\"Back to the Library\"]"), q("header.bar .name"), q("header.bar .saved"))'
+Js 'await window.__relay.undo(); return true' | Out-Null
+
+# 7. A Text step typing the date (inserted, then undone).
+Js ('const r = window.__relay; r.seek(r.steps[1].t); await r.insertText(); await r.updateText(r.selected, "Invoice {date}"); ' + $wait + 'return true') | Out-Null
+Crop "text-step.png" 'return box(document.querySelector("section.inspector"))'
+Js 'const r = window.__relay; await r.undo(); await r.undo(); r.select([]); r.seek(0); return true' | Out-Null
+
+# 8. Play options looping forever, with the summary next to Play (put back after).
+Js ('const r = window.__relay; r.inspector = "macro"; r.macroSection = "play"; r.inspectorOpen = true; await r.toggleForever(); ' + $wait + 'return true') | Out-Null
+Crop "play-options.png" 'return box(document.querySelector("header.bar .chip"), document.querySelector("section.inspector"))'
+Js 'await window.__relay.toggleForever(); return true' | Out-Null
+
+# 9. A data file of 200 rows (removed after).
+$claims = (Join-Path $s "claims.csv") -replace '\\', '/'
+Js "const r = window.__relay; await window.__TAURI_INTERNALS__.invoke('set_data_file', { id: r.view.id, path: '$claims' }); await r.loadDataFile(); $wait return true" | Out-Null
+Crop "data-file.png" 'return box(document.querySelector("section.inspector"))'
+Js 'await window.__relay.removeDataFile(); return true' | Out-Null
+
+# 10. The triggers: a hotkey and a schedule, also on for the Library and the
+# player's menu below, with a hotkey on the timesheet too (all off at the end).
+Js ('const r = window.__relay; await r.setTriggers({ hotkey: { enabled: true, combo: "Ctrl + Shift + R" }, schedule: { enabled: true, schedule: { days: [true, true, true, true, true, false, false], time: "09:00" } } }); r.inspector = "macro"; r.macroSection = "triggers"; ' + $wait + 'return true') | Out-Null
 Shot "triggers.png"
-Js 'const r = window.__relay; const t = r.triggerStatus.triggers; await r.setTriggers({ hotkey: { enabled: false, combo: t.hotkey.combo }, schedule: Object.assign({}, t.schedule, { enabled: false }) }); r.inspector = "step"; return true' | Out-Null
+# Both cards fit, the time field at its full width, in a wider inspector without the View.
+Js ('const r = window.__relay; r.movePanes({ inspector_w: 400 }); r.viewOpen = false; ' + $wait + 'document.querySelector("#runs-automatically .card").scrollIntoView({ block: "start" }); ' + $wait + 'return true') | Out-Null
+Crop "triggers-cards.png" 'return box([...document.querySelectorAll("#runs-automatically .card")].filter((c) => /^(Hotkey|Schedule)$/.test(c.getAttribute("aria-label"))))'
+Js ('const r = window.__relay; r.movePanes({ inspector_w: null }); r.viewOpen = true; r.inspector = "step"; await r.openMacro(r.library.find((m) => m.name === "Fill weekly timesheet").id); ' + $wait + 'await r.setTriggers({ hotkey: { enabled: true, combo: "Ctrl + Shift + T" } }); return true') | Out-Null
 
-# 5. The export dialog.
-Js 'window.__relay.exportOpen = true; return true' | Out-Null
-Shot "export.png"
-Js 'window.__relay.exportOpen = false; return true' | Out-Null
+# 11. Finding the typed steps in the timesheet, all selected.
+Js ('const r = window.__relay; const f = document.querySelector("[aria-label=\"Find a step\"]"); f.value = "type"; f.dispatchEvent(new Event("input", { bubbles: true })); r.select(r.steps.flatMap((s, i) => (s.kind === "type" ? [i] : []))); r.inspectorOpen = true; ' + $wait + 'return true') | Out-Null
+Crop "find-step-selected.png" 'return box(document.querySelector("section.steps"), document.querySelector("section.inspector"))'
+Js 'const r = window.__relay; const f = document.querySelector("[aria-label=\"Find a step\"]"); f.value = ""; f.dispatchEvent(new Event("input", { bubbles: true })); r.select([]); return true' | Out-Null
 
-# 6. The Library.
-Js 'const r = window.__relay; r.go("library"); await r.showLibrary("macros"); return true' | Out-Null
+# 12. The Library, a row's menu, and three macros selected.
+Js ('const r = window.__relay; r.go("library"); await r.showLibrary("macros"); await r.refreshLibrary(); ' + $wait + 'return true') | Out-Null
 Shot "library.png"
+Js ($menu + 'document.querySelector("[aria-label=\"More for Export invoice to PDF\"]").click(); ' + $wait + 'document.activeElement.blur(); return true') | Out-Null
+Crop "row-menu.png" ($menu + 'return box(document.querySelector("[aria-label=\"More for Export invoice to PDF\"]").closest("tr"), m())')
+Js ($menu + 'close(); const r = window.__relay; r.libSelection = r.library.slice(0, 3).map((m) => m.id); ' + $wait + 'return true') | Out-Null
+Crop "library-selected.png" 'return box(document.querySelector("main.plate"))'
+Js 'window.__relay.libSelection = []; return true' | Out-Null
 
-# 7. Activity, its first run with checks opened.
+# 13. Activity, its first run with checks opened; then Problems, the timed-out run opened.
 Js 'const r = window.__relay; await r.showLibrary("runs"); await new Promise((res) => setTimeout(res, 300)); const i = r.shownRuns.findIndex((x) => x.checks.length > 0); document.querySelectorAll(".run .head")[i].click(); return i' | Out-Null
 Shot "activity.png"
+Js 'const r = window.__relay; await r.showLibrary("problems"); await new Promise((res) => setTimeout(res, 300)); const i = r.shownRuns.findIndex((x) => x.outcome.reason === "pixel_timeout"); document.querySelectorAll(".run .head")[i].click(); return i' | Out-Null
+Crop "problems.png" 'return box(document.querySelector("main.plate .tools"), [...document.querySelectorAll(".run")])'
 Js 'await window.__relay.showLibrary("macros"); return true' | Out-Null
 
-# 8. Settings: Relay's keys.
-Js 'window.__relay.openSettings("keys"); return true' | Out-Null
-Shot "settings.png"
+# 14. Settings: Appearance at 200% and a large player, shown but not saved.
+Js ('const r = window.__relay; r.openSettings("appearance"); r.settings = { ...r.settings, text_size: 200, player_size: "large" }; ' + $wait + 'return true') | Out-Null
+Crop "appearance.png" 'return box(document.querySelector("section.sections"))'
+Js 'const r = window.__relay; r.settings = { ...r.settings, text_size: 100, player_size: "compact" }; return true' | Out-Null
 
-# 9. The player counting down before a recording (cancelled right after).
+# 15. Settings: the Record key listening for keys (cancelled after).
+$change = 'document.querySelector("[aria-describedby=key-record]").click(); await new Promise((res) => setTimeout(res, 400)); return true'
+Js ('window.__relay.openSettings("keys"); ' + $wait + $change) | Out-Null
+Crop "keys-change.png" 'return box(document.querySelector("section.sections"))'
+Js $change | Out-Null
+
+# 16. The player counting down before a recording (cancelled right after).
 Js ($open + 'await r.toggleRec(); await new Promise((res) => setTimeout(res, 700)); return true') | Out-Null
 Shot "countdown.png" (Player)
 Js 'const r = window.__relay; await r.stop(); while (r.mode !== "idle") await new Promise((res) => setTimeout(res, 50)); return true' | Out-Null
 Start-Sleep -Milliseconds 800
 
-# 10. The player, in player mode, playing inside the stretched pause.
+# 17. The player, in player mode: its macro menu, then playing inside the
+# stretched pause. The 64 px window can't show the menu, so it grows for the
+# shot, on a white page.
 Js 'await window.__relay.setPlayerMode(true); return true' | Out-Null
 Start-Sleep -Milliseconds 600
+Js 'await window.__TAURI_INTERNALS__.invoke("plugin:window|set_size", { label: "player", value: { Logical: { width: 600, height: 230 } } }); document.documentElement.style.background = "#fff"; await window.__relay.refreshLibrary(); await new Promise((res) => setTimeout(res, 300)); document.querySelector(".nm").click(); await new Promise((res) => setTimeout(res, 400)); document.activeElement.blur(); return true' "player" | Out-Null
+Crop "player-macros.png" 'return box(document.querySelector(".player"), document.querySelector("[role=menu]"))' "player"
+Js 'document.querySelector("[role=menu]").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); document.documentElement.style.background = ""; await window.__TAURI_INTERNALS__.invoke("plugin:window|set_size", { label: "player", value: { Logical: { width: 600, height: 64 } } }); return true' "player" | Out-Null
+Start-Sleep -Milliseconds 400
 Js $playInPause | Out-Null
 Start-Sleep -Milliseconds 1200
 Shot "player.png" (Player)
@@ -153,7 +229,11 @@ Js $stopAndUndo | Out-Null
 Js 'await window.__relay.setPlayerMode(false); return true' | Out-Null
 Start-Sleep -Milliseconds 600
 
-# 11. An exported program playing. Its macro is the invoice sample's, with its
+# 18. The triggers off again.
+$off = 'const t = r.triggerStatus.triggers; await r.setTriggers({ hotkey: { enabled: false, combo: t.hotkey.combo }, schedule: Object.assign({}, t.schedule, { enabled: false }) }); '
+Js ($open + 'await r.loadTriggers(); ' + $off + 'await r.openMacro(r.library.find((m) => m.name === "Fill weekly timesheet").id); await r.loadTriggers(); ' + $off + 'return true') | Out-Null
+
+# 19. An exported program playing. Its macro is the invoice sample's, with its
 # events replaced by one 8 s wait played once, so it sends nothing to the
 # desktop and closes by itself. It's written outside %TEMP%: antivirus
 # behavior checks are stricter about programs started from there.
@@ -175,10 +255,11 @@ $exported.WaitForExit(15000) | Out-Null
 Stop-Process -Id $relay.Id -Confirm:$false
 Start-Sleep -Seconds 2
 
-# 12. The first run, on an empty folder.
+# 20. The first run's keys screen, on an empty folder.
 $fresh = Join-Path $s "fresh"
 New-Item -ItemType Directory -Force $fresh | Out-Null
-'{ "theme": "light", "glass": false }' | Out-File -Encoding ascii (Join-Path $fresh "settings.json")
+'{ "theme": "light", "glass": false, "intro": "welcome", "keys": { "record": "Ctrl + Shift + F9", "play": "Ctrl + Shift + F10", "player": "Ctrl + Shift + M", "kill": "Ctrl + Alt + Backspace" } }' | Out-File -Encoding ascii (Join-Path $fresh "settings.json")
 $relay = Start-Relay $fresh
-Shot "first-run.png"
+Js ('[...document.querySelectorAll(".first button")].find((b) => b.textContent.trim() === "Next").click(); ' + $wait + 'return true') | Out-Null
+Crop "first-run-keys.png" 'return box(document.querySelector(".first .body"))'
 Stop-Process -Id $relay.Id -Confirm:$false

@@ -217,7 +217,7 @@ To change the format:
 }
 ```
 
-`data_file`, the macro's [data file](../user-guide/04-playback.md#a-data-file-one-run-per-row), is only written for a macro that has one. It's an absolute path, read each time the macro plays (`src-tauri/src/data_file.rs`), and kept by duplicates, the trash and restore. Older Relays ignore it.
+`data_file`, the macro's [data file](../spec/data-files.md), is only written for a macro that has one. It's an absolute path, read each time the macro plays (`src-tauri/src/data_file.rs`), and kept by duplicates, the trash and restore. Older Relays ignore it.
 
 | Field | Notes |
 | --- | --- |
