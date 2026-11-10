@@ -2,39 +2,79 @@
 
 use relay_core::model::{Event, Macro, Rect};
 
-/// The window's parts, in physical pixels.
+/// The window's parts, in physical pixels: like Relay's player, without the
+/// record key. Pause and Stop, then a screen with the state, the name and the
+/// time on its first line, and the progress (or a notice) on its second.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Layout {
     pub w: i32,
     pub h: i32,
-    pub border: i32,
-    pub name: Rect,
-    pub line: Rect,
-    pub notice: Rect,
-    pub bar: Rect,
+    pub pause: Rect,
     pub stop: Rect,
+    pub screen: Rect,
+    /// The screen's first line, and its second.
+    pub top: Rect,
+    pub bottom: Rect,
+    /// The keys' corners, and the screen's.
+    pub key_radius: i32,
+    pub screen_radius: i32,
     pub name_px: i32,
-    pub text_px: i32,
+    pub small_px: i32,
+    /// How thick lines are (1 px at 100 %).
+    pub line: i32,
 }
+
+/// The progress's segments, as in Relay's player.
+pub const LEDS: usize = 48;
 
 /// The layout at `dpi` (96 is 100 % scaling).
 pub fn layout(dpi: u32) -> Layout {
     let s = |v: i32| (v as f64 * dpi.max(48) as f64 / 96.0).round() as i32;
-    let (w, h, pad) = (s(320), s(104), s(12));
-    let stop = Rect { x: w - pad - s(72), y: pad, w: s(72), h: s(28) };
-    let text_w = stop.x - pad - s(8);
+    let (w, h, pad, gap, key) = (s(400), s(64), s(8), s(6), s(48));
+    let pause = Rect { x: pad, y: s(9), w: key, h: s(46) };
+    let stop = Rect { x: pause.x + key + gap, ..pause };
+    let screen = Rect { x: stop.x + key + gap, y: pad, w: w - (stop.x + key + gap) - pad, h: h - 2 * pad };
+    let inner = Rect { x: screen.x + s(12), y: screen.y + s(6), w: screen.w - s(12) - s(10), h: screen.h - s(13) };
     Layout {
         w,
         h,
-        border: s(2),
-        name: Rect { x: pad, y: pad, w: text_w, h: s(18) },
-        line: Rect { x: pad, y: pad + s(20), w: text_w, h: s(16) },
-        notice: Rect { x: pad, y: pad + s(42), w: w - 2 * pad, h: s(28) },
-        bar: Rect { x: s(2), y: h - s(2) - s(4), w: w - s(4), h: s(4) },
+        pause,
         stop,
-        name_px: s(15),
-        text_px: s(12),
+        screen,
+        top: Rect { h: s(20), ..inner },
+        bottom: Rect { y: inner.y + inner.h - s(12), h: s(12), ..inner },
+        key_radius: s(11),
+        screen_radius: s(10),
+        name_px: s(13),
+        small_px: s(12),
+        line: s(1).max(1),
     }
+}
+
+/// Where the macro's clicks are along it, 0 to 1: the red segments of the progress.
+pub fn click_marks(m: &Macro) -> Vec<f32> {
+    let duration = relay_core::timeline::duration(&m.events).max(1) as f32;
+    m.events
+        .iter()
+        .filter_map(|e| match e {
+            Event::Button { t, down: true, .. } => Some(*t as f32 / duration),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Which of the [`LEDS`] segments are lit at `progress`, and which mark a click.
+pub fn leds(progress: f32, marks: &[f32]) -> [(bool, bool); LEDS] {
+    let last = (LEDS - 1) as f32;
+    let lit = (progress.clamp(0.0, 1.0) * last).round() as usize;
+    let mut out = [(false, false); LEDS];
+    for (i, led) in out.iter_mut().enumerate() {
+        led.0 = progress > 0.0 && i <= lit;
+    }
+    for m in marks {
+        out[(m.clamp(0.0, 1.0) * last).round() as usize].1 = true;
+    }
+    out
 }
 
 /// Where the macro clicks, scrolls or checks a pixel, played `offset` away
@@ -76,43 +116,72 @@ mod tests {
     #[test]
     fn the_layout_scales_with_the_display() {
         let l = layout(96);
-        assert_eq!((l.w, l.h, l.border, l.name_px, l.text_px), (320, 104, 2, 15, 12));
-        assert_eq!(l.stop, Rect { x: 236, y: 12, w: 72, h: 28 });
-        assert_eq!(l.bar, Rect { x: 2, y: 98, w: 316, h: 4 });
+        assert_eq!((l.w, l.h, l.name_px, l.small_px), (400, 64, 13, 12));
+        assert_eq!(l.pause, Rect { x: 8, y: 9, w: 48, h: 46 });
+        assert_eq!(l.stop, Rect { x: 62, y: 9, w: 48, h: 46 });
+        assert_eq!(l.screen, Rect { x: 116, y: 8, w: 276, h: 48 });
         let big = layout(144);
-        assert_eq!((big.w, big.h, big.border, big.name_px), (480, 156, 3, 23));
-        assert_eq!(layout(192).stop, Rect { x: 472, y: 24, w: 144, h: 56 });
+        assert_eq!((big.w, big.h, big.name_px), (600, 96, 20));
+        assert_eq!(layout(192).stop, Rect { x: 124, y: 18, w: 96, h: 92 });
         for dpi in [96, 120, 144, 192] {
             let l = layout(dpi);
-            let inside = |r: Rect| r.x >= 0 && r.y >= 0 && r.x + r.w <= l.w && r.y + r.h <= l.h;
-            assert!([l.name, l.line, l.notice, l.bar, l.stop].into_iter().all(inside), "{dpi}: {l:?}");
-            assert!(l.name.x + l.name.w < l.stop.x && l.notice.y + l.notice.h <= l.bar.y, "{dpi}: {l:?}");
+            let inside =
+                |r: Rect, o: Rect| r.x >= o.x && r.y >= o.y && r.x + r.w <= o.x + o.w && r.y + r.h <= o.y + o.h;
+            let window = Rect { x: 0, y: 0, w: l.w, h: l.h };
+            assert!([l.pause, l.stop, l.screen].into_iter().all(|r| inside(r, window)), "{dpi}: {l:?}");
+            assert!(inside(l.top, l.screen) && inside(l.bottom, l.screen), "{dpi}: {l:?}");
+            assert!(l.top.y + l.top.h <= l.bottom.y && l.stop.x + l.stop.w < l.screen.x, "{dpi}: {l:?}");
         }
     }
 
     #[test]
+    fn the_progress_lights_segments_and_marks_the_clicks() {
+        let none = leds(0.0, &[]);
+        assert!(none.iter().all(|&(on, mark)| !on && !mark));
+        let half = leds(0.5, &[0.0, 1.0]);
+        assert_eq!(half.iter().filter(|l| l.0).count(), 25);
+        assert!(half[0].1 && half[LEDS - 1].1 && !half[10].1);
+        assert!(leds(1.0, &[]).iter().all(|l| l.0));
+        let m = Macro::new(
+            "m",
+            RecordingMeta::single_1080p(),
+            vec![
+                Event::Button { t: 0, x: 1, y: 1, btn: MouseBtn::Left, down: true, label: String::new() },
+                Event::Button { t: 10, x: 1, y: 1, btn: MouseBtn::Left, down: false, label: String::new() },
+                Event::Button { t: 1000, x: 1, y: 1, btn: MouseBtn::Left, down: true, label: String::new() },
+                Event::Button { t: 1010, x: 1, y: 1, btn: MouseBtn::Left, down: false, label: String::new() },
+            ],
+        );
+        let marks = click_marks(&m);
+        assert_eq!(marks.len(), 2);
+        assert_eq!(marks[0], 0.0);
+        let duration = relay_core::timeline::duration(&m.events) as f32;
+        assert!((marks[1] - 1000.0 / duration).abs() < 1e-6);
+    }
+
+    #[test]
     fn it_goes_bottom_right_when_nothing_happens_there() {
-        let (r, through) = choose_place(WORK, 320, 104, 16, &[(100, 100)]);
-        assert_eq!((r, through), (Rect { x: 1584, y: 920, w: 320, h: 104 }, false));
+        let (r, through) = choose_place(WORK, 400, 64, 16, &[(100, 100)]);
+        assert_eq!((r, through), (Rect { x: 1504, y: 960, w: 400, h: 64 }, false));
         let second = Rect { x: -1920, y: 0, w: 1920, h: 1040 };
-        assert_eq!(choose_place(second, 320, 104, 16, &[]).0, Rect { x: -336, y: 920, w: 320, h: 104 });
+        assert_eq!(choose_place(second, 400, 64, 16, &[]).0, Rect { x: -416, y: 960, w: 400, h: 64 });
     }
 
     #[test]
     fn it_moves_away_from_the_macros_clicks() {
         let bottom_right = (1700, 1000);
-        assert_eq!(choose_place(WORK, 320, 104, 16, &[bottom_right]).0, Rect { x: 16, y: 920, w: 320, h: 104 });
+        assert_eq!(choose_place(WORK, 400, 64, 16, &[bottom_right]).0, Rect { x: 16, y: 960, w: 400, h: 64 });
         let bottoms = [bottom_right, (100, 1000)];
-        assert_eq!(choose_place(WORK, 320, 104, 16, &bottoms).0, Rect { x: 1584, y: 16, w: 320, h: 104 });
+        assert_eq!(choose_place(WORK, 400, 64, 16, &bottoms).0, Rect { x: 1504, y: 16, w: 400, h: 64 });
         let all_but_top_left = [bottom_right, (100, 1000), (1700, 50)];
-        assert_eq!(choose_place(WORK, 320, 104, 16, &all_but_top_left).0, Rect { x: 16, y: 16, w: 320, h: 104 });
+        assert_eq!(choose_place(WORK, 400, 64, 16, &all_but_top_left).0, Rect { x: 16, y: 16, w: 400, h: 64 });
     }
 
     #[test]
     fn with_every_corner_busy_it_lets_clicks_through() {
         let all = [(1700, 1000), (100, 1000), (1700, 50), (100, 50)];
-        let (r, through) = choose_place(WORK, 320, 104, 16, &all);
-        assert_eq!((r, through), (Rect { x: 1584, y: 920, w: 320, h: 104 }, true));
+        let (r, through) = choose_place(WORK, 400, 64, 16, &all);
+        assert_eq!((r, through), (Rect { x: 1504, y: 960, w: 400, h: 64 }, true));
     }
 
     #[test]

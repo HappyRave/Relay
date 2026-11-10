@@ -16,7 +16,10 @@ import type { TriggerStatus } from "./bindings/TriggerStatus";
 import type { DataFileInfo } from "./bindings/DataFileInfo";
 import type { RunEntry } from "./bindings/RunEntry";
 import type { FinishReason } from "./bindings/FinishReason";
-import { DEFAULT_SETTINGS } from "../defaults";
+import { DEFAULT_LOOK, DEFAULT_SETTINGS } from "../defaults";
+import { slug } from "../format";
+import type { SystemLook } from "./bindings/SystemLook";
+import type { RelayKey } from "./bindings/RelayKey";
 import { isTauri } from "../platform/window";
 
 export interface Backend {
@@ -32,6 +35,8 @@ export interface Backend {
   /** The run history, newest first. */
   listRuns(): Promise<RunEntry[]>;
   loadMacro(id: string): Promise<MacroView>;
+  /** The macro Relay's play key and the player play, or null before one is opened. */
+  currentMacro(): Promise<string | null>;
   /** The screenshot taken when the macro was recorded (JPEG bytes), empty if it has none. */
   screenshot(id: string): Promise<ArrayBuffer>;
   editMacro(id: string, op: EditOp): Promise<MacroView>;
@@ -40,6 +45,8 @@ export interface Backend {
   setPlaybackOptions(id: string, options: PlaybackOptions): Promise<MacroView>;
   /** Asks where to save, then writes the export. Returns the path, or null if cancelled. */
   exportMacro(id: string, format: ExportFormat, defaultName: string): Promise<string | null>;
+  /** Asks for a folder, then writes each macro there as a .rly file. Returns the folder, or null if cancelled. */
+  exportMacros(macros: { id: string; name: string }[]): Promise<string | null>;
   /** Asks for files, then imports them. Returns null if cancelled. */
   importMacros(): Promise<ImportResult | null>;
   /** Returns the copy's id. */
@@ -48,11 +55,20 @@ export interface Backend {
   deleteMacro(id: string): Promise<void>;
   restoreMacro(id: string): Promise<void>;
   getSettings(): Promise<Settings>;
+  /** What Windows offers for the look: frosted glass by default, transparency effects. */
+  systemLook(): Promise<SystemLook>;
   updateSettings(settings: Settings): Promise<Settings>;
+  /** Sets one of Relay's keys (null: off); rejects one that can't be, saying why. */
+  setRelayKey(key: RelayKey, combo: string | null): Promise<Settings>;
+  /** What to know before using `combo` as a global key (an AltGr character, an app that uses it), or null. */
+  keyWarning(combo: string): Promise<string | null>;
+  /** While a key field listens, Relay's and the macros' hotkeys let go of the keys, so they reach it. */
+  holdHotkeys(on: boolean): Promise<void>;
   /** The color of a screen pixel as "#RRGGBB", or null if unreadable. */
   samplePixel(x: number, y: number): Promise<string | null>;
   /** After `delayMs`, the position and color under the cursor. */
-  pickPixel(delayMs: number): Promise<PickedPixel>;
+  /** Relay steps aside for the picker; the pixel picked, or null if the user cancelled. */
+  pickPixel(): Promise<PickedPixel | null>;
   /** The picture on the clipboard, for a Find image step (a base64 PNG). */
   pasteImage(): Promise<string>;
   /** Asks for a PNG or JPEG file and reads it. Returns null if cancelled. */
@@ -108,6 +124,7 @@ export const tauriBackend: Backend = {
   listMacros: () => invoke("list_macros"),
   listRuns: () => invoke("list_runs"),
   loadMacro: (id) => invoke("load_macro", { id }),
+  currentMacro: () => invoke("current_macro"),
   screenshot: (id) => invoke("screenshot", { id }),
   editMacro: (id, op) => invoke("edit_macro", { id, op }),
   undoEdit: (id, redo) => invoke("undo_edit", { id, redo }),
@@ -121,6 +138,19 @@ export const tauriBackend: Backend = {
     await invoke("export_macro", { id, format, path });
     return path;
   },
+  exportMacros: async (macros) => {
+    const dir = await open({ directory: true });
+    if (!dir || Array.isArray(dir)) return null;
+    const taken = new Set<string>();
+    for (const m of macros) {
+      const base = slug(m.name) || "macro";
+      let name = base;
+      for (let n = 2; taken.has(name); n++) name = `${base}-${n}`;
+      taken.add(name);
+      await invoke("export_macro", { id: m.id, format: "rly", path: `${dir}\\${name}.rly` });
+    }
+    return dir;
+  },
   importMacros: async () => {
     const picked = await open({
       multiple: true,
@@ -133,9 +163,13 @@ export const tauriBackend: Backend = {
   deleteMacro: (id) => invoke("delete_macro", { id }),
   restoreMacro: (id) => invoke("restore_macro", { id }),
   getSettings: () => invoke("get_settings"),
+  systemLook: () => invoke("system_look"),
   updateSettings: (settings) => invoke("update_settings", { settings }),
+  setRelayKey: (key, combo) => invoke("set_relay_key", { key, combo }),
+  keyWarning: (combo) => invoke("key_warning", { combo }),
+  holdHotkeys: (on) => invoke("hold_hotkeys", { on }),
   samplePixel: (x, y) => invoke("sample_pixel", { x, y }),
-  pickPixel: (delayMs) => invoke("pick_pixel", { delayMs }),
+  pickPixel: () => invoke("pick_pixel"),
   pasteImage: () => invoke("paste_image"),
   chooseImage: async () => {
     const picked = await open({ filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg"] }] });
@@ -218,7 +252,7 @@ export function browserBackend(): Backend {
 
   // — session simulation —
   let emit: (m: EngineMsg) => void = () => {};
-  let mode: EngineMsg & { type: "session" } = { type: "session", mode: "idle", macro_id: null };
+  let mode: EngineMsg & { type: "session" } = { type: "session", mode: "idle", macro_id: null, source: null };
   let timer: ReturnType<typeof setInterval> | undefined;
   let play = { t: 0, loop: 0, anchorT: 0, anchorWall: 0, paused: false };
   let started = { at: "", wall: 0, from: 0 };
@@ -245,7 +279,7 @@ export function browserBackend(): Backend {
     emit({ type: "runs_changed" });
   };
   const setMode = (m: Mode) => {
-    mode = { ...mode, mode: m };
+    mode = { ...mode, mode: m, macro_id: current?.id ?? null };
     emit(mode);
   };
   const halt = () => clearInterval(timer);
@@ -333,12 +367,15 @@ export function browserBackend(): Backend {
         runs: i.runs,
         last_run: i.last_run_ago_ms == null ? null : new Date(loadedAt - i.last_run_ago_ms).toISOString(),
         hotkey: hotkeyOf(triggersFor(i.view.id)),
+        also: [],
+        created_at: i.view.modified_at,
       }));
     },
     listRuns: async () => {
       await ready;
       return runs;
     },
+    currentMacro: async () => current?.id ?? null,
     loadMacro: async (id) => {
       current = (await find(id)).view;
       mode = { ...mode, macro_id: id };
@@ -360,12 +397,17 @@ export function browserBackend(): Backend {
     },
     // The fixture has views, not the events a .rly holds.
     exportMacro: async () => unavailable(),
+    exportMacros: async () => unavailable(),
     importMacros: async () => unavailable(),
     duplicateMacro: async () => unavailable(),
     deleteMacro: async () => unavailable(),
     restoreMacro: async () => unavailable(),
     getSettings: async () => settings,
+    systemLook: async () => DEFAULT_LOOK,
     updateSettings: async (s) => (settings = s),
+    setRelayKey: async () => unavailable(),
+    keyWarning: async () => null,
+    holdHotkeys: async () => {},
     samplePixel: async () => null,
     pickPixel: async () => unavailable(),
     pasteImage: async () => unavailable(),

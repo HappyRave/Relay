@@ -1,6 +1,7 @@
 // Turning a key press into the hotkey labels relay-core parses ("Ctrl + Alt + 1").
 
 const NAMED: Record<string, string> = {
+  Backspace: "Backspace",
   ArrowLeft: "Left",
   ArrowRight: "Right",
   ArrowUp: "Up",
@@ -29,6 +30,20 @@ export function keyLabel(e: KeyboardEvent): string | null {
   if (/^F([1-9]|1\d|2[0-4])$/.test(e.code)) return e.code;
   if (/^Numpad\d$/.test(e.code)) return "Num " + e.code.slice(6);
   return NAMED[e.code] ?? null;
+}
+
+/** " (Ctrl + Shift + F9)", to name a key in a tooltip; nothing for a key that's off. */
+export const keyHint = (combo: string | null | undefined): string => (combo ? ` (${combo})` : "");
+
+const ARIA: Record<string, string> = { Ctrl: "Control", Win: "Meta", Esc: "Escape", Del: "Delete", Ins: "Insert", PgUp: "PageUp", PgDn: "PageDown", Left: "ArrowLeft", Right: "ArrowRight", Up: "ArrowUp", Down: "ArrowDown" };
+
+/** A combo as `aria-keyshortcuts` names it ("Control+Shift+F9"), or undefined for a key that's off. */
+export function ariaKeys(combo: string | null | undefined): string | undefined {
+  if (!combo) return undefined;
+  return combo
+    .split(" + ")
+    .map((p) => ARIA[p] ?? (p.startsWith("Num ") ? "Numpad" + p.slice(4) : p))
+    .join("+");
 }
 
 /** "Ctrl + Alt + 1" from a key press, or null for a lone modifier or an unusable key. */

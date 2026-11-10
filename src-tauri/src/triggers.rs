@@ -42,7 +42,7 @@ const MISSED_AFTER: TimeDelta = TimeDelta::minutes(2);
 pub type AllTriggers = Arc<[(Uuid, MacroTriggers)]>;
 
 /// Whether triggers may fire (paused by the kill switch, resumed from the
-/// tray or the Triggers tab), and a nudge for the app watcher when they change.
+/// tray or the Library), and a nudge for the app watcher when they change.
 pub struct TriggerState {
     paused: AtomicBool,
     /// Each change sends a sender the watcher answers once it has looked.
@@ -363,7 +363,7 @@ fn image_loop(app: AppHandle, platform: Arc<Platform>) {
             continue;
         }
         looker.round();
-        let hide = relay_playback::finder::Hidden::of(&*platform.windows, crate::window_ctl::main_hwnd(&app));
+        let hide = relay_playback::finder::Hidden::of(&*platform.windows, crate::window_ctl::own_windows(&app));
         let found = watch.tick(&triggers, |image, key, area, threshold| {
             looker.look(&*platform.screen, image, key, area, threshold, &hide)
         });

@@ -3,6 +3,7 @@
 //! key map are OS-independent so they can be tested anywhere.
 
 pub mod keymap;
+pub mod picker;
 pub mod processes;
 pub mod recorder;
 pub mod types;
@@ -19,7 +20,7 @@ use crossbeam_channel::Sender;
 use relay_core::keys::KeyStroke;
 use relay_core::model::{MonitorInfo, MouseBtn, Rect, Rgb, WindowInfo};
 
-pub use types::{HeldKeys, HookConfig, HookMode, RawInput, RawKind, Snapshot};
+pub use types::{HeldKeys, HookConfig, HookMode, KeyChord, OwnWindows, RawInput, RawKind, Snapshot, is_own};
 
 #[derive(Debug, thiserror::Error)]
 pub enum PlatformError {
@@ -53,9 +54,9 @@ pub trait Screen: Send + Sync {
     fn pixel(&self, x: i32, y: i32) -> Option<Rgb>;
     /// A picture of `area` (physical virtual-desktop pixels), scaled down to
     /// at most `max_w` wide (see [`types::snapshot_size`]), leaving out the
-    /// window `exclude` (0: none) where the OS can. `None` if the screen
+    /// windows `exclude` where the OS can. `None` if the screen
     /// can't be read (a locked or secure desktop) or the OS can't do it.
-    fn capture(&self, area: Rect, max_w: u32, exclude: isize) -> Option<Snapshot> {
+    fn capture(&self, area: Rect, max_w: u32, exclude: OwnWindows) -> Option<Snapshot> {
         let _ = (area, max_w, exclude);
         None
     }
@@ -63,6 +64,12 @@ pub trait Screen: Send + Sync {
     /// and out of every capture; returns at once. Nothing where the OS can't.
     fn mark(&self, area: Rect, dot: (i32, i32), ms: u32) {
         let _ = (area, dot, ms);
+    }
+    /// Lets the user pick a pixel on the screen with a loupe, live or frozen
+    /// (see [`picker`]); blocks until they pick one or cancel (`None`). `None`
+    /// where the OS can't.
+    fn pick(&self) -> Option<picker::Picked> {
+        None
     }
 }
 

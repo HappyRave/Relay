@@ -181,6 +181,14 @@ fn wrap(active: &mut [ModPress], step: usize) {
     }
 }
 
+/// The number step `i` goes by, the same whether the list shows moves or
+/// not: the steps before it that aren't moves, plus one. A move leads to the
+/// step after it, so it takes that step's number ("move before step N"); a
+/// move after the last step has one more than the last.
+pub fn step_number(steps: &[Step], i: usize) -> u32 {
+    steps[..i.min(steps.len())].iter().filter(|s| !matches!(s.kind, StepKind::Move { .. })).count() as u32 + 1
+}
+
 pub fn group_steps(events: &[Event], opts: GroupOptions) -> Vec<Step> {
     let mut steps: Vec<Step> = Vec::new();
     let mut pending: HashMap<MouseBtn, PendingButton> = HashMap::new();
@@ -863,6 +871,21 @@ mod tests {
         // After the last one (the trip to Relay's Stop button): it starts at the click.
         assert_eq!(s[2].kind, StepKind::Move { x: 50, y: 10, to_x: 300, to_y: 10, samples: 2 });
         assert_eq!((s[2].t, s[2].end, s[2].pause), (900, 1000, 450));
+    }
+
+    #[test]
+    fn moves_go_by_the_number_of_the_step_they_lead_to() {
+        let mut ev = vec![mv(100, 0), mv(200, 50), btn(400, 50, 10, true), btn(450, 50, 10, false), mv(900, 80)];
+        ev.push(mv(1000, 300));
+        ev.extend(tap(1500, "KeyA", Some("a")));
+        ev.extend([mv(2000, 0), mv(2100, 40)]);
+        let s = group(&ev);
+        let moves: Vec<_> = s.iter().map(|s| matches!(s.kind, StepKind::Move { .. })).collect();
+        assert_eq!(moves, [true, false, true, false, true], "{s:#?}");
+        let numbers: Vec<_> = (0..s.len()).map(|i| step_number(&s, i)).collect();
+        // Move before 1, the click (1), move before 2, the key (2), and the move after the last.
+        assert_eq!(numbers, [1, 1, 2, 2, 3]);
+        assert_eq!(step_number(&s, s.len()), 3, "one more than the last step");
     }
 
     #[test]

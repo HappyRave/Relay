@@ -11,10 +11,11 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use relay_core::steps::group_steps;
 use relay_core::triggers::{HotkeyTrigger, MacroTriggers};
-use relay_core::{Macro, MacroListItem, Ms, format, samples, timeline};
+use relay_core::{Macro, MacroListItem, Ms, format, timeline};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::settings::RelayKeys;
 use crate::storage::write_atomic;
 
 pub struct Entry {
@@ -62,6 +63,8 @@ impl Entry {
             runs: self.runs,
             last_run: self.last_run,
             hotkey: self.hotkey(),
+            also: self.triggers.also_on(),
+            created_at: self.macro_.created_at,
         }
     }
 }
@@ -149,6 +152,8 @@ pub struct Library {
     index_unreadable: Option<String>,
     /// Trashed macros whose file couldn't be written, restorable until Relay quits.
     unsaved_trash: HashMap<Uuid, Macro>,
+    /// Relay's own keys, which no macro's hotkey can be.
+    relay_keys: RelayKeys,
 }
 
 /// A change that was made. If saving it failed, it's kept anyway (in memory,
@@ -236,9 +241,9 @@ impl Library {
             triggers: Arc::new([]),
             index_unreadable,
             unsaved_trash: HashMap::new(),
+            relay_keys: RelayKeys::new_default(),
         };
         if first_run {
-            lib.seed_samples();
             return (lib, problems);
         }
 
@@ -271,9 +276,31 @@ impl Library {
         (lib, problems)
     }
 
+    /// Relay's own keys changed: macro hotkeys are checked against these.
+    pub fn set_relay_keys(&mut self, keys: RelayKeys) {
+        self.relay_keys = keys;
+    }
+
+    pub fn relay_keys(&self) -> &RelayKeys {
+        &self.relay_keys
+    }
+
+    /// A library in `dir`, with the four design samples if it's new. A new
+    /// library starts empty (the first run's recording replaces the samples).
+    #[cfg(test)]
+    pub fn open_with_samples(dir: &Path) -> (Self, Vec<String>) {
+        let new = !dir.join("library.json").exists();
+        let (mut lib, problems) = Self::open(dir);
+        if new && lib.entries.is_empty() {
+            lib.seed_samples();
+        }
+        (lib, problems)
+    }
+
+    #[cfg(test)]
     fn seed_samples(&mut self) {
         let now = Utc::now();
-        self.entries = samples::all()
+        self.entries = relay_core::samples::all()
             .into_iter()
             .map(|s| {
                 let mut triggers = MacroTriggers::default();
@@ -582,9 +609,17 @@ mod tests {
     use relay_core::model::RecordingMeta;
 
     #[test]
+    fn a_new_library_starts_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let (lib, problems) = Library::open(dir.path());
+        assert!(lib.list().is_empty() && problems.is_empty());
+        assert!(!dir.path().join("library.json").exists(), "nothing is written until there's something to keep");
+    }
+
+    #[test]
     fn first_run_seeds_samples_then_persists_changes() {
         let dir = tempfile::tempdir().unwrap();
-        let (mut lib, problems) = Library::open(dir.path());
+        let (mut lib, problems) = Library::open_with_samples(dir.path());
         assert!(problems.is_empty());
         assert_eq!(lib.list().len(), 4);
         assert_eq!(fs::read_dir(dir.path().join("macros")).unwrap().count(), 4);
@@ -597,7 +632,7 @@ mod tests {
             .unwrap();
         lib.save(invoice).unwrap();
 
-        let (again, _) = Library::open(dir.path());
+        let (again, _) = Library::open_with_samples(dir.path());
         let names: Vec<_> = again.list().into_iter().map(|i| i.name).collect();
         assert_eq!(names[..2], ["Recording 1".to_string(), "Renamed".to_string()]);
         assert_eq!(again.list()[0].id, rec_id);
@@ -608,7 +643,7 @@ mod tests {
     #[test]
     fn the_data_file_is_kept_like_triggers_and_copied() {
         let dir = tempfile::tempdir().unwrap();
-        let (mut lib, _) = Library::open(dir.path());
+        let (mut lib, _) = Library::open_with_samples(dir.path());
         let [invoice, timesheet, ..] = ids(&lib)[..] else { panic!("four samples") };
         let csv = PathBuf::from(r"C:\Data\customers.csv");
         lib.set_data_file(invoice, Some(csv.clone())).unwrap().saved.unwrap();
@@ -616,25 +651,25 @@ mod tests {
         assert!(index.contains(r#""data_file": "C:\\Data\\customers.csv""#));
         assert_eq!(index.matches("data_file").count(), 1, "not written for macros without one");
 
-        let (mut lib, _) = Library::open(dir.path());
+        let (mut lib, _) = Library::open_with_samples(dir.path());
         assert_eq!(lib.get(invoice).unwrap().data_file.as_ref(), Some(&csv));
         assert_eq!(lib.get(timesheet).unwrap().data_file, None);
         let copy = lib.duplicate(invoice).unwrap().value;
         assert_eq!(lib.get(copy).unwrap().data_file.as_ref(), Some(&csv), "a copy reads the same file");
         lib.trash(invoice).unwrap().saved.unwrap();
-        let (mut lib, _) = Library::open(dir.path());
+        let (mut lib, _) = Library::open_with_samples(dir.path());
         lib.restore(invoice).unwrap();
         assert_eq!(lib.get(invoice).unwrap().data_file.as_ref(), Some(&csv));
 
         lib.set_data_file(invoice, None).unwrap().saved.unwrap();
-        assert_eq!(Library::open(dir.path()).0.get(invoice).unwrap().data_file, None);
+        assert_eq!(Library::open_with_samples(dir.path()).0.get(invoice).unwrap().data_file, None);
         assert!(matches!(lib.set_data_file(Uuid::new_v4(), None), Err(LibraryError::NotFound(_))));
     }
 
     #[test]
     fn duplicate_trash_restore_and_import() {
         let dir = tempfile::tempdir().unwrap();
-        let (mut lib, _) = Library::open(dir.path());
+        let (mut lib, _) = Library::open_with_samples(dir.path());
         let [invoice, timesheet, ..] = ids(&lib)[..] else { panic!("four samples") };
         set_hotkey(&mut lib, invoice, true, "Ctrl + Alt + 1");
         assert_eq!(lib.get(invoice).unwrap().hotkey().as_deref(), Some("Ctrl + Alt + 1"));
@@ -664,7 +699,7 @@ mod tests {
         assert!(lib.get(timesheet).is_none());
         assert!(!lib.all_triggers().iter().any(|(id, _)| *id == timesheet), "its triggers go with it");
         assert!(dir.path().join("macros/.trash").join(format!("{timesheet}.rly")).exists());
-        let (reopened, problems) = Library::open(dir.path());
+        let (reopened, problems) = Library::open_with_samples(dir.path());
         assert!(problems.is_empty());
         assert!(reopened.get(timesheet).is_none(), "trashed macros stay out after a restart");
         let (mut lib, _) = (reopened, ());
@@ -687,7 +722,7 @@ mod tests {
     #[test]
     fn triggers_persist_and_old_hotkeys_migrate_disabled() {
         let dir = tempfile::tempdir().unwrap();
-        let (mut lib, _) = Library::open(dir.path());
+        let (mut lib, _) = Library::open_with_samples(dir.path());
         let invoice = lib.list()[0].id;
         // Seeded samples show the design's hotkey but leave it off.
         let t = lib.get(invoice).unwrap().triggers.clone();
@@ -699,7 +734,7 @@ mod tests {
         on.app_launch.enabled = true;
         on.app_launch.exe = "notepad.exe".into();
         lib.set_triggers(invoice, on.clone()).unwrap().saved.unwrap();
-        let (again, _) = Library::open(dir.path());
+        let (again, _) = Library::open_with_samples(dir.path());
         assert_eq!(again.get(invoice).unwrap().triggers, on);
         assert_eq!(again.list()[0].hotkey.as_deref(), Some("Ctrl + Alt + 1"));
 
@@ -708,7 +743,7 @@ mod tests {
         let old = std::fs::read_to_string(&path).unwrap().replace(r#""triggers""#, r#""old_triggers""#);
         let old = old.replacen(r#""runs": 148,"#, r#""runs": 148, "hotkey": "Ctrl + Alt + 9","#, 1);
         std::fs::write(&path, old).unwrap();
-        let (migrated, _) = Library::open(dir.path());
+        let (migrated, _) = Library::open_with_samples(dir.path());
         let h = &migrated.get(invoice).unwrap().triggers.hotkey;
         assert_eq!((h.enabled, h.combo.as_str()), (false, "Ctrl + Alt + 9"));
     }
@@ -716,9 +751,9 @@ mod tests {
     #[test]
     fn a_broken_index_is_set_aside_and_reported() {
         let dir = tempfile::tempdir().unwrap();
-        Library::open(dir.path());
+        Library::open_with_samples(dir.path());
         fs::write(dir.path().join("library.json"), "{oops").unwrap();
-        let (lib, problems) = Library::open(dir.path());
+        let (lib, problems) = Library::open_with_samples(dir.path());
         assert_eq!(lib.list().len(), 4, "the macros still load");
         assert_eq!(problems.len(), 1);
         assert!(dir.path().join("library.json.bad").exists());
@@ -727,7 +762,7 @@ mod tests {
     #[test]
     fn changes_are_kept_when_the_index_cant_be_saved() {
         let dir = tempfile::tempdir().unwrap();
-        let (mut lib, _) = Library::open(dir.path());
+        let (mut lib, _) = Library::open_with_samples(dir.path());
         let invoice = lib.list()[0].id;
         // library.json can't be replaced now.
         let index = dir.path().join("library.json");
@@ -758,7 +793,7 @@ mod tests {
     fn restoring_puts_macros_back_between_the_same_neighbours() {
         for (trash_order, restore_order) in [([0, 1], [0, 1]), ([0, 1], [1, 0]), ([1, 0], [0, 1]), ([1, 0], [1, 0])] {
             let dir = tempfile::tempdir().unwrap();
-            let (mut lib, _) = Library::open(dir.path());
+            let (mut lib, _) = Library::open_with_samples(dir.path());
             let [a, b, c, d] = ids(&lib)[..] else { panic!("four samples") };
             for i in trash_order {
                 lib.trash([a, b][i]).unwrap().saved.unwrap();
@@ -767,7 +802,7 @@ mod tests {
             let new = Macro::new("New", RecordingMeta::single_1080p(), vec![]);
             let n = new.id;
             lib.insert_front(new).unwrap();
-            let (mut lib, _) = Library::open(dir.path());
+            let (mut lib, _) = Library::open_with_samples(dir.path());
             for i in restore_order {
                 lib.restore([a, b][i]).unwrap().saved.unwrap();
             }
@@ -784,7 +819,7 @@ mod tests {
     #[test]
     fn a_macro_whose_hotkey_was_taken_meanwhile_comes_back_with_it_off() {
         let dir = tempfile::tempdir().unwrap();
-        let (mut lib, _) = Library::open(dir.path());
+        let (mut lib, _) = Library::open_with_samples(dir.path());
         let [invoice, timesheet, ..] = ids(&lib)[..] else { panic!("four samples") };
         set_hotkey(&mut lib, invoice, true, "Ctrl + Alt + 1");
         lib.trash(invoice).unwrap().saved.unwrap();
@@ -812,7 +847,7 @@ mod tests {
     #[test]
     fn a_taken_name_ending_in_a_number_counts_on() {
         let dir = tempfile::tempdir().unwrap();
-        let (mut lib, _) = Library::open(dir.path());
+        let (mut lib, _) = Library::open_with_samples(dir.path());
         let named = |n: &str| Macro::new(n, RecordingMeta::single_1080p(), vec![]);
         let names = ["Daily report", "Daily report 2", "Daily report 7", "Win 10", "Report 007"];
         lib.import(names.map(named).into()).saved.unwrap();
@@ -835,7 +870,7 @@ mod tests {
     #[test]
     fn recording_names_skip_the_ones_in_the_trash() {
         let dir = tempfile::tempdir().unwrap();
-        let (mut lib, _) = Library::open(dir.path());
+        let (mut lib, _) = Library::open_with_samples(dir.path());
         for _ in 0..3 {
             let rec = Macro::new(lib.next_recording_name(), RecordingMeta::single_1080p(), vec![]);
             lib.insert_front(rec).unwrap();
@@ -849,14 +884,14 @@ mod tests {
         let index = fs::read_to_string(&path).unwrap();
         assert!(index.contains(r#""name": "Recording 3","#), "{index}");
         fs::write(&path, index.replace(r#""name": "Recording 3","#, "")).unwrap();
-        let (lib, _) = Library::open(dir.path());
+        let (lib, _) = Library::open_with_samples(dir.path());
         assert_eq!(lib.next_recording_name(), "Recording 4");
     }
 
     #[test]
     fn an_import_that_fails_partway_keeps_what_it_imported() {
         let dir = tempfile::tempdir().unwrap();
-        let (mut lib, _) = Library::open(dir.path());
+        let (mut lib, _) = Library::open_with_samples(dir.path());
         let before = ids(&lib);
         let macros: Vec<Macro> =
             ["One", "Two", "Three", "Four"].map(|n| Macro::new(n, RecordingMeta::single_1080p(), vec![])).into();
@@ -871,7 +906,7 @@ mod tests {
         assert!(failed.starts_with("Couldn't import “Two” and the 2 macros after it: "), "{failed}");
         assert_eq!(ids(&lib)[..], [&[one][..], &before].concat());
         // And it's in the index, so it's in the Library after a restart too.
-        let (again, _) = Library::open(dir.path());
+        let (again, _) = Library::open_with_samples(dir.path());
         assert_eq!(ids(&again), ids(&lib));
 
         let last = Macro::new("Last", RecordingMeta::single_1080p(), vec![]);
@@ -884,7 +919,7 @@ mod tests {
     #[test]
     fn the_last_macro_goes_back_last() {
         let dir = tempfile::tempdir().unwrap();
-        let (mut lib, _) = Library::open(dir.path());
+        let (mut lib, _) = Library::open_with_samples(dir.path());
         let [a, b, c, d] = ids(&lib)[..] else { panic!("four samples") };
         lib.trash(d).unwrap().saved.unwrap();
         lib.trash(b).unwrap().saved.unwrap();
@@ -892,7 +927,7 @@ mod tests {
         lib.import(vec![Macro::new("New 1", RecordingMeta::single_1080p(), vec![])]).saved.unwrap();
         lib.import(vec![Macro::new("New 2", RecordingMeta::single_1080p(), vec![])]).saved.unwrap();
         assert!(fs::read_to_string(dir.path().join("library.json")).unwrap().contains(r#""next": null"#));
-        let (mut lib, _) = Library::open(dir.path());
+        let (mut lib, _) = Library::open_with_samples(dir.path());
         for id in [d, b, c] {
             lib.restore(id).unwrap().saved.unwrap();
         }
@@ -902,14 +937,14 @@ mod tests {
     #[test]
     fn trash_from_older_libraries_restores_at_its_position() {
         let dir = tempfile::tempdir().unwrap();
-        let (mut lib, _) = Library::open(dir.path());
+        let (mut lib, _) = Library::open_with_samples(dir.path());
         let [a, b, c, d] = ids(&lib)[..] else { panic!("four samples") };
         lib.trash(b).unwrap().saved.unwrap();
         let path = dir.path().join("library.json");
         let index = fs::read_to_string(&path).unwrap();
         assert!(index.contains(&format!(r#""next": "{c}""#)), "{index}");
         fs::write(&path, index.replace(&format!(r#""next": "{c}","#), "")).unwrap();
-        let (mut lib, problems) = Library::open(dir.path());
+        let (mut lib, problems) = Library::open_with_samples(dir.path());
         assert!(problems.is_empty());
         lib.restore(b).unwrap().saved.unwrap();
         assert_eq!(ids(&lib), [a, b, c, d]);
@@ -928,7 +963,7 @@ mod tests {
     #[test]
     fn a_macro_whose_file_was_never_saved_can_be_trashed_and_restored() {
         let dir = tempfile::tempdir().unwrap();
-        let (mut lib, _) = Library::open(dir.path());
+        let (mut lib, _) = Library::open_with_samples(dir.path());
         let id = insert_unsaved(dir.path(), &mut lib);
         lib.trash(id).unwrap().saved.unwrap();
         assert!(lib.get(id).is_none());
@@ -942,7 +977,7 @@ mod tests {
     #[test]
     fn a_macro_that_cant_be_written_to_the_trash_is_restored_from_memory() {
         let dir = tempfile::tempdir().unwrap();
-        let (mut lib, _) = Library::open(dir.path());
+        let (mut lib, _) = Library::open_with_samples(dir.path());
         let id = insert_unsaved(dir.path(), &mut lib);
         fs::create_dir_all(dir.path().join("macros/.trash").join(format!("{id}.rly"))).unwrap();
         let trashed = lib.trash(id).unwrap();
@@ -956,7 +991,7 @@ mod tests {
     #[test]
     fn a_macro_that_couldnt_be_written_to_the_trash_is_written_later() {
         let dir = tempfile::tempdir().unwrap();
-        let (mut lib, _) = Library::open(dir.path());
+        let (mut lib, _) = Library::open_with_samples(dir.path());
         let id = insert_unsaved(dir.path(), &mut lib);
         let blocked = dir.path().join("macros/.trash").join(format!("{id}.rly"));
         fs::create_dir_all(&blocked).unwrap();
@@ -970,7 +1005,7 @@ mod tests {
         assert_eq!(lib.save_unsaved_trash(), 0);
 
         // So it survives a restart.
-        let (mut lib, _) = Library::open(dir.path());
+        let (mut lib, _) = Library::open_with_samples(dir.path());
         lib.restore(id).unwrap().saved.unwrap();
         assert_eq!(lib.get(id).unwrap().macro_.name, "Recording 1");
     }
@@ -992,12 +1027,12 @@ mod tests {
     fn an_index_another_program_has_open_is_left_alone_for_the_run() {
         use std::os::windows::fs::OpenOptionsExt;
         let dir = tempfile::tempdir().unwrap();
-        Library::open(dir.path());
+        Library::open_with_samples(dir.path());
         let path = dir.path().join("library.json");
         let index = fs::read_to_string(&path).unwrap();
         // Opened without sharing: reading it fails with a sharing violation.
         let locked = fs::OpenOptions::new().read(true).share_mode(0).open(&path).unwrap();
-        let (mut lib, problems) = Library::open(dir.path());
+        let (mut lib, problems) = Library::open_with_samples(dir.path());
         drop(locked);
         assert_eq!(lib.list().len(), 4, "the macros still load");
         assert_eq!(problems.len(), 1);
@@ -1006,7 +1041,7 @@ mod tests {
         assert_eq!(lib.get(lib.list()[0].id).unwrap().runs, 0, "its stats weren't read");
         assert_index_left_alone(dir.path(), &mut lib, &index);
         // Readable again at the next start, with everything in it.
-        let (again, problems) = Library::open(dir.path());
+        let (again, problems) = Library::open_with_samples(dir.path());
         assert!(problems.is_empty());
         assert_eq!(again.get(again.list()[0].id).unwrap().runs, 148);
     }
@@ -1015,7 +1050,7 @@ mod tests {
     fn an_index_that_cant_be_read_is_left_alone_and_nothing_is_seeded() {
         let dir = tempfile::tempdir().unwrap();
         fs::create_dir(dir.path().join("library.json")).unwrap();
-        let (lib, problems) = Library::open(dir.path());
+        let (lib, problems) = Library::open_with_samples(dir.path());
         assert_eq!(problems.len(), 1);
         assert!(lib.list().is_empty(), "not a first run: the samples aren't seeded");
         assert!(!dir.path().join("macros").exists());
@@ -1025,9 +1060,9 @@ mod tests {
     #[test]
     fn broken_files_are_reported_not_fatal() {
         let dir = tempfile::tempdir().unwrap();
-        Library::open(dir.path());
+        Library::open_with_samples(dir.path());
         fs::write(dir.path().join("macros").join("broken.rly"), "{not json").unwrap();
-        let (lib, problems) = Library::open(dir.path());
+        let (lib, problems) = Library::open_with_samples(dir.path());
         assert_eq!(lib.list().len(), 4);
         assert_eq!(problems.len(), 1);
     }

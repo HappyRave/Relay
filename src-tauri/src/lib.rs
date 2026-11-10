@@ -7,6 +7,8 @@ mod hotkeys;
 mod ipc;
 mod library;
 mod logging;
+mod look;
+mod presence;
 mod rec_thread;
 mod run_history;
 mod screens;
@@ -67,6 +69,7 @@ pub fn run() {
         .manage(hotkeys::Hotkeys::default())
         .manage(triggers::TriggerState::default())
         .manage(coordinator::SessionMode::default())
+        .manage(presence::PresenceState::default())
         .manage(history::EditHistory::default())
         .invoke_handler(tauri::generate_handler![
             commands::subscribe_engine,
@@ -77,6 +80,7 @@ pub fn run() {
             commands::list_macros,
             commands::list_runs,
             commands::load_macro,
+            commands::current_macro,
             commands::screenshot,
             commands::edit_macro,
             commands::undo_edit,
@@ -99,25 +103,44 @@ pub fn run() {
             commands::set_data_file,
             commands::get_settings,
             commands::update_settings,
+            commands::set_relay_key,
+            commands::key_warning,
+            commands::hold_hotkeys,
             commands::get_triggers,
             commands::set_triggers,
             commands::set_triggers_paused,
             commands::list_processes,
             commands::get_autostart,
             commands::set_autostart,
-            commands::fit_window,
+            commands::system_look,
             commands::window_prefs,
+            commands::set_player_mode,
+            commands::show_window,
             commands::save_panes,
-            commands::reset_layout,
             commands::hide_to_tray,
             commands::quit,
         ])
         .on_window_event(|window, event| {
             let app = window.app_handle();
+            if window.label() == "player" {
+                return on_player_event(app, event);
+            }
             let Some(main) = app.get_webview_window("main").filter(|w| w.label() == window.label()) else { return };
             let state = app.state::<window_ctl::WindowState>();
             match event {
                 WindowEvent::Moved(_) => window_ctl::on_moved(&main, &state),
+                // Windows' transparency effects may have changed while Relay was in the background.
+                WindowEvent::Focused(true) => {
+                    let look = look::SystemLook::read();
+                    let changed = std::mem::replace(&mut *app.state::<Mutex<look::SystemLook>>().lock(), look) != look;
+                    if changed {
+                        let settings = app.state::<Mutex<settings::SettingsStore>>().lock().current.clone();
+                        for w in app.webview_windows().values() {
+                            look::apply(w, &settings, look);
+                        }
+                        app.state::<Arc<ipc::Emitter>>().send(ipc::EngineMsg::SystemLook { look });
+                    }
+                }
                 WindowEvent::Resized(_) => window_ctl::on_resized(&main, &state),
                 // Moved onto a monitor with another scale (or its scaling changed). The
                 // window system applies its own rect for the new scale after this event,
@@ -134,7 +157,7 @@ pub fn run() {
                     });
                 }
                 // Alt+F4 and friends: keep running in the tray unless the user opted out.
-                WindowEvent::CloseRequested { api, .. } if window_ctl::close_or_hide(&main) => api.prevent_close(),
+                WindowEvent::CloseRequested { api, .. } if window_ctl::close_or_hide(app) => api.prevent_close(),
                 _ => {}
             }
         })
@@ -144,9 +167,11 @@ pub fn run() {
             let emit = Arc::new(ipc::Emitter::default());
             app.manage(emit.clone());
             // Damaged files are skipped or set aside; the user hears about them (and the log has them).
-            let (library, library_problems) = library::Library::open(&dir);
-            app.manage(Mutex::new(library));
+            // Settings first: they tell a new install from an older Relay by its files.
             let (settings, settings_problems) = settings::SettingsStore::open(&dir);
+            let (mut library, library_problems) = library::Library::open(&dir);
+            library.set_relay_keys(settings.current.keys.clone());
+            app.manage(Mutex::new(library));
             app.manage(Mutex::new(settings));
             let (runs, runs_problems) = run_history::RunHistory::open(&dir);
             app.manage(Mutex::new(runs));
@@ -162,18 +187,30 @@ pub fn run() {
             // Managed before the window moves, since moving it raises events that read it.
             app.manage(window_ctl::WindowState::open(&dir));
             let window_state = app.state::<window_ctl::WindowState>();
+            // The windows come once everything their first commands read is managed.
+            for config in app.config().app.windows.clone() {
+                tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?.build()?;
+            }
+            let system_look = look::SystemLook::read();
+            app.manage(Mutex::new(system_look));
+            let settings = app.state::<Mutex<settings::SettingsStore>>().lock().current.clone();
             if let Some(window) = app.get_webview_window("main") {
-                window_ctl::apply_modernist_frame(&window);
+                window_ctl::apply_frame(&window);
                 window_ctl::watch_move_size(&window);
-                let keep_on_top = app.state::<Mutex<settings::SettingsStore>>().lock().current.keep_on_top;
-                window_ctl::apply_on_top(&window, keep_on_top, false);
-                // Place it where it was, then show it (the window starts hidden, so it never jumps).
-                let prefs = window_state.prefs();
-                let css = if prefs.expanded { window_ctl::expanded_size(&prefs) } else { window_ctl::COMPACT };
-                window_ctl::place(&window, &window_state, css);
-                if !starts_hidden(std::env::args()) {
-                    window.show()?;
-                }
+                look::apply(&window, &settings, system_look);
+                window_ctl::init_text_size(&window_state, settings.text_size);
+                // Placed where it was before it shows (it starts hidden, so it never jumps).
+                window_ctl::place(&window, &window_state, window_ctl::expanded_size(&window_state.prefs()));
+            }
+            if let Some(player) = app.get_webview_window("player") {
+                window_ctl::apply_frame(&player);
+                window_ctl::set_no_activate(&player, true);
+                look::apply(&player, &settings, system_look);
+            }
+            if starts_hidden(std::env::args()) {
+                presence::set_tucked(app.handle(), true);
+            } else {
+                presence::refresh(app.handle(), true);
             }
             window_ctl::spawn_autosave(app.handle().clone());
             tray::create(app.handle())?;
@@ -194,6 +231,26 @@ pub fn run() {
                 app.state::<logging::LogGuard>().flush();
             }
         });
+}
+
+/// The player: a drag moves its anchor; dropped on a monitor with another
+/// scale, it's placed again for it once the drag ends.
+fn on_player_event(app: &tauri::AppHandle, event: &WindowEvent) {
+    let Some(player) = app.get_webview_window("player") else { return };
+    match event {
+        WindowEvent::Moved(_) => presence::on_player_moved(&player),
+        WindowEvent::ScaleFactorChanged { .. } => {
+            let app = app.clone();
+            std::thread::spawn(move || {
+                while window_ctl::in_move_loop(&player) {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                let _ = app.clone().run_on_main_thread(move || presence::resize_player(&app));
+            });
+        }
+        WindowEvent::CloseRequested { api, .. } => api.prevent_close(),
+        _ => {}
+    }
 }
 
 #[cfg(test)]

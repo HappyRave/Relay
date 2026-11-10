@@ -32,7 +32,7 @@ use crate::hotkeys;
 use crate::ipc::{Emitter, EngineMsg};
 use crate::library::{Library, LibraryError};
 use crate::run_history::RunHistory;
-use crate::settings::{Settings, SettingsStore};
+use crate::settings::{RelayKey, Settings, SettingsStore};
 
 #[derive(Debug, Serialize)]
 pub struct IpcError {
@@ -84,15 +84,21 @@ fn when_idle(app: &AppHandle) -> Result<()> {
 /// Reports a failed save; the change itself stays (see the module docs).
 fn report_unsaved(app: &AppHandle, r: std::io::Result<()>) {
     if let Err(e) = r {
-        app.state::<Arc<Emitter>>().error(format!("Couldn't save the change: {e}. It's kept until you quit."));
+        app.state::<Arc<Emitter>>().unsaved(format!("Couldn't save the change: {e}. It's kept until you quit."));
     }
 }
 
 // — session —
 
 #[tauri::command]
-pub fn subscribe_engine(emit: State<'_, Arc<Emitter>>, channel: Channel<EngineMsg>) {
-    emit.subscribe(channel);
+pub fn subscribe_engine(window: tauri::WebviewWindow, emit: State<'_, Arc<Emitter>>, channel: Channel<EngineMsg>) {
+    emit.subscribe(window.label(), channel);
+}
+
+/// The macro Relay's play key and the player play.
+#[tauri::command]
+pub fn current_macro(mode: State<'_, SessionMode>) -> Option<Uuid> {
+    mode.current()
 }
 
 #[tauri::command]
@@ -137,6 +143,7 @@ fn view_of(m: &Macro, history: &EditHistory) -> MacroView {
 
 #[tauri::command]
 pub fn load_macro(
+    window: tauri::WebviewWindow,
     lib: State<'_, Mutex<Library>>,
     history: State<'_, EditHistory>,
     c: State<'_, CoordinatorHandle>,
@@ -144,7 +151,7 @@ pub fn load_macro(
 ) -> Result<MacroView> {
     let lib = lib.lock();
     let entry = lib.get(id).ok_or(IpcError::not_found(id))?;
-    c.send(Cmd::Select(id));
+    c.send(Cmd::Select { id, by: window.label().to_owned() });
     Ok(view_of(&entry.macro_, &history))
 }
 
@@ -323,24 +330,27 @@ pub struct PickedPixel {
     pub x: i32,
     pub y: i32,
     pub color: Rgb,
+    /// Picked from the frozen screen.
+    pub frozen: bool,
 }
 
-/// Waits `delay_ms` (so the user can point at something), then reads the
-/// pixel under the cursor.
+/// Relay steps aside and the picker shows on the screen (see
+/// `relay_platform::picker`); `None` when the user cancelled.
 #[tauri::command]
-pub async fn pick_pixel(platform: State<'_, Arc<Platform>>, delay_ms: u32) -> Result<PickedPixel> {
+pub async fn pick_pixel(app: AppHandle, platform: State<'_, Arc<Platform>>) -> Result<Option<PickedPixel>> {
+    when_idle(&app)?;
     let platform = platform.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        std::thread::sleep(std::time::Duration::from_millis(delay_ms.min(10_000) as u64));
-        let (x, y) = platform.screen.cursor_pos();
-        platform
-            .screen
-            .pixel(x, y)
-            .map(|color| PickedPixel { x, y, color })
-            .ok_or(IpcError { code: "unavailable", message: "Couldn't read the screen there".into() })
+    crate::presence::step_aside(&app, true);
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        // Windows fades a window out as it hides.
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        platform.screen.pick()
     })
     .await
-    .unwrap_or(Err(IpcError { code: "unavailable", message: "Couldn't read the screen".into() }))
+    .ok()
+    .flatten();
+    crate::presence::step_aside(&app, false);
+    Ok(picked.map(|p| PickedPixel { x: p.x, y: p.y, color: p.color, frozen: p.frozen }))
 }
 
 // — images —
@@ -437,7 +447,7 @@ pub async fn test_find_image(
     area: Option<Rect>,
 ) -> Result<Option<FoundImage>> {
     let platform = platform.inner().clone();
-    let own = crate::window_ctl::main_hwnd(&app);
+    let own = crate::window_ctl::own_windows(&app);
     tauri::async_runtime::spawn_blocking(move || {
         let gray = Rgb8::decode(&image.0).map_err(image_error)?.gray();
         let hide = relay_playback::finder::Hidden::of(&*platform.windows, own);
@@ -591,29 +601,32 @@ pub fn set_autostart(app: AppHandle, enabled: bool) -> Result<bool> {
 
 // — window —
 
-/// The UI measured the widget at this size (CSS px); fit the window around it.
-#[tauri::command]
-pub fn fit_window(
-    window: tauri::WebviewWindow,
-    state: State<'_, crate::window_ctl::WindowState>,
-    width: f64,
-    height: f64,
-    expanded: bool,
-) {
-    crate::window_ctl::fit(&window, &state, (width, height), expanded);
-}
-
 #[derive(Debug, Serialize, TS)]
 #[ts(export)]
 pub struct WindowPrefsView {
-    pub expanded: bool,
+    pub player_mode: bool,
     pub panes: crate::window_ctl::Panes,
 }
 
 #[tauri::command]
 pub fn window_prefs(state: State<'_, crate::window_ctl::WindowState>) -> WindowPrefsView {
     let prefs = state.prefs();
-    WindowPrefsView { expanded: prefs.expanded, panes: prefs.panes }
+    WindowPrefsView { player_mode: prefs.player_mode, panes: prefs.panes }
+}
+
+/// The player takes the window's place, or gives it back.
+#[tauri::command]
+pub fn set_player_mode(app: AppHandle, on: bool) {
+    crate::presence::set_player_mode(&app, on);
+}
+
+/// The player's expand key: the window, on the player's macro.
+#[tauri::command]
+pub fn show_window(app: AppHandle, mode: State<'_, SessionMode>) {
+    if let Some(macro_id) = mode.current() {
+        app.state::<Arc<Emitter>>().send(EngineMsg::Open { macro_id });
+    }
+    crate::presence::set_player_mode(&app, false);
 }
 
 /// Where the user put the editor's dividers, saved to window.json.
@@ -622,17 +635,11 @@ pub fn save_panes(state: State<'_, crate::window_ctl::WindowState>, panes: crate
     state.set_panes(panes);
 }
 
-/// *Reset layout*: the editor's default size and dividers.
-#[tauri::command(async)]
-pub fn reset_layout(window: tauri::WebviewWindow, state: State<'_, crate::window_ctl::WindowState>) {
-    crate::window_ctl::reset_layout(&window, &state);
-}
-
 /// The close button: like closing the window (see `window_ctl::close_or_hide`).
 #[tauri::command]
-pub fn hide_to_tray(window: tauri::WebviewWindow) {
-    if !crate::window_ctl::close_or_hide(&window) {
-        window.app_handle().exit(0);
+pub fn hide_to_tray(app: AppHandle) {
+    if !crate::window_ctl::close_or_hide(&app) {
+        app.exit(0);
     }
 }
 
@@ -648,17 +655,76 @@ pub fn get_settings(s: State<'_, Mutex<SettingsStore>>) -> Settings {
     s.lock().current.clone()
 }
 
+/// Sets one of Relay's keys (`None`: off), refusing one that can't be (see
+/// `hotkeys::check_key`) with why.
 #[tauri::command(async)]
-pub fn update_settings(app: AppHandle, window: tauri::WebviewWindow, settings: Settings) -> Result<Settings> {
-    let current = {
+pub fn set_relay_key(app: AppHandle, key: RelayKey, combo: Option<String>) -> Result<Settings> {
+    let current = app.state::<Mutex<SettingsStore>>().lock().current.clone();
+    hotkeys::check_key(&library(&app).lock(), &current.keys, key, combo.as_deref())
+        .map_err(|message| IpcError { code: "hotkey", message })?;
+    let keys = current.keys.with(key, combo);
+    update_settings(app, Settings { keys, ..current })
+}
+
+/// A key field listens (`on`), or stopped: the hotkeys let go of the keys meanwhile.
+#[tauri::command]
+pub fn hold_hotkeys(app: AppHandle, on: bool) {
+    hotkeys::hold(&app, on);
+}
+
+/// What to know before using `combo` as a global key: the character it
+/// types on the keyboard layout in use, or an app that uses it.
+#[tauri::command]
+pub fn key_warning(platform: State<'_, Arc<relay_platform::Platform>>, combo: String) -> Option<String> {
+    let altgr = relay_platform::KeyChord::parse(&combo).filter(|c| c.ctrl && c.alt).and_then(|c| {
+        // Left Ctrl and left Alt, as Windows sends AltGr.
+        let mut held = relay_platform::HeldKeys::new();
+        held.extend([0xA2, 0xA4]);
+        if c.shift {
+            held.insert(0xA0);
+        }
+        (platform.translator)().translate(c.vk, 0, &held)
+    });
+    let printable = altgr.filter(|t| t.chars().all(|c| !c.is_control()));
+    relay_core::keys::key_warning(&combo, printable.as_deref())
+}
+
+/// Saves the settings. Relay's keys must each be usable (see
+/// `hotkeys::check_keys`): if one isn't, nothing is saved.
+#[tauri::command(async)]
+pub fn update_settings(app: AppHandle, settings: Settings) -> Result<Settings> {
+    hotkeys::check_keys(&library(&app).lock(), &settings.keys)
+        .map_err(|message| IpcError { code: "hotkey", message })?;
+    let (current, keys_changed) = {
         let s = app.state::<Mutex<SettingsStore>>();
         let mut s = s.lock();
+        let keys_changed = s.current.keys != settings.keys;
         report_unsaved(&app, s.set(settings));
-        s.current.clone()
+        (s.current.clone(), keys_changed)
     };
-    // Not under the settings lock: this calls into the main thread.
-    crate::window_ctl::apply_on_top(&window, current.keep_on_top, !app.state::<SessionMode>().is_idle());
+    if keys_changed {
+        library(&app).lock().set_relay_keys(current.keys.clone());
+        hotkeys::refresh(&app);
+        crate::tray::set_keys(&app, &current.keys);
+    }
+    // Not under the settings lock: these call into the main thread.
+    let look = *app.state::<Mutex<crate::look::SystemLook>>().lock();
+    for w in app.webview_windows().values() {
+        crate::look::apply(w, &current, look);
+    }
+    if let Some(main) = app.get_webview_window("main") {
+        crate::window_ctl::set_text_size(&main, &app.state::<crate::window_ctl::WindowState>(), current.text_size);
+    }
+    crate::presence::resize_player(&app);
+    crate::presence::refresh(&app, false);
+    app.state::<Arc<Emitter>>().send(EngineMsg::Settings { settings: current.clone() });
     Ok(current)
+}
+
+/// What Windows offers for the look (frosted glass by default, transparency effects).
+#[tauri::command]
+pub fn system_look(look: State<'_, Mutex<crate::look::SystemLook>>) -> crate::look::SystemLook {
+    *look.lock()
 }
 
 #[cfg(test)]
@@ -667,7 +733,7 @@ mod tests {
 
     fn library() -> (tempfile::TempDir, Library) {
         let dir = tempfile::tempdir().unwrap();
-        let (lib, _) = Library::open(dir.path());
+        let (lib, _) = Library::open_with_samples(dir.path());
         (dir, lib)
     }
 
@@ -769,7 +835,7 @@ mod tests {
         let refused = export_bytes(&lib, id, ExportFormat::Exe).map(|_| ()).unwrap_err();
         assert_eq!(
             (refused.code, refused.message.as_str()),
-            ("data_file", "A Text step types {col:Customer}: choose a data file in Settings → Playback.")
+            ("data_file", "A Text step types {col:Customer}: choose a data file in the macro's play options.")
         );
         assert!(export_bytes(&lib, id, ExportFormat::Rly).is_ok(), "a .rly doesn't need it");
 

@@ -145,6 +145,21 @@ mod tests {
     }
 
     #[test]
+    fn a_batch_is_one_undo() {
+        let h = EditHistory::default();
+        let mut m = Macro::new("m", RecordingMeta::single_1080p(), vec![wait(0), wait(500), wait(1000)]);
+        let (id, original) = (m.id, m.events.clone());
+        let op = EditOp::Batch { ops: vec![EditOp::DeleteStep { index: 2 }, EditOp::DeleteStep { index: 0 }] };
+        let before = Snapshot::before(&m, &op);
+        apply(&mut m, op.clone()).unwrap();
+        h.record(id, before, &op, &m);
+        assert_eq!(m.events.len(), 1);
+        assert!(h.undo(id, &mut m));
+        assert_eq!(m.events, original, "both steps come back");
+        assert_eq!(h.status(id), (false, true));
+    }
+
+    #[test]
     fn an_edit_keeps_what_it_changed_not_a_copy_of_the_macro() {
         let h = EditHistory::default();
         let events: Vec<Event> =

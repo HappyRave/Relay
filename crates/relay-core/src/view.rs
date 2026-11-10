@@ -9,6 +9,7 @@ use uuid::Uuid;
 use crate::model::{Event, Macro, Ms, PlaybackOptions, RecordingMeta};
 use crate::steps::{Step, group_steps};
 use crate::timeline;
+use crate::triggers::TriggerOn;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, TS)]
 #[ts(export)]
@@ -63,7 +64,7 @@ pub fn cursor_path(events: &[Event]) -> Vec<MovePoint> {
         .collect()
 }
 
-/// A row of the Library tab.
+/// A row of the Library.
 #[derive(Debug, Clone, Serialize, TS)]
 #[ts(export)]
 pub struct MacroListItem {
@@ -74,6 +75,9 @@ pub struct MacroListItem {
     pub runs: u32,
     pub last_run: Option<DateTime<Utc>>,
     pub hotkey: Option<String>,
+    /// What else runs it: its other triggers that are on.
+    pub also: Vec<TriggerOn>,
+    pub created_at: DateTime<Utc>,
 }
 
 #[cfg(test)]

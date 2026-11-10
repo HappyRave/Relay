@@ -93,8 +93,8 @@ pub struct PlayPlan {
     /// Added to every position ("Window" coordinates: where the anchor window moved).
     pub offset: (i32, i32),
     pub from: Ms,
-    /// Relay's window, which image searches never look inside.
-    pub own_window: isize,
+    /// Relay's windows: Find image steps never look inside them.
+    pub own: relay_platform::OwnWindows,
 }
 
 /// How late events were injected relative to their deadlines.
@@ -246,9 +246,10 @@ impl Engine {
 
     /// Why playback stopped at `timed_out_step`, for the notice.
     pub fn timeout_notice(&self) -> Option<String> {
-        let n = self.timed_out_step?;
-        let image = self.plan.steps.get(n - 1).is_some_and(|s| matches!(s.kind, StepKind::FindImage { .. }));
+        let i = self.timed_out_step? - 1;
+        let image = self.plan.steps.get(i).is_some_and(|s| matches!(s.kind, StepKind::FindImage { .. }));
         let what = if image { "Image not found" } else { "Pixel check timed out" };
+        let n = relay_core::steps::step_number(&self.plan.steps, i);
         Some(format!("{what} at step {n}; playback stopped."))
     }
 
@@ -446,7 +447,7 @@ impl Engine {
         // Paused by the user: the wait stopped counting when the pause began.
         let end = self.user_paused.unwrap_or(now);
         let check = CheckResult {
-            step: self.step_of(w.event).unwrap_or(0) as u32,
+            step: self.step_of(w.event).map_or(0, |n| relay_core::steps::step_number(&self.plan.steps, n - 1)),
             loop_idx: self.loop_idx,
             image: matches!(w.check, Check::Image { .. }),
             after_ms: (end - w.started).max(0.0).round() as u32,
@@ -678,12 +679,12 @@ pub fn spawn<S: PlaybackSink>(plan: PlayPlan, platform: &Platform, sink: S) -> E
             // Created on this thread: the timer also raises this thread's priority.
             let mut timer = make_timer();
             let _ = wake_tx.send(timer.waker());
-            let own_window = plan.own_window;
+            let own = plan.own;
             let (finder_screen, windows) = (screen.clone(), platform_windows);
             let pixel: PixelReader = Box::new(move |x, y| screen.pixel(x, y));
             let find: ImageFinder = Box::new(move |image, area, threshold| {
-                // Where Relay's window is now: it may have moved since playback started.
-                let hide = crate::finder::Hidden::of(&*windows, own_window);
+                // Where Relay's windows are now: they may have moved since playback started.
+                let hide = crate::finder::Hidden::of(&*windows, own);
                 crate::finder::find_on_screen(&*finder_screen, image, area, threshold, &hide)
             });
             let data = plan.data.clone();
@@ -808,7 +809,7 @@ mod tests {
             seed: 0,
             offset: (0, 0),
             from: 0,
-            own_window: 0,
+            own: [0, 0],
         }
     }
 
@@ -1089,7 +1090,7 @@ mod tests {
             seed: 0,
             offset: (0, 0),
             from: 0,
-            own_window: 0,
+            own: [0, 0],
         };
         // The fake screen turns red at `turns_red_at` (wall ms), read through a shared clock.
         let now = Arc::new(Mutex::new(0.0));
@@ -1313,6 +1314,19 @@ mod tests {
         run_to(&mut e, &now, 100.0);
         run_to(&mut e, &now, 5100.0);
         assert_eq!(e.timeout_notice().as_deref(), Some("Pixel check timed out at step 1; playback stopped."));
+    }
+
+    #[test]
+    fn a_timed_out_check_is_numbered_without_the_moves() {
+        let mut events = vec![Event::Move { t: 0, x: 1, y: 1 }, Event::Move { t: 50, x: 9, y: 9 }];
+        events.extend(pixel_macro());
+        let (mut e, _, now) = pixel_engine_for(events, f64::INFINITY);
+        run_to(&mut e, &now, 100.0);
+        run_to(&mut e, &now, 5100.0);
+        assert_eq!(e.timeout_notice().as_deref(), Some("Pixel check timed out at step 1; playback stopped."));
+        assert_eq!(e.timed_out_at(), Some(100), "the check itself, not the move before it");
+        let (checks, _) = std::mem::take(&mut e.checks).into_parts();
+        assert_eq!(checks.iter().map(|c| c.step).collect::<Vec<_>>(), [1], "its run history too");
     }
 
     #[test]

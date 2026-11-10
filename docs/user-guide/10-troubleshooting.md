@@ -2,7 +2,7 @@
 
 Find your problem below. If it isn't here, [open an issue](https://github.com/HappyRave/Relay/issues) and attach that day's [log](09-settings.md#logs).
 
-Error messages stay at the bottom of the panel until you close them (×), so you don't miss one; other messages go away after a few seconds.
+Error messages stay at the bottom of the window until you close them (×), so you don't miss one; other messages go away after a few seconds. While the window is hidden, the player shows the last error until you dismiss it.
 
 - [Playback](#playback)
 - [Recording](#recording)
@@ -18,7 +18,7 @@ Error messages stay at the bottom of the panel until you close them (×), so you
 
 A macro clicks at the screen positions you recorded. Check that:
 
-- the app's window is where it was when you recorded. Maximize it, or switch the macro to [Window coordinates](04-playback.md#screen-or-window-coordinates).
+- the app's window is where it was when you recorded. Maximize it, or set the macro's [**Clicks land**](04-playback.md#screen-or-window-coordinates) to **Window**.
 - your monitor layout and display scaling are the same as when you recorded.
 - the app is ready. At 2× or 4×, or when the app is slow today, clicks land before the window is there. Add a [pixel check](05-pixel-checks.md) or a [wait](03-editing.md#waits).
 
@@ -38,23 +38,23 @@ Some games and anti-cheat software ignore simulated input entirely. Relay can't 
 <details>
 <summary><b>The macro types the wrong characters</b></summary>
 
-Relay replays **physical keys**, like your fingers would. If the keyboard layout is different from when you recorded (AZERTY versus QWERTY, or another input language selected in the taskbar), the same keys type different characters. Switch back to the layout you recorded with, or record the macro again. Or open the typed text and press **Make editable**: a [Text step](03-editing.md#text-that-changes-each-run) types characters, whatever the layout.
+Relay replays **physical keys**, like your fingers would. If the keyboard layout is different from when you recorded (AZERTY versus QWERTY, or another input language selected in the taskbar), the same keys type different characters. Switch back to the layout you recorded with, or record the macro again. Or select the typed text and press **Make editable**: a [Text step](03-editing.md#text-that-changes-each-run) types characters, whatever the layout.
 
 </details>
 
 <details>
 <summary><b>The macro typed into Relay instead of my app</b></summary>
 
-When you press play in Relay, it gives the keyboard back to the app you used just before. If that app was closed or minimized in the meantime, the focus can end up somewhere else. Click in the target app first and start the macro with <kbd>F10</kbd>, or add a click in the app at the start of the macro.
+When you press **Play** in Relay, it gives the keyboard back to the app you used just before. If that app was closed or minimized in the meantime, the focus can end up somewhere else. Click in the target app first and start the macro with your Play / pause key, or the player's **▶** (the player never takes the keyboard), or add a click in the app at the start of the macro.
 
 </details>
 
 <details>
 <summary><b>Playback stopped by itself</b></summary>
 
-The message at the bottom of the panel says why:
+The message at the bottom of the window (or on the player) says why:
 
-- **You pressed a key** or moved to another app with the keyboard, and *Stop on key press* is on. Turn it off in [Settings → Playback](09-settings.md#playback-for-the-open-macro) if you need to type during playback.
+- **You pressed a key** or moved to another app with the keyboard, and *Stop on key* is on. Turn it off in the macro's [Play options](04-playback.md#stop-on-key-press) if you need to type during playback.
 - *"Pixel check timed out at step N"*. See [When the pixel never matches](05-pixel-checks.md#when-the-pixel-never-matches).
 - *"Image not found at step N"*. See [When the image isn't found](06-find-image.md#when-the-image-isnt-found).
 - The **kill switch** was pressed. Triggers are now paused too.
@@ -64,21 +64,21 @@ The message at the bottom of the panel says why:
 <details>
 <summary><b>The macro is slower than it needs to be</b></summary>
 
-It replays the pauses you made while recording. Press **Trim pauses** in the Steps tab to shorten every pause over a second, or set **Pause before** on a single step. See [Pauses](03-editing.md#pauses).
+It replays the pauses you made while recording. Choose **Shorten pauses** in the steps list's **Steps options** menu (**⋯**) to shorten every pause over a second, or set **Pause before** on a step. See [Pauses](03-editing.md#pauses).
 
 </details>
 
 <details>
 <summary><b>I deleted or changed the wrong step</b></summary>
 
-Press **Undo** in the header or <kbd>Ctrl</kbd>+<kbd>Z</kbd>. See [Undo and redo](03-editing.md#undo-and-redo). The history lasts until you quit Relay.
+Press **Undo** in the editor's top bar, or <kbd>Ctrl</kbd>+<kbd>Z</kbd>. See [Undo and redo](03-editing.md#undo-and-redo). The history lasts until you quit Relay.
 
 </details>
 
 <details>
 <summary><b>Timing feels a little off</b></summary>
 
-*Humanize* is on by default and shifts steps by up to ±40 ms. Turn it off in Settings → Playback to replay the exact timing. Relay's own timing is precise to about a millisecond.
+*Vary timing* may be on: it shifts steps by up to the time it says (±40 ms, say). Turn it off in the macro's Play options to replay the exact timing. Relay's own timing is precise to about a millisecond.
 
 </details>
 
@@ -87,9 +87,9 @@ Press **Undo** in the header or <kbd>Ctrl</kbd>+<kbd>Z</kbd>. See [Undo and redo
 <details>
 <summary><b>Some clicks or keys are missing from the recording</b></summary>
 
-- **Clicks on the Relay widget** are never recorded. Move the widget out of the way before recording.
-- **<kbd>F9</kbd> and the kill switch** are never recorded, and neither is <kbd>Esc</kbd> unless you turn off **Settings → Recording → Esc stops recording**. See [What doesn't get recorded](02-recording.md#what-doesnt-get-recorded).
-- **Using remote desktop, a KVM switch or software like Synergy or Barrier?** They send your input as *simulated* input, which Relay ignores by default. Turn off **Settings → Recording → Ignore simulated input**.
+- **Clicks on Relay's player or window** are never recorded. While you record, the window steps aside and only the player shows: move it out of the way if it covers what you click.
+- **Your Record and Play / pause keys and the kill switch** are never recorded, and neither is <kbd>Esc</kbd> unless you turn off **Settings → Recording → Esc stops recording**. See [What doesn't get recorded](02-recording.md#what-doesnt-get-recorded).
+- **Using Remote Desktop, a KVM switch or software like Synergy or Barrier?** They send your input as *simulated* input, which Relay ignores by default. Turn off **Settings → Recording → Ignore simulated input**.
 - **Typing in an app that runs as administrator?** Windows hides that input from normal apps. Run Relay as administrator.
 
 </details>
@@ -104,18 +104,37 @@ Windows sometimes removes an input hook when the PC is very busy. Relay noticed,
 <details>
 <summary><b>My recording disappeared</b></summary>
 
-A recording with nothing in it (no click, key or scroll: only mouse movement, however much) isn't saved. Otherwise, every recording goes to the top of the [Library](08-library.md).
+A recording with nothing in it (no click, key or scroll: only mouse movement, however much) isn't saved. Otherwise, when the recording stops, the window comes back on the new macro and says *Recording stopped, 12 steps. Name this macro.* It's in the [Library](08-library.md) from then on.
 
 </details>
 
 ## Hotkeys and triggers
 
 <details>
-<summary><b>F9 or F10 does nothing</b></summary>
+<summary><b>Relay's keys do nothing</b></summary>
 
-- Another program may have taken the key first. Relay reports *"Couldn't register the Record hotkey"* once its window opens, and only once per run.
-- During a recording, only <kbd>F9</kbd> and the kill switch belong to Relay. During playback, only <kbd>F10</kbd>, <kbd>Esc</kbd> and the kill switch do.
+- **Check which keys are set** in [Settings → Keys](09-settings.md#keys). A new install uses <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F9</kbd> to record and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F10</kbd> to play; one set to **None** does nothing.
+- **Another program may have the key.** Relay says so once per run: *Another program uses Ctrl + Alt + Backspace, so Relay's “Stop everything” key doesn't work. Choose another in Settings → Keys.*
+- **During a recording**, only the Record key and the kill switch belong to Relay. **During playback**, only the Play / pause key, <kbd>Esc</kbd> and the kill switch do.
 - On a laptop, you may need <kbd>Fn</kbd> with the function keys.
+
+</details>
+
+<details>
+<summary><b>The kill switch does nothing</b></summary>
+
+- **Another program has it.** Relay says *Another program uses …, so Relay's “Stop everything” key doesn't work.* Choose another combination in Settings → Keys.
+- **In a Remote Desktop session**, the remote-desktop client takes some combinations for itself: <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd> becomes <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Del</kbd> in the remote PC. Settings → Keys warns about these when you set one. <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Backspace</kbd>, the new default, works over Remote Desktop.
+- **An exported program** always uses <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd>, whatever Relay's kill switch is. See [Exported programs](08-library.md#exported-programs).
+
+<kbd>Esc</kbd> and the player's **■** stop a recording or playback too.
+
+</details>
+
+<details>
+<summary><b>Setting a key warns that it types a character</b></summary>
+
+On many keyboard layouts, <kbd>Ctrl</kbd>+<kbd>Alt</kbd> works as <kbd>AltGr</kbd>: <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>E</kbd> types *€*, for example. While Relay uses such a combination, you can't type that character. Choose a combination Relay doesn't warn about, such as one with <kbd>Ctrl</kbd>+<kbd>Shift</kbd>.
 
 </details>
 
@@ -131,12 +150,12 @@ Another running program registered the same combination first. Choose another co
 
 Check each of these:
 
-1. **Is Relay running?** Triggers need Relay in the tray. Keep *Close to tray* on and turn on *Start with Windows*.
-2. **Are triggers paused?** The Triggers tab shows a banner after the kill switch. Press **Resume**, or check **Triggers active** in the tray menu.
-3. **Was Relay busy?** A trigger doesn't interrupt a recording or another macro. Relay says *Skipped "…": Relay was busy*.
+1. **Is Relay running?** Triggers need Relay in the tray. Keep *Close to the tray* on and turn on *Start with Windows*.
+2. **Are triggers paused?** After the kill switch, the Library and the macro's **Runs automatically** say *Triggers are paused*. Press **Resume**, or check **Triggers active** in the tray menu.
+3. **Was Relay busy?** A trigger doesn't interrupt a recording or another macro. Relay says *Skipped “…”: Relay was busy*, and [Problems](08-library.md#activity) lists it.
 4. **Was the screen locked?** Triggers are skipped on the lock screen.
 5. **Schedule:** was the PC asleep at that time? Missed runs are skipped, not made up.
-6. **App launch:** was the program already running? The trigger fires when it starts, not while it runs.
+6. **App start:** was the program already running? The trigger fires when it starts, not while it runs.
 7. **Pixel:** did the pixel *change* to the color? A pixel that already had the color when you turned the trigger on doesn't count until it changes and comes back.
 8. **Image:** did the image *appear*? One already on screen when you turned the trigger on doesn't count until it goes away and comes back. Press **Test** to see how well it matches now.
 
@@ -145,16 +164,33 @@ Check each of these:
 ## The window
 
 <details>
-<summary><b>I can't find the widget</b></summary>
+<summary><b>I can't find Relay's window</b></summary>
 
-Click Relay's tray icon (it may be under the **^** arrow in the taskbar). If you started Relay again, it brings the existing widget forward. If the widget was on a monitor that's gone, it comes back on the main monitor.
+- **It's in the tray.** Click Relay's tray icon (it may be under the **^** arrow in the taskbar). Starting Relay again also brings it back.
+- **It's in player mode**, and only the player shows. Press the player's **Open the window**, or your Show the player key (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd> by default).
+- **It's recording**, so the window stepped aside. Stop the recording with the player's **●**, <kbd>Esc</kbd> or your Record key: the window comes back.
+- If it was on a monitor that's gone, it comes back on the nearest one.
 
 </details>
 
 <details>
-<summary><b>The widget is too small or too big</b></summary>
+<summary><b>The window disappears while a macro plays</b></summary>
 
-Relay shrinks the editor to fit small screens. It follows your display scaling (Settings → System → Display → Scale), so changing that changes the widget's size.
+**Settings → Window → Hide the window while playing** is on: the player stands in for it. Turn it off to keep the window during playback.
+
+</details>
+
+<details>
+<summary><b>The window or the text is too small or too big</b></summary>
+
+Resize the window from its edges, and set **Settings → Appearance → Text size** (and **Player size** for the player). Relay shrinks the window to fit small screens, and follows your display scaling (Settings → System → Display → Scale).
+
+</details>
+
+<details>
+<summary><b>The player covers what the macro clicks</b></summary>
+
+Drag it by its grip somewhere else: Relay remembers where. Turn off **Settings → Window → Keep the player on top**, or set it to **While working**, if it's in the way the rest of the time.
 
 </details>
 
@@ -199,7 +235,7 @@ No. Relay doesn't connect to the internet at all. Macros, settings and logs stay
 <details>
 <summary><b>Can I record passwords?</b></summary>
 
-You can, but you shouldn't: a macro stores what you typed as plain text. Stop recording before typing a password, or delete that `TYPE` step.
+You can, but you shouldn't: a macro stores what you typed as plain text. Stop recording before typing a password, or delete that *Type* step.
 
 </details>
 
@@ -213,7 +249,7 @@ No. Windows doesn't accept simulated input on the lock screen, so triggers are s
 <details>
 <summary><b>Does Relay work on macOS or Linux?</b></summary>
 
-Not yet. Relay is built so other systems can be added later, but v1 is Windows only.
+Not yet. Relay is built so other systems can be added later, but for now it's Windows only.
 
 </details>
 

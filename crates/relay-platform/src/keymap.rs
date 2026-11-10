@@ -6,6 +6,11 @@ pub const VK_END: u16 = 0x23;
 pub const VK_PACKET: u16 = 0xE7;
 pub const VK_PAUSE: u16 = 0x13;
 
+/// The virtual key for a W3C code (the US layout's, for punctuation).
+pub fn vk_for_code(code: &str) -> Option<u16> {
+    (1..=0xFE).find(|&vk| vk_code(vk) == code)
+}
+
 /// Shift, Ctrl, Alt (generic, left and right) and the Windows keys.
 pub fn is_modifier_vk(vk: u16) -> bool {
     matches!(vk, 0x10..=0x12 | 0xA0..=0xA5 | 0x5B | 0x5C)
@@ -330,5 +335,31 @@ mod tests {
         }
         assert!(is_ctrl_vk(0x11) && is_ctrl_vk(0xA2) && is_ctrl_vk(0xA3) && !is_ctrl_vk(0x12));
         assert!(is_alt_vk(0x12) && is_alt_vk(0xA4) && is_alt_vk(0xA5) && !is_alt_vk(0x11));
+    }
+
+    #[test]
+    fn codes_have_virtual_keys() {
+        assert_eq!(vk_for_code("F9"), Some(0x78));
+        assert_eq!(vk_for_code("Backspace"), Some(0x08));
+        assert_eq!(vk_for_code("KeyM"), Some(0x4D));
+        assert_eq!(vk_for_code("Backquote"), Some(0xC0));
+        assert_eq!(vk_for_code("Nope"), None);
+    }
+
+    #[test]
+    fn chords_from_combos() {
+        use crate::KeyChord;
+        let c = KeyChord::parse("Ctrl + Alt + Backspace").unwrap();
+        assert_eq!(c, KeyChord { vk: 0x08, ctrl: true, alt: true, shift: false, win: false });
+        assert!(c.pressed(0x08, true, true, false, false));
+        assert!(c.pressed(0x08, true, true, true, false), "a stray Shift still stops everything");
+        assert!(!c.pressed(0x08, true, false, false, false));
+        assert!(!c.pressed(0x23, true, true, false, false));
+        let record = KeyChord::parse("Ctrl + Shift + F9").unwrap();
+        assert_eq!((record.vk, record.shift), (0x78, true));
+        assert!(!record.pressed(0x78, false, false, false, false), "F9 alone is recorded");
+        assert_eq!(KeyChord::parse("Ctrl + Alt + End"), Some(KeyChord::CTRL_ALT_END));
+        assert_eq!(KeyChord::parse("Hyper + F9"), None);
+        assert_eq!(KeyChord::parse(""), None);
     }
 }

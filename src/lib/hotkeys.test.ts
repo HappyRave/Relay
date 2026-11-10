@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { comboOf } from "./hotkeys";
+import { ariaKeys, comboOf, keyHint } from "./hotkeys";
 
 const key = (key: string, code: string, mods: Partial<KeyboardEvent> = {}) =>
   ({ key, code, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, ...mods }) as KeyboardEvent;
@@ -25,5 +25,24 @@ describe("comboOf", () => {
   it("rejects keys relay-core can't register", () => {
     expect(comboOf(key("Control", "ControlLeft", { ctrlKey: true }))).toBeNull();
     expect(comboOf(key("ù", "Quote", { ctrlKey: true }))).toBeNull();
+  });
+});
+
+describe("naming a key", () => {
+  it("in a tooltip, and nothing for a key that's off", () => {
+    expect(keyHint("Ctrl + Shift + F9")).toBe(" (Ctrl + Shift + F9)");
+    expect(keyHint(null)).toBe("");
+  });
+
+  it("for aria-keyshortcuts", () => {
+    expect(ariaKeys("Ctrl + Shift + F9")).toBe("Control+Shift+F9");
+    expect(ariaKeys("Ctrl + Alt + Backspace")).toBe("Control+Alt+Backspace");
+    expect(ariaKeys("Win + Left")).toBe("Meta+ArrowLeft");
+    expect(ariaKeys("Ctrl + Num 5")).toBe("Control+Numpad5");
+    expect(ariaKeys(null)).toBeUndefined();
+  });
+
+  it("Ctrl + Alt + Backspace is a combination", () => {
+    expect(comboOf(key("Backspace", "Backspace", { ctrlKey: true, altKey: true }))).toBe("Ctrl + Alt + Backspace");
   });
 });

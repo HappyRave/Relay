@@ -1,7 +1,9 @@
 <script lang="ts">
-  // Click, then press the combination. Esc cancels, Backspace clears.
-  import Kbd from "./Kbd.svelte";
-  import { comboOf } from "../../lib/hotkeys";
+  // Click, then press the combination. Esc cancels, Backspace clears. While it
+  // listens, the hotkeys let go of the keys, so a taken combination arrives too.
+  import Keycaps from "../kit/Keycaps.svelte";
+  import { relay } from "../../lib/state/relay.svelte";
+  import { listenForCombo } from "../../lib/keycapture";
 
   let { combo, onchange, disabled = false }: { combo: string; onchange: (combo: string) => void; disabled?: boolean } =
     $props();
@@ -16,26 +18,18 @@
 
   $effect(() => {
     if (!capturing) return;
-    const onKey = (e: KeyboardEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.key === "Escape") return void (capturing = false);
-      if (e.key === "Backspace") {
+    relay.holdHotkeys(true);
+    const stop = listenForCombo({
+      done: (c) => {
         capturing = false;
-        return onchange("");
-      }
-      if (["Control", "Alt", "Shift", "Meta"].includes(e.key)) return;
-      const c = comboOf(e);
-      if (!c) return void (hint = "Use a letter, digit, F-key or arrow");
-      capturing = false;
-      onchange(c);
-    };
-    const cancel = () => (capturing = false);
-    window.addEventListener("keydown", onKey, true);
-    window.addEventListener("blur", cancel);
+        onchange(c ?? "");
+      },
+      cancel: () => (capturing = false),
+      hint: (text) => (hint = text),
+    });
     return () => {
-      window.removeEventListener("keydown", onKey, true);
-      window.removeEventListener("blur", cancel);
+      stop();
+      relay.holdHotkeys(false);
     };
   });
 </script>
@@ -51,30 +45,36 @@
   {#if capturing}
     <span class="hint">{hint}</span>
   {:else}
-    <Kbd combo={combo || "Set…"} />
+    <Keycaps combo={combo ? combo.split(" + ") : []} none="Set…" />
   {/if}
 </button>
 
 <style>
   .capture {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--key-sm);
+    padding: 2px 4px;
     border: 0;
+    border-radius: var(--r-sm);
     background: transparent;
-    padding: 2px;
     cursor: pointer;
     font: inherit;
-    color: var(--color-text);
+    color: var(--text);
+  }
+  .capture:hover:not(:disabled) {
+    background: var(--hover);
   }
   .capture:disabled {
     opacity: 0.45;
     cursor: not-allowed;
   }
   .capturing {
-    outline: 2px solid var(--color-accent);
+    box-shadow: inset 0 0 0 1.5px var(--text);
   }
   .hint {
-    font-size: 11px;
-    font-weight: 800;
-    padding: 2px 7px;
-    color: var(--color-accent-700);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--red-text);
   }
 </style>

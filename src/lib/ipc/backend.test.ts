@@ -35,7 +35,7 @@ describe("tauriBackend", () => {
     ["deleteMacro", () => b.deleteMacro(id), "delete_macro", { id }],
     ["getSettings", () => b.getSettings(), "get_settings", {}],
     ["samplePixel", () => b.samplePixel(-5, 7), "sample_pixel", { x: -5, y: 7 }],
-    ["pickPixel", () => b.pickPixel(3000), "pick_pixel", { delayMs: 3000 }],
+    ["pickPixel", () => b.pickPixel(), "pick_pixel", {}],
     ["snipImage", () => b.snipImage(), "snip_image", {}],
     ["cancelSnip", () => b.cancelSnip(), "cancel_snip", {}],
     ["showMatch", () => b.showMatch({ x: -10, y: 5, w: 40, h: 20 }, 10, 15), "show_match", { area: { x: -10, y: 5, w: 40, h: 20 }, dotX: 10, dotY: 15 }],
@@ -95,10 +95,10 @@ describe("tauriBackend", () => {
     await b.subscribe((m) => got.push(m));
     expect(core.calls).toEqual([{ cmd: "subscribe_engine", args: {} }]);
     core.emit({ type: "countdown", left_ms: 3000 });
-    core.emit({ type: "session", mode: "recording", macro_id: null });
+    core.emit({ type: "session", mode: "recording", macro_id: null, source: null });
     expect(got).toEqual([
       { type: "countdown", left_ms: 3000 },
-      { type: "session", mode: "recording", macro_id: null },
+      { type: "session", mode: "recording", macro_id: null, source: null },
     ]);
   });
 
@@ -224,7 +224,7 @@ describe("browserBackend (npm run dev)", () => {
     ]);
     expect(Date.now() - new Date(runs[0].at).getTime()).toBe(3 * 3600_000);
     expect(runs[0].checks.map((c) => c.loop_idx)).toEqual([0, 1, 2]);
-    expect(runs[3].checks).toEqual([{ step: 7, loop_idx: 0, image: false, after_ms: 5000, outcome: { type: "timed_out" } }]);
+    expect(runs[3].checks).toEqual([{ step: 6, loop_idx: 0, image: false, after_ms: 5000, outcome: { type: "timed_out" } }]);
   });
 
   test("a simulated playback goes into the run history", async () => {
@@ -269,7 +269,7 @@ describe("browserBackend (npm run dev)", () => {
       bb.duplicateMacro(id),
       bb.deleteMacro(id),
       bb.restoreMacro(id),
-      bb.pickPixel(0),
+      bb.pickPixel(),
       bb.pasteImage(),
       bb.chooseImage(),
       bb.snipImage(),

@@ -43,6 +43,10 @@ pub struct RunEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub note: Option<String>,
+    /// Played from a data file with this many rows, one per loop.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub rows: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -178,6 +182,7 @@ mod tests {
             checks: vec![],
             checks_dropped: 0,
             note: None,
+            rows: None,
         }
     }
 

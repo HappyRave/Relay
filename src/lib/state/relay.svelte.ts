@@ -20,24 +20,30 @@ import type {
   Settings,
   Step,
   StepOf,
-  Tab,
+  Place,
   TriggerStatus,
 } from "../types";
+import type { SystemLook } from "../ipc/bindings/SystemLook";
 import type { EngineMsg } from "../ipc/bindings/EngineMsg";
 import type { PickedPixel } from "../ipc/bindings/PickedPixel";
 import type { FoundImage } from "../ipc/bindings/FoundImage";
 import type { TimingStats } from "../ipc/bindings/TimingStats";
 import type { FinishReason } from "../ipc/bindings/FinishReason";
 import type { RunEntry } from "../ipc/bindings/RunEntry";
+import type { RunSource } from "../ipc/bindings/RunSource";
+import type { RelayKey } from "../ipc/bindings/RelayKey";
+import { comboOf } from "../hotkeys";
+import { playSound, type SoundName } from "../sound";
 import type { DataFileInfo } from "../ipc/bindings/DataFileInfo";
 import { backend as defaultBackend, type Backend, type IpcError } from "../ipc/backend";
-import { DEFAULT_PLAYBACK, DEFAULT_SETTINGS } from "../defaults";
-import { isTauri, resetLayout, savePanes, savedWindow } from "../platform/window";
+import { DEFAULT_LOOK, DEFAULT_PLAYBACK, DEFAULT_SETTINGS } from "../defaults";
+import { isTauri, savePanes, savedWindow, setPlayerMode, showWindow } from "../platform/window";
 import { NO_PANES } from "../layout";
-import { nextRepeat, nextSpeed } from "../transport";
 import type { Panes } from "../ipc/bindings/Panes";
 import { lastIndexAtOrBefore } from "../preview/geometry";
 import { currentStepIndex, jumpTarget } from "../timeline/lanes";
+import { deleteRows, stepIndex, type Row } from "../editor/rows";
+import { failed } from "../runs";
 import { plural, slug } from "../format";
 import { followStep } from "./selection";
 import { pngSize, testResult } from "../image";
@@ -47,12 +53,9 @@ const RENAME_DEBOUNCE_MS = 250;
 export const TRIM_PAUSE_MS = 1000;
 /** How far past the last tick the playhead may run before the next one arrives. */
 const MAX_EXTRAPOLATION_MS = 100;
-/** Seconds "Pick" waits before reading the pixel under the cursor. */
-const PICK_SECONDS = 3;
 /** What an image is for, besides a step: a step being inserted, or the image trigger. */
 export const INSERTING = -1;
 export const TRIGGER = -2;
-export const MAX_REPEATS = 99;
 const EMPTY_DESKTOP: Rect = { x: 0, y: 0, w: 1920, h: 1080 };
 /** Inputs with their own Ctrl + Z. */
 const TEXT_INPUTS = ["text", "search", "number"];
@@ -67,6 +70,8 @@ export interface Toast {
    * another macro.
    */
   undoes?: string;
+  /** A change that couldn't be written: the top bar says "Couldn't save" while it shows. */
+  unsaved?: boolean;
   /** For an Undo of a delete: the macro it brings back. */
   restores?: string;
 }
@@ -76,6 +81,13 @@ export type ShownToast = Toast & { id: number };
 
 /** Toasts shown at once; older ones come back as these are dismissed. */
 export const MAX_TOASTS = 3;
+
+/** Step kinds that use the mouse: a macro with one opens with the view open. */
+const POINTER: Step["kind"][] = ["click", "drag", "scroll", "move", "find_image"];
+/** Step kinds that take a label. */
+const LABELLED: Step["kind"][] = ["click", "drag", "wait", "pixel_wait", "find_image"];
+/** One edit, or several as one. */
+const batch = (ops: EditOp[]): EditOp => (ops.length === 1 ? ops[0] : { op: "batch", ops });
 
 export class RelayStore {
   private readonly backend: Backend;
@@ -92,23 +104,34 @@ export class RelayStore {
   mode = $state<Mode>("idle");
   /** The playhead, in macro ms. */
   cur = $state(0);
+  /** What makes the sounds (tests listen in). */
+  soundPlayer: (name: SoundName) => void = playSound;
   countLeft = $state(0);
+  /** The countdown's seconds left, as shown. */
+  countdown = $derived(Math.max(1, Math.ceil(this.countLeft / 1000)));
   loopIdx = $state(0);
   /** The loops (null: forever) and speed of the playback running, from its ticks; null before the first. */
   playInfo = $state.raw<{ loops: number | null; speed: number } | null>(null);
+  /** The macro playing, and what started it; null when nothing plays. */
+  playingId = $state<string | null>(null);
+  runSource = $state<RunSource | null>(null);
   /** How and with what timing the last playback ended (for diagnostics and the end-to-end tests). */
   lastFinish: FinishReason | null = null;
+  /** Counts the open macro's playbacks that ended, so the player can flash or shake for each. */
+  finishes = $state(0);
   lastTiming: TimingStats | null = null;
 
   // — data (from commands) —
   settings = $state.raw<Settings>(DEFAULT_SETTINGS);
+  /** What Windows offers for the look (frosted glass by default, transparency effects). */
+  systemLook = $state.raw<SystemLook>(DEFAULT_LOOK);
   library = $state.raw<MacroListItem[]>([]);
   view = $state.raw<MacroView | null>(null);
   /** The open macro's screenshot from when it was recorded (an object URL), or null if it has none. */
   screenUrl = $state<string | null>(null);
   /** The open macro's triggers, with the next scheduled run and hotkey problems. */
   triggerStatus = $state.raw<TriggerStatus | null>(null);
-  /** The open macro's triggers couldn't be loaded (the Triggers tab offers to retry). */
+  /** The open macro's triggers couldn't be loaded (the Macro tab offers to retry). */
   triggersFailed = $state(false);
   /** The open macro's data file (its columns and rows, or why it can't be used); null without one. */
   dataFile = $state.raw<DataFileInfo | null>(null);
@@ -118,18 +141,29 @@ export class RelayStore {
   autostart = $state(false);
   /** Running programs, for the "When app launches" suggestions. */
   processes = $state.raw<string[]>([]);
-  /** The run history, newest first (loaded while the Library tab shows it). */
+  /** The run history, newest first (loaded while Activity shows it). */
   runs = $state.raw<RunEntry[]>([]);
 
   // — UI —
-  /** False until the saved window mode is known (so the widget never flashes the wrong size). */
+  /** Which of Relay's windows this store is in: the main window, or the player. */
+  role: "main" | "player" = "main";
+  /** False until the saved window state is known. */
   ready = $state(false);
-  expanded = $state(true);
+  /** The player stands in for the window. */
+  playerMode = $state(false);
   /** Where the user put the editor's dividers (null: the default); the layout keeps them inside the window. */
   panes = $state.raw<Panes>(NO_PANES);
-  tab = $state<Tab>("steps");
-  /** The Library tab shows the run history instead of the macros. */
-  runsOpen = $state(false);
+  place = $state<Place>("library");
+  /** The section Settings shows. */
+  settingsSection = $state<"recording" | "keys" | "window" | "appearance" | "sound">("recording");
+  /** The settings came from Rust (until then, they're the defaults). */
+  private settingsKnown = $state(false);
+  /** What the Library shows: its macros, or Activity (every run, or only the problems). */
+  libraryShows = $state<"macros" | "runs" | "problems">("macros");
+  /** Which macros it lists: all, those with triggers, or those run lately. */
+  libFilter = $state<"all" | "triggers" | "recent">("all");
+  /** The macros selected in the Library, to export or delete together. */
+  libSelection = $state.raw<string[]>([]);
   /** The run history shows only this macro's runs (null: every macro's). */
   runsFilter = $state<string | null>(null);
   exportOpen = $state(false);
@@ -140,8 +174,8 @@ export class RelayStore {
   shownToasts = $derived(this.toasts.slice(-MAX_TOASTS));
   /** The newest toast. */
   toast = $derived<ShownToast | null>(this.toasts.at(-1) ?? null);
-  /** Seconds left before "Pick" reads the cursor's pixel, or 0 when not picking. */
-  picking = $state(0);
+  /** The picker is on the screen. */
+  picking = $state(false);
   /**
    * While an image is coming (a snip waits for the user): where from, and
    * what for: a Find image step's index, INSERTING one, or the TRIGGER.
@@ -154,8 +188,22 @@ export class RelayStore {
   imageTest = $state.raw<{ id: string; item: number; text: string; found?: FoundImage | null; dot?: [number, number] } | null>(
     null,
   );
-  /** The row whose step editor is open, or -1. It follows its step across edits (see selection.ts). */
+  /** The step the inspector shows and the list's keys move from, or -1. It follows its step across edits (see selection.ts). */
   selected = $state(-1);
+  /** The steps selected in the list, ascending (`selected` among them): the inspector edits them together. */
+  selection = $state.raw<number[]>([]);
+  /** The inspector's tab: the selected steps, or the macro as a whole. */
+  inspector = $state<"step" | "macro">("step");
+  /** The Macro tab's open section. */
+  macroSection = $state<"play" | "triggers">("play");
+  /** In a narrow window, the inspector slides over the list: it's open. */
+  inspectorOpen = $state(false);
+  /** The view (preview and timeline) is open. It opens closed for a macro without mouse steps. */
+  viewOpen = $state(true);
+  /** The step the last run stopped on (a pixel check that timed out), or -1. */
+  failedStep = $state(-1);
+  /** How many changes to the macro were saved, for the top bar's "Saved". */
+  saves = $state(0);
 
   // — private —
   /** Live recording data; appended in place, `recVersion` tells the derived values. */
@@ -185,10 +233,16 @@ export class RelayStore {
   private pauseSaves = { seq: 0, saved: false };
   /** A just-saved recording to open once the session is back to idle. */
   private pendingLoad: string | null = null;
+  /** A new recording to name: its name field takes the focus once it shows. */
+  naming = $state<string | null>(null);
 
   // — derived —
   recording = $derived(this.mode === "recording" || this.mode === "countdown");
   playing = $derived(this.mode === "playing" || this.mode === "paused");
+  /** The open macro is the one playing. */
+  playingHere = $derived(this.playing && (this.playingId == null || this.playingId === this.view?.id));
+  /** Another macro plays (a trigger started it): the open one's Play is off, and it isn't drawn as playing. */
+  playingElsewhere = $derived(this.playing && !this.playingHere);
   name = $derived(this.view?.name ?? "");
   playback: PlaybackOptions = $derived(this.view?.playback ?? DEFAULT_PLAYBACK);
   loops = $derived(this.playback.repeat === "forever" ? Infinity : this.playback.repeat.count);
@@ -220,15 +274,25 @@ export class RelayStore {
   /** The step under the playhead, or -1. */
   curStepIdx = $derived(currentStepIndex(this.steps, Math.min(this.cur, this.duration)));
   triggers: MacroTriggers | null = $derived(this.triggerStatus?.triggers ?? null);
+  /** The first run shows in the window, until it's done or skipped (never in the browser preview). */
+  showsIntro = $derived(this.editable && this.settingsKnown && this.settings.intro !== "done");
   /** Whether the open macro can be edited now: in the app, with a macro open, while idle (Rust refuses edits during a session). */
   canEdit = $derived(this.editable && this.mode === "idle" && !!this.view);
   canUndo = $derived(this.canEdit && !!this.view?.can_undo);
   canRedo = $derived(this.canEdit && !!this.view?.can_redo);
   /** Pauses "Trim pauses" would shorten. */
   longPauses = $derived(this.steps.filter((s) => s.pause > TRIM_PAUSE_MS).length);
+  /** A change couldn't be written to disk, and its message is still up. */
+  unsaved = $derived(this.toasts.some((t) => t.unsaved));
   /** The newest error shown. */
   error = $derived([...this.toasts].reverse().find((t) => t.kind === "error")?.message ?? null);
-  shownRuns = $derived(this.runsFilter ? this.runs.filter((r) => r.macro_id === this.runsFilter) : this.runs);
+  shownRuns = $derived(
+    this.runs.filter((r) => (!this.runsFilter || r.macro_id === this.runsFilter) && (this.libraryShows !== "problems" || failed(r))),
+  );
+  /** Runs that didn't end as planned: the Library's Problems. */
+  problems = $derived(this.runs.filter(failed).length);
+  /** Each macro's latest run, from the run history (newest first). */
+  lastRuns = $derived(new Map([...this.runs].reverse().map((r) => [r.macro_id, r])));
   /** Never "relay.exe": a program named like Relay would pass for it. */
   exportName = $derived.by(() => {
     const base = slug(this.name) || "macro";
@@ -238,15 +302,26 @@ export class RelayStore {
   // — lifecycle —
 
   async init() {
-    const saved = await savedWindow().catch(() => ({ expanded: true, panes: NO_PANES }));
-    this.expanded = saved.expanded;
+    const saved = await savedWindow().catch(() => ({ player_mode: false, panes: NO_PANES }));
+    this.playerMode = saved.player_mode;
     this.panes = saved.panes;
     this.ready = true;
     await this.run(this.backend.subscribe(this.onEngine));
     this.settings = (await this.run(this.backend.getSettings())) ?? this.settings;
     this.settingsSaves.saved = this.settings;
+    this.settingsKnown = true;
+    this.systemLook = (await this.run(this.backend.systemLook())) ?? this.systemLook;
     await this.refreshLibrary();
+    if (this.role === "player") {
+      // The player shows the macro the window has open (or the first, before it opens one).
+      const id = (await this.run(this.backend.currentMacro())) ?? this.library[0]?.id;
+      if (id) await this.loadMacro(id);
+      return;
+    }
+    await this.refreshRuns();
     if (this.library[0]) await this.loadMacro(this.library[0].id);
+    // The Library is home, unless there's only one macro to go to.
+    this.place = this.library.length === 1 ? "macro" : "library";
     this.autostart = await this.backend.getAutostart().catch(() => false);
   }
 
@@ -261,12 +336,6 @@ export class RelayStore {
   resetPane = (key: keyof Panes) => {
     this.movePanes({ [key]: null });
     return this.savePanes();
-  };
-
-  /** Settings → Window → Reset layout: the editor's default size and dividers. */
-  resetLayout = async () => {
-    this.panes = NO_PANES;
-    await resetLayout().catch((e) => this.fail(e));
   };
 
   start() {
@@ -303,8 +372,20 @@ export class RelayStore {
     switch (msg.type) {
       case "session": {
         const mode = msg.mode;
-        // A trigger started another macro: show the one that's playing.
-        if (mode === "playing" && msg.macro_id && msg.macro_id !== this.view?.id) this.showMacro(msg.macro_id);
+        if (mode === "recording" && this.mode !== "recording") this.sound("record");
+        if (mode === "idle" && this.mode === "recording") this.sound("stop");
+        const live = mode === "playing" || mode === "paused";
+        const wasLive = this.mode === "playing" || this.mode === "paused";
+        this.playingId = live ? msg.macro_id : null;
+        this.runSource = live ? msg.source : null;
+        // The player shows the macro that plays, as saved (it was maybe edited in
+        // the window since); the window keeps its own, and drops the run's first
+        // tick (it comes before this message).
+        if (live && msg.macro_id) {
+          if (this.role === "player") {
+            if (!wasLive || msg.macro_id !== this.view?.id) this.showMacro(msg.macro_id);
+          } else if (msg.macro_id !== this.view?.id) this.tick.advancing = false;
+        }
         if (mode === "recording") {
           this.recMoves = [];
           this.recSteps = [];
@@ -313,6 +394,7 @@ export class RelayStore {
           this.tick = { t: 0, at: now, speed: 1, advancing: true };
         }
         if (mode === "countdown") this.cur = 0;
+        if (mode === "playing" && (!msg.macro_id || msg.macro_id === this.view?.id)) this.failedStep = -1;
         if (mode === "idle") {
           this.tick.advancing = false;
           this.playInfo = null;
@@ -321,7 +403,7 @@ export class RelayStore {
         }
         this.mode = mode;
         if (mode === "idle" && this.pendingLoad) {
-          this.loadMacro(this.pendingLoad);
+          this.openRecording(this.pendingLoad);
           this.pendingLoad = null;
         } else if (mode === "idle" && this.rename_) {
           this.flushRename(); // typed just before the session started
@@ -333,12 +415,14 @@ export class RelayStore {
         break;
       case "rec_progress":
         this.recDesktop = msg.desktop;
+        if (msg.steps && msg.steps.length > this.recSteps.length) this.sound("step");
         for (const m of msg.moves) this.recMoves.push(m);
         if (msg.steps) this.recSteps = msg.steps;
         if (msg.moves.length || msg.steps) this.recVersion++;
         this.tick = { t: msg.elapsed_ms, at: now, speed: 1, advancing: true };
         break;
       case "play_tick":
+        if (this.playingElsewhere) break;
         this.tick = { t: msg.t, at: now, speed: msg.speed, advancing: msg.advancing };
         this.loopIdx = msg.loop_idx;
         if (this.playInfo?.loops !== msg.loops || this.playInfo?.speed !== msg.speed) {
@@ -350,32 +434,61 @@ export class RelayStore {
         // The playhead stays where this leaves it: a frame before the session's
         // idle message mustn't carry on from the last tick.
         this.tick.advancing = false;
-        this.loopIdx = 0;
         this.lastFinish = msg.reason;
         if (msg.timing) this.lastTiming = msg.timing;
+        const ended = { completed: "done", pixel_timeout: "error", error: "error" } as const;
+        this.sound(ended[msg.reason as keyof typeof ended] ?? "stop");
+        if (this.playingElsewhere) break;
+        this.finishes++;
+        this.loopIdx = 0;
         // Any stop rewinds (Stop, Esc, a key press, the kill switch). A completed run stays at
         // the end, and a timed-out pixel check stays on its step so the row is highlighted.
         if (msg.reason !== "completed" && msg.reason !== "pixel_timeout") this.cur = 0;
+        if (msg.reason === "pixel_timeout") this.failedStep = this.curStepIdx;
         break;
       case "saved":
         // Arrives just before the session returns to idle.
-        if (this.mode === "idle") this.loadMacro(msg.id);
+        if (this.mode === "idle") this.openRecording(msg.id);
         else this.pendingLoad = msg.id;
         break;
       case "library_changed":
         this.refreshLibrary();
         break;
       case "runs_changed":
-        if (this.runsOpen) this.refreshRuns();
+        this.refreshRuns();
         break;
+      case "system_look":
+        this.systemLook = msg.look;
+        break;
+      case "settings": {
+        // Saved from the other window (or this one): shown, unless a change here is still being saved.
+        const saves = this.settingsSaves;
+        if (saves.seq === saves.savedSeq) this.settings = saves.saved = msg.settings;
+        break;
+      }
       case "triggers_paused":
         this.triggersPaused = this.pauseSaves.saved = msg.paused;
         break;
-      case "toggle_compact":
-        this.expanded = !this.expanded;
+      case "current":
+        // Opened in the other window, or by Relay: this one follows, so Play plays what it shows.
+        if (msg.by !== this.role && this.mode === "idle" && msg.macro_id && msg.macro_id !== this.view?.id) {
+          this.showMacro(msg.macro_id);
+        }
+        break;
+      case "open":
+        if (this.role === "main") this.openMacro(msg.macro_id);
+        break;
+      case "player_mode":
+        this.playerMode = msg.on;
+        // Shown now: as the macro is saved, not as it was when the player last showed.
+        if (msg.on && this.role === "player" && this.mode === "idle" && this.view) this.showMacro(this.view.id);
         break;
       case "error":
         this.fail({ code: msg.type, message: msg.message });
+        break;
+      case "unsaved":
+        console.error("Relay:", msg.message);
+        this.show({ kind: "error", message: msg.message, unsaved: true });
         break;
       case "notice":
         this.notify(msg.message, undefined, 6000);
@@ -383,8 +496,8 @@ export class RelayStore {
     }
   };
 
-  // In the app F9, F10 and Ctrl+Shift+M are global hotkeys handled in Rust;
-  // the browser preview has none, so it listens here.
+  // In the app Relay's keys are global hotkeys handled in Rust; the browser
+  // preview has none, so it listens here.
   private onKey = (e: KeyboardEvent) => {
     // A hotkey being set, or the export dialog (which handles Esc itself), owns the keyboard.
     if (this.exportOpen || (e.target as HTMLElement | null)?.closest?.("[data-captures-keys]")) return;
@@ -397,22 +510,36 @@ export class RelayStore {
     // (a focused slider or switch doesn't).
     const t = e.target;
     const typing = t instanceof HTMLTextAreaElement || (t instanceof HTMLInputElement && TEXT_INPUTS.includes(t.type));
-    if ((e.ctrlKey || e.metaKey) && !e.altKey && !typing && (key === "z" || key === "y")) {
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !typing && (key === "z" || key === "y") && this.place === "macro") {
       e.preventDefault();
       if (key === "y" || e.shiftKey) this.redo();
       else this.undo();
       return;
     }
+    if (e.ctrlKey && !e.altKey && !e.shiftKey && key === "m" && this.place === "macro") {
+      e.preventDefault();
+      this.inspector = "macro";
+      this.inspectorOpen = true;
+      return;
+    }
+    if (e.altKey && !e.ctrlKey && !e.shiftKey && e.key === "ArrowLeft" && !typing && !(this.place === "macro" && this.mode !== "idle")) {
+      e.preventDefault();
+      this.back();
+      return;
+    }
     if (isTauri()) return;
-    if (e.key === "F9") {
+    const combo = comboOf(e);
+    const keys = this.settings.keys;
+    if (!combo) return;
+    if (combo === keys.record) {
       e.preventDefault();
       this.toggleRec();
-    } else if (e.key === "F10") {
+    } else if (combo === keys.play) {
       e.preventDefault();
       this.togglePlay();
-    } else if (e.ctrlKey && e.shiftKey && key === "m") {
+    } else if (combo === keys.player) {
       e.preventDefault();
-      this.expanded = !this.expanded;
+      this.setPlayerMode(!this.playerMode);
     }
   };
 
@@ -448,6 +575,14 @@ export class RelayStore {
   private withdrawUndo() {
     this.dismissWhere((t) => !!t.undoes);
   }
+
+  /** Plays a sound, if sounds are on; one window plays them (the main one), not both. */
+  private sound(name: SoundName) {
+    if (this.settings.sounds && this.role === "main") this.soundPlayer(name);
+  }
+
+  /** Settings → Sound's Try keys. */
+  trySound = (name: SoundName) => this.soundPlayer(name);
 
   /** Dismisses one toast. */
   dismissToast = (id: number) => this.dismissWhere((t) => t.id === id);
@@ -494,6 +629,19 @@ export class RelayStore {
 
   stop = () => this.run(this.backend.stop());
 
+  /** The player takes the window's place, or gives it back (in the browser preview, on its demo desktop). */
+  setPlayerMode = async (on: boolean) => {
+    if (!isTauri()) this.playerMode = on;
+    await this.run(setPlayerMode(on));
+  };
+
+  /** The player's expand key: the window, on the player's macro. */
+  openWindow = async () => {
+    if (isTauri()) return void (await this.run(showWindow()));
+    this.playerMode = false;
+    if (this.view) this.place = "macro";
+  };
+
   /** Moves the playhead now; the engine hears about it at most once per frame. */
   seek = (t: number) => {
     if (this.recording) return;
@@ -515,12 +663,13 @@ export class RelayStore {
 
   jump = (dir: -1 | 1) => this.seek(jumpTarget(this.steps, this.cur, dir, this.duration));
 
-  /** A click on a step's row: the playhead goes to it, and its editor opens (or closes). */
-  selectStep = (index: number) => {
-    const s = this.steps[index];
-    if (!s) return;
-    this.seek(s.t);
-    this.selected = this.selected === index ? -1 : index;
+  /** Selects these steps, `cursor` the one the inspector shows: the playhead goes to it. */
+  select = (indices: number[], cursor = indices.at(-1) ?? -1) => {
+    const s = this.steps[cursor];
+    this.selection = [...new Set(indices)].filter((i) => this.steps[i]).sort((a, b) => a - b);
+    this.selected = s ? cursor : -1;
+    this.inspector = "step";
+    if (s) this.seek(s.t);
   };
 
   /** Cursor position at time `t` (virtual-desktop px). */
@@ -538,10 +687,82 @@ export class RelayStore {
     this.library = (await this.run(this.backend.listMacros())) ?? this.library;
   }
 
-  /** Library → Runs, and back to the macros. */
-  showRuns = async (open: boolean) => {
-    this.runsOpen = open;
-    if (open) await this.refreshRuns();
+  /** The Library's macros, or its Activity: every run, or only the problems. */
+  showLibrary = async (shows: "macros" | "runs" | "problems") => {
+    this.libraryShows = shows;
+    if (shows !== "macros") await this.refreshRuns();
+  };
+
+  /** A macro's runs, from its More menu: Activity, only them. */
+  showRunsOf = (id: string) => {
+    this.runsFilter = id;
+    this.go("library");
+    return this.showLibrary("runs");
+  };
+
+  /** Plays a macro from its Library row, from the start, without leaving the Library. */
+  playMacro = async (id: string) => {
+    if (this.mode !== "idle") return;
+    if (this.view?.id !== id) await this.loadMacro(id);
+    if (this.view?.id !== id) return;
+    this.cur = 0;
+    return this.togglePlay();
+  };
+
+  /** A Library row's "Also runs": the macro, on its triggers. */
+  openTriggers = async (id: string) => {
+    await this.openMacro(id);
+    if (this.view?.id !== id) return;
+    this.inspector = "macro";
+    this.macroSection = "triggers";
+    this.inspectorOpen = true;
+  };
+
+  /** A run that stopped on a step: the macro, on the step with that number (moves not counted), marked when it timed out. */
+  openAt = async (id: string, step: number, timedOut = false) => {
+    await this.openMacro(id);
+    const index = stepIndex(this.steps, step);
+    if (this.view?.id !== id || index < 0) return;
+    this.select([index]);
+    this.inspectorOpen = true;
+    if (timedOut) this.failedStep = index;
+  };
+
+  /** Moves these macros to the trash, with one Undo. */
+  deleteMacros = async (ids: string[]) => {
+    if (ids.length === 1) return this.deleteMacro(ids[0]);
+    await this.flushRename();
+    const open = this.view?.id;
+    const gone: string[] = [];
+    for (const id of ids) {
+      try {
+        await this.backend.deleteMacro(id);
+        gone.push(id);
+      } catch (e) {
+        this.fail(e);
+        break;
+      }
+    }
+    this.libSelection = this.libSelection.filter((id) => !gone.includes(id));
+    await this.refreshLibrary();
+    if (open && gone.includes(open)) {
+      if (this.library[0]) await this.loadMacro(this.library[0].id);
+      else this.forgetMacro();
+    }
+    if (!gone.length) return;
+    const run = async () => {
+      this.dismissWhere((t) => t.restores === gone[0]);
+      for (const id of [...gone].reverse()) await this.run(this.backend.restoreMacro(id));
+      await this.refreshLibrary();
+    };
+    this.show({ kind: "info", message: `Moved ${plural(gone.length, "macro")} to the trash`, action: { label: "Undo", run }, restores: gone[0] }, 8000);
+  };
+
+  /** Writes these macros to a folder the user picks, as .rly files. */
+  exportMacros = async (ids: string[]) => {
+    const macros = this.library.filter((m) => ids.includes(m.id)).map(({ id, name }) => ({ id, name }));
+    const dir = await this.run(this.backend.exportMacros(macros));
+    if (dir) this.notify(`Exported ${plural(macros.length, "macro")} to ${dir.split(/[\\/]/).pop()}`);
   };
 
   async refreshRuns() {
@@ -553,7 +774,37 @@ export class RelayStore {
   loadMacro = async (id: string) => {
     if (this.recording || this.playing) return;
     await this.showMacro(id);
-    this.tab = "steps";
+  };
+
+  /** A recording was saved: it opens, ready to be named, and says so. */
+  private async openRecording(id: string) {
+    await this.openMacro(id);
+    if (this.view?.id !== id || this.role !== "main") return;
+    const n = this.view.steps.filter((s) => s.kind !== "move").length;
+    this.naming = id;
+    this.notify(`Recording stopped, ${n} ${n === 1 ? "step" : "steps"}. Name this macro.`);
+  }
+
+  /** Opens a macro in the editor, from the Library or after a recording. */
+  openMacro = async (id: string) => {
+    if (this.recording || this.playing) return;
+    if (this.view?.id !== id) await this.loadMacro(id);
+    if (this.view?.id === id) this.place = "macro";
+  };
+
+  go = (place: Place) => {
+    this.place = place;
+  };
+
+  /** Settings, on one of its sections. */
+  openSettings = (section: RelayStore["settingsSection"]) => {
+    this.settingsSection = section;
+    this.place = "settings";
+  };
+
+  /** Alt + ←: the Library, from a macro or Settings. */
+  back = () => {
+    if (this.place !== "library") this.go("library");
   };
 
   /** Opens a macro in the editor (also mid-playback, when a trigger started it). */
@@ -567,6 +818,11 @@ export class RelayStore {
     this.view = view;
     this.savedName = view.name;
     this.selected = -1;
+    this.selection = [];
+    this.failedStep = -1;
+    this.inspector = "step";
+    this.inspectorOpen = false;
+    this.viewOpen = view.steps.some((s) => POINTER.includes(s.kind));
     this.triggerStatus = null; // the old macro's triggers mustn't be edited into this one
     this.dataFile = null;
     this.cur = 0;
@@ -609,7 +865,7 @@ export class RelayStore {
     if (!copy) return;
     await this.refreshLibrary();
     await this.loadMacro(copy);
-    this.tab = "library";
+    this.place = "library";
   };
 
   /** Moves a macro to the trash, with Undo. Opens a neighbour if it was the open one. */
@@ -627,17 +883,20 @@ export class RelayStore {
     if (this.view?.id === id) {
       const next = this.library[Math.min(idx, this.library.length - 1)];
       if (next) await this.loadMacro(next.id);
-      else {
-        this.view = null;
-        this.setScreen(null);
-        this.triggerStatus = null;
-        this.triggersFailed = false;
-      }
-      this.tab = "library";
+      else this.forgetMacro();
+      this.place = "library";
     }
     const action = { label: "Undo", run: () => this.restoreMacro(id, wasOpen) };
     this.show({ kind: "info", message: `Moved “${name}” to the trash`, action, restores: id }, 8000);
   };
+
+  /** No macro open (the last one went to the trash). */
+  private forgetMacro() {
+    this.view = null;
+    this.setScreen(null);
+    this.triggerStatus = null;
+    this.triggersFailed = false;
+  }
 
   /** Brings a macro back from the trash; `reopen` it when it was the open one. */
   restoreMacro = async (id: string, reopen = false) => {
@@ -648,9 +907,9 @@ export class RelayStore {
       return this.fail(e);
     }
     await this.refreshLibrary();
-    if (!reopen) return; // stay on the macro and tab the user is on
+    if (!reopen) return; // stay where the user is
     await this.loadMacro(id);
-    this.tab = "library";
+    this.place = "library";
   };
 
   importMacros = async () => {
@@ -658,7 +917,7 @@ export class RelayStore {
     if (!result) return;
     await this.refreshLibrary();
     if (result.imported[0]) await this.loadMacro(result.imported[0]);
-    this.tab = "library";
+    this.place = "library";
     const n = result.imported.length;
     const done = n ? `Imported ${plural(n, "macro")}` : "Nothing imported";
     if (result.problems.length) this.fail({ code: "import", message: `${done}. ${result.problems.join("; ")}` });
@@ -688,6 +947,10 @@ export class RelayStore {
     // A name still being typed wins over the one in the response.
     if (this.rename_?.id === id) view = { ...view, name: this.rename_.name };
     this.selected = followStep(this.view.steps, view.steps, this.selected, op);
+    const kept = this.selection.map((i) => followStep(this.view!.steps, view.steps, i, op)).filter((i) => i >= 0);
+    this.selection = [...new Set(this.selected >= 0 ? [...kept, this.selected] : kept)].sort((a, b) => a - b);
+    this.failedStep = -1;
+    this.saves++;
     this.view = view;
     if (listChanged) await this.refreshLibrary();
   }
@@ -749,6 +1012,29 @@ export class RelayStore {
     if (this.view !== before && this.view?.can_undo) this.offerUndo("Deleted the step", this.view.id);
   };
 
+  /** Deletes these rows of the steps list, their folded moves too, in one undo. */
+  deleteRows = async (rows: Row[]) => {
+    if (!rows.length) return;
+    const before = this.view;
+    await this.edit(deleteRows(rows));
+    const what = rows.length === 1 ? "the step" : plural(rows.length, "step");
+    if (this.view !== before && this.view?.can_undo) this.offerUndo(`Deleted ${what}`, this.view.id);
+  };
+
+  /** Sets the pause before each of these steps, in one undo. */
+  setPauses = (indices: number[], ms: number) => {
+    const dur = Math.max(0, Math.round(ms));
+    return this.edit(batch(indices.map((index) => ({ op: "set_pause", index, dur }))));
+  };
+
+  /** Labels each of these steps that takes a label, in one undo. */
+  setLabels = (indices: number[], label: string) =>
+    this.edit(batch(indices.filter((i) => LABELLED.includes(this.steps[i]?.kind)).map((index) => ({ op: "set_label", index, label }))));
+
+  /** Makes each of these typed texts an editable Text step, in one undo. */
+  makeAllEditable = (indices: number[]) =>
+    this.edit(batch(indices.filter((i) => this.steps[i]?.kind === "type").map((index) => ({ op: "make_editable", index }))));
+
   /** Sets the idle time before step `index`. */
   setPause = (index: number, ms: number) => this.edit({ op: "set_pause", index, dur: Math.max(0, Math.round(ms)) });
 
@@ -793,7 +1079,12 @@ export class RelayStore {
     if (!this.view || this.view === before) return;
     // Inserted just after the step under the playhead: the first empty one from there.
     const i = this.view.steps.findIndex((s) => s.kind === "text" && s.text === "" && s.t >= at);
-    if (i >= 0) this.selected = i;
+    if (i >= 0) {
+      this.selected = i;
+      this.selection = [i];
+      this.inspector = "step";
+      this.inspectorOpen = true;
+    }
   };
 
   /** Changes what Text step `index` types. */
@@ -956,20 +1247,21 @@ export class RelayStore {
   };
 
   /**
-   * "Pick": counts down, reads the pixel under the real cursor, then calls
-   * `use` if the same macro is still open (the user may have moved on).
+   * "Pick from screen": Relay steps aside for the picker; once the user picks,
+   * calls `use` if the same macro is still open, and says what was picked.
    */
   private async pick(use: (p: PickedPixel) => Promise<unknown> | void) {
     const id = this.view?.id;
     if (!id || this.picking || this.mode !== "idle") return;
-    this.picking = PICK_SECONDS;
-    const countdown = setInterval(() => (this.picking = Math.max(1, this.picking - 1)), 1000);
+    this.picking = true;
     try {
-      const p = await this.run(this.backend.pickPixel(PICK_SECONDS * 1000));
-      if (p && this.view?.id === id) await use(p);
+      const p = await this.run(this.backend.pickPixel());
+      if (p && this.view?.id === id) {
+        await use(p);
+        this.notify(`Picked ${p.x}, ${p.y} · ${p.color}${p.frozen ? " from the frozen screen" : ""}`);
+      }
     } finally {
-      clearInterval(countdown);
-      this.picking = 0;
+      this.picking = false;
     }
   }
 
@@ -977,8 +1269,8 @@ export class RelayStore {
   pickPixel = (index: number) => {
     const picked = this.steps[index];
     if (picked?.kind !== "pixel_wait") return;
-    // Steps may be edited during the countdown: only the same check, still in
-    // its row with its first event where it was, is updated.
+    // The macro may change while picking: only the same check, still in its
+    // row with its first event where it was, is updated.
     const item = picked.items[0];
     return this.pick((p) => {
       const step = this.steps[index];
@@ -1015,30 +1307,6 @@ export class RelayStore {
     if (r === "forever") return this.setPlayback({ repeat: { count: this.repeatCount } });
     this.lastCounts = { ...this.lastCounts, [this.view.id]: r.count };
     return this.setPlayback({ repeat: "forever" });
-  };
-
-  /** One repeat fewer, down to 1; while looping forever, back to the remembered count. */
-  fewerRepeats = () => {
-    if (this.playback.repeat === "forever") return this.setPlayback({ repeat: { count: this.repeatCount } });
-    if (this.repeatCount > 1) return this.setPlayback({ repeat: { count: this.repeatCount - 1 } });
-  };
-
-  /** One repeat more, up to 99 (not while looping forever). */
-  moreRepeats = () => {
-    if (this.playback.repeat !== "forever" && this.repeatCount < MAX_REPEATS) {
-      return this.setPlayback({ repeat: { count: this.repeatCount + 1 } });
-    }
-  };
-
-  /** The narrow bar's speed button: the next speed (0.5× → 1× → 2× → 4× → 0.5×). */
-  cycleSpeed = () => this.setPlayback({ speed: nextSpeed(this.playback.speed) });
-
-  /** The narrow bar's folded repeat: 1 → 2 → 3 → 5 → 10 → forever → 1. */
-  cycleRepeat = () => {
-    if (!this.view) return;
-    const r = this.playback.repeat;
-    if (r !== "forever") this.lastCounts = { ...this.lastCounts, [this.view.id]: r.count };
-    return this.setPlayback({ repeat: nextRepeat(r) });
   };
 
   // — data file —
@@ -1137,6 +1405,28 @@ export class RelayStore {
     if (latest) saves.failed = !saved;
     if (latest || saves.failed) this.settings = latest && saved ? saved : saves.saved;
   };
+
+  /** Sets one of Relay's keys (null: off). Resolves to why it was refused, or null once it's saved. */
+  setRelayKey = async (key: RelayKey, combo: string | null): Promise<string | null> => {
+    try {
+      const saved = await this.backend.setRelayKey(key, combo);
+      const saves = this.settingsSaves;
+      saves.savedSeq = ++saves.seq;
+      saves.saved = this.settings = saved;
+      return null;
+    } catch (e) {
+      return (e as IpcError)?.message ?? String(e);
+    }
+  };
+
+  /** What to know before using `combo` as a global key, or null. */
+  keyWarning = (combo: string): Promise<string | null> => this.backend.keyWarning(combo).catch(() => null);
+
+  /** A key field listens, or stopped: the hotkeys let go of the keys meanwhile. */
+  holdHotkeys = (on: boolean) => this.backend.holdHotkeys(on).catch(() => {});
+
+  /** The first run is over (finished or skipped): it doesn't show again. */
+  finishIntro = () => this.updateSettings({ intro: "done" });
 
   setAutostart = async (enabled: boolean) => {
     this.autostart = (await this.run(this.backend.setAutostart(enabled))) ?? this.autostart;

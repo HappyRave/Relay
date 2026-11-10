@@ -12,18 +12,20 @@ A recording captures your mouse and keyboard until you stop it. Relay saves it t
 
 ## Start and stop
 
+Your **record key** is <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F9</kbd> unless you chose another (<kbd>F9</kbd> if you upgraded from an older Relay). You can change it, or set it to *None*, in **Settings → Keys**.
+
 | To… | Press |
 | --- | --- |
-| Start recording | <kbd>F9</kbd>, the red **record** button, or **Record** in the tray menu |
-| Stop and keep the recording | <kbd>F9</kbd> again, <kbd>Esc</kbd> (unless you [record Esc](#recording-esc)), or the **stop** button |
-| Cancel the countdown | <kbd>F9</kbd> again or the **stop** button |
-| Stop everything | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd> (the [kill switch](04-playback.md#the-kill-switch)) |
+| Start recording | Your record key, the red **record** button (in the Library, the editor or the player), or **Record** in the tray menu |
+| Stop and keep the recording | Your record key again, <kbd>Esc</kbd> (unless you [record Esc](#recording-esc)), or **■** on the player |
+| Cancel the countdown | Your record key again, or **■** on the player |
+| Stop everything | The kill switch, <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Backspace</kbd> by default (see [The kill switch](04-playback.md#the-kill-switch)) |
 
-With the **3-second countdown** on (the default), a big number counts down over the preview first. Recording starts when it reaches zero.
+Relay's window **steps aside** and the player shows instead, so Relay never covers what you record. With **Count down 3, 2, 1** on (the default), the player says *GET READY* and counts down first. Recording starts when it reaches zero.
 
-<p align="center"><img src="../images/countdown.png" alt="The countdown before a recording" width="600"></p>
+<p align="center"><img src="../images/countdown.png" alt="The player counting down before a recording" width="600"></p>
 
-When you stop, the new macro is named *Recording 1*, *Recording 2* and so on, and goes to the top of the Library.
+When you stop, Relay's window comes back on the new macro, with its name selected so you can type a better one, and says *Recording stopped, 12 steps. Name this macro.* (In [player mode](README.md#which-one-shows), the player shows the new macro instead.) The macro is named *Recording 1*, *Recording 2* and so on until you rename it.
 
 > [!NOTE]
 > A recording with nothing in it (no click, key or scroll, just a twitch of the mouse) is thrown away rather than saved.
@@ -44,30 +46,32 @@ Relay also remembers a little about the recording's context:
 
 - **The window you first clicked in** (the program, its window class and position). Playback uses it for [Window coordinates](04-playback.md#screen-or-window-coordinates).
 - **Your monitor layout and double-click settings**, so steps are grouped the same way you experienced them.
-- **A screenshot of your screen** as the recording starts, so the preview can draw the macro over what you saw. Relay leaves its own widget out of it. It's kept **on this PC only**: exported files never include it. Turn it off with **Settings → Recording → Screenshot**.
+- **A screenshot of your screen** as the recording starts, so the preview can draw the macro over what you saw. Relay leaves its own windows out of it. It's kept **on this PC only**: exported files never include it. Turn it off with **Settings → Recording → Screenshot**.
 
 ## What doesn't get recorded
 
 Relay leaves out anything that would break the macro or loop back into itself:
 
-- **Clicks and scrolls on the Relay widget.** You can press stop or look at the steps without them ending up in the macro. The cursor's trip to the widget is still recorded: it's the last [move](03-editing.md#moves) in the steps, and you can delete it.
-- **Keys typed while Relay's own window is focused.**
-- **<kbd>F9</kbd>**, the key that stops the recording.
+- **Clicks and scrolls on Relay's windows**, the main window and the player. You can press **■** without it ending up in the macro. The cursor's trip to the player is still recorded: it's the last [move](03-editing.md#moves) in the steps, and you can delete it.
+- **Keys typed while one of Relay's windows is in front.**
+- **Your record key**, which stops the recording, and the <kbd>Ctrl</kbd> and <kbd>Shift</kbd> you pressed with it. The same key without them is recorded: with <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F9</kbd> set, <kbd>F9</kbd> alone is.
 - **<kbd>Esc</kbd>**, by default. It stops the recording and is swallowed, so the app you're recording doesn't see it either. You can [record it instead](#recording-esc).
-- **The kill switch** (<kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd>), including the <kbd>Ctrl</kbd> and <kbd>Alt</kbd> you pressed for it.
+- **The kill switch**, including the <kbd>Ctrl</kbd> and <kbd>Alt</kbd> you pressed for it.
 - **Relay's own playback,** always.
 - **Input simulated by other programs,** unless you turn off [Ignore simulated input](#recording-options).
 
+Relay's other keys are let go while you record: your play key, your show the player key and your macros' hotkeys reach the app you're recording, and are recorded like any other key.
+
 ### Recording Esc
 
-Need <kbd>Esc</kbd> in your macro, for example to close a dialog? Turn off **Settings → Recording → Esc stops recording**. <kbd>Esc</kbd> is then recorded like any other key, and you stop the recording with <kbd>F9</kbd> or the stop button. <kbd>Esc</kbd> still stops playback either way.
+Need <kbd>Esc</kbd> in your macro, for example to close a dialog? Turn off **Settings → Recording → Esc stops recording**. <kbd>Esc</kbd> is then recorded like any other key, and you stop the recording with your record key or the player's **■**. <kbd>Esc</kbd> still stops playback either way.
 
 ## While you record
 
-- The steps list fills in as you go, and the preview draws your mouse path live. A move shows up in the list once the next step after it starts; the last one shows up when you stop.
-- The clock shows how long you've been recording, and the transport reads *of recording*.
-- The widget **doesn't take the focus** when you click it during a session, so your keystrokes keep going to the app you're recording.
-- Relay's other hotkeys are released while you record, so <kbd>F10</kbd> and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd> reach the app you're recording like any other key.
+- The player shows *REC*, the macro as *New recording*, how many steps it has so far, and the last one (*Last: Click · 812, 402*).
+- Neither of Relay's windows **takes the focus** when you click it during a session, so your keystrokes keep going to the app you're recording.
+- With **Settings → Sound** on, Relay clicks softly when recording starts, at each new step, and when it stops.
+- With **Settings → Window → Hide the window while recording** off, the window stays where it is and the player doesn't show. The window's red **record** button counts down instead. An open editor then fills in the steps and draws the mouse path as you go. A move shows up in the list once the next step after it starts; the last one shows up when you stop.
 
 If Windows removes Relay's input hook in the middle of a recording (it does this silently to apps it thinks are too slow, for example under heavy load), Relay notices, installs a new one and tells you: *"Windows dropped Relay's input hook; it was restarted. Check the last steps."*
 
@@ -77,20 +81,23 @@ These are in **Settings → Recording** and apply to new recordings.
 
 | Option | Default | What it does |
 | --- | --- | --- |
-| **Capture mouse path** | On | Records the cursor's movement between clicks. Off records only where you clicked, and playback jumps straight there. |
+| **Capture the mouse path** | On | Records the cursor's movement between clicks. Off records only where you clicked, and playback jumps straight there. |
 | **Capture keystrokes** | On | Off records the mouse only. |
 | **Screenshot** | On | Saves a picture of your screen as recording starts, for the [preview](03-editing.md#the-preview). Kept on this PC only, never in exports. |
-| **3-second countdown** | On | Off starts recording the moment you press <kbd>F9</kbd>. |
-| **Esc stops recording** | On | Off records <kbd>Esc</kbd> like any key. Stop with <kbd>F9</kbd> instead. |
-| **Ignore simulated input** | On | Leaves out input other programs generate. **Turn it off for remote-desktop and KVM tools** (such as Synergy, Barrier or some RDP setups): they deliver your real typing as simulated input, and it would be missing otherwise. |
+| **Count down 3, 2, 1** | On | Off starts recording the moment you press your record key. |
+| **Esc stops recording** | On | Off records <kbd>Esc</kbd> like any key. Stop with your record key or the player's **■** instead. |
+| **Ignore simulated input** | On | Leaves out input other programs generate. **Turn it off for Remote Desktop and KVM tools** (such as Synergy or Barrier): they deliver your real typing as simulated input, and it would be missing otherwise. |
+
+**Settings → Window → Hide the window while recording** (on) decides whether the window steps aside. See [Settings](09-settings.md#window).
 
 ## Tips for recordings that replay well
 
 1. **Start from a known state.** Open the window you'll work in, in the same place and size it will be when the macro runs.
 2. **Prefer the keyboard over the mouse** where you can. <kbd>Ctrl</kbd>+<kbd>S</kbd> works wherever the Save button is.
 3. **Don't rush, and don't worry about being slow.** The macro replays your timing. If an app needs a moment to open a dialog, give it that moment while recording, or add a [pixel check](05-pixel-checks.md) afterwards. Pauses where you hesitated can be [shortened](03-editing.md#pauses) later, and slow or shaky mouse moves [sped up or smoothed](03-editing.md#moves).
-4. **Keep the widget out of the way.** Clicks that land on the widget aren't recorded, so drag it aside before you start if you need to click where it is.
-5. **Trim afterwards.** Delete stray clicks, extra steps and the final move to the stop button in the [editor](03-editing.md) rather than recording again.
+4. **Keep the player out of the way.** Clicks that land on it aren't recorded, so drag it aside before you start if you need to click where it is.
+5. **Stop with the key, not the mouse.** Your record key leaves no trip to the player at the end.
+6. **Trim afterwards.** Delete stray clicks and extra steps in the [editor](03-editing.md) rather than recording again.
 
 ## Privacy
 

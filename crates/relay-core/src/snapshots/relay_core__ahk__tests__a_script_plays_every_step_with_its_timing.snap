@@ -1,6 +1,6 @@
 ---
 source: crates/relay-core/src/ahk.rs
-expression: "script(&m, None)"
+expression: "written(\"steps\", script(&m, None))"
 ---
 ; Invoice "run", exported from Relay.
 ; It plays at once, after the countdown: click into the app it works in.
@@ -35,24 +35,24 @@ Loop {
 ExitApp
 
 Play(N) {
-    ; 1. Move
+    ; Move before step 1
     Pause(0, false)
     MouseMove 840, 412
-    ; 2. Click · Save
+    ; 1. Click · Save
     Pause(100)
     Click "840 412"
-    ; 3. Keys · Ctrl + S
+    ; 2. Keys · Ctrl + S
     Pause(300)
     Send "^s"
-    ; 4. Wait 0.7 s · Dialog opens
+    ; 3. Wait 0.7 s · Dialog opens
     Pause(200)
-    ; 5. Pixel check · Ready
+    ; 4. Pixel check · Ready
     Pause(700)
-    WaitPixel(5, 6, 0xEC3013, 8, 5000, 5)
-    ; 6. Text
+    WaitPixel(5, 6, 0xEC3013, 8, 5000, 4)
+    ; 5. Text
     Pause(300)
     SendText "Invoice " . N
-    ; 7. Scroll
+    ; 6. Scroll
     Pause(400)
     Send "{Click 900 600 WheelDown 2}"
     Pause(500)

@@ -11,10 +11,10 @@ How Relay works inside: for contributors, reviewers and anyone curious about bui
 | --- | --- |
 | 1. [Architecture](architecture.md) | The five crates, the exported player, the threads, how a recording and a playback travel through the system, and the design principles |
 | 2. [relay-core](core.md) | The macro model, grouping raw events into steps, edits and their invariants, the file format, playback timing, the session state machine, schedules and trigger edges |
-| 3. [relay-platform](platform.md) | The OS traits, low-level hooks, input injection, the precision timer, window and screen queries, the key map and the recorder |
-| 4. [The app (src-tauri)](app.md) | The coordinator, the playback engine, the recorder thread and watchdog, hotkeys, the trigger runtime, storage, the window and the tray |
-| 5. [IPC](ipc.md) | Every Tauri command, the session stream, generated TypeScript bindings and sequence diagrams |
-| 6. [The frontend](frontend.md) | The Svelte 5 store, the backend abstraction, the browser preview, components, styling and playhead extrapolation |
+| 3. [relay-platform](platform.md) | The OS traits, low-level hooks and the kill switch, input injection, the precision timer, window and screen queries, the picker, the key map and the recorder |
+| 4. [The app (src-tauri)](app.md) | The coordinator, the playback engine, the recorder thread and watchdog, Relay's keys and the hotkeys, the trigger runtime, storage, the two windows and which one shows, the look and the tray |
+| 5. [IPC](ipc.md) | Every Tauri command, the session stream both windows get, generated TypeScript bindings and sequence diagrams |
+| 6. [The frontend](frontend.md) | The Svelte 5 store in each window, the backend abstraction, the browser preview, the component tree, the editor's rows, the look and sounds, and playhead extrapolation |
 | 7. [File formats](file-formats.md) | `.rly`, the JSON export, exported programs, `library.json`, `settings.json`, `window.json` and migrations |
 | 8. [Testing and CI](testing.md) | Unit tests, property tests, snapshots, frontend tests, end-to-end testing against the real app, CI and releases |
 
@@ -26,8 +26,8 @@ How Relay works inside: for contributors, reviewers and anyone curious about bui
 | **App shell** | [Tauri 2](https://tauri.app/) with WebView2 |
 | **UI** | [Svelte 5](https://svelte.dev/) (runes), Vite 8, no UI framework |
 | **OS access** | [`windows`](https://crates.io/crates/windows) crate (Win32), behind traits in `relay-platform` |
-| **Size** | about 4,500 lines in the two library crates, 3,100 in the app, 4,000 in the UI |
-| **Tests** | about 280 Rust tests (including property tests and snapshots), 510 Vitest tests of the store and every component, and 84 end-to-end tests against the real app |
+| **Size** | about 7,700 lines in relay-core and relay-platform, 2,200 in relay-playback and the player, 5,500 in the app, 9,400 in the UI (tests not counted) |
+| **Tests** | about 445 Rust tests (including property tests and snapshots), about 787 Vitest tests of the store and every component, and 131 end-to-end tests against the real app |
 | **Installer** | NSIS, per-user, about 2 MB |
 
 ## Getting set up

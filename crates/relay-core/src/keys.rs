@@ -217,6 +217,58 @@ fn code_for_char(c: char) -> Option<String> {
     key_for_char(c).map(|(code, _)| code)
 }
 
+/// A combo with its modifiers in Relay's order (Ctrl, Alt, Shift, Win), so
+/// "Shift + Ctrl + F9" and "Ctrl + Shift + F9" read the same. `None` if it's incomplete.
+pub fn normalize_combo(combo: &str) -> Option<String> {
+    let parts = split_combo(combo)?;
+    let (key, mods) = parts.split_last()?;
+    let mut mods: Vec<&str> = mods.to_vec();
+    let rank = |m: &&str| ["Ctrl", "Alt", "Shift", "Win"].iter().position(|o| o == m).unwrap_or(4);
+    mods.sort_by_key(rank);
+    mods.dedup();
+    mods.push(key);
+    Some(mods.join(" + "))
+}
+
+/// Keys other software takes or uses, and what setting one costs.
+const TAKEN: [(&str, &str); 10] = [
+    ("F9", "F9 recalculates in Excel and updates fields in Word. While Relay runs, they won't get it."),
+    ("F10", "F10 opens the menu bar in most apps and steps over in debuggers. While Relay runs, they won't get it."),
+    (
+        "Ctrl + Shift + F9",
+        "Ctrl + Shift + F9 unlinks fields in Word, a rare command. Word won't get it while Relay runs.",
+    ),
+    ("Ctrl + Alt + End", "Remote Desktop sends this as Ctrl + Alt + Del. In a remote session, Relay won't get it."),
+    ("Ctrl + Alt + Home", "Remote Desktop uses this for its connection bar. In a remote session, Relay won't get it."),
+    (
+        "Ctrl + Alt + Pause",
+        "Remote Desktop uses this to switch to full screen. In a remote session, Relay won't get it.",
+    ),
+    ("Ctrl + Alt + Ins", "VMware Horizon sends this as Ctrl + Alt + Del. In a Horizon session, Relay won't get it."),
+    ("Ctrl + F1", "Citrix Workspace uses this for Ctrl + Alt + Del. In a Citrix session, Relay won't get it."),
+    ("Ctrl + F3", "Citrix Workspace uses this to open Task Manager. In a Citrix session, Relay won't get it."),
+    ("Ctrl + Alt + Left", "Hyper-V uses this to release the mouse. In a virtual machine's window, Relay won't get it."),
+];
+
+/// What to know before using `combo` as a global key: the character it
+/// types on the current layout (`altgr`, what Ctrl + Alt + its key types
+/// there, which Windows treats as AltGr), or the app that uses it.
+pub fn key_warning(combo: &str, altgr: Option<&str>) -> Option<String> {
+    let combo = normalize_combo(combo)?;
+    let parts = split_combo(&combo)?;
+    let (key, mods) = parts.split_last()?;
+    if let Some(ch) = altgr.filter(|c| !c.trim().is_empty())
+        && mods.contains(&"Ctrl")
+        && mods.contains(&"Alt")
+    {
+        let shift = if mods.contains(&"Shift") { "Shift + " } else { "" };
+        return Some(format!(
+            "{combo} types “{ch}” on your keyboard (AltGr + {shift}{key}). You couldn't type it while this is set."
+        ));
+    }
+    TAKEN.iter().find(|(c, _)| *c == combo).map(|(_, why)| (*why).to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -319,5 +371,48 @@ mod tests {
         for c in (' '..='~').filter(|c| !c.is_ascii_alphanumeric()) {
             assert!(key_for_char(c).is_some(), "{c:?}");
         }
+    }
+
+    #[test]
+    fn combos_read_the_same_whatever_the_order_of_their_modifiers() {
+        assert_eq!(normalize_combo("Shift + Ctrl + F9").as_deref(), Some("Ctrl + Shift + F9"));
+        assert_eq!(normalize_combo("Win + Alt + Ctrl + K").as_deref(), Some("Ctrl + Alt + Win + K"));
+        assert_eq!(normalize_combo("Ctrl + +").as_deref(), Some("Ctrl + +"));
+        assert_eq!(normalize_combo("F9").as_deref(), Some("F9"));
+        assert_eq!(normalize_combo("Ctrl +"), None);
+    }
+
+    #[test]
+    fn a_key_apps_use_comes_with_a_warning() {
+        assert_eq!(
+            key_warning("F9", None).as_deref(),
+            Some("F9 recalculates in Excel and updates fields in Word. While Relay runs, they won't get it.")
+        );
+        assert!(
+            key_warning("Shift + Ctrl + F9", None).unwrap().starts_with("Ctrl + Shift + F9 unlinks fields in Word")
+        );
+        assert!(
+            key_warning("Ctrl + Alt + End", None).unwrap().starts_with("Remote Desktop sends this as Ctrl + Alt + Del")
+        );
+        assert_eq!(key_warning("Ctrl + Alt + Backspace", None), None, "the kill switch's default is free");
+        assert_eq!(key_warning("Ctrl + Shift + F10", None), None);
+    }
+
+    #[test]
+    fn a_combo_that_types_a_character_on_this_layout_says_which() {
+        assert_eq!(
+            key_warning("Ctrl + Alt + 7", Some("{")).as_deref(),
+            Some("Ctrl + Alt + 7 types “{” on your keyboard (AltGr + 7). You couldn't type it while this is set.")
+        );
+        assert_eq!(
+            key_warning("Ctrl + Alt + Shift + 2", Some("²")).as_deref(),
+            Some(
+                "Ctrl + Alt + Shift + 2 types “²” on your keyboard (AltGr + Shift + 2). You couldn't type it while this is set."
+            )
+        );
+        // Without both Ctrl and Alt it isn't AltGr; nothing typed (US) is fine.
+        assert_eq!(key_warning("Ctrl + Shift + 7", Some("&")), None);
+        assert_eq!(key_warning("Ctrl + Alt + 7", Some(" ")), None);
+        assert_eq!(key_warning("Ctrl + Alt + 7", None), None);
     }
 }

@@ -110,7 +110,7 @@ describe("exported programs", () => {
     const { imported } = await page.invoke("import_macros", { paths: [path] });
     await assert.rejects(
       page.invoke("export_macro", { id: imported[0], format: "exe", path: join(app.path("exports"), "typing.exe") }),
-      (e) => e.code === "data_file" && e.message === "A Text step types {col:Customer}: choose a data file in Settings → Playback.",
+      (e) => e.code === "data_file" && e.message === "A Text step types {col:Customer}: choose a data file in the macro's play options.",
     );
   });
 

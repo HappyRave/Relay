@@ -19,7 +19,7 @@ impl PlayPlan {
         from: Ms,
         seed: u64,
         offset: (i32, i32),
-        own_window: isize,
+        own: relay_platform::OwnWindows,
     ) -> PlayPlan {
         PlayPlan {
             duration: timeline::duration(&m.events),
@@ -33,7 +33,7 @@ impl PlayPlan {
             seed,
             offset,
             from,
-            own_window,
+            own,
             steps: group_steps(&m.events, (&m.recording).into()),
             events: m.events,
         }
@@ -91,10 +91,10 @@ mod tests {
         m.playback.speed = 2.0;
         m.playback.jitter_ms = 40;
         m.playback.humanize = false;
-        let plan = PlayPlan::for_macro(m.clone(), None, 10, 7, (5, 6), 42);
+        let plan = PlayPlan::for_macro(m.clone(), None, 10, 7, (5, 6), [42, 43]);
         assert_eq!(
-            (plan.repeat, plan.speed, plan.jitter_ms, plan.seed, plan.offset, plan.from, plan.own_window),
-            (Repeat::Count(3), 2.0, 0, 7, (5, 6), 10, 42),
+            (plan.repeat, plan.speed, plan.jitter_ms, plan.seed, plan.offset, plan.from, plan.own),
+            (Repeat::Count(3), 2.0, 0, 7, (5, 6), 10, [42, 43]),
             "no jitter without Humanize"
         );
         assert_eq!(plan.duration, timeline::duration(&m.events));
@@ -102,7 +102,7 @@ mod tests {
         assert_eq!(plan.events, m.events);
 
         m.playback.humanize = true;
-        assert_eq!(PlayPlan::for_macro(m.clone(), None, 0, 0, (0, 0), 0).jitter_ms, 40);
+        assert_eq!(PlayPlan::for_macro(m.clone(), None, 0, 0, (0, 0), [0, 0]).jitter_ms, 40);
         assert_eq!(plan.data, None);
     }
 
@@ -117,7 +117,7 @@ Globex
 Initech",
         )
         .unwrap();
-        let plan = PlayPlan::for_macro(m, Some(data.clone()), 0, 0, (0, 0), 0);
+        let plan = PlayPlan::for_macro(m, Some(data.clone()), 0, 0, (0, 0), [0, 0]);
         assert_eq!(plan.repeat, Repeat::Count(3));
         assert_eq!(plan.data.as_deref(), Some(&data));
     }

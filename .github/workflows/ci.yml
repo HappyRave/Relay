@@ -99,7 +99,7 @@ jobs:
       - name: Generated files are up to date
         shell: bash
         run: |
-          changed=$(git status --porcelain -- src/lib/ipc/bindings src/lib/dev src/test/path-cases.json)
+          changed=$(git status --porcelain -- src/lib/ipc/bindings src/lib/dev src/test/path-cases.json e2e/samples.json)
           [ -z "$changed" ] || { echo "$changed"; echo "::error::cargo test changed generated files: commit them"; exit 1; }
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Build the installer

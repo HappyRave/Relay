@@ -1,7 +1,9 @@
 // The store: what each action sends to Rust, how engine messages change the
 // UI state, and the guards (busy sessions, stale responses, failed saves).
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { invoke } from "@tauri-apps/api/core";
 import { core, freshStore, nextFrame, settle } from "../../test/app";
+import { stepRows } from "../editor/rows";
 import { defaultTriggers } from "../../test/fake-core";
 import { DEFAULT_SETTINGS } from "../defaults";
 import { browserBackend } from "../ipc/backend";
@@ -15,6 +17,7 @@ const session = (mode: "idle" | "countdown" | "recording" | "playing" | "paused"
   type: "session",
   mode,
   macro_id,
+  source: null,
 });
 const key = (k: string, init: KeyboardEventInit = {}, target: EventTarget = window) =>
   target.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, ...init }));
@@ -33,7 +36,9 @@ describe("startup", () => {
       "window_prefs",
       "subscribe_engine",
       "get_settings",
+      "system_look",
       "list_macros",
+      "list_runs",
       "load_macro",
       "screenshot",
       "get_triggers",
@@ -43,16 +48,43 @@ describe("startup", () => {
     expect(core.lastArgs("load_macro")).toEqual({ id: A });
     expect(r.ready).toBe(true);
     expect(r.name).toBe("Export invoice to PDF");
-    expect(r.tab).toBe("steps");
+    expect(r.inspector).toBe("step");
+    expect(r.place).toBe("library");
   });
 
-  test("opens in the mode the widget was left in", async () => {
-    core.reset();
-    core.window.expanded = false;
+  test("with only one macro, it opens that macro", async () => {
     const r = await freshStore({ init: false });
-    core.window.expanded = false;
+    for (const id of [B, C, D]) await invoke("delete_macro", { id });
     await r.init();
-    expect(r.expanded).toBe(false);
+    expect(r.place).toBe("macro");
+    expect(r.view?.id).toBe(A);
+  });
+
+  test("with none, the Library", async () => {
+    const r = await freshStore({ init: false });
+    for (const id of [A, B, C, D]) await invoke("delete_macro", { id });
+    await r.init();
+    expect(r.place).toBe("library");
+    expect(r.view).toBeNull();
+  });
+
+  test("Windows' look comes from Rust, and follows its changes", async () => {
+    core.reset();
+    core.look = { glass_default: false, transparency: true };
+    const r = await freshStore({ init: false });
+    core.look = { glass_default: false, transparency: true };
+    await r.init();
+    expect(r.systemLook).toEqual({ glass_default: false, transparency: true });
+    core.emit({ type: "system_look", look: { glass_default: false, transparency: false } });
+    expect(r.systemLook).toEqual({ glass_default: false, transparency: false });
+  });
+
+  test("knows whether the player stood in for the window last time", async () => {
+    core.reset();
+    const r = await freshStore({ init: false });
+    core.window.player_mode = true;
+    await r.init();
+    expect(r.playerMode).toBe(true);
   });
 
   test("an error Rust reported before the UI subscribed is shown, and the rest still loads", async () => {
@@ -297,12 +329,18 @@ describe("engine messages", () => {
     expect(core.argsOf("load_macro")).toEqual([{ id: C }]);
     expect(relay.name).toBe("Batch rename photos");
     expect(relay.steps).toHaveLength(11);
+    expect(relay.place).toBe("macro");
+    // Ready to be named, and said so (its moves aren't steps you count).
+    expect(relay.naming).toBe(C);
+    const n = relay.steps.filter((s) => s.kind !== "move").length;
+    expect(relay.toast?.message).toBe(`Recording stopped, ${n} steps. Name this macro.`);
   });
 
   test("a save arriving when already idle opens the macro at once", async () => {
     core.emit({ type: "saved", id: B });
     await settle();
     expect(relay.view?.id).toBe(B);
+    expect(relay.place).toBe("macro");
   });
 
   test("play ticks move the playhead, extrapolated between ticks", async () => {
@@ -324,11 +362,90 @@ describe("engine messages", () => {
     expect(relay.cur).toBe(3456);
   });
 
-  test("a playback started by a trigger opens its macro", async () => {
-    core.emit(session("playing", D));
+  test("a playback a trigger started on another macro: the window keeps its macro, and doesn't follow the run", async () => {
+    relay.start();
+    relay.cur = 1200;
+    // The engine's first tick comes before the session message.
+    core.emit({ type: "play_tick", t: 5, advancing: true, speed: 1, loop_idx: 0, loops: 3 });
+    core.emit({ type: "session", mode: "playing", macro_id: D, source: "schedule" });
+    await nextFrame();
+    await nextFrame();
+    core.emit({ type: "play_tick", t: 4000, advancing: false, speed: 1, loop_idx: 1, loops: 3 });
     await settle();
-    expect(core.argsOf("load_macro")).toEqual([{ id: D }]);
-    expect(relay.view?.id).toBe(D);
+    expect(core.argsOf("load_macro")).toEqual([]);
+    expect(relay.view?.id).toBe(A);
+    expect([relay.playingId, relay.runSource, relay.playingHere, relay.playingElsewhere]).toEqual([D, "schedule", false, true]);
+    expect([relay.cur, relay.loopIdx]).toEqual([1200, 0]);
+    core.emit({ type: "finished", reason: "pixel_timeout", timing: null });
+    core.emit(session("idle", D));
+    expect([relay.cur, relay.failedStep, relay.finishes]).toEqual([1200, -1, 0]);
+    expect([relay.playingId, relay.runSource]).toEqual([null, null]);
+  });
+
+  test("in the player, a playback of another macro shows that macro", async () => {
+    const r = await freshStore({ init: false });
+    r.role = "player";
+    await r.init();
+    core.emit({ type: "session", mode: "playing", macro_id: D, source: "hotkey" });
+    await settle();
+    expect(r.view?.id).toBe(D);
+    expect(r.playingHere).toBe(true);
+    r.dispose();
+  });
+
+  test("the player shows its macro as saved when it shows: a run starting, player mode turning on", async () => {
+    const r = await freshStore({ init: false });
+    r.role = "player";
+    await r.init();
+    const id = r.view!.id;
+    await relay.openMacro(id);
+    const length = r.duration;
+    await relay.setPause(1, relay.steps[1].pause + 2000);
+    await settle();
+    expect(r.duration).toBe(length); // edits in the window don't reach it
+    core.emit({ type: "player_mode", on: true });
+    await settle();
+    expect(r.duration).toBe(length + 2000);
+    await relay.setPause(1, relay.steps[1].pause + 1000);
+    core.emit({ type: "session", mode: "playing", macro_id: id, source: "manual" });
+    await settle();
+    expect(r.duration).toBe(length + 3000);
+    core.clearCalls();
+    core.emit({ type: "session", mode: "paused", macro_id: id, source: "manual" });
+    core.emit({ type: "session", mode: "playing", macro_id: id, source: "manual" });
+    await settle();
+    expect(core.argsOf("load_macro")).toEqual([]); // pausing isn't showing again
+    r.dispose();
+  });
+
+  test("a macro opened in the other window, or by Relay, is opened here too while idle", async () => {
+    core.emit({ type: "current", macro_id: B, by: "player" });
+    await settle();
+    expect(relay.view?.id).toBe(B);
+    core.emit({ type: "current", macro_id: C, by: null });
+    await settle();
+    expect(relay.view?.id).toBe(C);
+    // This window's own, the one open, or during a session: nothing to do.
+    core.clearCalls();
+    core.emit({ type: "current", macro_id: D, by: "main" });
+    core.emit({ type: "current", macro_id: C, by: "player" });
+    core.emit(session("playing", C));
+    core.emit({ type: "current", macro_id: D, by: "player" });
+    await settle();
+    expect(core.argsOf("load_macro")).toEqual([]);
+  });
+
+  test("the window opens the macro the player asks for; the player doesn't", async () => {
+    core.emit({ type: "open", macro_id: C });
+    await settle();
+    expect([relay.place, relay.view?.id]).toEqual(["macro", C]);
+    const r = await freshStore({ init: false });
+    r.role = "player";
+    await r.init();
+    core.emit({ type: "open", macro_id: D });
+    await settle();
+    expect(r.view?.id).not.toBe(D);
+    r.dispose();
   });
 
   test.each([
@@ -388,11 +505,11 @@ describe("engine messages", () => {
     expect(relay.triggersPaused).toBe(false);
   });
 
-  test("Ctrl + Shift + M switches between compact and expanded", () => {
-    core.emit({ type: "toggle_compact" });
-    expect(relay.expanded).toBe(false);
-    core.emit({ type: "toggle_compact" });
-    expect(relay.expanded).toBe(true);
+  test("player mode follows Rust (Ctrl + Shift + M, or either window's key)", () => {
+    core.emit({ type: "player_mode", on: true });
+    expect(relay.playerMode).toBe(true);
+    core.emit({ type: "player_mode", on: false });
+    expect(relay.playerMode).toBe(false);
   });
 
   test("errors and notices become toasts", () => {
@@ -478,9 +595,146 @@ describe("toasts", () => {
   });
 });
 
+describe("the editor", () => {
+  test("selecting steps moves the playhead to the one the inspector shows", () => {
+    relay.inspector = "macro";
+    relay.select([4, 1, 4], 4);
+    expect(relay.selection).toEqual([1, 4]);
+    expect(relay.selected).toBe(4);
+    expect(relay.cur).toBe(relay.steps[4].t);
+    expect(relay.inspector).toBe("step");
+    relay.select([]);
+    expect([relay.selection, relay.selected]).toEqual([[], -1]);
+  });
+
+  test("the selection follows its steps across an edit before them", async () => {
+    relay.select([4, 6], 6);
+    await relay.edit({ op: "delete_step", index: 0 });
+    expect(relay.selection).toEqual([3, 5]);
+    expect(relay.selected).toBe(5);
+  });
+
+  test("deleting rows deletes their moves too, in one undo, and says so", async () => {
+    const rows = stepRows(relay.steps, false);
+    await relay.deleteRows([rows[0], rows[3]]);
+    expect(core.lastArgs("edit_macro")).toEqual({
+      id: A,
+      op: { op: "batch", ops: [6, 5, 1, 0].map((index) => ({ op: "delete_step", index })) },
+    });
+    // Two rows fewer (the moves that led to them may join the ones around them).
+    expect(stepRows(relay.steps, false)).toHaveLength(10);
+    expect(relay.toast).toMatchObject({ kind: "info", message: "Deleted 2 steps" });
+    relay.toast!.action!.run();
+    await settle();
+    expect(relay.steps).toHaveLength(18);
+  });
+
+  test("pauses, labels and Make editable for several steps, each in one undo", async () => {
+    await relay.setPauses([1, 3], 300);
+    expect(core.lastArgs("edit_macro")?.op).toEqual({
+      op: "batch",
+      ops: [1, 3].map((index) => ({ op: "set_pause", index, dur: 300 })),
+    });
+    // Keys and typing take no label.
+    await relay.setLabels([1, 7, 8], "Done");
+    expect(core.lastArgs("edit_macro")?.op).toEqual({ op: "set_label", index: 1, label: "Done" });
+    await relay.makeAllEditable([1, 8]);
+    expect(core.lastArgs("edit_macro")?.op).toEqual({ op: "make_editable", index: 8 });
+    expect(relay.steps[8].kind).toBe("text");
+  });
+
+  test("an edit says it's saved", async () => {
+    expect(relay.saves).toBe(0);
+    await relay.edit({ op: "set_label", index: 1, label: "Menu" });
+    expect(relay.saves).toBe(1);
+  });
+
+  test("Ctrl + M opens the Macro tab, in the editor", () => {
+    relay.start();
+    key("m", { ctrlKey: true });
+    expect(relay.inspector).toBe("step");
+    relay.place = "macro";
+    key("m", { ctrlKey: true });
+    expect(relay.inspector).toBe("macro");
+  });
+
+  test("the view opens closed for a macro without mouse steps", async () => {
+    expect(relay.viewOpen).toBe(true);
+    const keysOnly = { ...core.view(B), steps: core.view(B).steps.filter((st) => st.kind === "keys" || st.kind === "type") };
+    core.on("load_macro", () => keysOnly);
+    await relay.loadMacro(B);
+    expect(relay.viewOpen).toBe(false);
+  });
+
+  test("a pixel check that timed out is the failed step until the next run or edit", async () => {
+    relay.seek(relay.steps[11].t + 100);
+    core.emit(session("playing"));
+    core.emit({ type: "finished", reason: "pixel_timeout", timing: null });
+    expect(relay.failedStep).toBe(11);
+    core.emit(session("idle"));
+    core.emit(session("playing"));
+    expect(relay.failedStep).toBe(-1);
+    core.emit({ type: "finished", reason: "pixel_timeout", timing: null });
+    core.emit(session("idle"));
+    await settle();
+    await relay.edit({ op: "set_label", index: 1, label: "Menu" });
+    expect(relay.failedStep).toBe(-1);
+  });
+});
+
+describe("places", () => {
+  test("opening a macro from the Library goes to it; Back and Alt + ← come back", async () => {
+    await relay.openMacro(B);
+    expect(relay.place).toBe("macro");
+    expect(relay.view?.id).toBe(B);
+    relay.back();
+    expect(relay.place).toBe("library");
+    relay.go("settings");
+    relay.start();
+    key("ArrowLeft", { altKey: true });
+    expect(relay.place).toBe("library");
+    // Not from the editor during a session, where its Back is off too.
+    relay.go("macro");
+    core.emit(session("playing", B));
+    key("ArrowLeft", { altKey: true });
+    expect(relay.place).toBe("macro");
+  });
+
+  test("opening the macro already open loads nothing", async () => {
+    await relay.openMacro(A);
+    expect(core.commands()).toEqual([]);
+    expect(relay.place).toBe("macro");
+  });
+
+  test("Alt + ← in a text field moves the caret, not the window", async () => {
+    relay.start();
+    relay.go("settings");
+    const input = document.body.appendChild(document.createElement("input"));
+    try {
+      key("ArrowLeft", { altKey: true }, input);
+      expect(relay.place).toBe("settings");
+    } finally {
+      input.remove();
+    }
+  });
+
+  test("a macro that fails to load isn't gone to", async () => {
+    core.fail("load_macro", "no macro with id x", "not_found");
+    await relay.openMacro(B);
+    expect(relay.place).toBe("library");
+    expect(relay.error).toBe("no macro with id x");
+  });
+
+  test("macros can't be opened during a session", async () => {
+    core.emit(session("playing"));
+    await relay.openMacro(B);
+    expect(relay.place).toBe("library");
+  });
+});
+
 describe("library", () => {
-  test("opening a macro loads it, its triggers and data file, on the Steps tab", async () => {
-    relay.tab = "library";
+  test("opening a macro loads it, its triggers and data file, on the Step tab", async () => {
+    relay.inspector = "macro";
     relay.cur = 3000;
     await relay.loadMacro(B);
     expect(core.calls).toEqual([
@@ -491,7 +745,7 @@ describe("library", () => {
     ]);
     expect(relay.view?.id).toBe(B);
     expect(relay.triggers?.hotkey.combo).toBe("Ctrl + Alt + 2");
-    expect(relay.tab).toBe("steps");
+    expect(relay.inspector).toBe("step");
     expect(relay.cur).toBe(0);
   });
 
@@ -582,13 +836,13 @@ describe("library", () => {
     expect(relay.dataFile).toBeNull();
   });
 
-  test("Duplicate opens the copy in the Library tab", async () => {
+  test("Duplicate loads the copy, staying in the Library", async () => {
     await relay.duplicateMacro(A);
     expect(core.commands()).toEqual(["duplicate_macro", "list_macros", "load_macro", "screenshot", "get_triggers", "get_data_file"]);
     expect(relay.library.map((m) => m.name).slice(0, 2)).toEqual(["Export invoice to PDF", "Export invoice to PDF (copy)"]);
     expect(relay.view?.id).toBe(relay.library[1].id);
     expect(relay.name).toBe("Export invoice to PDF (copy)");
-    expect(relay.tab).toBe("library");
+    expect(relay.place).toBe("library");
   });
 
   test("a failed duplicate changes nothing", async () => {
@@ -603,7 +857,7 @@ describe("library", () => {
     expect(core.commands()).toEqual(["delete_macro", "list_macros", "load_macro", "screenshot", "get_triggers", "get_data_file"]);
     expect(core.argsOf("delete_macro")).toEqual([{ id: A }]);
     expect(relay.view?.id).toBe(B);
-    expect(relay.tab).toBe("library");
+    expect(relay.place).toBe("library");
     expect(relay.toast).toMatchObject({ kind: "info", message: "Moved “Export invoice to PDF” to the trash" });
 
     core.clearCalls();
@@ -617,7 +871,7 @@ describe("library", () => {
   });
 
   test("deleting another macro keeps the open one, and so does its Undo", async () => {
-    relay.tab = "triggers";
+    relay.inspector = "macro";
     await relay.deleteMacro(C);
     expect(core.commands()).toEqual(["delete_macro", "list_macros"]);
     expect(relay.view?.id).toBe(A);
@@ -628,7 +882,7 @@ describe("library", () => {
     expect(core.commands()).toEqual(["restore_macro", "list_macros"]);
     expect(relay.library.map((m) => m.id)).toEqual([A, B, C, D]);
     expect(relay.view?.id).toBe(A);
-    expect(relay.tab).toBe("triggers");
+    expect(relay.inspector).toBe("macro");
   });
 
   test("a macro whose hotkey was taken while it was in the trash comes back with it off, and says so", async () => {
@@ -656,7 +910,7 @@ describe("library", () => {
     expect(relay.library).toEqual([]);
     expect(relay.view).toBeNull();
     expect(relay.screenUrl).toBeNull(); // its screenshot goes with it
-    expect(relay.triggerStatus).toBeNull(); // nothing for the Triggers tab to write to
+    expect(relay.triggerStatus).toBeNull(); // nothing for the Macro tab to write to
   });
 
   test("a refused delete (a session is running) is explained and nothing moves", async () => {
@@ -665,6 +919,33 @@ describe("library", () => {
     expect(core.commands()).toEqual(["delete_macro"]);
     expect(relay.toast).toMatchObject({ kind: "error", message: "Stop the recording or playback first" });
     expect(relay.view?.id).toBe(A);
+  });
+
+  test("deleting several stops at the first refusal, and offers Undo for those that went", async () => {
+    relay.libSelection = [B, C, D];
+    await relay.deleteMacros([A, B]);
+    expect(core.argsOf("delete_macro")).toEqual([{ id: A }, { id: B }]);
+    expect(relay.view?.id).toBe(C); // the open one went: the first left opens
+    expect(relay.libSelection).toEqual([C, D]);
+    expect(relay.toast).toMatchObject({ message: "Moved 2 macros to the trash" });
+
+    core.fail("delete_macro", "Stop the recording or playback first", "busy");
+    await relay.deleteMacros([C, D]);
+    expect(core.argsOf("delete_macro")).toHaveLength(3);
+    expect(relay.toast).toMatchObject({ kind: "error", message: "Stop the recording or playback first" });
+    expect(relay.library.map((m) => m.id)).toEqual([C, D]);
+  });
+
+  test("Play from the Library plays that macro from the start, and Open at step opens it on the step", async () => {
+    relay.seek(4000);
+    await relay.playMacro(C);
+    expect(relay.view?.id).toBe(C);
+    expect(core.lastArgs("toggle_play")).toEqual({ from: 0 });
+    core.emit(session("idle", C));
+    await relay.openAt(A, 8, true); // the pixel check: step 8 of 12, its index 11 with the moves
+    expect([relay.place, relay.view?.id, relay.selection, relay.failedStep]).toEqual(["macro", A, [11], 11]);
+    await relay.openAt(A, 99);
+    expect(relay.selection).toEqual([11]); // no such step: nothing selected anew
   });
 
   test("a failed restore is shown", async () => {
@@ -688,7 +969,7 @@ describe("library", () => {
       expect(relay.library.map((m) => m.name).slice(0, 3)).toEqual(["one", "two", "Export invoice to PDF"]);
       expect(relay.view?.id).toBe(relay.library[0].id); // the first imported, at the top
       expect(relay.name).toBe("one");
-      expect(relay.tab).toBe("library");
+      expect(relay.place).toBe("library");
       expect(relay.toast).toMatchObject({ kind: "info", message: "Imported 2 macros" });
     });
 
@@ -757,7 +1038,7 @@ describe("step edits", () => {
     await vi.advanceTimersByTimeAsync(1000);
     expect(core.commands()).toEqual([]);
     expect(relay.name).toBe("Export invoice to PDF");
-    expect(relay.picking).toBe(0);
+    expect(relay.picking).toBe(false);
   });
 
   test("an edit response for a macro the user left is dropped", async () => {
@@ -1080,29 +1361,36 @@ describe("undo and redo", () => {
   });
 });
 
-describe("Pick (pixel under the real cursor)", () => {
-  beforeEach(() => vi.useFakeTimers());
+describe("Pick from screen (the picker)", () => {
   const pixelStep = 11;
 
-  test("counts down 3 s, then points the pixel check there", async () => {
+  test("Relay waits for the picker, then points the pixel check at what was picked, and says so", async () => {
     core.hold("pick_pixel");
     const picking = relay.pickPixel(pixelStep);
     await settle();
-    expect(core.argsOf("pick_pixel")).toEqual([{ delayMs: 3000 }]);
-    expect(relay.picking).toBe(3);
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(relay.picking).toBe(2);
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(relay.picking).toBe(1);
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(relay.picking).toBe(1); // never shows 0 while waiting
-    core.held[0].resolve({ x: 5, y: 6, color: "#0000FF" });
+    expect(core.argsOf("pick_pixel")).toEqual([{}]);
+    expect(relay.picking).toBe(true);
+    core.held[0].resolve({ x: 5, y: 6, color: "#0000FF", frozen: false });
     await picking;
-    expect(relay.picking).toBe(0);
+    expect(relay.picking).toBe(false);
     expect(core.lastArgs("edit_macro")).toEqual({
       id: A,
       op: { op: "update_pixel_wait", index: pixelStep, x: 5, y: 6, color: "#0000FF", tolerance: 8, timeout_ms: 5000 },
     });
+    expect(relay.toast?.message).toBe("Picked 5, 6 · #0000FF");
+  });
+
+  test("picked from the frozen screen, it says so", async () => {
+    core.picked = { x: 566, y: 66, color: "#FFC21A", frozen: true };
+    await relay.pickPixel(pixelStep);
+    expect(relay.toast?.message).toBe("Picked 566, 66 · #FFC21A from the frozen screen");
+  });
+
+  test("cancelled (Esc), nothing changes and nothing is said", async () => {
+    core.picked = null;
+    await relay.pickPixel(pixelStep);
+    expect(core.argsOf("edit_macro")).toEqual([]);
+    expect([relay.picking, relay.toasts]).toEqual([false, []]);
   });
 
   test("a second Pick while one is running is ignored", async () => {
@@ -1123,7 +1411,7 @@ describe("Pick (pixel under the real cursor)", () => {
     core.held[0].resolve(core.picked);
     await p;
     expect(core.argsOf("edit_macro")).toEqual([]);
-    expect(relay.picking).toBe(0);
+    expect(relay.picking).toBe(false);
   });
 
   test("Pick on a step that isn't a pixel check does nothing", async () => {
@@ -1135,7 +1423,7 @@ describe("Pick (pixel under the real cursor)", () => {
     ["deleted", { op: "delete_step", index: pixelStep }],
     ["moved by a deletion before it", { op: "delete_step", index: 0 }],
     ["moved by an insertion before it", { op: "insert_wait", at: 0, dur: 500, label: "" }],
-  ] as const)("if the pixel check was %s during the countdown, nothing is changed", async (_what, op) => {
+  ] as const)("if the pixel check was %s while picking, nothing is changed", async (_what, op) => {
     core.hold("pick_pixel");
     const p = relay.pickPixel(pixelStep);
     await settle();
@@ -1144,13 +1432,13 @@ describe("Pick (pixel under the real cursor)", () => {
     core.held[0].resolve(core.picked);
     await p;
     expect(core.argsOf("edit_macro")).toEqual([]);
-    expect(relay.picking).toBe(0);
+    expect(relay.picking).toBe(false);
   });
 
-  test("a failed pick is shown and the countdown ends", async () => {
+  test("a refused pick is shown, and picking ends", async () => {
     core.fail("pick_pixel", "The screen can't be read");
     await relay.pickPixel(pixelStep);
-    expect(relay.picking).toBe(0);
+    expect(relay.picking).toBe(false);
     expect(relay.error).toBe("The screen can't be read");
   });
 
@@ -1404,10 +1692,19 @@ describe("export", () => {
 });
 
 describe("keyboard", () => {
-  beforeEach(() => relay.start());
+  beforeEach(() => {
+    relay.start();
+    relay.go("macro");
+  });
 
   test("Ctrl + Z undoes, Ctrl + Y and Ctrl + Shift + Z redo", async () => {
     await relay.edit({ op: "delete_step", index: 0 });
+    relay.go("library");
+    key("z", { ctrlKey: true });
+    key("y", { ctrlKey: true });
+    await settle();
+    expect(core.argsOf("undo_edit")).toEqual([]); // only where the macro shows
+    relay.go("macro");
     key("z", { ctrlKey: true });
     await settle();
     key("y", { ctrlKey: true });
@@ -1483,7 +1780,7 @@ describe("keyboard", () => {
     key("m", { ctrlKey: true, shiftKey: true });
     await settle();
     expect(core.commands()).toEqual([]);
-    expect(relay.expanded).toBe(true);
+    expect(relay.playerMode).toBe(false);
   });
 
   test("dispose stops listening", async () => {
@@ -1517,8 +1814,8 @@ describe("the browser preview (npm run dev)", () => {
     expect(r.toast).toBeNull(); // nothing tried the missing IPC
   });
 
-  test("F10 plays and Esc stops", async () => {
-    key("F10");
+  test("the play key plays and Esc stops", async () => {
+    key("F10", { code: "F10", ctrlKey: true, shiftKey: true });
     await settle();
     expect(r.mode).toBe("playing");
     key("Escape");
@@ -1526,15 +1823,19 @@ describe("the browser preview (npm run dev)", () => {
     expect(r.mode).toBe("idle");
   });
 
-  test("F9 starts the countdown and Ctrl + Shift + M toggles the compact player", async () => {
-    key("F9");
+  test("the record key starts the countdown and the player key toggles the player, as set", async () => {
+    key("F9", { code: "F9" });
+    await settle();
+    expect(r.mode).toBe("idle"); // not Relay's key here
+    key("F9", { code: "F9", ctrlKey: true, shiftKey: true });
     await settle();
     expect(r.mode).toBe("countdown");
     key("Escape");
     await settle();
     expect(r.mode).toBe("idle");
     key("M", { ctrlKey: true, shiftKey: true });
-    expect(r.expanded).toBe(false);
+    await settle();
+    expect(r.playerMode).toBe(true);
   });
 
   test("edits explain that they need the app", async () => {
@@ -1552,4 +1853,104 @@ describe("the browser preview (npm run dev)", () => {
 
 test("the store is on window.__relay for debugging and end-to-end tests", () => {
   expect((window as unknown as { __relay: RelayStore }).__relay).toBe(relay);
+});
+
+describe("Relay's keys and the first run", () => {
+  test("setting a key resolves to why Relay refused it, without an error message", async () => {
+    expect(await relay.setRelayKey("record", "F8")).toBeNull();
+    expect(relay.settings.keys.record).toBe("F8");
+    expect(await relay.setRelayKey("play", "F8")).toBe("F8 is already Relay's “Record” key");
+    expect(relay.settings.keys.play).toBe("Ctrl + Shift + F10");
+    expect(relay.toasts).toEqual([]);
+  });
+
+  test("a warning comes from Rust, and none when it can't say", async () => {
+    expect(await relay.keyWarning("F10")).toMatch(/^F10 opens the menu bar/);
+    core.on("key_warning", () => Promise.reject({ code: "io", message: "x" }));
+    expect(await relay.keyWarning("F10")).toBeNull();
+  });
+
+  test("the first run shows until it's done, once the settings say", async () => {
+    const r = await freshStore({ init: false });
+    expect(r.showsIntro).toBe(false); // not before Rust answers
+    await r.init();
+    expect(r.showsIntro).toBe(true);
+    await r.finishIntro();
+    expect([r.showsIntro, core.settings.intro]).toEqual([false, "done"]);
+    r.openSettings("keys");
+    expect([r.place, r.settingsSection]).toEqual(["settings", "keys"]);
+  });
+
+  test("key fields hold the hotkeys while they listen", async () => {
+    await relay.holdHotkeys(true);
+    expect(core.hotkeysHeld).toBe(true);
+    await relay.holdHotkeys(false);
+    expect(core.lastArgs("hold_hotkeys")).toEqual({ on: false });
+  });
+});
+
+describe("sounds", () => {
+  const heard = () => {
+    const names: string[] = [];
+    relay.soundPlayer = (n) => void names.push(n);
+    return names;
+  };
+
+  test("off by default: nothing plays", async () => {
+    const names = heard();
+    core.emit(session("recording", null));
+    core.emit(session("idle", null));
+    expect(names).toEqual([]);
+  });
+
+  test("recording starts and stops, a step is recorded, a run finishes, fails or is stopped", async () => {
+    await relay.updateSettings({ sounds: true });
+    const names = heard();
+    core.emit(session("countdown", null));
+    core.emit(session("recording", null));
+    const step = relay.view!.steps[0];
+    const desktop = { x: 0, y: 0, w: 1920, h: 1080 };
+    core.emit({ type: "rec_progress", elapsed_ms: 100, desktop, moves: [], steps: [step] });
+    core.emit({ type: "rec_progress", elapsed_ms: 200, desktop, moves: [], steps: [step] });
+    core.emit(session("idle", null));
+    expect(names).toEqual(["record", "step", "stop"]);
+    names.length = 0;
+    for (const reason of ["completed", "pixel_timeout", "error", "stopped", "killed"] as const) {
+      core.emit(session("playing"));
+      core.emit({ type: "finished", reason, timing: null });
+      core.emit(session("idle"));
+    }
+    expect(names).toEqual(["done", "error", "error", "stop", "stop"]);
+  });
+
+  test("only the main window plays them", async () => {
+    const r = await freshStore({ init: false, settings: { sounds: true } });
+    r.role = "player";
+    await r.init();
+    const names: string[] = [];
+    r.soundPlayer = (n) => void names.push(n);
+    core.emit(session("recording", null));
+    expect(names).toEqual([]);
+    r.dispose();
+  });
+
+  test("Try plays one, whatever the setting", () => {
+    const names = heard();
+    relay.trySound("done");
+    expect(names).toEqual(["done"]);
+  });
+});
+
+describe("settings saved in the other window", () => {
+  test("are shown here, unless a change here is still being saved", async () => {
+    core.emit({ type: "settings", settings: { ...relay.settings, player_size: "large" } });
+    expect(relay.settings.player_size).toBe("large");
+    core.hold("update_settings");
+    const mine = relay.updateSettings({ theme: "dark" });
+    core.emit({ type: "settings", settings: { ...relay.settings, theme: "light", player_size: "compact" } });
+    expect(relay.settings.theme).toBe("dark");
+    core.held[0].resolve({ ...relay.settings });
+    await mine;
+    expect(relay.settings.theme).toBe("dark");
+  });
 });
