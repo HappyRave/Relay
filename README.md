@@ -19,7 +19,7 @@
 
 <p align="center">
   <a href="https://github.com/HappyRave/Relay/releases"><b>Download</b></a> ·
-  <a href="docs/user-guide/01-getting-started.md"><b>Get started</b></a> ·
+  <a href="docs/user-guide/getting-started.md"><b>Get started</b></a> ·
   <a href="docs/user-guide/README.md">User guide</a> ·
   <a href="docs/engineering/README.md">Engineering guide</a>
 </p>
@@ -64,7 +64,7 @@ Get the [latest release](https://github.com/HappyRave/Relay/releases) in one of 
 > [!NOTE]
 > Neither is code-signed yet. If SmartScreen says *"Windows protected your PC"*, choose **More info → Run anyway**.
 
-Then follow [Getting started](docs/user-guide/01-getting-started.md) to make your first macro in two minutes.
+Then follow [Get started](docs/user-guide/getting-started.md) to make your first macro in two minutes.
 
 ## Quick reference
 
@@ -76,7 +76,7 @@ Then follow [Getting started](docs/user-guide/01-getting-started.md) to make you
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd> | The player ↔ the window |
 | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Backspace</kbd> | Kill switch: stop everything and pause triggers |
 
-Each can be changed in **Settings → Keys**. After an upgrade from an older Relay, they stay <kbd>F9</kbd>, <kbd>F10</kbd> and <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd>. More in [Keyboard shortcuts](docs/user-guide/keyboard-shortcuts.md).
+Each can be changed in **Settings → Keys**. After an upgrade from an older Relay, they stay <kbd>F9</kbd>, <kbd>F10</kbd> and <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>End</kbd>. More in [Relay's keys](docs/user-guide/keys.md).
 
 ## Documentation
 
@@ -86,16 +86,20 @@ Each can be changed in **Settings → Keys**. After an upgrade from an older Rel
 
 **📘 [User guide](docs/user-guide/README.md)**
 
-- [Getting started](docs/user-guide/01-getting-started.md)
-- [Recording](docs/user-guide/02-recording.md)
-- [Editing steps](docs/user-guide/03-editing.md)
-- [Playing back](docs/user-guide/04-playback.md)
-- [Pixel checks](docs/user-guide/05-pixel-checks.md)
-- [Find image](docs/user-guide/06-find-image.md)
-- [Triggers](docs/user-guide/07-triggers.md)
-- [Library, export and import](docs/user-guide/08-library.md)
-- [Settings, tray and window](docs/user-guide/09-settings.md)
-- [Troubleshooting and FAQ](docs/user-guide/10-troubleshooting.md)
+- [Get started](docs/user-guide/getting-started.md)
+- [Record a macro](docs/user-guide/record.md)
+- [Stop a macro](docs/user-guide/stop-a-macro.md)
+- [Edit the steps](docs/user-guide/edit-steps.md)
+- [Make a macro wait](docs/user-guide/wait.md)
+- [Click a picture wherever it is](docs/user-guide/find-image.md)
+- [Type text that changes](docs/user-guide/text.md)
+- [Fill in a form from a spreadsheet](docs/user-guide/spreadsheet.md)
+- [Play, loop and change speed](docs/user-guide/play.md)
+- [Run a macro automatically](docs/user-guide/run-automatically.md)
+- [See what ran and what failed](docs/user-guide/what-ran.md)
+- [Find, share and back up macros](docs/user-guide/library.md)
+- [Run a macro without Relay](docs/user-guide/scripts.md)
+- [Fix a problem](docs/user-guide/troubleshooting.md)
 
 </td>
 <td width="50%" valign="top">
@@ -110,6 +114,7 @@ Each can be changed in **Settings → Keys**. After an upgrade from an older Rel
 - [The frontend](docs/engineering/frontend.md)
 - [File formats](docs/engineering/file-formats.md)
 - [Testing and CI](docs/engineering/testing.md)
+- [Behavior spec](docs/spec/README.md): every rule Relay follows
 - [Contributing](CONTRIBUTING.md)
 
 </td>
