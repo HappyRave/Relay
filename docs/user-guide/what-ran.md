@@ -34,7 +34,7 @@ If it worked, the run shows what started it and how it ended: *Hotkey*, *Complet
 
 If it worked, the macro opens on that step, marked *Timed out*. Read [When the wait gives up](wait.md#when-the-wait-gives-up) or [When the picture isn't found](find-image.md#when-the-picture-isnt-found).
 
-![A failed run in **Problems**, with **Open at step 4**.](../images/problems.png)
+![A failed run in **Problems**, with **Open at step 6**.](../images/problems.png)
 
 More detail: [Library and Activity: Activity and Problems](../spec/library.md#activity-and-problems)
 
