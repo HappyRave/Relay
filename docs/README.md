@@ -50,3 +50,5 @@ How Relay works inside, for contributors.
 </td>
 </tr>
 </table>
+
+**Design:** [UX research: a simulated user panel](design/ux-research-panel.md), input for the overhaul of the UI and UX, and the [visual redesign](design/visual-redesign.md) it proposes.
