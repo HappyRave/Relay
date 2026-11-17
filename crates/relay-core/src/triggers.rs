@@ -1,7 +1,9 @@
-//! What can start a macro on its own (a hotkey, a weekly schedule, an app
-//! launching, a pixel changing, an image appearing), plus the edge detectors
-//! the polling triggers use: they're fed one sample per poll and report when
-//! to fire.
+//! What can start a macro on its own (a hotkey, a weekly schedule, a fixed
+//! interval, an app launching, a pixel changing, an image appearing), plus the
+//! edge detectors the polling triggers use: they're fed one sample per poll and
+//! report when to fire.
+
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -24,6 +26,47 @@ pub struct HotkeyTrigger {
 pub struct ScheduleTrigger {
     pub enabled: bool,
     pub schedule: WeeklySchedule,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum IntervalUnit {
+    S,
+    Min,
+    H,
+}
+
+/// Runs the macro every so often, counted from when Relay was last busy.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default)]
+#[ts(export)]
+pub struct IntervalTrigger {
+    pub enabled: bool,
+    /// How many `unit`s between runs.
+    pub every: u32,
+    pub unit: IntervalUnit,
+}
+
+impl Default for IntervalTrigger {
+    fn default() -> Self {
+        IntervalTrigger { enabled: false, every: 10, unit: IntervalUnit::Min }
+    }
+}
+
+impl IntervalTrigger {
+    pub const MIN: Duration = Duration::from_secs(5);
+    pub const MAX: Duration = Duration::from_secs(24 * 3600);
+
+    /// The time between runs, kept within [`Self::MIN`] and [`Self::MAX`].
+    pub fn period(&self) -> Duration {
+        let unit = match self.unit {
+            IntervalUnit::S => 1,
+            IntervalUnit::Min => 60,
+            IntervalUnit::H => 3600,
+        };
+        Duration::from_secs(self.every as u64 * unit).clamp(Self::MIN, Self::MAX)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -86,6 +129,7 @@ impl Default for ImageTrigger {
 pub struct MacroTriggers {
     pub hotkey: HotkeyTrigger,
     pub schedule: ScheduleTrigger,
+    pub interval: IntervalTrigger,
     pub app_launch: AppLaunchTrigger,
     pub pixel: PixelTrigger,
     pub image: ImageTrigger,
@@ -98,6 +142,7 @@ pub struct MacroTriggers {
 #[ts(export)]
 pub enum TriggerOn {
     Schedule { schedule: WeeklySchedule },
+    Interval { every: u32, unit: IntervalUnit },
     AppLaunch { exe: String },
     Pixel,
     Image,
@@ -110,6 +155,9 @@ impl MacroTriggers {
         let mut on = Vec::new();
         if self.schedule.enabled && self.schedule.schedule.days.iter().any(|d| *d) {
             on.push(TriggerOn::Schedule { schedule: self.schedule.schedule.clone() });
+        }
+        if self.interval.enabled {
+            on.push(TriggerOn::Interval { every: self.interval.every, unit: self.interval.unit });
         }
         if self.app_launch.enabled && !self.app_launch.exe.is_empty() {
             on.push(TriggerOn::AppLaunch { exe: self.app_launch.exe.clone() });
@@ -198,6 +246,7 @@ mod tests {
         assert_eq!(t.also_on(), vec![]);
         t.schedule.schedule = WeeklySchedule::default();
         t.app_launch.exe = "EXCEL.EXE".into();
+        t.interval.enabled = true;
         t.pixel.enabled = true;
         t.image.image = Some(ImagePng(vec![1, 2, 3]));
         t.hotkey = HotkeyTrigger { enabled: true, combo: "Ctrl + Alt + 1".into() };
@@ -205,13 +254,28 @@ mod tests {
             t.also_on(),
             vec![
                 TriggerOn::Schedule { schedule: WeeklySchedule::default() },
+                TriggerOn::Interval { every: 10, unit: IntervalUnit::Min },
                 TriggerOn::AppLaunch { exe: "EXCEL.EXE".into() },
                 TriggerOn::Pixel,
                 TriggerOn::Image,
             ]
         );
         t.pixel.enabled = false;
-        assert_eq!(t.also_on().len(), 3);
+        assert_eq!(t.also_on().len(), 4);
+    }
+
+    #[test]
+    fn an_interval_is_between_5_seconds_and_a_day() {
+        let every = |every, unit| IntervalTrigger { enabled: true, every, unit }.period();
+        assert_eq!(every(90, IntervalUnit::S), Duration::from_secs(90));
+        assert_eq!(every(15, IntervalUnit::Min), Duration::from_secs(900));
+        assert_eq!(every(2, IntervalUnit::H), Duration::from_secs(7200));
+        assert_eq!(every(1, IntervalUnit::S), Duration::from_secs(5));
+        assert_eq!(every(0, IntervalUnit::H), Duration::from_secs(5));
+        assert_eq!(every(25, IntervalUnit::H), Duration::from_secs(86_400));
+        assert_eq!(every(u32::MAX, IntervalUnit::H), Duration::from_secs(86_400));
+        let json = serde_json::to_string(&IntervalTrigger::default()).unwrap();
+        assert_eq!(json, r#"{"enabled":false,"every":10,"unit":"min"}"#);
     }
 
     #[test]

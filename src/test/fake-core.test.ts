@@ -378,12 +378,13 @@ describe("the library, like library.rs", () => {
       ...t,
       hotkey: { enabled: true, combo: "Ctrl + Alt + 1" },
       schedule: { ...t.schedule, enabled: true },
+      interval: { enabled: true, every: 30, unit: "s" },
       app_launch: { enabled: true, exe: "", delay_ms: 0 }, // no program: it can't fire
       pixel: { ...t.pixel, enabled: true },
     });
     const row = (await b.listMacros())[0];
     expect(row.hotkey).toBe("Ctrl + Alt + 1");
-    expect(row.also).toEqual([{ kind: "schedule", schedule: t.schedule.schedule }, { kind: "pixel" }]);
+    expect(row.also).toEqual([{ kind: "schedule", schedule: t.schedule.schedule }, { kind: "interval", every: 30, unit: "s" }, { kind: "pixel" }]);
     expect(row.created_at).toBe("2026-09-01T09:00:00Z");
     await b.duplicateMacro(A);
     const copy = (await b.listMacros())[1];

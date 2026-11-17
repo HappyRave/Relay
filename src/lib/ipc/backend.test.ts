@@ -70,10 +70,11 @@ describe("tauriBackend", () => {
     expect(core.calls).toEqual([{ cmd: "update_settings", args: { settings } }]);
   });
 
-  test("setTriggers sends all five triggers", async () => {
+  test("setTriggers sends all six triggers", async () => {
     const triggers: MacroTriggers = {
       hotkey: { enabled: true, combo: "Ctrl + Alt + 9" },
       schedule: { enabled: true, schedule: { days: [true, false, true, false, true, false, false], time: "07:30" } },
+      interval: { enabled: true, every: 90, unit: "s" },
       app_launch: { enabled: true, exe: "excel.exe", delay_ms: 1500 },
       pixel: { enabled: true, x: 10, y: 20, color: "#ABCDEF", tolerance: 4 },
       image: { enabled: true, image: png(8, 8), threshold: 90, area: { x: -1920, y: 0, w: 1920, h: 1080 } },

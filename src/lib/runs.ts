@@ -8,6 +8,7 @@ const SOURCES: Record<RunSource, string> = {
   manual: "Play",
   hotkey: "Hotkey",
   schedule: "Schedule",
+  interval: "Interval",
   app_launch: "App launch",
   pixel: "Pixel trigger",
   image: "Image trigger",
@@ -18,6 +19,7 @@ export const sourceLabel = (s: RunSource) => SOURCES[s];
 const STARTED_BY: Record<Exclude<RunSource, "manual">, string> = {
   hotkey: "its hotkey",
   schedule: "its schedule",
+  interval: "its interval",
   app_launch: "its app trigger",
   pixel: "its pixel trigger",
   image: "its image trigger",

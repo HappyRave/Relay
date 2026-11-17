@@ -1,5 +1,5 @@
-//! The polling triggers: weekly schedules, app launches, pixel changes and
-//! images appearing.
+//! The polling triggers: weekly schedules, intervals, app launches, pixel
+//! changes and images appearing.
 //! Each runs on its own thread and asks the coordinator to run a macro; the
 //! coordinator decides whether it can (idle, screen unlocked, not paused).
 //! Macro hotkeys live in `hotkeys`.
@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use chrono::{DateTime, Local, TimeDelta, TimeZone};
+use chrono::{DateTime, Local, TimeDelta, TimeZone, Utc};
 use crossbeam_channel::{Receiver, Sender, bounded, unbounded};
 use parking_lot::Mutex;
 use relay_core::image::{Gray, Rgb8};
@@ -27,10 +27,11 @@ use relay_platform::processes::ProcessWatcher;
 use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
-use crate::coordinator::{Cmd, CoordinatorHandle};
+use crate::coordinator::{Cmd, CoordinatorHandle, SessionMode};
 use crate::library::Library;
 
 const SCHEDULE_TICK: Duration = Duration::from_secs(5);
+const INTERVAL_TICK: Duration = Duration::from_secs(1);
 const APP_POLL: Duration = Duration::from_secs(2);
 const PIXEL_POLL: Duration = Duration::from_millis(250);
 /// A look at the screen for images takes 20–60 ms of one core: twice a second.
@@ -126,6 +127,50 @@ impl<Tz: TimeZone> ScheduleWatch<Tz> {
     /// The macros whose scheduled run was skipped as missed since the last call.
     pub fn take_missed(&mut self) -> Vec<Uuid> {
         std::mem::take(&mut self.missed)
+    }
+}
+
+/// Runs a macro every so often. The count starts when the trigger is turned on
+/// (or Relay starts), and starts over while Relay is busy, so a run never meets
+/// another one and there's no skipped run to tell about.
+pub struct IntervalWatch<Tz: TimeZone> {
+    /// Each watched macro's period, as it was counted with, and its next run.
+    next: HashMap<Uuid, (Duration, DateTime<Tz>)>,
+}
+
+impl<Tz: TimeZone> Default for IntervalWatch<Tz> {
+    fn default() -> Self {
+        IntervalWatch { next: HashMap::new() }
+    }
+}
+
+impl<Tz: TimeZone> IntervalWatch<Tz> {
+    /// The macros due at `now`. `busy`: Relay is recording or playing. A run
+    /// more than two minutes late (the PC slept) is skipped and the count starts
+    /// over; so does a run a clock set back pushed further than one period away.
+    pub fn tick(&mut self, now: DateTime<Tz>, busy: bool, triggers: &[(Uuid, MacroTriggers)]) -> Vec<Uuid> {
+        let mut due = Vec::new();
+        let mut next = HashMap::new();
+        for (id, t) in triggers.iter().filter(|(_, t)| t.interval.enabled) {
+            let period = t.interval.period();
+            let restart = now.clone() + TimeDelta::seconds(period.as_secs() as i64);
+            let at = match self.next.get(id) {
+                Some((p, at)) if *p == period && !busy && *at <= restart => at.clone(),
+                _ => restart.clone(),
+            };
+            let at = if at > now {
+                at
+            } else if now.clone() - at <= MISSED_AFTER {
+                due.push(*id);
+                restart
+            } else {
+                tracing::info!(%id, "skipped an interval run missed by sleep");
+                restart
+            };
+            next.insert(*id, (period, at));
+        }
+        self.next = next;
+        due
     }
 }
 
@@ -284,6 +329,8 @@ pub fn spawn(app: AppHandle, platform: Arc<Platform>) {
     let a = app.clone();
     std::thread::Builder::new().name("relay-schedule".into()).spawn(move || schedule_loop(a)).expect("spawn scheduler");
     let a = app.clone();
+    std::thread::Builder::new().name("relay-interval".into()).spawn(move || interval_loop(a)).expect("spawn intervals");
+    let a = app.clone();
     std::thread::Builder::new()
         .name("relay-app-launch".into())
         .spawn(move || app_launch_loop(a))
@@ -309,6 +356,17 @@ fn schedule_loop(app: AppHandle) {
         for id in watch.take_missed() {
             let (source, reason) = (RunSource::Schedule, SkipReason::Missed);
             app.state::<CoordinatorHandle>().send(Cmd::LogSkip { id, source, reason });
+        }
+    }
+}
+
+fn interval_loop(app: AppHandle) {
+    let mut watch = IntervalWatch::default();
+    loop {
+        std::thread::sleep(INTERVAL_TICK);
+        let busy = !app.state::<SessionMode>().is_idle();
+        for id in watch.tick(Utc::now(), busy, &snapshot(&app)) {
+            fire(&app, id, RunSource::Interval);
         }
     }
 }
@@ -378,7 +436,7 @@ mod tests {
     use super::*;
     use chrono::{FixedOffset, TimeZone};
     use relay_core::schedule::WeeklySchedule;
-    use relay_core::triggers::{AppLaunchTrigger, PixelTrigger, ScheduleTrigger};
+    use relay_core::triggers::{AppLaunchTrigger, IntervalTrigger, IntervalUnit, PixelTrigger, ScheduleTrigger};
 
     fn tz() -> FixedOffset {
         FixedOffset::east_opt(2 * 3600).unwrap()
@@ -492,6 +550,72 @@ mod tests {
         let triggers = vec![(id(1), scheduled("09:00", WEEKDAYS)), (id(2), scheduled("09:00", WEEKDAYS))];
         let mut w = ScheduleWatch::new(at(24, 8, 59, 58));
         assert_eq!(w.tick(at(24, 9, 0, 1), &triggers), [id(1), id(2)]);
+    }
+
+    fn every(n: u32, unit: IntervalUnit) -> MacroTriggers {
+        MacroTriggers { interval: IntervalTrigger { enabled: true, every: n, unit }, ..Default::default() }
+    }
+    /// Ticks once a second from `from` to `to` (inclusive), returning the seconds that fired.
+    fn ticks(
+        w: &mut IntervalWatch<FixedOffset>,
+        from: DateTime<FixedOffset>,
+        secs: i64,
+        busy: impl Fn(i64) -> bool,
+        triggers: &[(Uuid, MacroTriggers)],
+    ) -> Vec<i64> {
+        (0..=secs).filter(|s| !w.tick(from + TimeDelta::seconds(*s), busy(*s), triggers).is_empty()).collect()
+    }
+
+    #[test]
+    fn an_interval_first_runs_one_period_after_it_is_turned_on_then_every_period() {
+        let triggers = vec![(id(1), every(10, IntervalUnit::S))];
+        let mut w = IntervalWatch::default();
+        assert_eq!(ticks(&mut w, at(24, 9, 0, 0), 35, |_| false, &triggers), [10, 20, 30]);
+        let mut w = IntervalWatch::default();
+        assert_eq!(w.tick(at(24, 9, 0, 0), false, &triggers), [] as [Uuid; 0]);
+        assert_eq!(w.tick(at(24, 9, 0, 10), false, &triggers), [id(1)], "several macros fire by id");
+    }
+
+    #[test]
+    fn an_interval_holds_while_relay_is_busy_and_counts_again_from_idle() {
+        let triggers = vec![(id(1), every(10, IntervalUnit::S))];
+        let mut w = IntervalWatch::default();
+        // Its own run (or anything else) plays until 14 s: the next is 10 s after that.
+        assert_eq!(ticks(&mut w, at(24, 9, 0, 0), 30, |s| (11..=14).contains(&s), &triggers), [10, 24]);
+        // Busy across a due time: nothing fires during it, nothing is made up.
+        let mut w = IntervalWatch::default();
+        assert_eq!(ticks(&mut w, at(24, 9, 0, 0), 40, |s| (5..=22).contains(&s), &triggers), [32]);
+    }
+
+    #[test]
+    fn an_interval_starts_over_when_it_changes_and_forgets_turned_off_ones() {
+        let mut w = IntervalWatch::default();
+        let ten = vec![(id(1), every(10, IntervalUnit::S))];
+        assert!(ticks(&mut w, at(24, 9, 0, 0), 8, |_| false, &ten).is_empty());
+        // Changed to 20 s at 9 s: counted from then.
+        let twenty = vec![(id(1), every(20, IntervalUnit::S))];
+        assert_eq!(ticks(&mut w, at(24, 9, 0, 9), 25, |_| false, &twenty), [20]);
+        // Turned off, then on again: a fresh count.
+        let mut off = every(20, IntervalUnit::S);
+        off.interval.enabled = false;
+        w.tick(at(24, 9, 0, 40), false, &[(id(1), off)]);
+        assert_eq!(ticks(&mut w, at(24, 9, 0, 41), 25, |_| false, &twenty), [20]);
+    }
+
+    #[test]
+    fn an_interval_skips_a_run_missed_by_sleep_and_survives_a_clock_set_back() {
+        let triggers = vec![(id(1), every(1, IntervalUnit::Min))];
+        let mut w = IntervalWatch::default();
+        w.tick(at(24, 9, 0, 0), false, &triggers);
+        // A tick a little late still runs it.
+        assert_eq!(w.tick(at(24, 9, 1, 30), false, &triggers), [id(1)]);
+        // Asleep from 09:01:30 to 09:10: skipped, then a minute from waking.
+        assert!(w.tick(at(24, 9, 10, 0), false, &triggers).is_empty());
+        assert!(w.tick(at(24, 9, 10, 59), false, &triggers).is_empty());
+        assert_eq!(w.tick(at(24, 9, 11, 0), false, &triggers), [id(1)]);
+        // The clock goes back an hour: the next run is a minute away, not an hour.
+        assert!(w.tick(at(24, 8, 11, 30), false, &triggers).is_empty());
+        assert_eq!(w.tick(at(24, 8, 12, 30), false, &triggers), [id(1)]);
     }
 
     fn launching(exe: &str, delay_ms: u32) -> MacroTriggers {

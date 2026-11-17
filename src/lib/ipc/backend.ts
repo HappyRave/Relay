@@ -240,6 +240,7 @@ export function browserBackend(): Backend {
     browserTriggers.get(id) ?? {
       hotkey: { enabled: false, combo: items.find((i) => i.view.id === id)?.hotkey ?? "" },
       schedule: { enabled: false, schedule: { days: [true, true, true, true, true, false, false], time: "09:00" } },
+      interval: { enabled: false, every: 10, unit: "min" },
       app_launch: { enabled: false, exe: "", delay_ms: 2000 },
       pixel: { enabled: false, x: 0, y: 0, color: "#EC3013", tolerance: 8 },
       image: { enabled: false, image: null, threshold: 85, area: null },

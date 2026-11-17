@@ -148,6 +148,63 @@ describe("triggers", () => {
     });
   });
 
+  describe("interval", () => {
+    const off = { interval: { enabled: false, every: 10, unit: "min" } };
+
+    test("added from the Macro tab it's on, every 10 min; the unit is saved (TRIG-72, TRIG-73)", async () => {
+      await page.inspector("macro", "triggers");
+      await page.menu("Add", "Every…", { within: ".inspector" });
+      await until(() => saved()?.interval?.enabled === true, { what: "the interval on" });
+      assert.deepEqual(saved().interval, { enabled: true, every: 10, unit: "min" });
+      try {
+        await page.click("s", { role: "radio", within: '[role="group"][aria-label="Every…"]' });
+        await until(() => saved().interval.unit === "s", { what: "seconds" });
+        assert.deepEqual(saved().interval, { enabled: true, every: 10, unit: "s" });
+      } finally {
+        await set(off);
+      }
+    });
+
+    test("it runs one interval after it's turned on, then an interval after each run ends (TRIG-74, TRIG-75)", async () => {
+      const on = Date.now();
+      await set({ interval: { enabled: true, every: 5, unit: "s" } });
+      try {
+        const first = await firesAndRuns(target, 10_000);
+        // The watcher ticks every second.
+        assert.ok(first - on >= 4500 && first - on < 7500, `first run after ${first - on} ms`);
+        const ended = Date.now();
+        const second = await firesAndRuns(target, 10_000);
+        assert.ok(second - ended >= 3500 && second - ended < 7500, `next run ${second - ended} ms after the end`);
+      } finally {
+        await set(off);
+      }
+    });
+
+    test("while Relay is busy it waits, with no notice and nothing skipped, then counts again (TRIG-76)", async () => {
+      await page.run(() => window.__relay.updateSettings({ countdown: false }));
+      await set({ interval: { enabled: true, every: 5, unit: "s" } });
+      let idleAt;
+      try {
+        await page.invoke("toggle_record");
+        await page.waitMode("recording");
+        const end = Date.now() + 8000;
+        while (Date.now() < end) {
+          assert.doesNotMatch((await page.store("toast.message")) ?? "", /Skipped/, "no notice");
+          await sleep(200);
+        }
+        await page.invoke("toggle_record");
+        await page.waitMode("idle");
+        idleAt = Date.now();
+        const started = await firesAndRuns(target, 10_000);
+        assert.ok(started - idleAt >= 3500, `counted from when Relay was idle again (${started - idleAt} ms)`);
+      } finally {
+        await set(off);
+        if ((await page.store("mode")) === "recording") await page.invoke("toggle_record");
+        await page.waitMode("idle");
+      }
+    });
+  });
+
   describe("app launch", () => {
     test("the program and delay from the Macro tab are saved; the switch needs a program", async () => {
       await page.inspector("macro", "triggers");
@@ -348,13 +405,13 @@ describe("triggers", () => {
     await until(() => /Relay started/.test(log()) && /trigger due/.test(log()) && /running a triggered macro/.test(log()), {
       what: "the log lines",
     });
-    for (const source of ["Schedule", "AppLaunch", "Pixel"]) assert.match(log(), new RegExp(`source=${source}`));
+    for (const source of ["Schedule", "Interval", "AppLaunch", "Pixel"]) assert.match(log(), new RegExp(`source=${source}`));
   });
 
   test("the run history records each triggered run, and the ones skipped", async () => {
     const entries = app.json("runs.json").entries.filter((e) => e.macro_id === target);
     const ran = (source) => entries.filter((e) => e.source === source && e.outcome.type === "finished");
-    for (const source of ["schedule", "app_launch", "pixel"]) {
+    for (const source of ["schedule", "interval", "app_launch", "pixel"]) {
       assert.ok(ran(source).length > 0, `a ${source} run`);
       for (const e of ran(source)) assert.deepEqual(e.outcome, { type: "finished", reason: "completed" }, source);
     }

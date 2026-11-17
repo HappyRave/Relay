@@ -65,6 +65,7 @@ const OFFSET = "+02:00";
 export const defaultTriggers = (): MacroTriggers => ({
   hotkey: { enabled: false, combo: "" },
   schedule: { enabled: false, schedule: { days: [true, true, true, true, true, false, false], time: "09:00" } },
+  interval: { enabled: false, every: 10, unit: "min" },
   app_launch: { enabled: false, exe: "", delay_ms: 2000 },
   pixel: { enabled: false, x: 0, y: 0, color: "#EC3013", tolerance: 8 },
   image: { enabled: false, image: null, threshold: 85, area: null },
@@ -766,6 +767,7 @@ function withDefaults(t: Partial<MacroTriggers>): MacroTriggers {
   const out: MacroTriggers = {
     hotkey: { ...d.hotkey, ...t.hotkey },
     schedule: { ...d.schedule, ...t.schedule },
+    interval: { ...d.interval, ...t.interval },
     app_launch: { ...d.app_launch, ...t.app_launch },
     pixel: { ...d.pixel, ...t.pixel },
     image: { ...d.image, ...t.image },
@@ -1027,6 +1029,7 @@ const BUTTON = oneOf("Left", "Right", "Middle", "X1", "X2");
 function alsoOn(t: MacroTriggers): TriggerOn[] {
   const on: TriggerOn[] = [];
   if (t.schedule.enabled && t.schedule.schedule.days.some(Boolean)) on.push({ kind: "schedule", schedule: structuredClone(t.schedule.schedule) });
+  if (t.interval.enabled) on.push({ kind: "interval", every: t.interval.every, unit: t.interval.unit });
   if (t.app_launch.enabled && t.app_launch.exe) on.push({ kind: "app_launch", exe: t.app_launch.exe });
   if (t.pixel.enabled) on.push({ kind: "pixel" });
   if (t.image.enabled && t.image.image) on.push({ kind: "image" });
@@ -1102,6 +1105,7 @@ const SETTINGS: Spec = {
 const TRIGGERS: Spec = {
   hotkey: optional({ enabled: optional("bool"), combo: optional("string") }),
   schedule: optional({ enabled: optional("bool"), schedule: optional({ days: "days", time: "time" }) }),
+  interval: optional({ enabled: optional("bool"), every: optional("u32"), unit: optional(oneOf("s", "min", "h")) }),
   app_launch: optional({ enabled: optional("bool"), exe: optional("string"), delay_ms: optional("u32") }),
   pixel: optional({ enabled: optional("bool"), x: optional("i32"), y: optional("i32"), color: optional("color"), tolerance: optional("u8") }),
   image: optional({ enabled: optional("bool"), image: optional(nullable("png")), threshold: optional("u8"), area: optional(nullable(RECT)) }),
