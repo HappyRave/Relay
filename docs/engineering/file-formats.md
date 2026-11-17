@@ -204,6 +204,7 @@ To change the format:
       "triggers": {
         "hotkey": { "enabled": true, "combo": "Ctrl + Alt + 1" },
         "schedule": { "enabled": true, "schedule": { "days": [true, true, true, true, true, false, false], "time": "09:00" } },
+        "interval": { "enabled": false, "every": 10, "unit": "min" },
         "app_launch": { "enabled": false, "exe": "", "delay_ms": 2000 },
         "pixel": { "enabled": false, "x": 0, "y": 0, "color": "#EC3013", "tolerance": 8 },
         "image": { "enabled": false, "image": null, "threshold": 85, "area": null }
@@ -226,6 +227,7 @@ To change the format:
 | `triggers.hotkey.combo` | Labels joined by `" + "`, modifiers first: `Ctrl`, `Alt`, `Shift`, `Win`. Never one of Relay's keys (see `keys` in [settings.json](#settingsjson)). |
 | `triggers.schedule.schedule.days` | Monday first |
 | `triggers.schedule.schedule.time` | Local `"HH:MM"` |
+| `triggers.interval` | `every` times `unit` (`s`, `min` or `h`), used within 5 s to 24 h. Older Relays ignore it. |
 | `triggers.app_launch.exe` | File name, matched case-insensitively |
 | `triggers.image.image` | A PNG in base64, as in `find_image`, or `null` until one is set |
 | `trash` | Deleted macros and their stats, so *Undo* restores them exactly. `next` is the macro that came right after (`null` at the end); restoring follows it (through other trashed macros) to the first one still in the Library, so the macro returns to the right place even after others were added or restored. Older files have only `position`, used as is. `name` keeps recording names from repeating one that's in the trash. |
@@ -274,7 +276,7 @@ The run history (the Library's **All runs**, and its **Problems**), oldest first
 | --- | --- |
 | `at` | When the run started, or when the skipped trigger fired |
 | `macro_name` | The name at that time: the macro may be renamed or deleted since |
-| `source` | `manual` (Play, in the window or the player, or the play key), `hotkey`, `schedule`, `app_launch`, `pixel` or `image` |
+| `source` | `manual` (Play, in the window or the player, or the play key), `hotkey`, `schedule`, `interval`, `app_launch`, `pixel` or `image` |
 | `outcome` | `finished` with a `FinishReason` (`completed`, `stopped`, `key_pressed`, `killed`, `pixel_timeout`, `error`), or `skipped` with `busy`, `locked`, `missed` (a schedule slept through) or `data_file` (its data file couldn't be played) |
 | `note` | Only on a skip whose reason needs saying: the data file's problem, as the user was told |
 | `duration_ms` | Wall time, pauses included; 0 for a skip |

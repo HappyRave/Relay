@@ -188,7 +188,7 @@ These came out of two full reviews (m12, m14). Breaking one has caused real bugs
 
 **Architecture**
 - **`relay-core` owns the model and every edit.** The UI never edits steps itself; it sends an `EditOp` and shows the returned `MacroView`. Pure logic goes in `relay-core`, takes time as an argument, and gets a test.
-- **Extract decisions from threads.** Threads only sleep and feed pure types: `Engine::advance(now)`, `ScheduleWatch`/`LaunchWatch`/`PixelWatch` (triggers.rs), `window_ctl::layout`/`choose_monitor`, coordinator's `admit`/`playhead_after`/`is_current`/`counts_as_run`. Test those, not the threads.
+- **Extract decisions from threads.** Threads only sleep and feed pure types: `Engine::advance(now)`, `ScheduleWatch`/`IntervalWatch`/`LaunchWatch`/`PixelWatch` (triggers.rs), `window_ctl::layout`/`choose_monitor`, coordinator's `admit`/`playhead_after`/`is_current`/`counts_as_run`. Test those, not the threads.
 - **Never hold a lock while calling into the Tauri main thread** (window, tray, hotkey calls): the main thread may need that lock → deadlock. Hotkeys (un)register only on the main thread via `hotkeys::set_active`/`refresh`/`refresh_and_wait`.
 - **Locks are `parking_lot`** (no poisoning).
 - **Every mode change goes through `coordinator::set_mode`**, which also updates the shared `SessionMode` the commands read (including after a panic, so nothing stays "busy").

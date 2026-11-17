@@ -1,12 +1,13 @@
 # Triggers
 
-What runs a macro without pressing play: the five triggers, when each fires, what happens when one fires, pausing them, and keeping Relay running for them.
+What runs a macro without pressing play: the six triggers, when each fires, what happens when one fires, pausing them, and keeping Relay running for them.
 
 Rules are numbered TRIG-n. Cite them in tests and PRs.
 
 - [A macro's triggers](#a-macros-triggers)
 - [Hotkey](#hotkey)
 - [Schedule](#schedule)
+- [Every…](#every)
 - [When an app starts](#when-an-app-starts)
 - [When a pixel changes](#when-a-pixel-changes)
 - [When an image appears](#when-an-image-appears)
@@ -16,7 +17,7 @@ Rules are numbered TRIG-n. Cite them in tests and PRs.
 
 ## A macro's triggers
 
-- **TRIG-1** There are five triggers: **Hotkey** (a key combination, from any app), **Schedule** (chosen days at a set time), **When an app starts** (a few seconds after a program starts), **When a pixel changes** (a pixel on screen turns a given color) and **When an image appears** (a picture shows up anywhere on screen).
+- **TRIG-1** There are six triggers: **Hotkey** (a key combination, from any app), **Schedule** (chosen days at a set time), **Every…** (over and over, a set time apart), **When an app starts** (a few seconds after a program starts), **When a pixel changes** (a pixel on screen turns a given color) and **When an image appears** (a picture shows up anywhere on screen).
 - **TRIG-2** Each macro has its own triggers, in the inspector's **Macro** tab (<kbd>Ctrl</kbd>+<kbd>M</kbd>), under **Runs automatically**. A macro can have several triggers, at most one of each kind.
 - **TRIG-3** Closed, **Runs automatically** sums up the triggers that are on, such as *Ctrl + Alt + 1 · Mon–Fri at 09:00*, or *Only when you play it* when none is.
 - **TRIG-4** **Add** offers only the triggers the macro doesn't have yet.
@@ -58,6 +59,17 @@ Rules are numbered TRIG-n. Cite them in tests and PRs.
 - **TRIG-26** A run whose time passes while the PC is asleep or off is skipped, not made up later. A run Relay notices up to 2 minutes late (the PC woke just after) still runs; later than that, it's skipped and [Activity](library.md) lists it as skipped.
 - **TRIG-27** If the clock jumps back (corrected after waking up, say), a run that already happened doesn't happen again.
 - **TRIG-28** A schedule checks the clock every few seconds, so a run can start up to 5 seconds after the minute.
+
+## Every…
+
+- **TRIG-71** **Every…** runs the macro over and over, a set time apart, for example *Every 10 min*. The sentence says it that way, and the line under **Every…** says *On* or *Off*.
+- **TRIG-72** A new one starts on, every 10 minutes.
+- **TRIG-73** Its fields are a number and its unit, **s**, **min** or **h**. The time apart is 5 seconds at least and 24 hours at most: 5–3600 s, 1–1440 min, 1–24 h. A number outside its unit's range becomes the nearest one inside it, also when the unit changes (2 min turned to seconds is 5 s).
+- **TRIG-74** The first run comes one interval after the trigger is turned on, changed, or after Relay starts; never right away.
+- **TRIG-75** Each next interval counts from when the run ends, so runs never overlap, however long the macro plays (repeats included).
+- **TRIG-76** While Relay is busy (recording, or playing this macro or another, by hand or by a trigger), the interval doesn't count; it starts over once Relay is idle again. So no run is skipped for being busy: no message, and nothing in [Activity](library.md) (unlike TRIG-60a).
+- **TRIG-77** A run whose time passes while the PC is asleep is skipped, not made up, and not listed in Activity; the interval starts over when Relay notices. A run noticed up to 2 minutes late still runs. If the clock jumps back, the next run is still at most one interval away.
+- **TRIG-78** Relay checks every second, so a run can start up to a second late.
 
 ## When an app starts
 
@@ -105,7 +117,7 @@ Rules are numbered TRIG-n. Cite them in tests and PRs.
 
   | Rule | Situation | What happens |
   | --- | --- | --- |
-  | **TRIG-60a** | Relay is already recording or playing | Skipped, with the message *Skipped “Export invoice to PDF”: Relay was busy*. A trigger never interrupts a recording or another macro. |
+  | **TRIG-60a** | Relay is already recording or playing | Skipped, with the message *Skipped “Export invoice to PDF”: Relay was busy*. A trigger never interrupts a recording or another macro. **Every…** waits instead (TRIG-76). |
   | **TRIG-60b** | The screen is locked, or a UAC prompt is up | Skipped silently: Windows doesn't accept simulated input there |
   | **TRIG-60c** | Triggers are paused | Nothing happens |
   | **TRIG-60d** | Relay isn't running | Nothing happens |
