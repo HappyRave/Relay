@@ -47,7 +47,7 @@ Tests live next to the code, in `#[cfg(test)]` modules.
 
 ## The frontend
 
-[Vitest](https://vitest.dev) in jsdom, with [Testing Library](https://testing-library.com/docs/svelte-testing-library/intro). Pure modules in `src/lib/` have their own `.test.ts`. Everything else runs the **real `tauriBackend`** against a fake Rust core.
+[Vitest](https://vitest.dev) in jsdom, with [Testing Library](https://testing-library.com/docs/svelte-testing-library/intro). Most pure modules in `src/lib/` have their own `.test.ts`. Everything else runs the **real `tauriBackend`** against a fake Rust core.
 
 **The fake core** ([`src/test/fake-core.ts`](../../src/test/fake-core.ts), with [`fake-edit.ts`](../../src/test/fake-edit.ts) and [`fake-path.ts`](../../src/test/fake-path.ts)) sits behind Tauri's `mockIPC` and answers every `invoke` **exactly as Rust does**: library rules, edit semantics with event renumbering, undo, hotkey refusals with Rust's messages, `busy`. [`fake-core.test.ts`](../../src/test/fake-core.test.ts) pins those answers.
 

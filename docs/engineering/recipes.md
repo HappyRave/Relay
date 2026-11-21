@@ -65,7 +65,7 @@ Examples: `96e2b02`, the interval trigger (*Every…*), for one that only needs 
 4. **The watch** [`src-tauri/src/triggers.rs`](../../src-tauri/src/triggers.rs): a pure `…Watch` type whose `tick` returns the macros to fire, unit-tested with fixed inputs (on time, late, after sleep, busy, changed). Then a thread that sleeps, reads the triggers with `snapshot(&app)`, calls `tick` and `fire(&app, id, RunSource::…)`; start it in `spawn`.
 5. **Baseline**, if the thing can already be there when the trigger is saved (a program running, a window open): make `set_triggers` wait for the watch's first look, as it waits for the app watcher (`triggers_changed`), so only what appears afterwards fires.
 6. **Admission** [`coordinator.rs`](../../src-tauri/src/coordinator.rs): `admit` already handles paused, deleted, busy and locked. Change it only if the new kind needs different treatment (the interval trigger did: an interval meeting a busy Relay is ignored quietly), and test that.
-7. **Frontend**: run `cargo test` first; `npm run check` then lists most places to update (the `Record<TriggerKind, …>` maps: labels, `TRIGGER_KINDS`, the card's icon). Then:
+7. **Frontend**: run `cargo test` first; `npm run check` then lists most places to update (the `Record<TriggerKind, …>` maps: `TRIGGER_NAME` and the card's `ICON`); add the kind to `TRIGGER_KINDS` by hand. Then:
    - the card in `MacroPane.svelte`, and a component test for each of its fields. A card that lists something from the OS needs a command ([Add a command](#add-a-command));
    - the text in [`editor/triggers.ts`](../../src/lib/editor/triggers.ts) and [`runs.ts`](../../src/lib/runs.ts);
    - the defaults, which have three copies that must match Rust's `Default`: `editor/triggers.ts`, the browser backend in `backend.ts`, and the fake core's `defaultTriggers` (with `withDefaults`, `alsoOn` and the `TRIGGERS` spec).
@@ -95,7 +95,7 @@ Only when the event model changes, and only for macros that use the new thing:
 
 1. A module beside `windows/` and `stub.rs` in [`relay-platform`](../../crates/relay-platform/src), implementing each trait, with the `mod` and `platform()` `#[cfg]`s narrowed to match (the stub covers every non-Windows target today). See the [table of APIs](platform.md#other-backends).
 2. The recorder, key map and grouping stay as they are. Scan codes are Windows' set 1: map the OS's codes to W3C codes in the backend.
-3. The app's Windows-only parts (`window_ctl`, `look`, `tray`, `cfg(windows)` code in `library.rs`) and relay-player's Win32 shell need versions of their own.
+3. The app's Windows-only parts (`window_ctl`, `look`, `tray`) and relay-player's Win32 shell need versions of their own.
 4. Add the target to CI.
 
 ## Every change ends the same way

@@ -123,7 +123,7 @@ Beside the main window, the player goes in the first corner clear of the window 
 
 The hard part is Windows' move loop on monitors with different scales: it keeps re-applying its own suggested size during a drag. A window subclass (`watch_move_size`) holds Relay's size until the drop. Read the code's comments before changing it.
 
-[`look.rs`](../../src-tauri/src/look.rs) frosts both windows with Acrylic where Windows offers it (Windows 11 with transparency on) and sets the frame's theme; the page draws its own ground over the glass. [`tray.rs`](../../src-tauri/src/tray.rs) is the tray icon and menu.
+[`look.rs`](../../src-tauri/src/look.rs) frosts both windows with Acrylic when the *Frosted glass* setting is on (by default on Windows 11, off on Windows 10) and Windows' transparency effects are on, and sets the frame's theme; the page draws its own ground over the glass. [`tray.rs`](../../src-tauri/src/tray.rs) is the tray icon and menu.
 
 ## Logging and panics
 
