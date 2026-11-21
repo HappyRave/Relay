@@ -6,6 +6,12 @@ node_modules/
 /dist/
 .vite/
 
+# The website: build output, and the guide pages and images synced from docs/
+site/dist/
+site/.astro/
+site/src/content/docs/guide/
+site/src/content/docs/images/
+
 # Tauri
 src-tauri/gen/
 

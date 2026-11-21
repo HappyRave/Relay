@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>W1·G2 Task card guide · Relay</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  body { background: var(--plate-2); }
+  header { max-width: 760px; margin: 0 auto; height: 64px; display: flex; align-items: center; gap: 14px; padding: 0 20px; }
+  header .brand { display: flex; gap: 9px; align-items: center; font-weight: 800; text-decoration: none; margin-right: auto; }
+  header .brand .logo { width: 22px; height: 22px; padding: 4px; }
+  .pill { height: 34px; padding: 0 12px; border-radius: 999px; background: var(--plate); box-shadow: 0 0 0 1px var(--line); display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 600; text-decoration: none; }
+  .pill.menu::before { content: "☰"; }
+
+  .card { max-width: 760px; margin: 10px auto 0; background: var(--plate); border-radius: 22px; padding: 40px 48px; box-shadow: 0 0 0 1px var(--line), 0 20px 60px rgba(20,20,21,.08); font-size: 17px; line-height: 1.6; }
+  .top { display: flex; justify-content: space-between; align-items: center; }
+  .time { font-size: 13px; color: var(--text-2); font-weight: 600; }
+  h1 { font-size: 46px; line-height: 1.02; font-weight: 840; font-stretch: 112%; letter-spacing: -0.02em; margin: 10px 0 10px; }
+  .lede { font-size: 19.5px; color: var(--text-2); margin: 0 0 24px; }
+  .find { display: inline-flex; gap: 10px; align-items: center; padding: 8px 12px; border-radius: 10px; background: var(--plate-2); font-size: 15px; }
+
+  /* The steps, drawn like Relay's steps list. */
+  .steps { margin: 26px 0; border-radius: 14px; background: var(--plate-2); padding: 8px; }
+  .st { display: grid; grid-template-columns: 30px 1fr; gap: 12px; align-items: start; padding: 12px; border-radius: 10px; }
+  .st:hover { background: var(--plate); }
+  .st .no { width: 30px; height: 30px; border-radius: 8px; background: var(--ink); color: var(--paper); display: grid; place-items: center; font-weight: 750; font-size: 14px; }
+  .st p { margin: 3px 0 0; }
+  .st.done .no { background: var(--green); color: var(--ink); }
+  .worked { display: flex; gap: 12px; align-items: center; padding: 14px 16px; border-radius: 12px; background: var(--wash-logic); font-size: 15.5px; }
+  .worked::before { content: ""; flex: none; width: 0; height: 0; border-left: 7px solid transparent; border-right: 7px solid transparent; border-bottom: 12px solid var(--green); }
+  details { margin-top: 18px; border-radius: 12px; box-shadow: 0 0 0 1px var(--line); }
+  summary { cursor: pointer; padding: 14px 16px; font-weight: 700; list-style: none; display: flex; justify-content: space-between; }
+  summary::after { content: "+"; font-weight: 500; color: var(--text-2); }
+  details[open] summary::after { content: "–"; }
+  details div { padding: 0 16px 14px; color: var(--text-2); font-size: 15.5px; }
+  .note { border-radius: 12px; background: var(--wash-keys); padding: 14px 16px; font-size: 15.5px; margin-bottom: 20px; }
+  .note b:first-child { margin-right: 6px; }
+  .next { max-width: 760px; margin: 14px auto 60px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 0 0; }
+  .next a { background: var(--plate); border-radius: 16px; padding: 16px 18px; text-decoration: none; box-shadow: 0 0 0 1px var(--line); }
+  .next small { display: block; color: var(--text-2); font-size: 13px; }
+  .next b { font-size: 17px; }
+  .next a:last-child { text-align: right; }
+
+  @media (max-width: 760px) { .card { border-radius: 0; padding: 26px 20px; } h1 { font-size: 34px; } .next { padding: 0 12px; } }
+</style>
+</head>
+<body>
+<header>
+  <a class="brand" href="#"><span class="logo"><i></i></span>Relay</a>
+  <a class="pill" href="#">Search</a>
+  <a class="pill menu" href="#">All guides</a>
+</header>
+<article class="card">
+  <div class="top"><span class="caps">Start · 2 of 23</span><span class="time">2 min</span></div>
+  <h1>Record a macro</h1>
+  <p class="lede">Record a task so that it plays back right the first time.</p>
+  <div class="note"><b>⚠</b>Relay doesn't record clicks on its own windows. Move the player away from where you click first.</div>
+  <span class="find"><span class="caps">Find it</span><b>Record</b> or <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>F9</kbd></span>
+  <div class="steps">
+    <div class="st"><span class="no">1</span><p>Open the app to record.</p></div>
+    <div class="st"><span class="no">2</span><p>Select <b>Record</b>, or press the record key. Relay's window hides and the player shows.</p></div>
+    <div class="st"><span class="no">3</span><p>The player counts 3, 2, 1. When it shows <i>REC</i>, do the task.</p></div>
+    <div class="st"><span class="no">4</span><p>Press <kbd>Esc</kbd> or the record key, or select <b>Stop</b> on the player.</p></div>
+    <div class="st done"><span class="no">5</span><p>Type a name. It replaces the default name, such as <i>Recording 1</i>.</p></div>
+  </div>
+  <div class="worked"><span>If it worked, Relay says <i>Recording stopped, … steps. Name this macro.</i></span></div>
+  <details><summary>What Relay records, and what it doesn't</summary><div>Relay records clicks, keys, scrolls, mouse moves and the time between them. It doesn't record the record key, Esc, or an app that runs as administrator.</div></details>
+  <details><summary>Record the Esc key</summary><div>Turn off <b>Esc stops recording</b> in Settings, then stop with the record key.</div></details>
+  <details><summary>Good to know</summary><div>Relay keeps what you type as plain text. Don't record a password.</div></details>
+</article>
+<div class="next"><a href="#"><small>Previous</small><b>← Get started</b></a><a href="#"><small>Next</small><b>Stop a macro →</b></a></div>
+</body>
+</html>

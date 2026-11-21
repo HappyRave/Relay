@@ -26,7 +26,7 @@ flowchart BT
 
 | Command | Runs |
 | --- | --- |
-| `npm run verify:quick` | fmt, clippy, `cargo test`, `npm run check`, `npm test`: before every push |
+| `npm run verify:quick` | fmt, clippy, `cargo test`, `npm run check`, `npm test`, and the website's tests and build: before every push |
 | `npm run verify` | The same, then the debug build and E2E (quit Relay first). About 10 minutes: before marking a PR ready. |
 | `cargo test -p relay-core` | The core alone, in seconds |
 | `npm run test:coverage` | Vitest with coverage in `coverage/` |
@@ -135,11 +135,13 @@ What needs real input, real apps or real hardware. Go through it before a releas
 
 | Job ([`ci.yml`](../../.github/workflows/ci.yml)) | Runs on | Does |
 | --- | --- | --- |
-| `quick` | Every push to a PR, drafts too (Linux) | fmt, tests and clippy for the four portable crates, `npm run check`, `npm test`; decides whether the PR changes more than docs |
+| `quick` | Every push to a PR, drafts too (Linux) | fmt, tests and clippy for the four portable crates, `npm run check`, `npm test`, the website's tests and build; decides whether the PR changes more than docs and the website |
 | `windows` | Ready PRs that change code | `cargo test`, the AutoHotkey syntax check, generated files up to date, clippy, `npx tauri build`, then E2E against the release build |
 | `msrv` | Same | `cargo check` with Rust 1.95 |
 
-A skipped job counts as passed, so a docs-only PR merges after `quick`. A newer push cancels the run in progress.
+A skipped job counts as passed, so a PR that only changes docs or the website merges after `quick`. A newer push cancels the run in progress.
+
+**The website** ([`pages.yml`](../../.github/workflows/pages.yml)) builds and publishes to GitHub Pages whenever `main` changes `site/`, `docs/user-guide/` or `docs/images/`. Its guide pages are generated from `docs/user-guide/` by `site/scripts/sync-guide.mjs`, so fix the guide there.
 
 - **Reading a failure:** `gh pr checks <n>`, then `gh run view <id> --log-failed`. Each E2E failure is also an annotation ([`github-reporter.mjs`](../../e2e/github-reporter.mjs)).
 - **Checking an E2E fix quickly:** [`e2e.yml`](../../.github/workflows/e2e.yml) builds the release app and runs only the tests asked for, in about ten minutes. Push the fix to a draft PR first, then `gh workflow run e2e.yml --ref <branch> -f suites="triggers" -f tests="<name regex>"`.

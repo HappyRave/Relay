@@ -56,6 +56,7 @@ The first build takes a few minutes. After that, Rust changes rebuild incrementa
 | `npm run test:e2e` | The real app, end to end. Build it first with `npx tauri build --debug --no-bundle`, and quit Relay. |
 | `npm run verify` | Everything CI checks, locally: fmt, clippy, the tests, the debug build and E2E. `verify:quick` skips the build and E2E. |
 | `npx tauri build` | The release build and installer in `target/release/bundle/nsis/` |
+| `npm --prefix site run dev` | The website (landing page and user guide) at <http://localhost:4321/Relay/>. Run `npm ci` in `site/` once first. The guide pages come from `docs/user-guide/`: edit them there. |
 
 `npm run dev` and `npm run tauri dev` both use port 1420, so stop one before starting the other.
 
