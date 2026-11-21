@@ -42,7 +42,7 @@ Relay is a **Windows desktop macro recorder**: it records mouse and keyboard inp
 - **Latest release: v1.5.0** (2026-10-23), from `main`. Releases so far: v1.0.0, v1.1.0, v1.2.0, v1.3.0, v1.4.0, v1.5.0. Each has an NSIS installer and a portable exe.
 - **Milestone history:** M0–M8 built v1.0. Then: m9 editor polish (v1.1.0), m10 Keep on top, m11 dependency upgrades, m12 a four-reviewer architecture refactor, m13 the three-layer test suite, m14 a four-reviewer audit of every test against the user guide (about 90 findings fixed), then v1.2.0. Then fix-multi-monitor-scale and m15 the control bar, preview bar, screenshots and resizable editor (v1.3.0). Then m16 mouse moves as steps, m17 Find image (with fix-find-image-own-window), m18 the run history, m19 standalone `.exe` export (v1.4.0). Then m20 Text steps with placeholders, m21 data files that drive repeats, m22 AutoHotkey v2 export, m23 known limitations (stacked toasts, diff-based undo, unsaved trash retried, data-file skips in the run history, the coordinator's crash recovery tested on Tauri's mock runtime), with fix-vite-launch-editor (v1.5.0). Then m24, the redesign from the UX research panel (unreleased): two windows, the new editor, Library and Activity, the player, Relay's keys as settings, the first run, the picker's loupe, sounds, exported programs in the player's look. Then m25 the behavior spec and a rewritten user guide, m28 the *Every…* trigger, and m26 the engineering guide rewritten short, with recipes. `git log --first-parent main` shows them as merges.
 - **Tests at v1.5.0:** about 440 Rust (unit, property, snapshot), about 670 Vitest (store, backend contract, fake core, every component), about 125 end-to-end tests against the built app. Rust unit coverage is about 76% of lines; the coordinator, commands, tray and Windows backend are exercised end to end instead. The frontend is at about 99.8% of lines.
-- **Next: m27-website**, Relay's website as a static GitHub Pages site: the last of the three documentation milestones (m25 the user guide and m26 the engineering guide are done).
+- **m27-website** (in progress, HappyRave/Relay#20): Relay's website at `happyrave.github.io/Relay`, the last of the three documentation milestones. The landing page and the user guide, from design round W1's variants A and G1 (`site/lab/`).
 - **After that, per the [roadmap](README.md#roadmap):** code signing (needs a certificate; free options for open source: SignPath Foundation, Certum's open-source certificate, Azure Trusted Signing), remapping macros to a different monitor layout, macOS and Linux backends.
 - **Also open:** see [Known limitations and open items](#known-limitations-and-open-items).
 
@@ -141,8 +141,11 @@ src/                         the Svelte UI
 e2e/                         end-to-end suites (*.e2e.test.mjs), harness.mjs, samples.json (GENERATED), image-window.ps1, github-reporter.mjs, ci-diagnose.mjs
 scripts/                     cdp.mjs (run JS in a running Relay), docs-screenshots.ps1 (regenerates docs/images)
 docs/                        spec/ (the behavior spec), user-guide/, engineering/, images/
+site/                        the website (Astro + Starlight): src/pages/index.astro (the landing page),
+                             scripts/sync-guide.mjs (docs/user-guide → Starlight pages, GENERATED into
+                             src/content/docs/guide, git-ignored), src/styles/relay.css, lab/ (the design rounds)
 Design/                      the v1 prototype and design system (history)
-.github/workflows/           ci.yml, e2e.yml, release.yml
+.github/workflows/           ci.yml, e2e.yml, release.yml, pages.yml (publishes the website)
 ```
 
 ## Commands
@@ -161,7 +164,9 @@ Design/                      the v1 prototype and design system (history)
 | `npm run test:e2e` | The end-to-end suites against `target/debug/relay.exe` (or `RELAY_EXE`). Takes about 3 minutes. |
 | `npx tauri build` | Release exe `target/release/relay.exe` and installer `target/release/bundle/nsis/Relay_X.Y.Z_x64-setup.exe` |
 | `npm run verify` | What CI checks, locally: fmt, clippy, `cargo test`, `npm run check`, `npm test`, then the debug build and E2E (quit Relay first). About 10 minutes. |
-| `npm run verify:quick` | The same without the build and E2E |
+| `npm run verify:quick` | The same without the build and E2E (it does build and test the website) |
+| `npm --prefix site run dev` | The website with hot reload, at `http://localhost:4321/Relay/` (run `npm ci` in `site/` once first) |
+| `npm --prefix site run build` / `test` | Syncs the guide and builds the website into `site/dist`; the sync script's tests |
 | `npm run tauri dev` | The app with hot reload (uses port 1420) |
 | `npm run dev` | The UI alone in a browser (port 1420), with the samples and a simulated session. Read-only: edits say they need the app. |
 | `cargo llvm-cov --workspace --summary-only` | Rust unit-test coverage |
@@ -259,7 +264,7 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 - **Merging:** only merge commits (squash and rebase are off), so history keeps each branch as a `--no-ff` merge: `gh pr merge <n> --merge --subject "Merge mN-…: <summary>"`. Merge when the checks are green, but **wait for the maintainer's go** when they're checking something by hand. Since 1.0, versions are tagged only at release.
 - **`main` is protected** by a repository ruleset (*Settings → Rules*): a PR is required, and so are the `quick`, `windows` and `msrv` checks; no force-push or deletion; nobody bypasses it. No approving review is required while there's one maintainer.
 - **Authorized:** pushing branches to `HappyRave/Relay`, and opening, updating, marking ready and merging PRs (following the rule above). Never push to `main` directly; the ruleset refuses it anyway.
-- **CI jobs** (`quick`, `windows`, `msrv`), what each runs, reading a failure and checking an E2E fix quickly with `e2e.yml`: [Testing → CI](docs/engineering/testing.md#ci). A skipped job counts as passed, so docs-only PRs merge after `quick`. If E2E fails, `e2e/ci-diagnose.mjs` reports WebView2 details as annotations.
+- **CI jobs** (`quick`, `windows`, `msrv`), what each runs, reading a failure and checking an E2E fix quickly with `e2e.yml`: [Testing → CI](docs/engineering/testing.md#ci). A skipped job counts as passed, so PRs that only change docs or the website merge after `quick`. If E2E fails, `e2e/ci-diagnose.mjs` reports WebView2 details as annotations.
 - **Reading CI without `gh`:** the public API works: `https://api.github.com/repos/HappyRave/Relay/actions/runs?head_sha=<sha>`, then `/actions/runs/<id>/jobs`, then `/check-runs/<job id>/annotations`.
 - A full run takes about 20–25 minutes (`quick` first, then the Windows job builds the release and runs E2E). Its Rust cache starts cold for each PR, since nothing runs on `main` to share one.
 - **When contributors join:** require 1 approving review and add a `CODEOWNERS`; set *Settings → Actions → Fork pull request workflows* to require approval for all outside collaborators; and turn on *Require branches to be up to date before merging* in the ruleset, so `main` is tested with each PR on top of the latest code (merge queues need an organization-owned repo).

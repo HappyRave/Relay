@@ -18,6 +18,7 @@
 </p>
 
 <p align="center">
+  <a href="https://happyrave.github.io/Relay/"><b>Website</b></a> ·
   <a href="https://github.com/HappyRave/Relay/releases"><b>Download</b></a> ·
   <a href="docs/user-guide/getting-started.md"><b>Get started</b></a> ·
   <a href="docs/user-guide/README.md">User guide</a> ·
