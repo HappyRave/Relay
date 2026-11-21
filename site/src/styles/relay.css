@@ -1,0 +1,110 @@
+/* Relay's look for Starlight: the app's tokens (src/styles/theme.css) mapped onto Starlight's. */
+
+:root {
+  --relay-paper: #f4f3ef;
+  --relay-ink: #141415;
+  --relay-red: #e0300f;
+  --relay-blue: #2450e6;
+  --relay-yellow: #ffc21a;
+  --relay-green: #1db46a;
+  --relay-key: 0 0 0 1px rgba(20, 20, 21, 0.3), 0 2px 0 rgba(20, 20, 21, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  --sl-font: "Archivo Variable", "Archivo", system-ui, sans-serif;
+}
+
+/* Dark: graphite and paper. */
+:root {
+  --sl-color-white: var(--relay-paper);
+  --sl-color-gray-1: #e1e0da;
+  --sl-color-gray-2: #cfcdc6;
+  --sl-color-gray-3: #a8a6a0;
+  --sl-color-gray-4: #6f6d68;
+  --sl-color-gray-5: #343437;
+  --sl-color-gray-6: #2a2a2c;
+  --sl-color-black: #1c1c1e;
+  --sl-color-accent-low: #2c3a6b;
+  --sl-color-accent: #6f8fff;
+  --sl-color-accent-high: #c9d5ff;
+  --sl-hue-orange: 44;
+  --sl-hue-purple: 150;
+}
+
+/* Light: paper and aluminium, ink text, pointer-blue links. */
+:root[data-theme="light"] {
+  --sl-color-white: var(--relay-ink);
+  --sl-color-gray-1: #2a2a2c;
+  --sl-color-gray-2: #3a3936;
+  --sl-color-gray-3: #5c5a55;
+  --sl-color-gray-4: #a8a6a0;
+  --sl-color-gray-5: #cfcdc6;
+  --sl-color-gray-6: #e1e0da;
+  --sl-color-gray-7: #ecebe6;
+  --sl-color-black: var(--relay-paper);
+  --sl-color-accent-low: #c9d5ff;
+  --sl-color-accent: var(--relay-blue);
+  --sl-color-accent-high: #1a3ab0;
+  --sl-color-bg-nav: rgba(244, 243, 239, 0.9);
+}
+
+/* Headings: Archivo, wide and heavy, as in the app. */
+.sl-markdown-content :is(h2, h3), h1#_top {
+  font-stretch: 108%;
+  font-weight: 800;
+  letter-spacing: -0.015em;
+}
+h1#_top { font-size: clamp(2.2rem, 4vw, 2.9rem); }
+.site-title { font-weight: 800; font-stretch: 110%; font-size: 1.2rem; color: var(--sl-color-white); gap: 0.6rem; }
+.site-title img { height: 1.6rem; width: auto; border-radius: 3px; }
+
+/* The sidebar's current page: a red bar, like the app's selected row. */
+.sidebar-content a[aria-current="page"] {
+  background: var(--sl-color-gray-6);
+  color: var(--sl-color-white);
+  font-weight: 650;
+  box-shadow: inset 3px 0 0 var(--relay-red);
+}
+
+/* Keys look like keys. */
+.sl-markdown-content kbd {
+  font: inherit;
+  font-size: 0.82em;
+  font-weight: 650;
+  display: inline-block;
+  min-width: 1.9em;
+  text-align: center;
+  padding: 0.05em 0.45em;
+  border-radius: 6px;
+  background: var(--sl-color-black);
+  color: var(--sl-color-white);
+  box-shadow: var(--relay-key);
+}
+:root:not([data-theme="light"]) .sl-markdown-content kbd { box-shadow: 0 0 0 1px rgba(244, 243, 239, 0.26), 0 2px 0 rgba(0, 0, 0, 0.5); }
+
+/* Numbered steps: ink keys with the number, as in the G1 mockup. */
+.sl-markdown-content ol { list-style: none; padding-left: 0; counter-reset: step; }
+.sl-markdown-content ol > li { counter-increment: step; position: relative; padding-left: 2.6rem; }
+.sl-markdown-content ol > li + li { margin-top: 0.6rem; }
+.sl-markdown-content ol > li::before {
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: 0.1rem;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 7px;
+  background: var(--sl-color-white);
+  color: var(--sl-color-black);
+  display: grid;
+  place-items: center;
+  font-weight: 750;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+/* Screenshots sit on a hairline with a soft shadow. */
+.sl-markdown-content img {
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px var(--sl-color-hairline-light), 0 10px 30px rgba(20, 20, 21, 0.12);
+}
+
+/* Asides: caution in keys yellow, tip in logic green. */
+.starlight-aside { border-radius: 0 10px 10px 0; }
