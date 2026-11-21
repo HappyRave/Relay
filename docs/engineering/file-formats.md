@@ -1,6 +1,6 @@
 # File formats
 
-Everything Relay stores is JSON (plus one JPEG per recorded macro) in the data folder, `%APPDATA%\Relay` or `RELAY_DATA_DIR`. Every file is written atomically. This page is the reference for each file.
+Everything Relay stores is JSON (plus one JPEG per recorded macro) in the data folder, `%APPDATA%\Relay` or `RELAY_DATA_DIR`. Every file except the logs is written atomically. This page is the reference for each file.
 
 ```text
 %APPDATA%\Relay\
@@ -204,7 +204,7 @@ Read field by field: unknown fields are ignored, and a missing one takes its def
   "panes": { "inspector_w": 380 }, "player_anchor": [2240, 120] }
 ```
 
-Only Rust writes it, and every field may be missing (`null`: the default). `anchor` and `player_anchor` are each window's bottom center in physical pixels, moved only by the user's drag. `size` is the main window's size in CSS pixels once the user resized it. `panes.inspector_w` is the editor's divider.
+Only Rust writes it, and every field may be missing (`null`: the default). `anchor` and `player_anchor` are each window's bottom center in physical pixels, changed only when the user drags the window (or resizes it, for `anchor`). `size` is the main window's size in CSS pixels once the user resized it. `panes.inspector_w` is the editor's divider.
 
 ## Damaged files
 
@@ -212,8 +212,8 @@ Only Rust writes it, and every field may be missing (`null`: the default). `anch
 | --- | --- | --- |
 | `library.json` | Set aside as `library.json.bad` | Left alone; the index isn't written for the rest of the run |
 | `runs.json` | Set aside as `runs.json.bad` | Left alone until Relay restarts |
-| `settings.json` | Only the invalid fields reset; the file is set aside as `settings.json.bad` | Left alone |
-| a `.rly` | Skipped, and the user is told | Skipped |
+| `settings.json` | Set aside as `settings.json.bad`. An invalid value resets only that setting; a file that isn't JSON resets them all. | Left alone |
+| a `.rly` | Skipped, and the user is told | Skipped, and the user is told |
 
 The rule behind all of them: **a file that exists but can't be read is never overwritten.**
 

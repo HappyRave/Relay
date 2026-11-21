@@ -75,7 +75,7 @@ Quit your own Relay first: only one copy runs, and the harness refuses to start 
 
 How [`harness.mjs`](../../e2e/harness.mjs) works:
 
-- **Seeding.** A new folder starts empty, so `new App()` writes the four samples (`e2e/samples.json`) and a `settings.json` with the first run done and the new install's keys. `settings: null` shows the first run.
+- **Seeding.** A new folder starts empty, so before its first start an `App` writes the four samples (`e2e/samples.json`) and a `settings.json` with the first run done and the new install's keys. `settings: null` shows the first run.
 - **Two pages.** `app.page` is the main window, `app.player` the player. Each has its store on `window.__relay`.
 - **Clicks by accessible name.** `page.click("Play")` needs exactly one visible control with that name; `{ nth, role, within }` disambiguate. Helpers like `page.go`, `page.open`, `page.addStep` and `page.setField` wait for what they did; [`harness.mjs`](../../e2e/harness.mjs) documents each.
 - **Commands for native dialogs.** Where the UI opens a file dialog, the test calls the command (`page.invoke("import_macros", …)`).

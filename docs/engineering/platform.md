@@ -46,8 +46,8 @@ What the callback decides, with a `HookConfig` fixed for the session:
 | Tagged `RELAY_MAGIC` (`0x52454C59`) in `dwExtraInfo`, or any injected input with *Ignore simulated input* | Passed, not reported. Relay's own input is recognized even with the setting off. |
 | The kill switch (a `KeyChord` from settings) | Always passed through to its hotkey |
 | Recording: a press over Relay's windows, a key while one is in front, the record key | Passed, not reported |
-| Recording: Esc | Reported as `Escape`, swallowed |
-| Playing (`Watch`): Esc, or any key with *Stop on key press* | Reported as a stop, swallowed |
+| Recording: Esc, while *Esc stops recording* is on | Reported as `Escape`, swallowed |
+| Playing (`Watch`): Esc, or with *Stop on key press* any key but a modifier or the play key | Reported as a stop (`Escape` / `StopKey`), swallowed |
 | A release or auto-repeat | **The same fate as its press**, so the app never sees a release without its press |
 
 "Over Relay's windows" is looked up per press (`WindowFromPoint`), never per move, so it's right wherever the windows are and costs nothing on the frequent moves.

@@ -16,7 +16,7 @@
 
 [`lib.rs`](../../src-tauri/src/lib.rs) registers the plugins (single instance, global shortcut, dialog, autostart), then `setup` opens settings, the library and the run history, spawns the coordinator and the trigger threads, and only then builds both windows (`"create": false` in `tauri.conf.json`). This order means a window's first commands always find the state they read. The windows start hidden and `presence` shows them once they're placed, so they never jump. With `--autostart`, Relay stays in the tray.
 
-Settings open before the library: a folder an older Relay used gets the old keys (see [Settings](#settings)), and the library needs Relay's keys so no macro hotkey takes one.
+Settings open before the library, because they tell a folder an older Relay used (which keeps the old keys, see [Settings](#settings)) by the files in it, and opening the library can change those. The library then gets Relay's keys (`set_relay_keys`), so no macro hotkey takes one.
 
 Shared state is in Tauri's `app.manage`: the library, settings and run history behind `parking_lot` mutexes (which don't poison), the `Emitter`, the coordinator's `Sender<Cmd>`, the shared `SessionMode`, the hotkeys, the edit history, the window and presence state.
 
@@ -44,7 +44,7 @@ Each command runs under `catch_unwind`, so a bug ends the session cleanly instea
 
 The engine is in [`relay-playback`](../../crates/relay-playback/src/engine.rs), shared with the exported player. It splits the decision from the thread:
 
-- **`Engine::advance(now)`** injects everything due and returns `Some(reason)` when done. Its injector, pixel reader and image finder are traits, so tests drive it with a fake clock, a recording injector and a fake screen.
+- **`Engine::advance(now)`** injects everything due and returns `Some(reason)` when done. Its injector is a trait and its pixel reader, image finder and text filler are closures, so tests drive it with a fake clock, a recording injector and a fake screen.
 - **`spawn`** runs it on `relay-engine` with the platform timer, reporting to a `PlaybackSink`. A guard reports the end even on a panic. Dropping the handle stops it.
 - **The app's sink** ([`engine.rs`](../../src-tauri/src/engine.rs)) turns ticks and notices into `EngineMsg`s and the end into `EngineDone`.
 
@@ -78,7 +78,7 @@ Windows removes a slow hook without telling anyone. The tell is a cursor that mo
 
 | Thread | Polls | Decides with |
 | --- | --- | --- |
-| `relay-schedule` | 5 s | `next_run` from the previous tick's time, so sleep and clock changes are safe; `ScheduleWatch::take_missed` skips a run more than 2 min late |
+| `relay-schedule` | 5 s | `next_run` from the previous tick's time, so sleep and clock changes are safe; `ScheduleWatch::tick` skips a run more than 2 min late, and `take_missed` hands it over for the run history |
 | `relay-interval` | 1 s | `IntervalWatch`: counts restart while Relay is busy, so an interval never meets a session |
 | `relay-app-launch` | 2 s | `LaunchWatch` with a `ProcessLaunchEdge` per program; a delayed run re-checks its trigger when the delay ends |
 | `relay-pixel-trigger` | 250 ms | `PixelWatch` with a `PixelEdge`; a failed read is no sample, so it can't re-arm |
@@ -119,7 +119,7 @@ Beside the main window, the player goes in the first corner clear of the window 
 
 ### Placement and the look
 
-[`window_ctl.rs`](../../src-tauri/src/window_ctl.rs) places the main window from Rust, since only Rust knows the monitors' physical geometry. The window's anchor is its bottom center; placing it picks the monitor (`choose_monitor`), zooms the page to fit a small work area and to the *Text size* setting, and clamps it inside the work area. Only the user's drag moves the anchor. `layout` and `choose_monitor` are pure and tested.
+[`window_ctl.rs`](../../src-tauri/src/window_ctl.rs) places the main window from Rust, since only Rust knows the monitors' physical geometry. The window's anchor is its bottom center; placing it picks the monitor (`choose_monitor`), zooms the page to fit a small work area and to the *Text size* setting, and clamps it inside the work area. Only the user moves the anchor, by dragging or resizing the window. `layout` and `choose_monitor` are pure and tested.
 
 The hard part is Windows' move loop on monitors with different scales: it keeps re-applying its own suggested size during a drag. A window subclass (`watch_move_size`) holds Relay's size until the drop. Read the code's comments before changing it.
 

@@ -17,10 +17,10 @@ A new way to change a macro's steps. Example: `eb1c2fe` (several steps at once).
 
 1. **relay-core** [`edit.rs`](../../crates/relay-core/src/edit.rs): add the `EditOp` variant and its arm in `apply`. Keep presses balanced, and retime monotonically so order survives. Refuse bad input with an `EditError` whose message the user can read.
 2. **Tests** in `edit.rs`, and add the op to the edit generator in [`proptests.rs`](../../crates/relay-core/src/proptests.rs), so random sequences check the invariants and the undo splice.
-3. **Undo** needs nothing new unless the op is special (a `Batch`, a rename): [`history.rs`](../../src-tauri/src/history.rs) records any op's splice.
-4. **Fake core** [`fake-edit.ts`](../../src/test/fake-edit.ts): the same semantics, event renumbering included; pin it in `fake-core.test.ts`.
-5. **Store** [`relay.svelte.ts`](../../src/lib/state/relay.svelte.ts): an action that calls `edit(op)`. It's guarded by `apply` and `canEdit` for free.
-6. **UI**: the control, and a component test that checks the exact op sent.
+3. **Undo** needs nothing new: [`history.rs`](../../src-tauri/src/history.rs) records any op's splice, a `Batch` included. Only `Rename` is special. Add a test there if the op could break that.
+4. **Fake core**: the same semantics in [`fake-edit.ts`](../../src/test/fake-edit.ts), event renumbering included, and the op's arguments in `EDIT_OPS` in [`fake-core.ts`](../../src/test/fake-core.ts), so the fake refuses bad arguments as serde does. Pin it in `fake-core.test.ts`.
+5. **Store** (if the UI needs a new action) in [`relay.svelte.ts`](../../src/lib/state/relay.svelte.ts): call `edit(op)`, which refuses edits while a session runs and guards the answer through `apply`.
+6. **UI** (if there's a new control): the control, and a component test that checks the exact op sent.
 7. **Spec**: a rule in [Editing](../spec/editing.md).
 
 ## Add a step type
@@ -30,17 +30,25 @@ A new kind of inserted event, like Wait, Text or Find image. Example: the `m20-t
 1. **Model** [`model.rs`](../../crates/relay-core/src/model.rs): an `Event` variant. If it has a duration, `Event::end()` must include it, so `normalize` keeps other events out of it.
 2. **Grouping** [`steps.rs`](../../crates/relay-core/src/steps.rs): a `StepKind`, one step per event.
 3. **Edits** [`edit.rs`](../../crates/relay-core/src/edit.rs): an `Insert…` op (snapping past the step at the playhead) and an `Update…` op; add both to the property tests.
-4. **Format** [`format.rs`](../../crates/relay-core/src/format.rs): the new event needs a [new version](#change-the-file-format), written only for macros that have one.
-5. **Playback** [`relay-playback/src/engine.rs`](../../crates/relay-playback/src/engine.rs): what `advance` does with it, tested with the fake clock and recording injector. Anything it presses is released on every path.
-6. **Exports** [`ahk.rs`](../../crates/relay-core/src/ahk.rs) (a block for it, snapshot updated); exported programs come free with the engine.
-7. **The app**: any command the inspector needs (see [Add a command](#add-a-command)).
-8. **Frontend**: the fake core (`fake-edit.ts`), the row text ([`rows.ts`](../../src/lib/editor/rows.ts)), its category ([`categories.ts`](../../src/lib/categories.ts)), the timeline lane, the inspector's fields in `StepPane`, the **Add** menu. Component tests for each.
-9. **E2E** in `editing.e2e.test.mjs`: insert, edit, save, reopen. Don't play it if it would act on the desktop.
-10. **Spec**: [Steps](../spec/steps.md) and a page of its own if it has its own rules.
+4. **Format** [`format.rs`](../../crates/relay-core/src/format.rs): the new event needs a [new version](#change-the-file-format), chosen in `Envelope::new` only for macros that have one.
+5. **Platform** (if playback needs a new OS ability, as typing text did): a trait method in [`relay-platform/src/lib.rs`](../../crates/relay-platform/src/lib.rs), implemented in `windows/` and in `stub.rs`.
+6. **Playback** [`relay-playback/src/engine.rs`](../../crates/relay-playback/src/engine.rs): what `advance` does with it, tested with the fake clock and recording injector. Anything it presses is released on every path.
+7. **Exports** [`ahk.rs`](../../crates/relay-core/src/ahk.rs): a block for it, snapshot updated. Exported programs come free with the engine.
+8. **The app**: any command the inspector needs (see [Add a command](#add-a-command)).
+9. **Frontend**:
+   - the fake core: `fake-edit.ts`, and the new ops in `EDIT_OPS` in `fake-core.ts`;
+   - the store's insert and update actions in `relay.svelte.ts`;
+   - the row's text in [`rows.ts`](../../src/lib/editor/rows.ts) and its category in [`categories.ts`](../../src/lib/categories.ts);
+   - the timeline in [`lanes.ts`](../../src/lib/timeline/lanes.ts) and `ViewTimeline.svelte`;
+   - its fields in `StepPane.svelte`, and its item in the **Add** menu in `StepList.svelte`.
+
+   Component tests for each.
+10. **E2E** in `editing.e2e.test.mjs`: insert, edit, save, reopen. Don't play it if it would act on the desktop.
+11. **Spec**: [Steps](../spec/steps.md), and a page of its own if it has its own rules.
 
 ## Add a command
 
-1. **Rust** [`commands.rs`](../../src-tauri/src/commands.rs): a `#[tauri::command]` returning `Result<T>`. Make it `async` if it writes files. Refuse with `busy` if it edits while a session runs.
+1. **Rust** [`commands.rs`](../../src-tauri/src/commands.rs): a `#[tauri::command]` returning `Result<T>` (the module's alias over `IpcError`). Use `#[tauri::command(async)]` if it writes files. Start with `when_idle(&app)?` if it edits, so it's refused with `busy` during a session.
 2. **Register it** in `generate_handler![…]` in [`lib.rs`](../../src-tauri/src/lib.rs).
 3. **Types**: derive `Serialize` and `TS` with `#[ts(export)]` on new types, and run `cargo test` to generate the bindings.
 4. **Backend** [`backend.ts`](../../src/lib/ipc/backend.ts): the method on `Backend`, the Tauri implementation, and a browser one (a simulation, or a rejection with `code: "unavailable"`). `backend.test.ts` checks the argument names Rust expects.
@@ -51,10 +59,10 @@ A new kind of inserted event, like Wait, Text or Find image. Example: the `m20-t
 
 Example: `96e2b02`, the interval trigger (*Every…*), which touched 20 files.
 
-1. **Model** [`relay-core/src/triggers.rs`](../../crates/relay-core/src/triggers.rs): a field on `MacroTriggers` with a `#[serde(default)]` (older `library.json` files must load), its `TriggerOn` value and `also_on`. Add the `RunSource` in [`runlog.rs`](../../crates/relay-core/src/runlog.rs).
-2. **The watch** [`src-tauri/src/triggers.rs`](../../src-tauri/src/triggers.rs): a pure `…Watch` type with `tick(now, …) → Vec<Uuid>`, unit-tested with a fixed clock (on time, late, after sleep, busy, changed). Then a thread that sleeps, calls `tick` and `fire`s; start it in `spawn`.
-3. **Admission** [`coordinator.rs`](../../src-tauri/src/coordinator.rs): `admit` already handles paused, deleted, busy and locked. Change it only if the new kind needs different treatment, and test that.
-4. **Frontend**: the card in `MacroPane.svelte`, the text in [`editor/triggers.ts`](../../src/lib/editor/triggers.ts) and [`runs.ts`](../../src/lib/runs.ts), the fake core's defaults. Component tests for the card's every field.
+1. **Model** [`relay-core/src/triggers.rs`](../../crates/relay-core/src/triggers.rs): a field on `MacroTriggers` whose type implements `Default` (the struct is `#[serde(default)]`, so older `library.json` files load), its `TriggerOn` value and `also_on`. Add its `RunSource` in [`session.rs`](../../crates/relay-core/src/session.rs).
+2. **The watch** [`src-tauri/src/triggers.rs`](../../src-tauri/src/triggers.rs): a pure `…Watch` type whose `tick` returns the macros to fire, unit-tested with fixed inputs (on time, late, after sleep, busy, changed). Then a thread that sleeps, calls `tick` and `fire`s; start it in `spawn`.
+3. **Admission** [`coordinator.rs`](../../src-tauri/src/coordinator.rs): `admit` already handles paused, deleted, busy and locked. Change it only if the new kind needs different treatment (the interval trigger did: an interval meeting a busy Relay is ignored quietly), and test that.
+4. **Frontend**: the card in `MacroPane.svelte`; the text in [`editor/triggers.ts`](../../src/lib/editor/triggers.ts) and [`runs.ts`](../../src/lib/runs.ts); the fake core's `defaultTriggers`, `withDefaults`, `alsoOn` and `TRIGGERS` spec; the browser backend's default triggers in `backend.ts`. Component tests for every field of the card.
 5. **E2E** in `triggers.e2e.test.mjs`, firing on a real event, never on synthesized input.
 6. **Spec**: new rules in [Triggers](../spec/triggers.md).
 
@@ -62,7 +70,7 @@ Example: `96e2b02`, the interval trigger (*Every…*), which touched 20 files.
 
 1. **Rust** [`settings.rs`](../../src-tauri/src/settings.rs): the field and its default. It's read field by field, so an invalid value resets only itself; add a test for that. If it differs for an upgrade, set it in `Settings::upgraded` too.
 2. **Apply it** in `update_settings` if it changes something outside the page (the window, the hotkeys, the player).
-3. **Frontend**: the default in [`defaults.ts`](../../src/lib/defaults.ts) (matching Rust's), the fake core's defaults, the control in `SettingsPage`, and a test that checks the saved settings.
+3. **Frontend**: the default in `DEFAULT_SETTINGS` in [`defaults.ts`](../../src/lib/defaults.ts) (matching Rust's; the fake core copies it), the field in the fake core's `SETTINGS` spec, the control in `SettingsPage`, and a test that checks the saved settings.
 4. **E2E** in `settings.e2e.test.mjs` if it changes the native window or survives a restart.
 5. **Spec**: [Settings](../spec/settings.md).
 
@@ -70,16 +78,17 @@ Example: `96e2b02`, the interval trigger (*Every…*), which touched 20 files.
 
 Only when the event model changes, and only for macros that use the new thing:
 
-1. Bump `VERSION` in [`format.rs`](../../crates/relay-core/src/format.rs), and write it only when the macro needs it.
-2. Add `migrate_vN` from the previous version, working on `serde_json::Value`.
-3. Add a fixture of the old format and snapshot its migration.
+1. Bump `VERSION` in [`format.rs`](../../crates/relay-core/src/format.rs), and choose the version a macro is written with in `Envelope::new`, so a macro without the new thing keeps the older version.
+2. Add an arm to `migrate` for the previous version: `Ok(())` if the new version only adds an event, else a `migrate_vN` working on `serde_json::Value`.
+3. Add a test that loads the old format, and a snapshot if a migration rewrites it.
 4. Update [File formats](file-formats.md) and [Export and import](../spec/export-import.md).
 
 ## Add an OS backend
 
-1. A module beside `windows/` in [`relay-platform`](../../crates/relay-platform/src), implementing each trait, chosen with `#[cfg]` in `platform()`. See the [table of APIs](platform.md#other-backends).
-2. The recorder, key map, grouping and everything above stay as they are. Scan codes are Windows' set 1: map the OS's codes to W3C codes in the backend.
-3. Add the target to CI's `quick` job.
+1. A module beside `windows/` and `stub.rs` in [`relay-platform`](../../crates/relay-platform/src), implementing each trait, with the `mod` and `platform()` `#[cfg]`s narrowed to match (the stub covers every non-Windows target today). See the [table of APIs](platform.md#other-backends).
+2. The recorder, key map and grouping stay as they are. Scan codes are Windows' set 1: map the OS's codes to W3C codes in the backend.
+3. The app's Windows-only parts (`window_ctl`, `look`, `tray`, `cfg(windows)` code in `library.rs`) and relay-player's Win32 shell need versions of their own.
+4. Add the target to CI.
 
 ## Every change ends the same way
 

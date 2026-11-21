@@ -19,9 +19,9 @@ flowchart LR
 
 ## Commands
 
-Every command is in [`commands.rs`](../../src-tauri/src/commands.rs) and registered in `generate_handler!` in `lib.rs`. The [`Backend`](../../src/lib/ipc/backend.ts) interface lists them on the UI side; it and [`platform/window.ts`](../../src/lib/platform/window.ts) are the only places that call `invoke`.
+Every command is in [`commands.rs`](../../src-tauri/src/commands.rs) and registered in `generate_handler!` in `lib.rs`. On the UI side, the [`Backend`](../../src/lib/ipc/backend.ts) interface lists them all but the window's own (player mode, the divider, the tray), which are in [`platform/window.ts`](../../src/lib/platform/window.ts). Those two are the only places that call `invoke`.
 
-- **Commands that write files are `async`**, off the main thread. The quick ones run on it.
+- **Commands that write macros, settings or exports are `async`**, off the main thread. The quick ones run on it, `window.json`'s small writes included.
 - **Session commands** (`toggle_record`, `toggle_play`, `stop_session`, `seek`) only send a `Cmd` to the coordinator and return. The result arrives on the stream.
 - **Commands that return a macro return a whole `MacroView`**, never a patch, and the store replaces its view with it.
 - **Edits are refused with `busy` while a session runs**: `edit_macro`, `undo_edit`, `delete_macro`, `pick_pixel`.
@@ -45,16 +45,17 @@ The user-facing messages sent before the main window subscribes (problems found 
 
 ## Errors
 
-Commands return `Result<T, IpcError>`, serialized as `{ code, message }`. The message is written for users, since the store shows it as a toast.
+Commands return `Result<T, IpcError>`, serialized as `{ code, message }`. The store shows the message as a toast, so most are written for users; `not_found` and `edit_rejected` carry internal text, since the UI shouldn't cause them.
 
 | Code | Means |
 | --- | --- |
 | `not_found` | Unknown macro id |
 | `busy` | Refused while a session runs |
-| `edit_rejected` | No such step, or the wrong kind of step |
+| `edit_rejected` | No such step, the wrong kind of step, or a Text template that doesn't parse |
 | `hotkey` | A key Relay can't use, or one already taken |
 | `io`, `format` | A file couldn't be written, or isn't a macro Relay can read |
-| `image`, `invalid_text`, `data_file` | A picture, a Text template or a data file that can't be used |
+| `image`, `data_file` | A picture or a data file that can't be used |
+| `invalid_text` | A Text template that doesn't parse, in `preview_text` |
 | `unavailable`, `autostart` | The screen couldn't be read; the Run key couldn't be changed |
 
 **A failed save isn't a command error.** The change is kept, the command returns the new state, and an `unsaved` message tells the user.
@@ -97,7 +98,7 @@ sequenceDiagram
 
 ## Generated bindings
 
-Every type that crosses IPC derives `ts_rs::TS` with `#[ts(export)]`. `cargo test` writes one `.ts` per type into [`src/lib/ipc/bindings/`](../../src/lib/ipc/bindings), which `src/lib/types.ts` re-exports. Never edit them by hand.
+Every type that crosses IPC derives `ts_rs::TS` with `#[ts(export)]`, except two small hand-written ones: `IpcError` (in `backend.ts`) and `ExportFormat` (in `types.ts`). `cargo test` writes one `.ts` per type into [`src/lib/ipc/bindings/`](../../src/lib/ipc/bindings), which `src/lib/types.ts` re-exports. Never edit them by hand.
 
 The same run regenerates the fixtures: `src/lib/dev/sample-*.json` (the browser preview's data), `e2e/samples.json` and `src/test/path-cases.json`. All are committed, and CI fails if `cargo test` changes any of them. So **a Rust type change without regenerated bindings fails the build**.
 
