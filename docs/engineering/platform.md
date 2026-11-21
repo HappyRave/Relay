@@ -1,276 +1,121 @@
 # relay-platform
 
-`crates/relay-platform` is the boundary between Relay and the operating system. It defines traits for everything OS-specific, implements them for Windows in `src/windows/`, and provides a stub for other systems so the rest of the workspace still builds and tests there.
+`crates/relay-platform` is the boundary with the OS. It defines a trait for each OS service, implements them for Windows in `src/windows/`, and has a stub so everything else builds and tests on Linux. The recorder, the key map and the picker's layout are OS-independent and live here too.
 
 - [The traits](#the-traits)
-- [Low-level input hooks](#low-level-input-hooks)
+- [The input hook](#the-input-hook)
 - [Injection](#injection)
 - [The precision timer](#the-precision-timer)
-- [Screen](#screen)
+- [Screen and captures](#screen-and-captures)
 - [The picker](#the-picker)
-- [Clipboard](#clipboard)
-- [Windows and focus](#windows-and-focus)
-- [Character translation](#character-translation)
-- [The key map](#the-key-map)
+- [Keys and characters](#keys-and-characters)
 - [The recorder](#the-recorder)
-- [Processes](#processes)
-- [The stub backend](#the-stub-backend)
-- [Adding a backend](#adding-a-backend)
+- [Other backends](#other-backends)
 
 ## The traits
 
-```rust
-pub struct Platform {
-    pub hook: Box<dyn InputHook>,
-    pub screen: Arc<dyn Screen>,
-    pub windows: Arc<dyn WindowQuery>,
-    pub clipboard: Arc<dyn Clipboard>,
-    pub translator: fn() -> Box<dyn CharTranslator>,
-    pub injector: fn() -> Box<dyn Injector>,
-    pub timer: fn() -> Box<dyn Timer>,      // also raises the calling thread's priority
-    pub now_ms: fn() -> f64,                // monotonic ms, the time base of RawInput
-}
+[`platform()`](../../crates/relay-platform/src/lib.rs) returns the backend for the current OS:
 
-pub fn platform() -> Platform              // the backend for the current OS
-```
-
-| Trait | Methods | Windows implementation |
+| Trait | Does | Windows |
 | --- | --- | --- |
-| `InputHook` / `HookSession` | `start(HookConfig, Sender<RawInput>)`; dropping the session removes the hooks | `WH_KEYBOARD_LL` + `WH_MOUSE_LL` on a dedicated thread |
-| `Injector` | `move_to`, `button`, `wheel`, `key`, `text` | `SendInput` |
-| `Timer` | `wait_until(deadline)`, `waker()` | High-resolution waitable timer + spin |
-| `Screen` | `monitors`, `virtual_desktop`, `cursor_pos`, `double_click`, `pixel`, `capture`, `mark`, `pick` | `EnumDisplayMonitors`, `GetDpiForMonitor`, `GetPixel`, `StretchBlt`, layered windows (the marker and the picker) |
-| `WindowQuery` | `root_window_at`, `foreground`, `restore_previous`, `find_window`, `input_blocked`, `input_desktop_available`, `shown_rect`, `covering` | Win32 windowing, DWM and token APIs |
-| `CharTranslator` | `translate(vk, scan, held)` | `ToUnicodeEx` |
-| `Clipboard` | `sequence`, `image`, `text`, `start_snip` | `GetClipboardSequenceNumber`; the registered `PNG` format, else `CF_DIB`; `CF_UNICODETEXT`; `ShellExecuteW("ms-screenclip:")` |
+| `InputHook` | Starts a hook session; dropping it removes the hooks | `WH_KEYBOARD_LL` + `WH_MOUSE_LL` |
+| `Injector` | Mouse, keys, text | `SendInput` |
+| `Timer` | `wait_until(deadline)`, wakeable | High-resolution waitable timer + spin |
+| `Screen` | Monitors, pixel, capture, mark, pick | GDI, DWM, layered windows |
+| `WindowQuery` | Window under a point, foreground, integrity, lock screen | Win32, DWM, tokens |
+| `CharTranslator` | What a key press types | `ToUnicodeEx` |
+| `Clipboard` | Image, text, the snipping overlay | Clipboard formats, `ms-screenclip:` |
 
-Relay has two windows (the main one and the player), so whatever must leave Relay out takes both: `OwnWindows` is `[isize; 2]` (0 where there's none; an exported program has one), and `is_own(&own, hwnd)` tells whether a window is one of them.
+- **Injectors, translators and timers come from factories** (`fn() -> Box<dyn …>`), so each thread owns its own.
+- **One clock:** `now_ms` is `QueryPerformanceCounter` in milliseconds. Hook timestamps and engine deadlines both use it.
+- **Two own windows:** whatever must leave Relay out takes `OwnWindows` (the main window and the player; an exported program has one).
+- **Physical pixels:** the app is per-monitor DPI aware (v2), so every recorded or injected coordinate is a physical pixel and display scaling never distorts a macro.
 
-Injectors, translators and timers are created by factory functions (`fn() -> Box<dyn …>`) so each thread that uses one owns its own. For the timer it also matters where it's created: it raises the calling thread's priority, and opts the process out of power throttling until it's dropped.
+## The input hook
 
-`Platform::now_ms` is `QueryPerformanceCounter` converted to milliseconds. Every timestamp in Relay, from hook callbacks to engine deadlines, uses this one monotonic clock; the timer waits for deadlines in it.
+[`windows/hook.rs`](../../crates/relay-platform/src/windows/hook.rs). Windows **silently removes a low-level hook that takes too long**, so:
 
-## Low-level input hooks
+- The hooks live on their own `relay-hook` thread. Dropping the session joins it, so a hook can't outlive its session.
+- Callbacks **only filter, timestamp and `try_send`** to a bounded channel. If it's full, the event is dropped rather than stalling Windows' input queue.
+- The app's [watchdog](app.md#recording-and-the-watchdog) still detects a hook lost under load and reinstalls it. Every mouse event beats `mouse_pulse`, filtered or not, so it doesn't false-alarm.
 
-[`windows/hook.rs`](../../crates/relay-platform/src/windows/hook.rs)
+What the callback decides, with a `HookConfig` fixed for the session:
 
-Windows calls low-level hook procedures on the message loop of the thread that installed them, and **silently removes a hook that takes too long** (the `LowLevelHooksTimeout`, around 300 ms to 1 s). So:
+| Input | Fate |
+| --- | --- |
+| Tagged `RELAY_MAGIC` (`0x52454C59`) in `dwExtraInfo`, or any injected input with *Ignore simulated input* | Passed, not reported. Relay's own input is recognized even with the setting off. |
+| The kill switch (a `KeyChord` from settings) | Always passed through to its hotkey |
+| Recording: a press over Relay's windows, a key while one is in front, the record key | Passed, not reported |
+| Recording: Esc, while *Esc stops recording* is on | Reported as `Escape`, swallowed |
+| Playing (`Watch`): Esc, or with *Stop on key press* any key but a modifier or the play key | Reported as a stop (`Escape` / `StopKey`), swallowed |
+| A release or auto-repeat | **The same fate as its press**, so the app never sees a release without its press |
 
-- `start` spawns a `relay-hook` thread that installs both hooks (unhooking the first if the second fails), reports success or failure back, and pumps messages. Dropping the returned session posts `WM_QUIT` and joins the thread, which removes the hooks, so a session can't be left running by accident.
-- The callbacks **only filter, timestamp and `try_send`** to a bounded channel. No allocation, no blocking, no logging. If the channel is full, the event is dropped rather than stalling Windows' input queue.
-- The configuration is fixed for the session's lifetime:
-
-```rust
-pub struct HookConfig {
-    pub mode: HookMode,
-    /// Always let through to its hotkey, never recorded or taken for a stop key.
-    pub kill_switch: KeyChord,
-    pub ignore_injected: bool,
-    /// Beats on every mouse event seen while recording, even filtered ones (for the app's watchdog).
-    pub mouse_pulse: Option<Arc<MousePulse>>,
-}
-
-pub enum HookMode {
-    /// A recording: report input, leaving out Relay's windows and `skip_vks` (the record key).
-    Record { own: OwnWindows, skip_vks: Vec<u16>, esc_stops: bool },
-    /// A playback: report Esc and, with `stop_on_key`, any other key but modifiers and `pass_vks` (the play key);
-    /// with `report_kill_switch` (the exported player), the kill switch too, still passed through.
-    Watch { stop_on_key: bool, pass_vks: Vec<u16>, report_kill_switch: bool },
-}
-```
-
-**A release always goes the way its press went.** The keyboard callback remembers, per virtual key, whether the press was *reported*, *skipped* (passed through unrecorded: typed into Relay, or the record key) or *swallowed* (Esc, a stop key). The release follows: a reported press has its release reported, even if Relay has come to the front meanwhile; a swallowed press has its release swallowed, so the app never sees a release without its press. Auto-repeats follow the first press the same way. A release whose press came before the hook started is let through unrecorded.
-
-What else the callbacks decide:
-
-```mermaid
-flowchart TD
-    E["Keyboard or mouse event"] --> M{"dwExtraInfo == RELAY_MAGIC<br/>or (injected and ignore_injected)?"}
-    M -- yes --> P1["pass through, not reported"]
-    M -- no --> K{"key"}
-    K -- "the kill switch: its key, its modifiers held" --> P2["pass through (kill switch)"]
-    K -- "a release or a repeat" --> F["same fate as its press"]
-    K -- "Record: Esc, esc_stops" --> S1["report Escape, swallow"]
-    K -- "Record: skip_vks, or Relay in front" --> P3["pass through, not reported"]
-    K -- "Record: anything else" --> R["report Key{vk, scan, ext, down}"]
-    K -- "Watch: Esc, or a stop key" --> S2["report Escape / StopKey, swallow"]
-    E --> MO{"mouse (Record only)"}
-    MO -- "press or wheel over one of Relay's windows" --> I["don't report (and not the release)"]
-    MO -- otherwise --> OUT["report Move / Button / Wheel"]
-```
-
-"Over Relay's windows" is decided per press, from the top-level window under the cursor (`WindowFromPoint` + `GetAncestor`), so it's right wherever the main window or the player has been moved, and when another window covers them. "Relay in front" is the same test on `GetForegroundWindow`. Only presses and wheel events look it up, not the frequent moves.
-
-Two details that took debugging:
-
-- **Relay's own input** is tagged with `RELAY_MAGIC` (`0x52454C59`, "RELY") in `dwExtraInfo`, so it's recognized even when *Ignore simulated input* is off.
-- **The kill switch** is the one set in Relay's settings, as a `KeyChord` (see below), checked with `GetAsyncKeyState` for Ctrl, Alt, Shift and Win. It passes through even with *Stop on key press*, which would otherwise swallow its key as an ordinary stop.
-
-### The kill switch as a `KeyChord`
-
-[`types.rs`](../../crates/relay-platform/src/types.rs): `KeyChord { vk, ctrl, alt, shift, win }` is a combination as the hooks see it. `KeyChord::parse("Ctrl + Alt + Backspace")` reads the UI's label (the key's W3C code through `keys::code_for_label`, then its virtual key through `keymap::vk_for_code`), and `None` means a part that isn't a modifier or a key with a virtual key. `pressed(vk, ctrl, alt, shift, win)` is true for its key with **at least** its modifiers, so a stray Shift still stops everything; `pressed_with(vk, &held)` reads the modifiers from the keys the recorder saw held. `KeyChord::CTRL_ALT_END` is older Relays' kill switch, and exported programs' (they keep it).
-
-The hook can still disappear under load. The app detects that with a [watchdog](app.md#the-recorder-thread-and-the-hook-watchdog).
+"Over Relay's windows" is looked up per press (`WindowFromPoint`), never per move, so it's right wherever the windows are and costs nothing on the frequent moves.
 
 ## Injection
 
-[`windows/inject.rs`](../../crates/relay-platform/src/windows/inject.rs)
-
-Every `INPUT` carries `RELAY_MAGIC` in `dwExtraInfo`.
-
-- **`move_to(x, y)`** sends an absolute move with `MOUSEEVENTF_VIRTUALDESK`, normalizing to 0–65535 across the virtual desktop. Normalization can land one pixel off at some scalings, so it reads the cursor back and corrects with `SetCursorPos` when needed.
-- **`button` and `wheel`** send at the current position. The engine always moves first.
-- **`key(key, down, ch)`** picks the most faithful representation available:
+[`windows/inject.rs`](../../crates/relay-platform/src/windows/inject.rs). Every `INPUT` carries `RELAY_MAGIC`. A key is sent in the most faithful form known:
 
 | Known | Sent as | Why |
 | --- | --- | --- |
-| `scan != 0` | `KEYEVENTF_SCANCODE` (+ `EXTENDEDKEY`) | The physical key, which games and DirectInput apps expect, and which types what it typed during recording on the same layout |
-| `vk != 0` | Virtual key | Input that was itself injected (no scan code) still types the right character on the current layout |
-| `code` only | `keymap::scan_for_code` | Hand-written or migrated macros |
-| `ch` only | `KEYEVENTF_UNICODE`, per UTF-16 unit | Last resort: types the text |
+| Scan code | `KEYEVENTF_SCANCODE` | The physical key, which games and DirectInput expect |
+| Virtual key only | Virtual key | Input that was itself injected still types the right character |
+| W3C code only | `keymap::scan_for_code` | Hand-written or migrated macros |
+| Character only | `KEYEVENTF_UNICODE` | Last resort |
 
-- **`text(text)`**, for Text steps, types characters as `KEYEVENTF_UNICODE` (a press and a release per UTF-16 unit), whatever the keyboard layout. A line feed and a tab are sent as the virtual keys `VK_RETURN` and `VK_TAB` instead, since apps take the Unicode ones as characters, and a carriage return is skipped (a copied `\r\n` is one Enter).
+Text steps type with `KEYEVENTF_UNICODE` whatever the layout, except line feeds and tabs, which are sent as `VK_RETURN` and `VK_TAB` because apps read the Unicode ones as characters.
 
-`SendInput` returns how many events it inserted. Fewer than requested almost always means **UIPI**: the target runs at a higher integrity level (as administrator). The error says so, and the engine reports it once per playback.
+Absolute moves are normalized across the virtual desktop, which can land a pixel off at some scalings, so `move_to` reads the cursor back and corrects it. When `SendInput` inserts fewer events than asked, it's almost always UIPI (the target runs as administrator), and the error says so.
 
 ## The precision timer
 
-[`windows/timer.rs`](../../crates/relay-platform/src/windows/timer.rs)
+[`windows/timer.rs`](../../crates/relay-platform/src/windows/timer.rs). `thread::sleep` has 1–15 ms of slack on Windows, which fast macros show. The timer sleeps on a `CREATE_WAITABLE_TIMER_HIGH_RESOLUTION` timer until 1 ms before the deadline, then spins. It waits on a wake event too, so a pause, seek or stop interrupts it at once.
 
-`std::thread::sleep` on Windows has 1 to 15 ms of slack, which is visible in fast macros. The playback timer:
+Creating it raises the thread to `THREAD_PRIORITY_HIGHEST` and opts the process out of power throttling, which Windows 11 applies to background processes (Relay usually is, while it plays). Dropping it hands throttling back, so an idle Relay doesn't cost battery.
 
-1. **Sleeps** on a waitable timer created with `CREATE_WAITABLE_TIMER_HIGH_RESOLUTION` until 1 ms before the deadline (falling back to a normal waitable timer on older Windows, and to a plain sleep if a wait fails).
-2. **Spins** for the last millisecond, checking the waker event.
-3. Waits on the timer **and** a wake event with `WaitForMultipleObjects`, so a pause, seek or stop from the coordinator interrupts it immediately. `wait_until` returns `true` when woken early.
-
-Creating it also sets `THREAD_PRIORITY_HIGHEST` on the engine thread and opts the process out of **power throttling** (`PROCESS_POWER_THROTTLING_EXECUTION_SPEED` and `IGNORE_TIMER_RESOLUTION`). Windows 11 otherwise coarsens the timers of background processes, and Relay is usually in the background while it plays. Dropping the timer, at the end of the playback, hands throttling back to Windows, so an idle Relay doesn't cost battery.
-
-Measured over a 10-minute release-build soak, 12,000 events: median and p99 lateness under 0.01 ms, worst case about 1 ms.
-
-## Screen
+## Screen and captures
 
 [`windows/screen.rs`](../../crates/relay-platform/src/windows/screen.rs)
 
-- **Monitors**: `EnumDisplayMonitors` + `GetMonitorInfoW` (bounds, work area, primary flag, device name) + `GetDpiForMonitor` (effective DPI).
-- **Virtual desktop**: `SM_XVIRTUALSCREEN` … `SM_CYVIRTUALSCREEN`.
-- **Double-click settings**: `GetDoubleClickTime` and `SM_CXDOUBLECLK`/`SM_CYDOUBLECLK`, stored with each recording for step grouping.
-- **Pixel**: `GetPixel` on the screen DC. It takes about 10 ms, because reading the screen waits for the compositor; a cached DC or a 1×1 `BitBlt` measured the same. That's fine for pixel checks every 30 ms and triggers every 250 ms. (Something much faster would need DXGI desktop duplication.)
-
-- **Capture** (the screenshot as a recording starts): `StretchBlt` from the screen DC into a top-down 32-bit DIB of the size `snapshot_size` picks (scaled down evenly to at most `max_w`, never up), in `HALFTONE` mode so text stays readable, then BGRA to RGB. Relay's windows (the `exclude` pair) are left out with `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` (Windows 10 2004 and later; earlier, it shows), set for the capture only, after two `DwmFlush`es so the compositor has applied it, and reset right after, so other screenshot tools still see Relay. The whole desktop at 6400 × 1600 takes about 200 ms, on its own thread. `Snapshot`'s `Debug` prints only its size: its pixels are someone's screen. The stub returns `None`.
-
-  Finding images uses the same call with `max_w` = the area's width, which gives a 1:1 copy, and nothing excluded: the affinity takes effect per monitor, and on a multi-monitor desktop two `DwmFlush`es don't always wait long enough for the monitor Relay is on, so its window (and the picture it shows) could still be in the capture. The app paints over what shows of Relay's windows instead: each one's frame (`WindowQuery::shown_rect`) minus the windows in front of it (`WindowQuery::covering`: shown, not click-through), so a dialog over the main window is still found, and so is what's beside the player.
-
-- **Mark** ([`windows/marker.rs`](../../crates/relay-platform/src/windows/marker.rs), for *Show*): a popup window over the match, on a thread of its own for its message loop: layered with a color key (so only the outline and the dot are drawn), `WS_EX_TRANSPARENT` (clicks go through), `WS_EX_NOACTIVATE` (no focus), topmost, and excluded from capture **before** it's shown, so no search ever sees it. A timer destroys it after 3 s. Captures run one at a time (a static lock), so one ending never resets the affinity during another.
+- **`pixel`** (`GetPixel`) costs about 10 ms, because reading the screen waits for the compositor. Fine for checks every 30 ms and triggers every 250 ms.
+- **The recording's screenshot** leaves Relay out with `WDA_EXCLUDEFROMCAPTURE`, set only for the capture and reset right after, so other screenshot tools still see Relay.
+- **Image searches don't use that.** On several monitors the affinity can still be applying when the capture is taken. The app paints over what shows of Relay's windows instead: each one's frame (`shown_rect`) minus the windows in front of it (`covering`). A dialog over the main window is still searched.
+- **The marker** (*Show* on a match) is a layered, click-through, non-activating window, excluded from capture before it shows, so no search ever finds it.
 
 ## The picker
 
-Pixel checks and the pixel trigger pick their pixel with `Screen::pick`, which blocks until the user picks one (`Picked { x, y, color, frozen }`) or cancels (`None`). The app calls it on a blocking-pool thread from `pick_pixel`, with its own windows stepped aside. There's no countdown: the picker works on the live screen, and **Freeze** holds it for what blinks or only shows on hover.
+`Screen::pick` blocks until the user picks a pixel or cancels. [`picker.rs`](../../crates/relay-platform/src/picker.rs) has the testable part: the keys (`pick_key`) and where the loupe and help bar go (`loupe_rect`, `help_rect`). [`windows/picker.rs`](../../crates/relay-platform/src/windows/picker.rs) draws three layered windows: the catcher, the loupe and the help bar.
 
-[`picker.rs`](../../crates/relay-platform/src/picker.rs) (OS-independent) holds what can be tested without Windows:
+The picker **never takes the focus**: every window is `WS_EX_NOACTIVATE` and answers `MA_NOACTIVATE`, and its keys come through its own keyboard hook, which swallows only the picker's keys. A menu open in the app underneath stays open. Freezing copies the screen without `CAPTUREBLT`, which leaves layered windows out, so the picker never shows up in its own loupe.
 
-- `pick_key(vk, shift)`: the arrows move one pixel (ten with Shift), Space freezes or goes back to the live screen, Enter picks, Esc cancels; any other key goes on to the app under the picker.
-- `loupe_rect(at, monitor, scale)`: the loupe (132 px at 100%, with its tag under it) goes below and to the right of the cursor, or on the other side where it would leave the monitor.
-- `help_rect(work, size, at, scale)`: the help bar goes at the top of the work area, centered, or at the bottom when the cursor or the loupe is near it.
+## Keys and characters
 
-[`windows/picker.rs`](../../crates/relay-platform/src/windows/picker.rs) draws it with three popup windows, all `WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE`, and answers `WM_MOUSEACTIVATE` with `MA_NOACTIVATE`, so the picker never takes the focus: a menu or a tooltip open in the app under it stays open.
-
-- **The catcher** covers the virtual desktop and takes the mouse (a cross cursor). Live, it's all but invisible (alpha 1, enough for Windows to send it the mouse); frozen, it's opaque and paints the screen as it was, with drafting corner marks on each monitor. A left click picks, a right click cancels.
-- **The loupe** follows the cursor: the 11 × 11 pixels around it (`SPAN`), magnified in a circle, the picked one outlined, and a tag with the coordinates and the color (`#1F7A45`). It's click-through (`WS_EX_TRANSPARENT`). A 40 ms timer refreshes it, since the live screen changes under a still cursor.
-- **The help bar** says *Click the pixel, or move with the arrow keys and press Enter. Esc cancels.*, then LIVE with a red dot, or FROZEN and the time it was frozen, and a **Freeze** key (<kbd>Space</kbd>) that can be clicked too.
-- **The keys** come through a `WH_KEYBOARD_LL` hook, since the picker never has the keyboard: the picker's keys are posted to the catcher and swallowed, press and release, so they never reach the app; every other key passes.
-- **Freezing** copies the virtual desktop with `BitBlt` **without** `CAPTUREBLT`, which leaves layered windows out: neither the loupe nor the frozen screen ever shows the picker itself. Reading the loupe's pixels does the same, from the screen or from the frozen copy.
-
-The stub has no picker (`Screen::pick`'s default, `None`).
-
-## Clipboard
-
-[`windows/clipboard.rs`](../../crates/relay-platform/src/windows/clipboard.rs), for the images of Find image steps and the image trigger, and the `{clipboard}` of Text steps:
-
-- **Image**: opens the clipboard (retrying a few times: another program may hold it for a moment) and copies out the registered `PNG` format if a program offered it (the Snipping Tool and browsers do), else `CF_DIB`. relay-core reads either (`Rgb8::decode`, `Rgb8::from_dib`).
-- **Text**: `CF_UNICODETEXT`, up to its NUL, with the same retries.
-- **Snip**: `ShellExecuteW` on `ms-screenclip:` opens Windows' snipping overlay (<kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd>), which puts its snip on the clipboard. The app's `snip_image` notes `sequence()` before, then polls it until it changes and an image is there.
-
-The stub has no clipboard: no image, and `start_snip` is `Unsupported`.
-
-The app is **per-monitor DPI aware (v2)** through `src-tauri/app.manifest`. Every coordinate in Relay, recorded or injected, is a physical pixel, so display scaling never distorts a macro.
-
-## Windows and focus
-
-[`windows/window.rs`](../../crates/relay-platform/src/windows/window.rs)
-
-| Method | How |
-| --- | --- |
-| `root_window_at(x, y)` | `WindowFromPoint` → `GetAncestor(GA_ROOT)`. The rect is the visible frame from `DWMWA_EXTENDED_FRAME_BOUNDS` (`GetWindowRect` includes invisible resize borders). Returns the exe name, class, title and rect. Used for the anchor window. |
-| `foreground()` | `GetForegroundWindow` + owning process id |
-| `restore_previous(own)` | A `SetWinEventHook(EVENT_SYSTEM_FOREGROUND)` thread records the last foreground window of **another** process. If it's gone, or Windows refuses to activate it, the first real window below Relay in z-order that can be activated (visible, not minimized, not a tool window, not cloaked on another virtual desktop). |
-| `find_window(exe, class)` | `EnumWindows` for the topmost visible window of that exe and class. Used by *Window* coordinates. |
-| `input_blocked(pid)` | Compares the process's integrity level with Relay's (`TokenIntegrityLevel`), which is what UIPI checks. A token Relay can't read counts as higher, unless Relay is itself high. |
-| `input_desktop_available()` | `OpenInputDesktop` fails on the secure desktop (lock screen, UAC prompt) |
-| `shown_rect(hwnd)`, `covering(hwnd)` | Where one of Relay's windows is on screen (its visible frame; `None` when hidden or minimized), and the shown, not click-through windows in front of it: what image searches paint over |
-
-Process names come from `QueryFullProcessImageNameW`, so they work without admin rights for most processes.
-
-## Character translation
-
-[`windows/text.rs`](../../crates/relay-platform/src/windows/text.rs)
-
-The recorder wants to know what character each key press typed, to build `TYPE` steps and show text. `ToUnicodeTranslator` calls `ToUnicodeEx` with:
-
-- a keyboard state built from the keys the recorder saw held (adding the generic Shift, Ctrl and Alt that low-level hooks don't report, and Caps Lock from `GetKeyState`),
-- the **foreground window's** keyboard layout, since layouts are per thread,
-- flag `0x4` (don't change keyboard state, Windows 10 1607+). Without it, translating a dead key such as `^` on AZERTY would consume it, and the user's next character would come out wrong in the app they're typing into.
-
-A negative result is a dead key, which types nothing by itself.
-
-The app uses the same translator for **key warnings** (`key_warning`): with left Ctrl and left Alt held (and Shift, if the combination has it), which Windows treats as AltGr, it asks what a combination's key types on the layout in use. On a French or German layout, Ctrl + Alt + E types €, so relay-core's `key_warning` says that setting it would take the character away.
-
-## The key map
-
-[`keymap.rs`](../../crates/relay-platform/src/keymap.rs) (OS-independent)
-
-- `code(scan, ext, vk)` maps a set-1 scan code (as Windows reports it) to a W3C `code`, falling back to the virtual key for keys without a known scan code (media keys, injected input).
-- `scan_for_code(code)` goes back, for replaying keys that were stored without a scan code.
-- Windows reports Pause as scan 0x45 and NumLock as *extended* 0x45 (the reverse of what you'd expect); the map follows, and the injector sends Pause by virtual key since its scan code is ambiguous.
-- `vk_for_code(code)` is the virtual key for a W3C code (the US layout's, for punctuation), for `KeyChord::parse`.
-- `is_modifier_vk`, `is_ctrl_vk` and `is_alt_vk` are the one definition of those keys, for the hook and the recorder.
+- **[`keymap.rs`](../../crates/relay-platform/src/keymap.rs)** maps scan codes to W3C codes and back. Windows swaps Pause and NumLock's scan codes; the map follows, and Pause is injected by virtual key.
+- **`KeyChord`** ([`types.rs`](../../crates/relay-platform/src/types.rs)) is a combination as the hook sees it, parsed from the UI's label. `pressed` matches its key with *at least* its modifiers, so a stray Shift still stops everything.
+- **[`windows/text.rs`](../../crates/relay-platform/src/windows/text.rs)** asks `ToUnicodeEx` what a key typed, with the foreground window's layout and flag `0x4`. Without that flag, translating a dead key consumes it, and the user's next character comes out wrong in the app they're typing into. The same translator tells key warnings what Ctrl + Alt + a key types (AltGr on European layouts).
 
 ## The recorder
 
-[`recorder.rs`](../../crates/relay-platform/src/recorder.rs) (OS-independent)
+[`recorder.rs`](../../crates/relay-platform/src/recorder.rs) turns `RawInput`s into `Event`s. The translator is injected, so it's tested with synthetic input and a fake US layout.
 
-`Recorder` turns `RawInput`s into `Event`s. Character translation is injected, so it's tested with synthetic input and a fake US translator.
+- Cursor samples are throttled to one per 16 ms, but the last skipped one is kept before the next action, so the cursor is where it really was.
+- The kill switch is dropped here as well as in the hook, so the recorder is right on its own.
+- `finish` trims modifiers pressed after the last real action (those of the kill switch that stopped it), then normalizes. `is_meaningful` decides whether to keep the recording.
 
-- **Time**: raw QPC milliseconds minus the recording start, rounded to `Ms`.
-- **Moves**: dropped when unchanged, and throttled to one per `move_interval_ms` (16 ms), or ignored entirely without *Capture mouse path*. The last sample the throttle skipped is still recorded before the next action, so the cursor is where it really was.
-- **Keys**: dropped without *Capture keystrokes*. The kill switch (`RecorderConfig::kill_switch`, the `KeyChord` set; `CTRL_ALT_END` by default) is dropped: the hook already lets it through unreported, and this keeps the recorder right on its own. Each down gets its character from the translator. Unicode text another program sent (`VK_PACKET`) is kept as text, not as a key: its scan code is a UTF-16 unit.
-- **First press**: the position of the first button down, to find the anchor window.
-- **`take_new_moves`** returns the cursor samples since the last call, for live progress.
-- **`finish`**: drops modifiers *pressed* after the last real action, with their releases (the modifiers of the kill switch that stopped it). The release of a modifier pressed earlier stays where it was. Then `normalize`.
-- **`is_meaningful(events)`**: at least one click, key or wheel event. Otherwise (moves only) the recording is discarded.
+## Other backends
 
-## Processes
+[`stub.rs`](../../crates/relay-platform/src/stub.rs) builds on every non-Windows target: hooks and injection return `Unsupported`, the screen is one 1920 × 1080 monitor. It exists so CI can build and test the portable crates on Linux.
 
-[`processes.rs`](../../crates/relay-platform/src/processes.rs)
-
-`ProcessWatcher` wraps [`sysinfo`](https://crates.io/crates/sysinfo) and returns the lowercase names of running executables, refreshing only process names. It's cross-platform. On Linux, process names are truncated to 15 characters, which the tests account for.
-
-## The stub backend
-
-[`stub.rs`](../../crates/relay-platform/src/stub.rs) is compiled on every non-Windows target. Hooks and injection return `PlatformError::Unsupported`, the screen reports one 1920×1080 monitor (and has no capture, mark or picker), and the timer waits on a condition variable (wakeable, not precise). It exists so `relay-core` and `relay-platform` build, lint and test on Linux CI.
-
-## Adding a backend
-
-A macOS or Linux backend is a new module next to `windows/`, selected with `#[cfg]` in `platform()`:
+A real macOS or Linux backend is a new module beside `windows/`, chosen with `#[cfg]` in `platform()`:
 
 | Trait | macOS | Linux (X11) | Linux (Wayland) |
 | --- | --- | --- | --- |
-| `InputHook` | `CGEventTap` (Accessibility permission) | XRecord | No global capture by design; needs a portal or root `evdev` |
+| `InputHook` | `CGEventTap` (Accessibility permission) | XRecord | No global capture by design: a portal or root `evdev` |
 | `Injector` | `CGEventPost` | XTest | `uinput` |
 | `Screen::pixel` | `CGWindowListCreateImage` | `XGetImage` | Screenshot portal |
-| `WindowQuery` | `NSWorkspace`, `CGWindowListCopyWindowInfo` | EWMH | Compositor-specific |
 
-The recorder, key map, step grouping and everything above don't change.
+The recorder, the key map and everything above them don't change. See [Recipes](recipes.md#add-an-os-backend).
 
 ---
 
-<p align="center"><a href="core.md">← relay-core</a> · <a href="README.md">Contents</a> · <a href="app.md">The app →</a></p>
+<p align="center"><a href="core.md">← relay-core</a> · <a href="app.md">The app →</a></p>

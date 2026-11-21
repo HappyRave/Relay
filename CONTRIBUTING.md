@@ -39,7 +39,7 @@ The first build takes a few minutes. After that, Rust changes rebuild incrementa
 > $env:RELAY_DATA_DIR = "$env:TEMP\relay-dev"; npm run tauri dev
 > ```
 >
-> Delete the folder to start over with the sample macros.
+> A new folder starts empty, with the first run. Delete it to start over.
 
 ## Everyday commands
 
@@ -61,13 +61,7 @@ The first build takes a few minutes. After that, Rust changes rebuild incrementa
 
 ## Where things go
 
-| If you're changing… | Look in | Test with |
-| --- | --- | --- |
-| How events become steps, edits, the file format, timing, sessions, schedules | `crates/relay-core` | Unit tests and property tests in the same crate |
-| Hooks, injection, the timer, screen or window queries | `crates/relay-platform/src/windows` | The end-to-end harness (see [Testing](docs/engineering/testing.md#end-to-end-testing)) |
-| Recording conversion or the key map | `crates/relay-platform/src/{recorder,keymap}.rs` | Unit tests with synthetic input |
-| Threads, commands, storage, triggers, the window, the tray | `src-tauri/src` | Unit tests, and the end-to-end suite in `e2e/` |
-| The UI | `src/` | Vitest, next to the code: a component test for each control ([how](docs/engineering/testing.md#the-frontend)) |
+The engineering guide's [*I want to change…*](docs/engineering/README.md#i-want-to-change) table says where to start, and its [recipes](docs/engineering/recipes.md) list the files and tests for the common changes: an edit, a step type, a command, a trigger, a setting. [Testing](docs/engineering/testing.md) says how to write a test at each layer.
 
 A rule of thumb: if it can be a pure function, it goes in `relay-core`, takes time as an argument, and gets a test.
 

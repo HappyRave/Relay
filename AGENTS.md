@@ -44,7 +44,7 @@ Relay is a **Windows desktop macro recorder**: it records mouse and keyboard inp
 - **Tests at v1.5.0:** about 440 Rust (unit, property, snapshot), about 670 Vitest (store, backend contract, fake core, every component), about 125 end-to-end tests against the built app. Rust unit coverage is about 76% of lines; the coordinator, commands, tray and Windows backend are exercised end to end instead. The frontend is at about 99.8% of lines.
 - **Next: the documentation, in three milestones.** The docs grew too long and too hard to follow, so each is rewritten:
   - **m25-user-guide**: the spec moved out of the user guide into `docs/spec/` (numbered rules), and the guide rewritten as short task pages;
-  - **m26-engineering-guide**: a rewrite of the engineering guide (`docs/engineering/`);
+  - **m26-engineering-guide** (in progress, HappyRave/Relay#18): the engineering guide rewritten short, with a new `recipes.md`;
   - **m27-website**: Relay's website, a static GitHub Pages site.
 - **After that, per the [roadmap](README.md#roadmap):** code signing (needs a certificate; free options for open source: SignPath Foundation, Certum's open-source certificate, Azure Trusted Signing), remapping macros to a different monitor layout, macOS and Linux backends.
 - **Also open:** see [Known limitations and open items](#known-limitations-and-open-items).
@@ -184,7 +184,7 @@ For any change:
 
 ## Rules the code follows
 
-These came out of two full reviews (m12, m14). Breaking one has caused real bugs before.
+These came out of two full reviews (m12, m14). Breaking one has caused real bugs before. The reasons behind them are in [Architecture → Rules the code follows](docs/engineering/architecture.md#rules-the-code-follows).
 
 **Architecture**
 - **`relay-core` owns the model and every edit.** The UI never edits steps itself; it sends an `EditOp` and shows the returned `MacroView`. Pure logic goes in `relay-core`, takes time as an argument, and gets a test.
@@ -245,6 +245,7 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 ## Documentation
 
 - The behavior spec (`docs/spec/`) is the spec: behavior changes update its rules in the same branch (a new rule takes the next free number on its page; numbers aren't reused). Cite rules by ID (`PLAY-12`) in tests and PRs. The user guide says how to use Relay, the engineering guide how and why it's built.
+- Engineering guide pages say how a part works, why, and where to change it, and link to the code and the spec instead of restating them. Nothing that goes stale: no line counts, test counts or exhaustive lists. When a common kind of change gets new steps, update [Recipes](docs/engineering/recipes.md).
 - User guide pages are short tasks: the outcome first, a few numbered steps, an *If it worked* line, and a *More detail* link into the spec instead of restating it. Labels exactly as in the UI.
 - Style: GitHub-flavored Markdown with good navigation (a contents list per page, prev/next links at the bottom, tables, `> [!TIP]`/`> [!NOTE]` callouts, `<kbd>` for keys, mermaid diagrams where they help). Short, plain, active sentences.
 - `scripts/docs-screenshots.ps1` regenerates `docs/images/` from the real app. Rerun it after visible UI changes. It only plays inside a stretched pause, so it never clicks on the desktop.
@@ -254,34 +255,21 @@ Full description: [docs/engineering/testing.md](docs/engineering/testing.md). Th
 
 `main` only changes through pull requests that pass CI. CI minutes are limited (2,000 a month, and Windows minutes count double), so everyday checking happens locally and the expensive CI job runs once per PR, when it's ready.
 
-- **Branches:** short-lived, off `main`. Milestones `mN-short-name` (next is `m25-…`), fixes `fix-…`, docs `docs-…`, CI and tooling `ci-…`, releases `release-X.Y.Z`.
+- **Branches:** short-lived, off `main`. Milestones `mN-short-name` (m27 is reserved for the website; next free is `m29-…`), fixes `fix-…`, docs `docs-…`, CI and tooling `ci-…`, releases `release-X.Y.Z`.
 - **Commits:** small, [Conventional Commits](https://www.conventionalcommits.org/) (`feat(recorder): …`, `fix(engine): …`, `test(e2e): …`, `docs: …`, `ci: …`, `chore: …`), with a body explaining why when it isn't obvious. Push as often as you like: pushing a branch runs nothing.
 - **The pull request is the milestone's workspace.** Open it as a **draft** when the branch starts (`gh pr create --draft --base main`), with the plan and progress in its description, kept up to date. That's where the next session (or contributor) picks up. Drafts only run the quick CI job.
 - **Ready means checked:** run `npm run verify` locally, then `gh pr ready`. That runs the full CI once; every later push to a ready PR runs it again, so push fixes in one go. Put a PR back to draft (`gh pr ready --undo`) to keep working on it.
 - **Merging:** only merge commits (squash and rebase are off), so history keeps each branch as a `--no-ff` merge: `gh pr merge <n> --merge --subject "Merge mN-…: <summary>"`. Merge when the checks are green, but **wait for the maintainer's go** when they're checking something by hand. Since 1.0, versions are tagged only at release.
 - **`main` is protected** by a repository ruleset (*Settings → Rules*): a PR is required, and so are the `quick`, `windows` and `msrv` checks; no force-push or deletion; nobody bypasses it. No approving review is required while there's one maintainer.
 - **Authorized:** pushing branches to `HappyRave/Relay`, and opening, updating, marking ready and merging PRs (following the rule above). Never push to `main` directly; the ruleset refuses it anyway.
-- **CI** (`.github/workflows/ci.yml`), on pull requests to `main`:
-  - **quick** (Linux, every push, drafts too): fmt, tests and clippy for `relay-core`, `relay-platform`, `relay-playback` and `relay-player` (they must stay portable), `npm run check`, `npm test`. It also decides whether the PR changes more than docs (`docs/**`, `*.md`).
-  - **windows** (ready PRs that change code, after `quick` passes): `cargo test`, the AutoHotkey exports its tests write loaded by a pinned AutoHotkey with `/Validate` (syntax only, never run), generated files up to date, clippy, `npx tauri build`, upload the installer, then the E2E suites against the release build. If E2E fails, `e2e/ci-diagnose.mjs` reports WebView2 details as annotations.
-  - **msrv** (same condition): `cargo check` with Rust 1.95.
-  - A skipped job counts as a passed check, so docs-only PRs merge after `quick`. A newer push cancels the PR's run in progress. *Actions → CI → Run workflow* runs everything on any branch by hand.
-- **Checking an E2E fix:** `.github/workflows/e2e.yml` builds the release app and runs only some E2E tests, in about ten minutes: `gh workflow run e2e.yml --ref <branch> -f suites="triggers" -f tests="<name regex>"`, then `gh run watch`. It runs on what the branch has on GitHub, so push the fix first: to a draft PR (`gh pr ready --undo`), where a push runs only `quick`. Once it passes, `gh pr ready` runs the full CI, which merging still needs. It's never a required check.
-- **Reading CI:** `gh pr checks <n>`, and `gh run view <run id> --log-failed` for a failure. `e2e/github-reporter.mjs` turns each E2E failure (and each suite that failed to start) into an annotation with its message. Without `gh`, the public API works too: `https://api.github.com/repos/HappyRave/Relay/actions/runs?head_sha=<sha>`, then `/actions/runs/<id>/jobs`, then `/check-runs/<job id>/annotations`.
+- **CI jobs** (`quick`, `windows`, `msrv`), what each runs, reading a failure and checking an E2E fix quickly with `e2e.yml`: [Testing → CI](docs/engineering/testing.md#ci). A skipped job counts as passed, so docs-only PRs merge after `quick`. If E2E fails, `e2e/ci-diagnose.mjs` reports WebView2 details as annotations.
+- **Reading CI without `gh`:** the public API works: `https://api.github.com/repos/HappyRave/Relay/actions/runs?head_sha=<sha>`, then `/actions/runs/<id>/jobs`, then `/check-runs/<job id>/annotations`.
 - A full run takes about 20–25 minutes (`quick` first, then the Windows job builds the release and runs E2E). Its Rust cache starts cold for each PR, since nothing runs on `main` to share one.
 - **When contributors join:** require 1 approving review and add a `CODEOWNERS`; set *Settings → Actions → Fork pull request workflows* to require approval for all outside collaborators; and turn on *Require branches to be up to date before merging* in the ruleset, so `main` is tested with each PR on top of the latest code (merge queues need an organization-owned repo).
 
 ## Releasing
 
-1. On a `release-X.Y.Z` branch: bump the version in **`Cargo.toml`** (workspace), **`package.json`** and **`src-tauri/tauri.conf.json`**; run `npm install --package-lock-only` and `cargo check` to refresh the lockfiles; rename *Unreleased* in `CHANGELOG.md` to `## vX.Y.Z: <title>`; tick the roadmap line in `README.md` if relevant.
-2. Run `npm run verify`, commit (`chore(release): X.Y.Z`), and open a PR, ready (`gh pr create --base main`). Once green, merge it (`--subject "Release X.Y.Z"`), then `git checkout main && git pull`, tag `git tag -a vX.Y.Z -m "Relay X.Y.Z"` and push the tag.
-3. `release.yml` runs on the tag: tests, builds with tauri-action, and creates a **draft** release with `Relay_X.Y.Z_x64-setup.exe` and `Relay_X.Y.Z_x64-portable.exe` (the portable file is `target/release/relay.exe`, attached by a separate step).
-4. Publish with `gh`: `gh release edit vX.Y.Z --draft=false --latest --title "Relay vX.Y.Z" --notes-file <notes.md>` (`gh release view vX.Y.Z` shows the draft first).
-   - Write the notes in the style of the previous releases (`gh release view v1.5.0`): *What's new* bullets, a link to the changelog and user guide, then *Downloads* (both files) and the SmartScreen note, since the builds aren't code-signed.
-   - After publishing, check that `gh release view vX.Y.Z` lists both assets, that `gh release list` marks it Latest, and that both download URLs respond.
-   - In the web UI instead: open the draft from the Releases list (`/releases/edit/untagged-…`). **Don't use `/releases/edit/vX.Y.Z`**: for a tag without a published release, that's a *new release* form, and publishing it creates a second, empty release (that happened with v1.2.0).
-   - Deleting a release has to be done by the maintainer.
-5. `release.yml` also has a manual `workflow_dispatch` with a `tag` input that rebuilds a tag and (re)attaches its portable exe.
+Follow [Testing → Releases](docs/engineering/testing.md#releases): a `release-X.Y.Z` branch and PR, then a tag that builds a draft release, published with `gh`. A release the maintainer asked for is authorized to publish; deleting a release is theirs to do.
 
 ## Gotchas
 
