@@ -146,10 +146,11 @@ A skipped job counts as passed, so a docs-only PR merges after `quick`. A newer 
 
 ## Releases
 
-1. On a `release-X.Y.Z` branch, bump the version in `Cargo.toml` (workspace), `package.json` and `src-tauri/tauri.conf.json`; run `npm install --package-lock-only` and `cargo check` to refresh the lockfiles; rename *Unreleased* in `CHANGELOG.md` to `## vX.Y.Z: <title>`.
-2. Run `npm run verify`, commit `chore(release): X.Y.Z`, open a ready PR, and merge it once green (`--subject "Release X.Y.Z"`).
-3. On `main`, tag `git tag -a vX.Y.Z -m "Relay X.Y.Z"` and push the tag. [`release.yml`](../../.github/workflows/release.yml) builds and creates a **draft** release with the installer and the portable exe.
-4. Publish it: `gh release edit vX.Y.Z --draft=false --latest --title "Relay vX.Y.Z" --notes-file notes.md`, with notes in the style of the previous release (`gh release view v1.5.0`). Then check that it lists both files and is marked Latest.
+1. On a `release-X.Y.Z` branch, bump the version in `Cargo.toml` (workspace), `package.json` and `src-tauri/tauri.conf.json`; run `npm install --package-lock-only` and `cargo check` to refresh the lockfiles; rename *Unreleased* in `CHANGELOG.md` to `## vX.Y.Z: <title>`; tick the roadmap line in `README.md` if relevant.
+2. Run `npm run verify`, commit `chore(release): X.Y.Z`, open a ready PR (`gh pr create --base main`), and merge it once green (`--subject "Release X.Y.Z"`).
+3. `git checkout main && git pull`, tag `git tag -a vX.Y.Z -m "Relay X.Y.Z"` and push the tag. [`release.yml`](../../.github/workflows/release.yml) runs the tests, builds, and creates a **draft** release with `Relay_X.Y.Z_x64-setup.exe` and `Relay_X.Y.Z_x64-portable.exe`.
+4. Publish it: `gh release edit vX.Y.Z --draft=false --latest --title "Relay vX.Y.Z" --notes-file notes.md`. Write the notes like the previous release's (`gh release view v1.5.0`): *What's new* bullets, links to the changelog and user guide, *Downloads* (both files), and the SmartScreen note, since the builds aren't signed.
+5. Check that `gh release view vX.Y.Z` lists both files, that `gh release list` marks it Latest, and that both download URLs respond.
 
 > [!CAUTION]
 > In the web UI, open the draft from the Releases list. `/releases/edit/vX.Y.Z` is a *new release* form for a tag without a published release, and publishing it creates a second, empty release.
