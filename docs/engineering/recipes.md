@@ -57,22 +57,30 @@ A new kind of inserted event, like Wait, Text or Find image. Example: the `m20-t
 
 ## Add a trigger kind
 
-Example: `96e2b02`, the interval trigger (*Every…*), which touched 20 files.
+Examples: `96e2b02`, the interval trigger (*Every…*), for one that only needs the clock; `a64e2bc`, the image trigger, for one that polls the screen or the OS.
 
-1. **Model** [`relay-core/src/triggers.rs`](../../crates/relay-core/src/triggers.rs): a field on `MacroTriggers` whose type implements `Default` (the struct is `#[serde(default)]`, so older `library.json` files load), its `TriggerOn` value and `also_on`. Add its `RunSource` in [`session.rs`](../../crates/relay-core/src/session.rs).
-2. **The watch** [`src-tauri/src/triggers.rs`](../../src-tauri/src/triggers.rs): a pure `…Watch` type whose `tick` returns the macros to fire, unit-tested with fixed inputs (on time, late, after sleep, busy, changed). Then a thread that sleeps, calls `tick` and `fire`s; start it in `spawn`.
-3. **Admission** [`coordinator.rs`](../../src-tauri/src/coordinator.rs): `admit` already handles paused, deleted, busy and locked. Change it only if the new kind needs different treatment (the interval trigger did: an interval meeting a busy Relay is ignored quietly), and test that.
-4. **Frontend**: the card in `MacroPane.svelte`; the text in [`editor/triggers.ts`](../../src/lib/editor/triggers.ts) and [`runs.ts`](../../src/lib/runs.ts); the fake core's `defaultTriggers`, `withDefaults`, `alsoOn` and `TRIGGERS` spec; the browser backend's default triggers in `backend.ts`. Component tests for every field of the card.
-5. **E2E** in `triggers.e2e.test.mjs`, firing on a real event, never on synthesized input.
-6. **Spec**: new rules in [Triggers](../spec/triggers.md).
+1. **Model** [`relay-core/src/triggers.rs`](../../crates/relay-core/src/triggers.rs): a trigger type modelled on `AppLaunchTrigger` (serde, `#[ts(export)]`, a `Default`), a field for it on `MacroTriggers` (the struct is `#[serde(default)]`, so older `library.json` files load), its `TriggerOn` value and `also_on`. Add its `RunSource` in [`session.rs`](../../crates/relay-core/src/session.rs).
+2. **The firing rule**, if it fires on a change (something appears): an edge detector beside `PixelEdge` and `ProcessLaunchEdge` in relay-core, with tests.
+3. **Platform**, if polling needs a new OS ability (listing windows, say): a trait method in [`relay-platform/src/lib.rs`](../../crates/relay-platform/src/lib.rs), implemented in `windows/` and in `stub.rs`.
+4. **The watch** [`src-tauri/src/triggers.rs`](../../src-tauri/src/triggers.rs): a pure `…Watch` type whose `tick` returns the macros to fire, unit-tested with fixed inputs (on time, late, after sleep, busy, changed). Then a thread that sleeps, reads the triggers with `snapshot(&app)`, calls `tick` and `fire(&app, id, RunSource::…)`; start it in `spawn`.
+5. **Baseline**, if the thing can already be there when the trigger is saved (a program running, a window open): make `set_triggers` wait for the watch's first look, as it waits for the app watcher (`triggers_changed`), so only what appears afterwards fires.
+6. **Admission** [`coordinator.rs`](../../src-tauri/src/coordinator.rs): `admit` already handles paused, deleted, busy and locked. Change it only if the new kind needs different treatment (the interval trigger did: an interval meeting a busy Relay is ignored quietly), and test that.
+7. **Frontend**: run `cargo test` first; `npm run check` then lists most places to update (the `Record<TriggerKind, …>` maps: labels, `TRIGGER_KINDS`, the card's icon). Then:
+   - the card in `MacroPane.svelte`, and a component test for each of its fields. A card that lists something from the OS needs a command ([Add a command](#add-a-command));
+   - the text in [`editor/triggers.ts`](../../src/lib/editor/triggers.ts) and [`runs.ts`](../../src/lib/runs.ts);
+   - the defaults, which have three copies that must match Rust's `Default`: `editor/triggers.ts`, the browser backend in `backend.ts`, and the fake core's `defaultTriggers` (with `withDefaults`, `alsoOn` and the `TRIGGERS` spec).
+8. **E2E** in `triggers.e2e.test.mjs`, firing on a real event, never on synthesized input: a program starting, or a separate PowerShell window like [`image-window.ps1`](../../e2e/image-window.ps1).
+9. **Docs**: new rules in [Triggers](../spec/triggers.md); the new thread in [Architecture → Threads](architecture.md#threads) and [The app → Triggers](app.md#triggers).
 
 ## Add a setting
 
-1. **Rust** [`settings.rs`](../../src-tauri/src/settings.rs): the field and its default. It's read field by field, so an invalid value resets only itself; add a test for that. If it differs for an upgrade, set it in `Settings::upgraded` too.
-2. **Apply it** in `update_settings` if it changes something outside the page (the window, the hotkeys, the player).
-3. **Frontend**: the default in `DEFAULT_SETTINGS` in [`defaults.ts`](../../src/lib/defaults.ts) (matching Rust's; the fake core copies it), the field in the fake core's `SETTINGS` spec, the control in `SettingsPage`, and a test that checks the saved settings.
-4. **E2E** in `settings.e2e.test.mjs` if it changes the native window or survives a restart.
-5. **Spec**: [Settings](../spec/settings.md).
+1. **Rust** [`settings.rs`](../../src-tauri/src/settings.rs): the field and its default. Parsing is generic, field by field, so there's no parsing code to write; test only a type with its own validation (like `TextSize`).
+2. **Decide what existing users get.** A `settings.json` written before the field existed is filled in from `Settings::upgraded()`, a new folder from `Settings::default()`. `upgraded()` copies the defaults unless you set the field there.
+3. **Apply it** in `update_settings` only if Rust must react the moment it changes (the window, the look, the hotkeys, the player). A setting read when it's needed needs nothing here.
+4. **Use it** where it acts: in the UI, `relay.settings.<field>` in the store action or component; in Rust, read `SettingsStore` and release the lock before any window, tray or hotkey call. Test that behavior, not just the saving.
+5. **Frontend**: run `cargo test` to regenerate `Settings.ts`, and `npm run check` points at `DEFAULT_SETTINGS` in [`defaults.ts`](../../src/lib/defaults.ts): give it Rust's default (the browser backend and the fake core copy it). Add the field to the fake core's `SETTINGS` spec (it ignores unlisted fields, so nothing fails if you forget). Then the control, in `SettingsPage` or wherever the user changes it, with a test that checks the saved settings.
+6. **E2E** in `settings.e2e.test.mjs` if it changes the native window or survives a restart.
+7. **Spec**: [Settings](../spec/settings.md).
 
 ## Change the file format
 
