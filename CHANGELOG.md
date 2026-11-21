@@ -15,6 +15,7 @@
 - **Step numbers** leave out mouse moves, so a step keeps its number whether moves show or not, in the editor, in messages (*Pixel check timed out at step 8*), in Activity and in AutoHotkey exports. A move goes by the step it leads to: *Move before step 3*.
 - **The export dialog** names the macro, and its formats are radios you can move through with the arrow keys.
 - **A new user guide:** short pages, one per task (*Record a macro*, *Stop a macro*, *Fill in a form from a spreadsheet*, *Run a macro automatically*…), each with a few steps and a way to tell it worked. Start at the [user guide](docs/user-guide/README.md).
+- **Every…:** a new trigger runs a macro over and over, from every 5 seconds to every 24 hours. Each interval counts from the end of the last run, and waits while Relay records or plays, so runs never pile up. See [Run a macro every few minutes](docs/user-guide/run-automatically.md#run-a-macro-every-few-minutes).
 - **The behavior spec:** every rule of how Relay behaves, numbered and one page per feature, in [docs/spec](docs/spec/README.md). The guide links to it for the fine detail.
 
 ## v1.5.0: Text steps, data files and AutoHotkey export

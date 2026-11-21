@@ -176,6 +176,7 @@ describe("runs automatically", () => {
     const menu = within(screen.getByRole("menu", { name: "Add a trigger" }));
     expect(menu.getAllByRole("menuitem").map((m) => m.textContent?.trim())).toEqual([
       "Schedule",
+      "Every…",
       "When an app starts",
       "When a pixel changes",
       "When an image appears",
@@ -290,6 +291,61 @@ describe("runs automatically", () => {
       await settle();
       expect(core.argsOf("set_triggers")).toEqual([]);
       expect(time).toHaveValue("17:45");
+    });
+  });
+
+  describe("every… (TRIG-71–TRIG-77)", () => {
+    test("added, it's on: every 10 min", async () => {
+      await openTriggers();
+      await add("Every…");
+      expect(sent().interval).toEqual({ enabled: true, every: 10, unit: "min" });
+      expect(card("Every…").getByText("Every 10 min", { selector: ".sentence" })).toBeInTheDocument();
+      expect(card("Every…").getByText("On")).toBeInTheDocument();
+      expect(button(/Runs automatically/)).toHaveTextContent("Every 10 min");
+    });
+
+    test("the number, kept within its unit's limits", async () => {
+      await relay.setTriggers({ interval: { enabled: true, every: 10, unit: "min" } });
+      await openTriggers();
+      const every = field("Every");
+      await change(every, "45");
+      await settle();
+      expect(sent().interval).toEqual({ enabled: true, every: 45, unit: "min" });
+      await change(every, "5000");
+      await settle();
+      expect(sent().interval.every).toBe(1440);
+      await change(every, "0");
+      await settle();
+      expect(sent().interval.every).toBe(1);
+    });
+
+    test("the unit; a number too small for seconds becomes 5 s, too big for hours 24 h", async () => {
+      await relay.setTriggers({ interval: { enabled: true, every: 2, unit: "min" } });
+      await openTriggers();
+      const unit = within(screen.getByRole("radiogroup", { name: "Unit" }));
+      expect(unit.getAllByRole("radio").map((r) => r.textContent)).toEqual(["s", "min", "h"]);
+      await userEvent.click(unit.getByRole("radio", { name: "s" }));
+      await settle();
+      expect(sent().interval).toEqual({ enabled: true, every: 5, unit: "s" });
+      expect(card("Every…").getByText("Every 5 s", { selector: ".sentence" })).toBeInTheDocument();
+      await relay.setTriggers({ interval: { enabled: true, every: 90, unit: "min" } });
+      await settle();
+      await userEvent.click(unit.getByRole("radio", { name: "h" }));
+      await settle();
+      expect(sent().interval).toEqual({ enabled: true, every: 24, unit: "h" });
+    });
+
+    test("its switch, and Remove", async () => {
+      await relay.setTriggers({ interval: { enabled: true, every: 30, unit: "s" } });
+      await openTriggers();
+      await userEvent.click(toggle("Every… on"));
+      await settle();
+      expect(sent().interval).toEqual({ enabled: false, every: 30, unit: "s" });
+      expect(card("Every…").getByText("Off")).toBeInTheDocument();
+      await userEvent.click(card("Every…").getByRole("button", { name: "Remove" }));
+      await settle();
+      expect(sent().interval).toEqual({ enabled: false, every: 10, unit: "min" });
+      expect(screen.queryByRole("group", { name: "Every…" })).toBeNull();
     });
   });
 

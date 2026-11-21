@@ -77,7 +77,7 @@ flowchart LR
     hk["Hotkey handler<br/>(Tauri main thread)"] -- Cmd --> C
     ui["Commands<br/>(main thread, or the async pool)"] -- Cmd --> C
     tray["Tray menu"] -- Cmd --> C
-    T["relay-schedule<br/>relay-app-launch<br/>relay-pixel-trigger"] -- "Cmd::RunMacro" --> C
+    T["relay-schedule<br/>relay-interval<br/>relay-app-launch<br/>relay-pixel-trigger"] -- "Cmd::RunMacro" --> C
     C(["relay-coordinator<br/>session state machine"])
     C -- "start / stop" --> H["relay-hook<br/>WH_KEYBOARD_LL + WH_MOUSE_LL"]
     H -- RawInput --> R["relay-recorder"]
@@ -97,7 +97,7 @@ flowchart LR
 | **relay-hook** | During a session | Installs the low-level hooks and pumps their messages. Callbacks only filter, timestamp and `try_send`. |
 | **relay-recorder** | While recording | Turns raw input into events, sends live progress 10 times a second, runs the hook watchdog. |
 | **relay-engine** | While playing | Injects events on time with the precision timer, polls pixel checks, reports ticks 30 times a second. Runs at `THREAD_PRIORITY_HIGHEST`. |
-| **relay-schedule**, **relay-app-launch**, **relay-pixel-trigger** | Whole run | Poll every 5 s, 2 s and 250 ms, and ask the coordinator to run a macro when a trigger fires. |
+| **relay-schedule**, **relay-interval**, **relay-app-launch**, **relay-pixel-trigger** | Whole run | Poll every 5 s, 1 s, 2 s and 250 ms, and ask the coordinator to run a macro when a trigger fires. |
 | **Tauri main thread** | Whole run | Both windows, the tray, the global hotkey handler (`RegisterHotKey` messages arrive here), hotkey registration, and the commands that don't write files. |
 | **relay-stop-keys** | While playing | Forwards Esc and stop keys from the watching hook to the coordinator. |
 | **The picker** | While picking a pixel | A thread of Tauri's blocking pool (`pick_pixel`): creates the picker's windows and its keyboard hook, and pumps their messages until a pick or a cancel (see [relay-platform → The picker](platform.md#the-picker)). |

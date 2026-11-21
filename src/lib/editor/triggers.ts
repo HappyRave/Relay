@@ -3,12 +3,14 @@
 import type { MacroTriggers, TriggerStatus } from "../types";
 import { nextRunLabel } from "../format";
 import type { TriggerOn } from "../ipc/bindings/TriggerOn";
+import type { IntervalUnit } from "../ipc/bindings/IntervalUnit";
 
 export type TriggerKind = keyof MacroTriggers;
-export const TRIGGER_KINDS: TriggerKind[] = ["hotkey", "schedule", "app_launch", "pixel", "image"];
+export const TRIGGER_KINDS: TriggerKind[] = ["hotkey", "schedule", "interval", "app_launch", "pixel", "image"];
 export const TRIGGER_NAME: Record<TriggerKind, string> = {
   hotkey: "Hotkey",
   schedule: "Schedule",
+  interval: "Every…",
   app_launch: "When an app starts",
   pixel: "When a pixel changes",
   image: "When an image appears",
@@ -18,10 +20,16 @@ export const TRIGGER_NAME: Record<TriggerKind, string> = {
 export const CLEARED: MacroTriggers = {
   hotkey: { enabled: false, combo: "" },
   schedule: { enabled: false, schedule: { days: [true, true, true, true, true, false, false], time: "09:00" } },
+  interval: { enabled: false, every: 10, unit: "min" },
   app_launch: { enabled: false, exe: "", delay_ms: 2000 },
   pixel: { enabled: false, x: 0, y: 0, color: "#EC3013", tolerance: 8 },
   image: { enabled: false, image: null, threshold: 85, area: null },
 };
+
+/** An interval's limits in each unit: 5 s to 24 h (IntervalTrigger::period). */
+export const INTERVAL_RANGE: Record<IntervalUnit, [number, number]> = { s: [5, 3600], min: [1, 1440], h: [1, 24] };
+
+const intervalText = (every: number, unit: IntervalUnit) => `Every ${every} ${unit}`;
 
 /** Whether the macro has this trigger: it's on, or set to something. */
 export function hasTrigger(t: MacroTriggers, kind: TriggerKind): boolean {
@@ -30,6 +38,8 @@ export function hasTrigger(t: MacroTriggers, kind: TriggerKind): boolean {
       return t.hotkey.combo !== "";
     case "schedule":
       return t.schedule.enabled || JSON.stringify(t.schedule.schedule) !== JSON.stringify(CLEARED.schedule.schedule);
+    case "interval":
+      return t.interval.enabled || t.interval.every !== CLEARED.interval.every || t.interval.unit !== CLEARED.interval.unit;
     case "app_launch":
       return t.app_launch.exe.trim() !== "";
     case "pixel": {
@@ -59,6 +69,8 @@ export function triggerText(kind: TriggerKind, t: MacroTriggers): string {
       return t.hotkey.combo || "No keys yet";
     case "schedule":
       return t.schedule.schedule.days.some(Boolean) ? `${daysText(t.schedule.schedule.days)} at ${t.schedule.schedule.time}` : "No days yet";
+    case "interval":
+      return intervalText(t.interval.every, t.interval.unit);
     case "app_launch":
       return t.app_launch.exe ? `${t.app_launch.delay_ms / 1000} s after ${t.app_launch.exe} starts` : "No program yet";
     case "pixel":
@@ -82,7 +94,9 @@ export function alsoText(also: TriggerOn[]): string {
     .map((t) =>
       t.kind === "schedule"
         ? `${daysText(t.schedule.days)} at ${t.schedule.time}`
-        : t.kind === "app_launch"
+        : t.kind === "interval"
+          ? intervalText(t.every, t.unit)
+          : t.kind === "app_launch"
           ? `When ${t.exe} starts`
           : t.kind === "pixel"
             ? "When a pixel changes"
@@ -94,5 +108,5 @@ export function alsoText(also: TriggerOn[]): string {
 /** Runs automatically, in one line: the triggers that are on. */
 export function triggersSummary(t: MacroTriggers): string {
   const on = TRIGGER_KINDS.filter((k) => t[k].enabled && hasTrigger(t, k));
-  return on.length ? on.map((k) => (k === "hotkey" || k === "schedule" ? triggerText(k, t) : TRIGGER_NAME[k])).join(" · ") : "Only when you play it";
+  return on.length ? on.map((k) => (k === "hotkey" || k === "schedule" || k === "interval" ? triggerText(k, t) : TRIGGER_NAME[k])).join(" · ") : "Only when you play it";
 }

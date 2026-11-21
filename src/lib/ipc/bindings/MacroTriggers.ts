@@ -2,10 +2,11 @@
 import type { AppLaunchTrigger } from "./AppLaunchTrigger";
 import type { HotkeyTrigger } from "./HotkeyTrigger";
 import type { ImageTrigger } from "./ImageTrigger";
+import type { IntervalTrigger } from "./IntervalTrigger";
 import type { PixelTrigger } from "./PixelTrigger";
 import type { ScheduleTrigger } from "./ScheduleTrigger";
 
 /**
  * All of a macro's triggers. Machine-local: kept in library.json, not in the `.rly`.
  */
-export type MacroTriggers = { hotkey: HotkeyTrigger, schedule: ScheduleTrigger, app_launch: AppLaunchTrigger, pixel: PixelTrigger, image: ImageTrigger, };
+export type MacroTriggers = { hotkey: HotkeyTrigger, schedule: ScheduleTrigger, interval: IntervalTrigger, app_launch: AppLaunchTrigger, pixel: PixelTrigger, image: ImageTrigger, };

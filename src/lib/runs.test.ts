@@ -30,10 +30,11 @@ const check = (over: Partial<CheckResult> = {}): CheckResult => ({
 
 describe("run history labels", () => {
   it("names every source", () => {
-    expect(["manual", "hotkey", "schedule", "app_launch", "pixel", "image"].map((s) => sourceLabel(s as never))).toEqual([
+    expect(["manual", "hotkey", "schedule", "interval", "app_launch", "pixel", "image"].map((s) => sourceLabel(s as never))).toEqual([
       "Play",
       "Hotkey",
       "Schedule",
+      "Interval",
       "App launch",
       "Pixel trigger",
       "Image trigger",
@@ -42,8 +43,9 @@ describe("run history labels", () => {
 
   it("says what a trigger started", () => {
     expect(runningText("Fill weekly timesheet", "schedule")).toBe("Running “Fill weekly timesheet”, started by its schedule");
-    expect(["hotkey", "app_launch", "pixel", "image"].map((s) => runningText("X", s as never))).toEqual([
+    expect(["hotkey", "interval", "app_launch", "pixel", "image"].map((s) => runningText("X", s as never))).toEqual([
       "Running “X”, started by its hotkey",
+      "Running “X”, started by its interval",
       "Running “X”, started by its app trigger",
       "Running “X”, started by its pixel trigger",
       "Running “X”, started by its image trigger",

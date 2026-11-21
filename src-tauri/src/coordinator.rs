@@ -432,7 +432,7 @@ impl<R: Runtime> Coordinator<R> {
         let paused = self.app.state::<TriggerState>().paused();
         let name = self.app.state::<Mutex<Library>>().lock().get(id).map(|e| e.macro_.name.clone());
         let windows = &self.platform.windows;
-        let skipped = match admit(paused, name.as_deref(), self.mode, || windows.input_desktop_available()) {
+        let skipped = match admit(paused, name.as_deref(), self.mode, source, || windows.input_desktop_available()) {
             Admission::Run => None,
             Admission::Ignore => return,
             Admission::Busy(message) => {
@@ -792,9 +792,20 @@ enum Admission {
 
 /// Whether a trigger may run macro `name` (`None`: not in the library) now.
 /// `desktop_available` is asked last, only when everything else allows the run.
-fn admit(paused: bool, name: Option<&str>, mode: Mode, desktop_available: impl FnOnce() -> bool) -> Admission {
+/// An interval only fires while Relay is idle; one that meets a session anyway
+/// (it started just before) is dropped quietly: its count starts over.
+fn admit(
+    paused: bool,
+    name: Option<&str>,
+    mode: Mode,
+    source: RunSource,
+    desktop_available: impl FnOnce() -> bool,
+) -> Admission {
     let Some(name) = name.filter(|_| !paused) else { return Admission::Ignore };
     if mode != Mode::Idle {
+        if source == RunSource::Interval {
+            return Admission::Ignore;
+        }
         return Admission::Busy(format!("Skipped “{name}”: Relay was busy"));
     }
     if !desktop_available() {
@@ -900,21 +911,28 @@ mod tests {
     #[test]
     fn trigger_admission() {
         let unlocked = || true;
-        assert_eq!(admit(false, Some("Report"), Mode::Idle, unlocked), Admission::Run);
-        assert_eq!(admit(true, Some("Report"), Mode::Idle, unlocked), Admission::Ignore, "triggers paused");
-        assert_eq!(admit(false, None, Mode::Idle, unlocked), Admission::Ignore, "the macro was deleted");
+        let s = RunSource::Schedule;
+        assert_eq!(admit(false, Some("Report"), Mode::Idle, s, unlocked), Admission::Run);
+        assert_eq!(admit(true, Some("Report"), Mode::Idle, s, unlocked), Admission::Ignore, "triggers paused");
+        assert_eq!(admit(false, None, Mode::Idle, s, unlocked), Admission::Ignore, "the macro was deleted");
         for busy in [Mode::Countdown, Mode::Recording, Mode::Playing, Mode::Paused] {
             assert_eq!(
-                admit(false, Some("Report"), busy, unlocked),
+                admit(false, Some("Report"), busy, s, unlocked),
                 Admission::Busy("Skipped “Report”: Relay was busy".into()),
                 "{busy:?}"
             );
+            assert_eq!(
+                admit(false, Some("Report"), busy, RunSource::Interval, unlocked),
+                Admission::Ignore,
+                "an interval starts over instead: {busy:?}"
+            );
         }
-        assert_eq!(admit(true, Some("Report"), Mode::Playing, unlocked), Admission::Ignore, "paused says nothing");
-        assert_eq!(admit(false, Some("Report"), Mode::Idle, || false), Admission::NoDesktop, "locked");
+        assert_eq!(admit(false, Some("Report"), Mode::Idle, RunSource::Interval, unlocked), Admission::Run);
+        assert_eq!(admit(true, Some("Report"), Mode::Playing, s, unlocked), Admission::Ignore, "paused says nothing");
+        assert_eq!(admit(false, Some("Report"), Mode::Idle, s, || false), Admission::NoDesktop, "locked");
         // The desktop is only asked when the run could go ahead.
         let asked = std::cell::Cell::new(false);
-        admit(false, Some("Report"), Mode::Playing, || {
+        admit(false, Some("Report"), Mode::Playing, s, || {
             asked.set(true);
             true
         });

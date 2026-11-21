@@ -257,11 +257,12 @@ On an alarm, the coordinator stops the old hook and starts a new one with the **
 
 ## Triggers
 
-[`triggers.rs`](../../src-tauri/src/triggers.rs) runs four threads. Each polls every macro's triggers through `Library::all_triggers`, an `Arc` the library rebuilds when triggers change, so polling doesn't copy anything and changes apply without restarting anything.
+[`triggers.rs`](../../src-tauri/src/triggers.rs) runs five threads. Each polls every macro's triggers through `Library::all_triggers`, an `Arc` the library rebuilds when triggers change, so polling doesn't copy anything and changes apply without restarting anything.
 
 | Thread | Period | Logic |
 | --- | --- | --- |
 | `relay-schedule` | 5 s | For each enabled schedule, compute `next_run` from the **previous tick's time**. If it's ≤ now, fire it, unless it's more than 2 minutes late (the PC slept), in which case log and skip. Comparing wall-clock times each tick survives sleep and clock changes. |
+| `relay-interval` | 1 s | An `IntervalWatch` keeps each enabled interval's next run (UTC). While the shared `SessionMode` isn't idle, every next run is pushed to now + period, so the count starts over when Relay is idle again and an interval never meets a session. A due run fires and counts again from now; one more than 2 minutes late (the PC slept) is dropped, and one a clock set back pushed beyond a period away is pulled in. A changed period restarts the count. |
 | `relay-app-launch` | 2 s | One `ProcessWatcher`. A `ProcessLaunchEdge` per (macro, exe). On a launch edge, a short-lived thread sleeps `delay_ms`, then fires. |
 | `relay-pixel-trigger` | 250 ms | A `PixelEdge` per macro, reset when the watched position changes. Samples `Screen::pixel` and fires on the edge. A read that fails (locked screen, UAC) is no sample at all, so it can't re-arm the edge. |
 | `relay-image-trigger` | 500 ms | Only while an image trigger is on. An `ImageWatch` keeps a `PixelEdge` and the decoded picture per macro, reset when the image (by hash), match or area changes. A [`finder::Looker`](../../crates/relay-playback/src/finder.rs) captures each area once per round, however many triggers look there, and remembers each search's answer with the frame's fingerprint, so an unchanged screen isn't searched again. What shows of both of Relay's windows is painted over first. A capture that fails is no sample. |
@@ -269,7 +270,7 @@ On an alarm, the coordinator stops the old hook and starts a new one with the **
 `fire()` sends `Cmd::RunMacro`; the coordinator decides. It:
 
 1. ignores it if triggers are paused,
-2. emits *Skipped "…": Relay was busy* if not idle,
+2. emits *Skipped "…": Relay was busy* if not idle (an interval run that slipped in as a session started is ignored instead),
 3. logs and skips if `input_desktop_available()` is false (lock screen, UAC),
 4. otherwise plays the macro (without announcing it as current, see [The coordinator](#the-coordinator)) by feeding `Input::Trigger(source)`, which plays from 0. The player comes up in a free corner (see [Which window shows](#which-window-shows)), and the main window says what runs, with Stop.
 

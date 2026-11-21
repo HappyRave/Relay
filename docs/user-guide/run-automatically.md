@@ -9,6 +9,7 @@ To stop a macro, press <kbd>Esc</kbd>. Read [Every way to stop a macro](stop-a-m
 - [Choose what starts it](#choose-what-starts-it)
 - [Run a macro with a hotkey](#run-a-macro-with-a-hotkey)
 - [Run a macro on a schedule](#run-a-macro-on-a-schedule)
+- [Run a macro every few minutes](#run-a-macro-every-few-minutes)
 - [Run a macro when a program opens](#run-a-macro-when-a-program-opens)
 - [Run a macro when a color changes](#run-a-macro-when-a-color-changes)
 - [Run a macro when a picture appears](#run-a-macro-when-a-picture-appears)
@@ -25,6 +26,7 @@ A [trigger](glossary.md#trigger) starts a macro by itself. A macro can have one 
 | --- | --- |
 | **Hotkey** | You press its keys. |
 | **Schedule** | A day and time arrive. |
+| **Every…** | A set time passes, over and over. |
 | **When an app starts** | A program starts. |
 | **When a pixel changes** | A screen point changes color. |
 | **When an image appears** | A picture appears. |
@@ -52,6 +54,17 @@ A schedule starts the macro on chosen days at one time.
 3. Type the time after **at**.
 
 If it worked, the line under **Schedule** says *Next run: Tomorrow 09:00*, with your day and time.
+
+## Run a macro every few minutes
+
+**Every…** runs the macro over and over, a set time apart: from 5 seconds to 24 hours.
+
+1. Select **Add**, then **Every…**. It starts as every 10 minutes.
+2. Type the number, then select **s**, **min** or **h**.
+
+If it worked, the card says *Every 10 min*, with your number and unit, and the line under **Every…** says *On*. The first run comes one interval later, and each next one an interval after the last one ends. While Relay records or plays, the count waits.
+
+More detail: [Triggers: every…](../spec/triggers.md#every)
 
 ## Run a macro when a program opens
 
@@ -101,7 +114,7 @@ Read [See why a run was skipped](what-ran.md#see-why-a-run-was-skipped).
 
 Relay also skips a run when:
 
-- Relay is recording or playing. A message says *Skipped “…”: Relay was busy*.
+- Relay is recording or playing. A message says *Skipped “…”: Relay was busy*. **Every…** waits instead of skipping.
 - Triggers are paused. Read [Stop everything, then turn triggers back on](stop-a-macro.md#stop-everything-then-turn-triggers-back-on).
 - The macro's data file has a problem. Activity says why.
 

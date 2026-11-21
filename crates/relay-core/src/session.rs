@@ -26,6 +26,7 @@ pub enum RunSource {
     Manual,
     Hotkey,
     Schedule,
+    Interval,
     AppLaunch,
     Pixel,
     Image,

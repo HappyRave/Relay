@@ -14,14 +14,20 @@
   import HotkeyCapture from "../ui/HotkeyCapture.svelte";
   import { relay, TRIGGER } from "../../lib/state/relay.svelte";
   import { playSummary } from "../../lib/editor/summary";
-  import { CLEARED, DAY_NAMES, hasTrigger, TRIGGER_KINDS, TRIGGER_NAME, triggerNote, triggersSummary, triggerText, type TriggerKind } from "../../lib/editor/triggers";
+  import { CLEARED, DAY_NAMES, hasTrigger, INTERVAL_RANGE, TRIGGER_KINDS, TRIGGER_NAME, triggerNote, triggersSummary, triggerText, type TriggerKind } from "../../lib/editor/triggers";
+  import type { IntervalUnit } from "../../lib/ipc/bindings/IntervalUnit";
   import { plural } from "../../lib/format";
   import { toMs } from "../../lib/fields";
   import { areaChoice, pngUrl } from "../../lib/image";
   import type { CoordMode } from "../../lib/types";
 
   const HEX = /^#[0-9a-fA-F]{6}$/;
-  const ICON: Record<TriggerKind, IconName> = { hotkey: "keycap", schedule: "clock", app_launch: "app", pixel: "pixel", image: "image" };
+  const ICON: Record<TriggerKind, IconName> = { hotkey: "keycap", schedule: "clock", interval: "history", app_launch: "app", pixel: "pixel", image: "image" };
+  const UNITS: [IntervalUnit, string][] = [
+    ["s", "s"],
+    ["min", "min"],
+    ["h", "h"],
+  ];
 
   const pb = $derived(relay.playback);
   const data = $derived(relay.dataFile);
@@ -56,8 +62,14 @@
   function add(kind: string) {
     const k = kind as TriggerKind;
     added = [...added, k];
-    // A schedule works as it comes: weekdays at 09:00.
-    if (k === "schedule" && t) relay.setTriggers({ schedule: { ...t.schedule, enabled: true } });
+    // A schedule and an interval work as they come: weekdays at 09:00, every 10 min.
+    if ((k === "schedule" || k === "interval") && t) relay.setTriggers({ [k]: { ...t[k], enabled: true } });
+  }
+
+  function setEvery(every: number, unit: IntervalUnit) {
+    if (!t) return;
+    const [min, max] = INTERVAL_RANGE[unit];
+    relay.setTriggers({ interval: { ...t.interval, every: Math.min(max, Math.max(min, Math.round(every))), unit } });
   }
 
   function remove(k: TriggerKind) {
@@ -217,6 +229,20 @@
                     else if (time !== t.schedule.schedule.time) relay.setTriggers({ schedule: { ...t.schedule, schedule: { ...t.schedule.schedule, time } } });
                   }}
                 />
+              </span>
+            {:else if k === "interval"}
+              <span class="line">
+                <UnitField
+                  label="Every"
+                  value={t.interval.every}
+                  step={1}
+                  min={INTERVAL_RANGE[t.interval.unit][0]}
+                  max={INTERVAL_RANGE[t.interval.unit][1]}
+                  decimals={0}
+                  disabled={!editable}
+                  oncommit={(every) => setEvery(every, t.interval.unit)}
+                />
+                <Choice label="Unit" options={UNITS} value={t.interval.unit} disabled={!editable} onchange={(unit) => setEvery(t.interval.every, unit)} />
               </span>
             {:else if k === "app_launch"}
               <span class="fields">
