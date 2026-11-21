@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>W1·G1 Three-column guide · Relay</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  body { background: var(--plate); }
+  header { height: 60px; display: flex; align-items: center; gap: 18px; padding: 0 22px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: rgba(244,243,239,.9); backdrop-filter: blur(16px); z-index: 2; }
+  header .brand { display: flex; gap: 9px; align-items: center; font-weight: 800; text-decoration: none; }
+  header .brand .logo { width: 22px; height: 22px; padding: 4px; }
+  header .brand small { font-weight: 600; color: var(--text-2); margin-left: 4px; }
+  .search { flex: 0 1 380px; margin: 0 auto; height: 34px; border-radius: 8px; background: var(--plate-2); box-shadow: inset 0 0 0 1px var(--line); display: flex; align-items: center; padding: 0 12px; font-size: 13.5px; color: var(--text-2); }
+  .search kbd { margin-left: auto; font-size: 11px; }
+  header .dl { height: 34px; font-size: 13.5px; padding: 0 14px; }
+  .theme { width: 34px; height: 34px; border-radius: 8px; box-shadow: var(--shadow-key); display: grid; place-items: center; background: var(--plate); }
+
+  .grid { display: grid; grid-template-columns: 260px minmax(0, 720px) 220px; gap: 48px; max-width: 1340px; margin: 0 auto; padding: 0 22px; }
+  .side { position: sticky; top: 60px; align-self: start; height: calc(100vh - 60px); overflow: auto; padding: 24px 0; font-size: 14.5px; }
+  .side h4 { margin: 18px 0 6px; padding: 0 10px; }
+  .side a { display: block; padding: 6px 10px; border-radius: 7px; text-decoration: none; color: var(--text-2); }
+  .side a.on { background: var(--plate-3); color: var(--text); font-weight: 650; box-shadow: inset 3px 0 0 var(--red); }
+
+  main { padding: 34px 0 80px; font-size: 16.5px; line-height: 1.6; }
+  .crumb { font-size: 13px; color: var(--text-2); }
+  h1 { font-size: 44px; line-height: 1.05; font-weight: 820; font-stretch: 108%; letter-spacing: -0.02em; margin: 8px 0 10px; }
+  .lede { font-size: 19px; color: var(--text-2); margin: 0 0 18px; }
+  .findit { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; background: var(--plate-2); border-radius: 10px; padding: 12px 14px; font-size: 15px; box-shadow: inset 0 0 0 1px var(--line); }
+  .findit b.lbl { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-2); }
+  h2 { font-size: 26px; font-weight: 780; margin: 40px 0 10px; letter-spacing: -0.01em; }
+  ol { padding-left: 0; list-style: none; counter-reset: s; }
+  ol li { counter-increment: s; position: relative; padding: 8px 0 8px 44px; }
+  ol li::before { content: counter(s); position: absolute; left: 0; top: 7px; width: 28px; height: 28px; border-radius: 7px; background: var(--ink); color: var(--paper); display: grid; place-items: center; font-weight: 750; font-size: 14px; }
+  .ok { display: flex; gap: 10px; align-items: flex-start; border-left: 3px solid var(--green); background: var(--wash-logic); padding: 10px 14px; border-radius: 0 8px 8px 0; font-size: 15px; }
+  .warn { border-left: 3px solid var(--yellow); background: var(--wash-keys); padding: 12px 16px; border-radius: 0 10px 10px 0; font-size: 15px; margin: 18px 0; }
+  .warn b:first-child { display: block; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; margin-bottom: 4px; }
+  .more { font-size: 14.5px; color: var(--text-2); }
+  .more a { color: var(--blue); font-weight: 600; }
+  .shot { width: fit-content; max-width: 100%; border-radius: 10px; overflow: hidden; box-shadow: 0 0 0 1px var(--line), 0 10px 30px rgba(20,20,21,.12); margin: 18px 0; }
+  .pager { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 50px; }
+  .pager a { border-radius: 12px; padding: 14px 16px; box-shadow: 0 0 0 1px var(--line); text-decoration: none; }
+  .pager a small { display: block; color: var(--text-2); font-size: 13px; }
+  .pager a b { font-size: 16px; }
+  .pager a:last-child { text-align: right; }
+
+  .toc { position: sticky; top: 60px; align-self: start; padding: 38px 0; font-size: 13.5px; }
+  .toc a { display: block; padding: 4px 0 4px 12px; text-decoration: none; color: var(--text-2); border-left: 1px solid var(--line); }
+  .toc a.on { color: var(--text); border-left: 2px solid var(--red); font-weight: 650; }
+
+  @media (max-width: 1100px) { .grid { grid-template-columns: 240px minmax(0, 1fr); } .toc { display: none; } }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .side { display: none; } .search { display: none; } h1 { font-size: 34px; } }
+</style>
+</head>
+<body>
+<header>
+  <a class="brand" href="#"><span class="logo"><i></i></span>Relay <small>Guide</small></a>
+  <div class="search">Search the guide <kbd>Ctrl K</kbd></div>
+  <span class="theme" title="Theme">◐</span>
+  <a class="dl" href="#">Download</a>
+</header>
+<div class="grid">
+  <nav class="side">
+    <h4 class="caps">Start</h4><a href="#">Get started</a><a href="#" class="on">Record a macro</a><a href="#">Stop a macro</a><a href="#">Play a macro</a>
+    <h4 class="caps">Edit</h4><a href="#">Edit the steps</a><a href="#">Wait for something</a><a href="#">Find an image</a><a href="#">Type text that changes</a><a href="#">Type from a spreadsheet</a>
+    <h4 class="caps">Run</h4><a href="#">Run automatically</a><a href="#">Use the player</a><a href="#">Share a macro as a program</a>
+    <h4 class="caps">Help</h4><a href="#">Troubleshooting</a><a href="#">FAQ</a><a href="#">Glossary</a>
+  </nav>
+  <main>
+    <div class="crumb">Guide · Start</div>
+    <h1>Record a macro</h1>
+    <p class="lede">Record a task so that it plays back right the first time.</p>
+    <div class="findit"><b class="lbl">Find it</b> <b>Record</b> in the Library, or <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>F9</kbd></div>
+    <div class="warn"><b>Warning</b>Relay doesn't record clicks on its own windows, such as the player. Move the player away from where you click first.</div>
+    <h2 id="start">Start and stop a recording</h2>
+    <p>To record, press the record key, do the task, then press <kbd>Esc</kbd>.</p>
+    <ol>
+      <li>Open the app to record.</li>
+      <li>Select <b>Record</b>, or press the record key. Relay's window hides and the player shows.</li>
+      <li>The player counts 3, 2, 1. When it shows <i>REC</i>, do the task.</li>
+      <li>Press <kbd>Esc</kbd> or the record key, or select <b>Stop</b> on the player.</li>
+      <li>Type a name. It replaces the default name, such as <i>Recording 1</i>.</li>
+    </ol>
+    <div class="shot"><img style="width:auto" src="../../docs/images/countdown.png" alt="The player counting down"></div>
+    <div class="ok">✓ <span>If it worked, Relay says <i>Recording stopped, … steps. Name this macro.</i></span></div>
+    <p class="more">More detail: <a href="#">Recording: starting and stopping</a></p>
+    <h2 id="what">What Relay records, and what it doesn't</h2>
+    <p>Relay records clicks, keys, scrolls, mouse moves and the time between them.</p>
+    <div class="pager"><a href="#"><small>Previous</small><b>← Get started</b></a><a href="#"><small>Next</small><b>Stop a macro →</b></a></div>
+  </main>
+  <aside class="toc"><div class="caps" style="margin-bottom:8px">On this page</div><a href="#" class="on">Start and stop a recording</a><a href="#">What Relay records</a><a href="#">Record the Esc key</a><a href="#">Good to know</a><a href="#">Not possible yet</a></aside>
+</div>
+</body>
+</html>

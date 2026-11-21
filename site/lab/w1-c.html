@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>W1·C The page is a macro · Relay</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  body { background: var(--plate); padding-bottom: 92px; }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 0 28px; }
+  nav { display: flex; align-items: center; gap: 22px; height: 64px; font-weight: 600; font-size: 14.5px; }
+  nav .brand { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 800; font-stretch: 110%; text-decoration: none; margin-right: auto; }
+  nav a:not(.brand):not(.dl) { text-decoration: none; color: var(--text-2); }
+  nav .dl { height: 36px; font-size: 14px; padding: 0 14px; }
+
+  .hero { padding: 70px 0 40px; display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: end; }
+  .hero .eyebrow { display: inline-flex; gap: 8px; align-items: center; font-weight: 700; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-2); }
+  .hero .eyebrow i { width: 9px; height: 9px; border-radius: 50%; background: var(--red); animation: blink 1.2s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0.2; } }
+  h1 { font-size: 78px; line-height: .95; margin: 16px 0 0; font-weight: 850; font-stretch: 115%; letter-spacing: -0.025em; }
+  .hero p { font-size: 20px; color: var(--text-2); margin: 0 0 22px; }
+  .ctas { display: flex; gap: 12px; flex-wrap: wrap; }
+
+  /* The macro: a sticky steps list on the left, each step a section on the right. */
+  .macro { display: grid; grid-template-columns: 320px 1fr; gap: 56px; padding-top: 30px; }
+  .list { position: sticky; top: 20px; align-self: start; background: var(--plate-2); border-radius: var(--r-xl); padding: 12px; box-shadow: 0 0 0 1px var(--line); }
+  .list .head { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px 10px; }
+  .list .lcd { background: var(--lcd); color: var(--paper); border-radius: 6px; padding: 3px 8px; font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums; }
+  .list a { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 10px; border-radius: 8px; text-decoration: none; font-size: 15px; transition: background 250ms var(--ease); }
+  .list a .tm { width: 52px; font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+  .list a span:last-child { color: var(--text-2); }
+  .list a.on.p { background: var(--wash-pointer); }
+  .list a.on.k { background: var(--wash-keys); }
+  .list a.on.l { background: var(--wash-logic); }
+  .list a.on { box-shadow: inset 3px 0 0 var(--red); }
+  .list .insert { text-align: center; font-size: 12px; color: var(--text-2); border-top: 1px dashed var(--line-strong); margin: 6px 8px; padding-top: 6px; }
+
+  .step { min-height: min(88vh, 900px); padding: 20px 0 80px; }
+  .step .n { font-weight: 700; color: var(--text-2); font-size: 14px; display: flex; gap: 10px; align-items: center; }
+  .step h2 { font-size: 50px; line-height: 1; font-weight: 850; font-stretch: 112%; letter-spacing: -0.02em; margin: 12px 0 14px; }
+  .step p { font-size: 18.5px; color: var(--text-2); max-width: 52ch; margin: 0 0 28px; }
+  .shot { border-radius: 14px; overflow: hidden; box-shadow: var(--shadow-window); transform: translateY(30px) scale(.98); opacity: .3; transition: transform 700ms var(--spring), opacity 500ms var(--ease); }
+  .step.seen .shot { transform: none; opacity: 1; }
+  .shot.desk { background: radial-gradient(120% 120% at 30% 0%, #3a5bd9 0%, #1d2c6b 50%, #121733 100%); padding: 90px 40px; display: grid; place-items: center; }
+  .shot.desk img { width: auto; max-width: 100%; border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,.4); }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 26px; }
+  .chip { padding: 7px 12px; border-radius: 999px; background: var(--plate-2); box-shadow: 0 0 0 1px var(--line); font-weight: 600; font-size: 14px; }
+
+  .end { background: var(--ink); color: var(--paper); border-radius: 24px; padding: 60px; margin: 20px 0 60px; text-align: center; }
+  .end h2 { color: var(--paper); font-size: 54px; font-weight: 850; font-stretch: 115%; margin: 0 0 12px; }
+  .end p { color: #b3b1ab; font-size: 18px; margin: 0 0 26px; }
+
+  /* The timeline: the page's playhead, docked at the bottom. */
+  .tl { position: fixed; left: 0; right: 0; bottom: 0; height: 80px; background: rgba(244,243,239,.86); backdrop-filter: blur(20px) saturate(1.4); box-shadow: 0 -1px 0 var(--line); z-index: 10; }
+  .tl .in { max-width: 1200px; margin: 0 auto; padding: 10px 28px; display: grid; grid-template-columns: 160px 1fr 150px; gap: 18px; align-items: center; height: 100%; }
+  .tl .clock { white-space: nowrap; background: var(--lcd); color: var(--paper); border-radius: 8px; padding: 6px 10px; font-weight: 750; font-variant-numeric: tabular-nums; text-align: center; }
+  .tl .clock small { color: #8a8882; font-weight: 600; }
+  .lanes { position: relative; display: grid; gap: 4px; }
+  .lane { height: 14px; border-radius: 4px; background: var(--plate-3); position: relative; overflow: hidden; }
+  .lane b { position: absolute; top: 2px; bottom: 2px; border-radius: 3px; }
+  .lane.p b { background: var(--blue); } .lane.k b { background: var(--yellow); } .lane.l b { background: var(--green); }
+  .head-line { position: absolute; top: -6px; bottom: -6px; width: 2px; background: var(--red); left: 0; }
+  .head-line::before { content: ""; position: absolute; top: -4px; left: -5px; width: 12px; height: 12px; border-radius: 3px; background: var(--red); }
+  .tl .dl { height: 40px; font-size: 14px; justify-content: center; }
+
+  @media (max-width: 860px) {
+    .hero { grid-template-columns: 1fr; padding-top: 30px; }
+    h1 { font-size: 46px; }
+    .macro { grid-template-columns: 1fr; }
+    .list { position: static; display: none; }
+    .step { min-height: auto; padding-bottom: 50px; }
+    .step h2 { font-size: 34px; }
+    .pair { grid-template-columns: 1fr; }
+    .tl .in { grid-template-columns: 82px 1fr; padding: 10px 14px; }
+    .tl .dl { display: none; }
+    .end { padding: 34px 20px; }
+    .end h2 { font-size: 36px; }
+    nav a.hide { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav>
+    <a class="brand" href="#"><span class="logo"><i></i></span>Relay</a>
+    <a class="hide" href="#">Guide</a><a class="hide" href="#">FAQ</a><a class="hide" href="#">GitHub</a>
+    <a class="dl" href="#">Download</a>
+  </nav>
+
+  <header class="hero">
+    <div>
+      <span class="eyebrow"><i></i>Recording</span>
+      <h1>Show your PC a task once.</h1>
+    </div>
+    <div>
+      <p>Relay records what you do, turns it into steps you can read and change, and plays it back whenever you want. Scroll to play this page.</p>
+      <div class="ctas"><a class="dl" href="#">Download for Windows <small>v1.5 · 2 MB</small></a><a class="ghost" href="#">Get started</a></div>
+    </div>
+  </header>
+
+  <div class="macro">
+    <aside class="list" aria-label="This page, as a macro">
+      <div class="head"><span class="caps">Steps 5</span><span class="lcd" id="lt">00:00.00</span></div>
+      <a href="#s1" class="p" data-s="0"><span class="tm">00:00.85</span><span class="glyph p"></span><b>Record</b><span>· your task</span></a>
+      <a href="#s2" class="k" data-s="1"><span class="tm">00:02.10</span><span class="glyph k"></span><b>Edit</b><span>· as steps</span></a>
+      <a href="#s3" class="l" data-s="2"><span class="tm">00:04.40</span><span class="glyph l"></span><b>Wait for</b><span>· the screen</span></a>
+      <div class="insert">+ insert here</div>
+      <a href="#s4" class="l" data-s="3"><span class="tm">00:06.02</span><span class="glyph l"></span><b>Trigger</b><span>· on cue</span></a>
+      <a href="#s5" class="p" data-s="4"><span class="tm">00:08.75</span><span class="glyph p"></span><b>Play</b><span>· anywhere</span></a>
+    </aside>
+
+    <main>
+      <section class="step" id="s1"><div class="n"><span class="glyph p"></span>Step 1 · Click</div>
+        <h2>Press record. Do the task. Press Esc.</h2>
+        <p>Relay captures every click, drag, scroll and keystroke with its timing, on every monitor, at any display scaling. A small player counts you in and stays out of your way.</p>
+        <div class="shot desk"><img src="../../docs/images/countdown.png" alt="The player counting down before a recording"></div></section>
+
+      <section class="step" id="s2"><div class="n"><span class="glyph k"></span>Step 2 · Keys</div>
+        <h2>Read it back as steps.</h2>
+        <p>Not a wall of coordinates: <b>Click · Save</b>, <b>Ctrl + S</b>, <b>“invoice_2026”</b>. Rename steps, cut the pauses, smooth the mouse, undo anything.</p>
+        <div class="shot"><img src="../../docs/images/editor.png" alt="The editor"></div></section>
+
+      <section class="step" id="s3"><div class="n"><span class="glyph l"></span>Step 3 · Wait for</div>
+        <h2>It waits for the screen, not the clock.</h2>
+        <p>Slow app? Relay waits until a pixel changes or a button appears, at any size, then clicks it.</p>
+        <div class="pair"><div class="shot"><img src="../../docs/images/step-editor.png" alt="A pixel check"></div><div class="shot"><img src="../../docs/images/find-image-step.png" alt="A Find image step"></div></div></section>
+
+      <section class="step" id="s4"><div class="n"><span class="glyph l"></span>Step 4 · Trigger</div>
+        <h2>Runs on cue.</h2>
+        <div class="chips"><span class="chip">A hotkey</span><span class="chip">Mondays at 9:00</span><span class="chip">Every 10 minutes</span><span class="chip">When Excel starts</span><span class="chip">When a pixel turns red</span><span class="chip">When an image appears</span></div>
+        <div class="shot"><img src="../../docs/images/triggers-cards.png" alt="A macro's triggers"></div></section>
+
+      <section class="step" id="s5"><div class="n"><span class="glyph p"></span>Step 5 · Click</div>
+        <h2>Plays anywhere. Stops instantly.</h2>
+        <p>Faster, looped, or slightly varied. Export it as a small .exe for a PC without Relay. <kbd>Esc</kbd> stops everything, and nothing is left pressed.</p>
+        <div class="shot"><img src="../../docs/images/playing.png" alt="Playing a macro"></div></section>
+    </main>
+  </div>
+
+  <div class="end">
+    <h2>Finished. Now it's your turn.</h2>
+    <p>Free and open source. Windows 10 and 11. Nothing leaves your PC.</p>
+    <a class="dl" href="#">Download for Windows</a>
+  </div>
+</div>
+
+<div class="tl" aria-hidden="true">
+  <div class="in">
+    <div class="clock"><span id="ct">00:00</span> <small>/ 10.15</small></div>
+    <div class="lanes">
+      <div class="lane p"><b style="left:4%;width:7%"></b><b style="left:52%;width:4%"></b><b style="left:84%;width:9%"></b></div>
+      <div class="lane k"><b style="left:20%;width:14%"></b><b style="left:39%;width:5%"></b></div>
+      <div class="lane l"><b style="left:44%;width:10%"></b><b style="left:60%;width:16%"></b></div>
+      <div class="head-line" id="hl"></div>
+    </div>
+    <a class="dl" href="#">Download</a>
+  </div>
+</div>
+
+<script>
+  const steps = [...document.querySelectorAll(".step")], links = [...document.querySelectorAll(".list a")];
+  const hl = document.getElementById("hl"), ct = document.getElementById("ct"), lt = document.getElementById("lt");
+  function frame() {
+    const max = document.documentElement.scrollHeight - innerHeight, f = max > 0 ? scrollY / max : 0;
+    hl.style.left = (f * 100) + "%";
+    const t = (f * 10.15).toFixed(2);
+    ct.textContent = "00:" + t.padStart(5, "0"); lt.textContent = "00:" + t.padStart(5, "0");
+    let cur = -1;
+    steps.forEach((s, i) => { const r = s.getBoundingClientRect(); if (r.top < innerHeight * 0.75) { s.classList.add("seen"); } if (r.top < innerHeight * 0.45) cur = i; });
+    links.forEach((a, i) => a.classList.toggle("on", i === cur));
+  }
+  addEventListener("scroll", () => requestAnimationFrame(frame), { passive: true });
+  addEventListener("resize", frame);
+  frame();
+</script>
+</body>
+</html>

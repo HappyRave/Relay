@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>W1·D Quiet tool · Relay</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  body { background: #fbfaf7; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
+  nav { display: flex; align-items: center; gap: 20px; height: 60px; font-size: 14px; border-bottom: 1px solid var(--line); }
+  nav .brand { display: flex; align-items: center; gap: 9px; font-weight: 800; font-size: 16px; text-decoration: none; margin-right: auto; }
+  nav .brand .logo { width: 22px; height: 22px; padding: 4px; }
+  nav a:not(.brand) { text-decoration: none; color: var(--text-2); font-weight: 550; }
+  .search { width: 220px; height: 32px; border-radius: 7px; background: var(--plate-2); box-shadow: inset 0 0 0 1px var(--line); display: flex; align-items: center; padding: 0 10px; font-size: 13px; color: var(--text-2); gap: 8px; }
+  .search kbd { margin-left: auto; font-size: 11px; box-shadow: 0 0 0 1px var(--line-strong); }
+
+  .hero { text-align: center; padding: 74px 0 40px; }
+  h1 { font-size: 52px; line-height: 1.05; margin: 0 0 16px; font-weight: 800; font-stretch: 104%; letter-spacing: -0.02em; }
+  .hero p { font-size: 19px; color: var(--text-2); margin: 0 auto 28px; max-width: 54ch; }
+  .ctas { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  .ctas .dl { height: 44px; font-size: 15px; }
+  .ctas .ghost { height: 44px; }
+  .hero .fine { margin: 14px 0 0; font-size: 13px; color: var(--text-2); }
+  .shot { margin: 46px 0 0; border-radius: 12px; overflow: hidden; box-shadow: 0 0 0 1px var(--line), 0 30px 80px rgba(20,20,21,.16); }
+
+  .feats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 34px 40px; padding: 80px 0 70px; }
+  .feat h3 { display: flex; align-items: center; gap: 10px; margin: 0 0 6px; font-size: 16px; font-weight: 750; }
+  .feat p { margin: 0; color: var(--text-2); font-size: 15px; }
+
+  .two { display: grid; grid-template-columns: 1.1fr 1fr; gap: 40px; padding: 30px 0 70px; border-top: 1px solid var(--line); }
+  h2 { font-size: 26px; font-weight: 780; margin: 30px 0 14px; letter-spacing: -0.01em; }
+  .tasks a { display: flex; justify-content: space-between; align-items: center; padding: 13px 0; border-bottom: 1px solid var(--line); text-decoration: none; font-weight: 600; font-size: 15.5px; }
+  .tasks a span { color: var(--text-2); font-weight: 500; font-size: 14px; }
+  .tasks a:hover { color: var(--red-text); }
+  .dltable { width: 100%; border-collapse: collapse; font-size: 15px; }
+  .dltable td { padding: 13px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .dltable td:last-child { text-align: right; }
+  .dltable a { font-weight: 700; color: var(--red-text); text-decoration: none; }
+  .dltable small { display: block; color: var(--text-2); font-size: 13px; }
+  .note { margin-top: 16px; font-size: 13.5px; color: var(--text-2); background: var(--plate-2); border-radius: 8px; padding: 12px 14px; }
+
+  footer { padding: 26px 0 50px; border-top: 1px solid var(--line); display: flex; gap: 22px; font-size: 13.5px; color: var(--text-2); flex-wrap: wrap; }
+  footer a { text-decoration: none; }
+  footer .sp { margin-left: auto; }
+
+  @media (max-width: 760px) {
+    h1 { font-size: 36px; }
+    .search { display: none; }
+    .feats, .two { grid-template-columns: 1fr; }
+    nav a.hide { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav>
+    <a class="brand" href="#"><span class="logo"><i></i></span>Relay</a>
+    <a class="hide" href="#">Guide</a><a class="hide" href="#">Download</a><a href="#">GitHub</a>
+    <div class="search">Search the guide <kbd>/</kbd></div>
+  </nav>
+
+  <div class="hero">
+    <h1>Record what you do.<br>Edit it as steps. Play it back on cue.</h1>
+    <p>A free macro recorder for Windows, with a step editor, pixel checks, image search and triggers.</p>
+    <div class="ctas"><a class="dl" href="#">Download Relay 1.5</a><a class="ghost" href="#">Get started</a></div>
+    <p class="fine">Windows 10 and 11 · Installer or portable exe · MIT license</p>
+    <div class="shot"><img src="../../docs/images/editor.png" alt="The Relay editor"></div>
+  </div>
+
+  <div class="feats">
+    <div class="feat"><h3><span class="glyph p"></span>Record</h3><p>Every click, drag, scroll and key, with its timing, on all your monitors.</p></div>
+    <div class="feat"><h3><span class="glyph k"></span>Edit as steps</h3><p><i>Click · Save</i>, <i>Ctrl + S</i>. Label, retime, delete, undo.</p></div>
+    <div class="feat"><h3><span class="glyph l"></span>Wait for the screen</h3><p>Continue when a pixel changes or an image appears.</p></div>
+    <div class="feat"><h3><span class="glyph p"></span>Triggers</h3><p>Hotkey, schedule, every N minutes, app launch, pixel, image.</p></div>
+    <div class="feat"><h3><span class="glyph k"></span>Text that changes</h3><p>Dates, the clipboard, the repeat number, a spreadsheet's rows.</p></div>
+    <div class="feat"><h3><span class="glyph l"></span>Safe and private</h3><p>Esc stops everything. Nothing ever leaves your PC.</p></div>
+  </div>
+
+  <div class="two">
+    <div class="tasks">
+      <h2>Start with a task</h2>
+      <a href="#">Record a macro <span>2 min</span></a>
+      <a href="#">Edit the steps <span>4 min</span></a>
+      <a href="#">Wait for something on screen <span>3 min</span></a>
+      <a href="#">Run a macro automatically <span>3 min</span></a>
+      <a href="#">Type from a spreadsheet <span>4 min</span></a>
+      <a href="#">All 23 guide pages →</a>
+    </div>
+    <div>
+      <h2>Download</h2>
+      <table class="dltable">
+        <tr><td><b>Installer</b><small>Start menu entry, uninstaller</small></td><td><a href="#">Relay_1.5.0_x64-setup.exe</a><small>2.1 MB</small></td></tr>
+        <tr><td><b>Portable</b><small>One file, runs from anywhere</small></td><td><a href="#">Relay_1.5.0_x64-portable.exe</a><small>8.4 MB</small></td></tr>
+      </table>
+      <p class="note">Windows may warn that Relay isn't recognised, since it isn't code-signed yet. Select <b>More info</b>, then <b>Run anyway</b>.</p>
+    </div>
+  </div>
+
+  <footer><a href="#">User guide</a><a href="#">FAQ</a><a href="#">Changelog</a><a href="#">Engineering guide</a><span class="sp">© Relay contributors · MIT</span></footer>
+</div>
+</body>
+</html>

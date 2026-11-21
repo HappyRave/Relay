@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>W1·B Instrument · Relay</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  body { background: #0e0e0f; color: var(--paper); }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 0 28px; }
+  nav { display: flex; align-items: center; gap: 22px; height: 68px; font-weight: 600; font-size: 14px; }
+  nav .brand { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 800; font-stretch: 110%; text-decoration: none; margin-right: auto; }
+  nav a:not(.brand) { text-decoration: none; color: #b3b1ab; }
+
+  /* The device: an aluminium plate with an LCD and three keys. */
+  .device { margin: 30px auto 0; max-width: 980px; border-radius: 28px; padding: 26px;
+    background: linear-gradient(180deg, #ecebe6 0%, #d9d7d0 100%); color: var(--ink);
+    box-shadow: 0 1px 0 rgba(255,255,255,.7) inset, 0 -2px 0 rgba(0,0,0,.08) inset, 0 40px 120px rgba(0,0,0,.6); }
+  .screen { background: var(--lcd); color: var(--paper); border-radius: 16px; padding: 26px 30px 22px; position: relative; overflow: hidden;
+    box-shadow: inset 0 2px 10px rgba(0,0,0,.8); }
+  .screen::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(0deg, rgba(255,255,255,.025) 0 1px, transparent 1px 3px); pointer-events: none; }
+  .status { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 13px; letter-spacing: .08em; }
+  .status .tag { padding: 3px 8px; border-radius: 4px; background: #333; transition: background 200ms; }
+  .status .tag.rec { background: var(--red); }
+  .status .tag.play { background: var(--paper); color: var(--ink); }
+  .status .clock { margin-left: auto; font-variant-numeric: tabular-nums; color: #cfcdc6; font-size: 15px; }
+  h1 { font-size: 96px; line-height: .9; margin: 22px 0 10px; font-weight: 850; font-stretch: 125%; letter-spacing: -0.03em; }
+  h1 .dim { color: #4a4a4e; transition: color 250ms; }
+  h1 .lit { color: var(--paper); }
+  h1 .red { color: var(--red); }
+  .sub { color: #a8a6a0; font-size: 19px; margin: 0 0 24px; max-width: 46ch; }
+  .leds { display: grid; grid-template-columns: repeat(48, 1fr); gap: 4px; }
+  .leds i { height: 8px; border-radius: 2px; background: #2a2a2c; transition: background 120ms; }
+  .leds i.on { background: var(--paper); }
+  .leds i.click { background: var(--red); }
+
+  .keys { display: grid; grid-template-columns: 1.2fr 1.2fr 1fr; gap: 16px; margin-top: 22px; }
+  .key { height: 112px; border: 0; border-radius: 18px; font: inherit; cursor: pointer; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; padding: 16px 18px; text-align: left;
+    box-shadow: 0 0 0 1px rgba(20,20,21,.25), 0 6px 0 rgba(20,20,21,.28), inset 0 1px 0 rgba(255,255,255,.4); transition: transform 90ms var(--ease), box-shadow 90ms var(--ease); }
+  .key:active, .key.down { transform: translateY(5px); box-shadow: 0 0 0 1px rgba(20,20,21,.25), 0 1px 0 rgba(20,20,21,.28), inset 0 1px 0 rgba(255,255,255,.3); }
+  .key b { font-size: 22px; font-weight: 800; font-stretch: 112%; }
+  .key small { font-size: 13px; font-weight: 600; opacity: .75; }
+  .key.rec { background: var(--red); color: #fff; }
+  .key.play { background: var(--ink); color: var(--paper); }
+  .key.stop { background: var(--paper); color: var(--ink); }
+  .key .ic { width: 22px; height: 22px; }
+  .hint { text-align: center; color: #77756f; font-size: 13px; margin: 18px 0 0; }
+
+  .ctas { display: flex; justify-content: center; gap: 12px; margin: 54px 0 90px; flex-wrap: wrap; }
+  .ctas .ghost { background: #1c1c1e; color: var(--paper); box-shadow: 0 0 0 1px rgba(244,243,239,.2); }
+
+  /* Modules: each feature is a module on a panel, with an LCD caption. */
+  h2 { font-size: 46px; font-weight: 850; font-stretch: 118%; letter-spacing: -0.02em; line-height: 1; margin: 0 0 30px; }
+  .panel { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .mod { border-radius: 18px; background: #1c1c1e; padding: 18px; box-shadow: 0 0 0 1px rgba(244,243,239,.08); min-height: 190px; display: flex; flex-direction: column; }
+  .mod.wide { grid-column: span 2; }
+  .mod .lcdcap { align-self: flex-start; background: var(--lcd); color: var(--paper); font-weight: 700; font-size: 11px; letter-spacing: .08em; padding: 4px 8px; border-radius: 4px; box-shadow: 0 0 0 1px rgba(244,243,239,.12); }
+  .mod h3 { margin: auto 0 6px; font-size: 20px; font-weight: 750; }
+  .mod p { margin: 0; color: #a8a6a0; font-size: 14.5px; }
+  .mod img { border-radius: 10px; margin: 14px 0; }
+  .viz { display: flex; align-items: center; gap: 10px; margin: 18px 0 14px; font-size: 13px; color: #cfcdc6; flex-wrap: wrap; }
+  .viz .px { width: 40px; height: 40px; border-radius: 8px; background: var(--green); box-shadow: 0 0 0 3px #2a2a2c, 0 0 0 4px rgba(244,243,239,.3); }
+  .viz b { color: var(--paper); }
+  .chipz span { padding: 5px 10px; border-radius: 999px; background: #2a2a2c; font-weight: 600; }
+  .viz .file { width: 38px; height: 46px; border-radius: 4px 12px 4px 4px; background: var(--paper); color: var(--ink); font-weight: 800; font-size: 11px; display: grid; place-items: end center; padding-bottom: 6px; }
+  .viz small { color: #8a8882; }
+  .step-mini { display: flex; flex-direction: column; gap: 6px; margin: 14px 0; }
+  .step-mini div { display: flex; gap: 8px; align-items: center; font-size: 13px; background: #2a2a2c; border-radius: 6px; padding: 6px 8px; }
+
+  footer { margin-top: 90px; padding: 34px 0 60px; border-top: 1px solid rgba(244,243,239,.1); display: flex; gap: 26px; color: #a8a6a0; font-size: 14px; flex-wrap: wrap; }
+  footer a { text-decoration: none; }
+  footer .sp { margin-left: auto; }
+
+  @media (max-width: 860px) {
+    h1 { font-size: 52px; }
+    .device { padding: 14px; border-radius: 20px; }
+    .screen { padding: 18px; }
+    .leds { grid-template-columns: repeat(24, 1fr); }
+    .leds i:nth-child(n+25) { display: none; }
+    .keys { grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+    .key { height: 84px; padding: 10px 12px; }
+    .key b { font-size: 16px; }
+    .key small { display: none; }
+    .panel { grid-template-columns: 1fr; }
+    .mod.wide { grid-column: auto; }
+    h2 { font-size: 34px; }
+    nav a.hide { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav>
+    <a class="brand" href="#"><span class="logo"><i></i></span>Relay</a>
+    <a class="hide" href="#">Features</a><a class="hide" href="#">Guide</a><a href="#">GitHub</a>
+  </nav>
+
+  <div class="device">
+    <div class="screen">
+      <div class="status"><span class="tag" id="tag">READY</span><span id="what">Press a key</span><span class="clock" id="clock">00:00</span></div>
+      <h1><span class="red" id="w1">Record.</span><br><span class="lit" id="w2">Edit.</span> <span class="lit" id="w3">Play.</span></h1>
+      <p class="sub">A macro recorder for Windows. Do a task once, then let Relay do it on a key, a schedule, or when something shows on screen.</p>
+      <div class="leds" id="leds"></div>
+    </div>
+    <div class="keys">
+      <button class="key rec" id="k-rec"><svg class="ic" viewBox="0 0 22 22"><circle cx="11" cy="11" r="7" fill="#fff"/></svg><span><b>Record</b><br><small>Ctrl + Shift + F9</small></span></button>
+      <button class="key play" id="k-play"><svg class="ic" viewBox="0 0 22 22"><path d="M6 4l12 7-12 7z" fill="currentColor"/></svg><span><b>Play</b><br><small>Ctrl + Shift + F10</small></span></button>
+      <button class="key stop" id="k-stop"><svg class="ic" viewBox="0 0 22 22"><rect x="5" y="5" width="12" height="12" fill="currentColor"/></svg><span><b>Stop</b><br><small>Esc</small></span></button>
+    </div>
+  </div>
+  <p class="hint">Go on, press them. Or press <kbd>R</kbd>, <kbd>P</kbd> and <kbd>Esc</kbd>.</p>
+
+  <div class="ctas">
+    <a class="dl" href="#">Download for Windows <small>v1.5 · free</small></a>
+    <a class="ghost" href="#">Read the guide</a>
+  </div>
+
+  <h2>Everything a macro needs.<br>Nothing it doesn't.</h2>
+  <div class="panel">
+    <div class="mod wide"><span class="lcdcap">EDIT</span>
+      <div class="step-mini">
+        <div><span class="glyph p"></span><b>Click</b>&nbsp;· Export as PDF</div>
+        <div><span class="glyph l"></span><b>Wait for</b>&nbsp;· Save turns grey</div>
+        <div><span class="glyph k"></span><b>Type</b>&nbsp;· “Invoice {date} #{n}”</div>
+      </div>
+      <h3>Steps you can read</h3><p>Every click and key becomes a step. Rename, retime, delete, undo.</p></div>
+    <div class="mod"><span class="lcdcap">WAIT FOR</span><div class="viz"><span class="px"></span><span class="num">1248, 680<br><b>#1DB46A</b> · ≤ 5 s</span></div><h3>Watches the screen</h3><p>Waits for a pixel or an image before it goes on.</p></div>
+    <div class="mod"><span class="lcdcap">TRIGGERS</span><div class="viz chipz"><span>Mon 9:00</span><span>Every 10 min</span><span>excel.exe</span></div><h3>Runs on cue</h3><p>Hotkey, schedule, every N minutes, an app starting.</p></div>
+    <div class="mod"><span class="lcdcap">KILL SWITCH</span><div class="viz"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>⌫</kbd></div><h3>Always stoppable</h3><p>Esc, any key, or Ctrl + Alt + Backspace. Nothing stays pressed.</p></div>
+    <div class="mod"><span class="lcdcap">.EXE</span><div class="viz"><span class="file">.exe</span><span>Invoice&nbsp;run.exe<br><small>plays without Relay</small></span></div><h3>Share as a program</h3><p>A small exe that plays your macro on any PC.</p></div>
+    <div class="mod wide"><span class="lcdcap">PLAYER</span><img src="../../docs/images/player.png" alt="Relay's player"><h3>Or just the player</h3><p>A 64-pixel bar that stays on top and never takes your keyboard.</p></div>
+  </div>
+
+  <footer><a href="#">User guide</a><a href="#">FAQ</a><a href="#">Changelog</a><a href="#">GitHub</a><span class="sp">Free · MIT · Nothing leaves your PC</span></footer>
+</div>
+
+<script>
+  const leds = document.getElementById("leds");
+  const clicks = new Set([5, 9, 14, 22, 27, 31, 38, 44]);
+  for (let i = 0; i < 48; i++) leds.append(document.createElement("i"));
+  const L = [...leds.children], tag = document.getElementById("tag"), what = document.getElementById("what"), clock = document.getElementById("clock");
+  const words = ["w1", "w2", "w3"].map(id => document.getElementById(id));
+  let timer = null, n = 0;
+  const light = (i, cls) => words.forEach((w, j) => { w.className = j === i ? cls : "dim"; });
+  function stop() {
+    clearInterval(timer); timer = null; tag.className = "tag"; tag.textContent = "READY"; what.textContent = "Press a key";
+    L.forEach(l => l.className = ""); words.forEach((w, j) => w.className = j === 0 ? "red" : "lit"); clock.textContent = "00:00";
+  }
+  function run(mode) {
+    stop(); n = 0;
+    tag.className = "tag " + mode; tag.textContent = mode === "rec" ? "REC" : "PLAYING";
+    what.textContent = mode === "rec" ? "Recording 1" : "Export invoice to PDF";
+    light(mode === "rec" ? 0 : 2, mode === "rec" ? "red" : "lit");
+    timer = setInterval(() => {
+      if (n >= 48) { if (mode === "rec") { light(1, "lit"); what.textContent = "12 steps. Name this macro."; } clearInterval(timer); return; }
+      L[n].className = clicks.has(n) ? "click" : "on"; n++;
+      clock.textContent = "00:" + String(Math.floor(n / 4)).padStart(2, "0");
+    }, 110);
+  }
+  const press = (id, fn) => { const k = document.getElementById(id); k.classList.add("down"); setTimeout(() => k.classList.remove("down"), 140); fn(); };
+  document.getElementById("k-rec").onclick = () => run("rec");
+  document.getElementById("k-play").onclick = () => run("play");
+  document.getElementById("k-stop").onclick = stop;
+  addEventListener("keydown", e => {
+    if (e.key === "r" || e.key === "R") press("k-rec", () => run("rec"));
+    if (e.key === "p" || e.key === "P") press("k-play", () => run("play"));
+    if (e.key === "Escape") press("k-stop", stop);
+  });
+</script>
+</body>
+</html>
