@@ -1,38 +1,41 @@
 # Engineering guide
 
-How Relay works inside: for contributors, reviewers and anyone curious about building a reliable macro recorder.
+How Relay is built, and why. For contributors and reviewers.
+
+What Relay *does* is the [behavior spec](../spec/README.md); setup and commands are in [CONTRIBUTING.md](../../CONTRIBUTING.md). This guide is the part between: how the pieces fit, the decisions behind them, and where to make a change.
 
 > [!TIP]
-> New here? Read [Architecture](architecture.md) first. It gives the big picture, the threads and the two main data flows (recording and playback) in about ten minutes. The other pages go deeper into one layer each.
+> New here? Read [Architecture](architecture.md) first: the crates, the threads, and how a recording, a playback and a trigger travel through them.
 
-## Reading order
+## Pages
 
-| Page | What it covers |
+| Page | Read it for |
 | --- | --- |
-| 1. [Architecture](architecture.md) | The five crates, the exported player, the threads, how a recording and a playback travel through the system, and the design principles |
-| 2. [relay-core](core.md) | The macro model, grouping raw events into steps, edits and their invariants, the file format, playback timing, the session state machine, schedules and trigger edges |
-| 3. [relay-platform](platform.md) | The OS traits, low-level hooks and the kill switch, input injection, the precision timer, window and screen queries, the picker, the key map and the recorder |
-| 4. [The app (src-tauri)](app.md) | The coordinator, the playback engine, the recorder thread and watchdog, Relay's keys and the hotkeys, the trigger runtime, storage, the two windows and which one shows, the look and the tray |
-| 5. [IPC](ipc.md) | Every Tauri command, the session stream both windows get, generated TypeScript bindings and sequence diagrams |
-| 6. [The frontend](frontend.md) | The Svelte 5 store in each window, the backend abstraction, the browser preview, the component tree, the editor's rows, the look and sounds, and playhead extrapolation |
-| 7. [File formats](file-formats.md) | `.rly`, the JSON export, exported programs, `library.json`, `settings.json`, `window.json` and migrations |
-| 8. [Testing and CI](testing.md) | Unit tests, property tests, snapshots, frontend tests, end-to-end testing against the real app, CI and releases |
+| [Architecture](architecture.md) | The big picture, and the rules the code follows |
+| [relay-core](core.md) | The model, steps, edits, the session state machine, timing |
+| [relay-platform](platform.md) | The OS boundary: hooks, injection, the timer, the screen, the picker |
+| [The app](app.md) | The coordinator, the engine, hotkeys, triggers, files, windows |
+| [IPC](ipc.md) | Commands, the message stream, errors, generated bindings |
+| [The frontend](frontend.md) | The store, its guards, the backends, components, styling |
+| [File formats](file-formats.md) | Every file Relay writes |
+| [Testing, CI and releases](testing.md) | The three test layers, CI, releasing |
+| [Recipes](recipes.md) | Adding an edit, a step type, a command, a trigger, a setting |
 
-## Quick facts
+## I want to change…
 
-| | |
+| …this | Start in |
 | --- | --- |
-| **Languages** | Rust (edition 2024, 1.95 or later) and TypeScript |
-| **App shell** | [Tauri 2](https://tauri.app/) with WebView2 |
-| **UI** | [Svelte 5](https://svelte.dev/) (runes), Vite 8, no UI framework |
-| **OS access** | [`windows`](https://crates.io/crates/windows) crate (Win32), behind traits in `relay-platform` |
-| **Size** | about 7,700 lines in relay-core and relay-platform, 2,200 in relay-playback and the player, 5,500 in the app, 9,400 in the UI (tests not counted) |
-| **Tests** | about 445 Rust tests (including property tests and snapshots), about 787 Vitest tests of the store and every component, and 131 end-to-end tests against the real app |
-| **Installer** | NSIS, per-user, about 2 MB |
-
-## Getting set up
-
-See [CONTRIBUTING.md](../../CONTRIBUTING.md) for requirements, commands and conventions.
+| How recorded input becomes steps | [`steps.rs`](../../crates/relay-core/src/steps.rs), [relay-core → Step grouping](core.md#step-grouping) |
+| What an edit does | [`edit.rs`](../../crates/relay-core/src/edit.rs), [Recipes → Add an edit](recipes.md#add-an-edit) |
+| What happens when Record, Play or Stop is pressed | [`session.rs`](../../crates/relay-core/src/session.rs), then [`coordinator.rs`](../../src-tauri/src/coordinator.rs) |
+| How a macro plays | [`relay-playback/src/engine.rs`](../../crates/relay-playback/src/engine.rs), [The app → The playback engine](app.md#the-playback-engine) |
+| What's recorded and left out | [`windows/hook.rs`](../../crates/relay-platform/src/windows/hook.rs), [`recorder.rs`](../../crates/relay-platform/src/recorder.rs) |
+| When a trigger fires | [`src-tauri/src/triggers.rs`](../../src-tauri/src/triggers.rs), [Recipes → Add a trigger kind](recipes.md#add-a-trigger-kind) |
+| Which window shows, and where | [`presence.rs`](../../src-tauri/src/presence.rs), [`window_ctl.rs`](../../src-tauri/src/window_ctl.rs) |
+| Relay's keys and hotkeys | [`hotkeys.rs`](../../src-tauri/src/hotkeys.rs) |
+| What a screen shows | the component in [`src/components/`](../../src/components), and the store it reads |
+| Colors, spacing, motion | [`theme.css`](../../src/styles/theme.css) |
+| A file's format | [`format.rs`](../../crates/relay-core/src/format.rs), [File formats](file-formats.md) |
 
 ---
 
