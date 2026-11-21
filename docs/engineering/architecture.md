@@ -63,7 +63,7 @@ flowchart LR
 | `relay-engine` | While playing | Injects events on time, waits on pixel checks and images, ticks 30 times a second. High priority. |
 | `relay-stop-keys` | While playing | Forwards Esc and stop keys from the hook to the coordinator |
 | `relay-schedule`, `relay-interval`, `relay-app-launch`, `relay-pixel-trigger`, `relay-image-trigger` | Always | Poll their triggers and send `Cmd::RunMacro` when one fires |
-| Tauri main thread | Always | Both windows, the tray, global hotkeys, commands that don't write files |
+| Tauri main thread | Always | Both windows, the tray, global hotkeys, the quick commands (those that write macros, settings or exports run off it) |
 
 ## How a recording flows
 
@@ -97,9 +97,9 @@ sequenceDiagram
     participant H as Hook
     participant P as Engine
     participant OS as SendInput
-    C->>C: Idle → Playing, generation += 1
+    C->>C: Idle → Playing
     C->>H: start(Watch): Esc and stop keys
-    C->>P: spawn(PlayPlan)
+    C->>P: generation += 1, spawn(PlayPlan)
     loop each event
         P->>P: timer.wait_until(deadline)
         P->>OS: inject (tagged RELAY_MAGIC)
@@ -114,20 +114,20 @@ sequenceDiagram
 
 Each deadline comes from a `PlayClock` (macro time = anchor + elapsed wall time × speed). Speed changes, pauses and seeks re-anchor it, so timing never drifts. The engine sleeps on a high-resolution waitable timer, then spins the last millisecond: in a 10-minute soak, p99 lateness was 0.008 ms.
 
-Every playback, however it ends, goes through the coordinator's `finish_playback`, which records the run.
+Every playback that stops or finishes goes through the coordinator's `finish_playback`, which records the run. One cut short by quitting isn't recorded.
 
 ## How a trigger flows
 
 ```mermaid
 flowchart LR
     S["schedule · interval · app launch<br/>pixel · image · hotkey"] -- "Cmd::RunMacro" --> C{"coordinator: admit()"}
-    C -- "paused or deleted" --> I["ignore"]
+    C -- "paused, deleted,<br/>or Every… while busy" --> I["ignore"]
     C -- "busy" --> B["notice + run history"]
     C -- "screen locked" --> L["skip + run history"]
     C -- "idle" --> P["play from 0"]
 ```
 
-Trigger threads only detect events; the coordinator, which knows the session, decides. A triggered run doesn't change the windows' current macro: the player comes up in a free corner, and the current macro is put back when the run ends. The rules are [Triggers](../spec/triggers.md).
+Trigger threads only detect events; the coordinator, which knows the session, decides. A triggered run doesn't change the windows' current macro: the player comes up in a free corner if the main window is open (otherwise where it was last left), and the current macro is put back when the run ends. The rules are [Triggers](../spec/triggers.md).
 
 ## The exported player
 

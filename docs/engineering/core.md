@@ -39,8 +39,9 @@ The UI changes a macro only by sending an [`EditOp`](../../crates/relay-core/src
 
 ```mermaid
 flowchart LR
-    op["EditOp"] --> apply["apply(&mut Macro)"] --> norm["normalize"] --> view["MacroView::of"]
-    norm -. "property tests" .-> inv["check_invariants"]
+    op["EditOp"] --> apply["apply(&mut Macro)"] --> view["MacroView::of"]
+    apply -. "after deletes" .-> norm["normalize"]
+    apply -. "property tests" .-> inv["check_invariants"]
 ```
 
 - **Ops address steps by index** into `group_steps` of the current events. `Batch` applies several to a copy, in order, all or nothing, and undoes as one.
@@ -53,7 +54,7 @@ What each op does for the user is [Editing](../spec/editing.md).
 
 ## The session state machine
 
-[`session::step(mode, input, config) → (mode, effects)`](../../crates/relay-core/src/session.rs) is the whole session logic. The coordinator performs the effects; it decides nothing itself.
+[`session::step(mode, input, config) → (mode, effects)`](../../crates/relay-core/src/session.rs) is the whole session logic: every mode transition is decided here, and the coordinator performs the effects.
 
 ```mermaid
 stateDiagram-v2
@@ -66,10 +67,10 @@ stateDiagram-v2
     Playing --> Paused: TogglePlay
     Paused --> Playing: TogglePlay
     Playing --> Idle: Stop / Kill / PlaybackFinished
-    Paused --> Idle: Stop / Kill
+    Paused --> Idle: Stop / Kill / PlaybackFinished
 ```
 
-Effects come out in order (`StartRecording`, `StartPlayback`, `SetHotkeys`, `PauseTriggers`…), with `EmitMode` always last. An input with no transition is ignored, so a stray `PlaybackFinished` after a stop does nothing. The countdown is skipped when it's off.
+Effects come out in order (`StartRecording`, `StartPlayback`, `SetHotkeys`, `PauseTriggers`…), with `EmitMode` last whenever the mode changes. An input with no transition is ignored, so a stray `PlaybackFinished` after a stop does nothing. The countdown is skipped when it's off.
 
 ## Playback timing
 
@@ -93,7 +94,7 @@ Each module is small and has its tests beside it. The non-obvious decisions:
 | [`path`](../../crates/relay-core/src/path.rs) | Smooth and Straighten move samples, never drop them: playback doesn't interpolate. Uses `sqrt`, not `hypot`, because the UI test copy (`src/test/fake-path.ts`) must land on the same pixels; `path-cases.json` checks it. |
 | [`text`](../../crates/relay-core/src/text.rs) | Templates (`{date}`, `{col:Name}`…). `fill` takes the time, the clipboard and the column as arguments. Edits validate a template; playback types a broken one as written. |
 | [`data`](../../crates/relay-core/src/data.rs) | CSV parsing (UTF-8 or Windows-1252, the separator guessed from the header). `check` is the one rule for whether a macro can play or export with its file. |
-| [`image`](../../crates/relay-core/src/image.rs) | Gray normalized cross-correlation, coarse to fine on a pyramid, scales 0.5–2. About 22 ms on a 1440p screen, which is why relay-core builds at `opt-level = 3` in dev too. |
+| [`image`](../../crates/relay-core/src/image.rs) | Gray normalized cross-correlation, coarse to fine on a pyramid, scales 0.5–2. Ruling out a missing image takes about 22 ms on a 1440p screen in a release build, which is why relay-core builds at `opt-level = 3` in dev too. |
 | [`format`](../../crates/relay-core/src/format.rs) | `.rly` read and write; migrations work on `serde_json::Value`, so old shapes need no Rust types. Bundling a macro into a player exe. See [File formats](file-formats.md). |
 | [`ahk`](../../crates/relay-core/src/ahk.rs) | The AutoHotkey v2 export, one block per step, timed start to start. Pinned by a snapshot; CI only checks the syntax. |
 | [`splice`](../../crates/relay-core/src/splice.rs) | What an edit changed (a run of events and one time shift), so undo stores a diff, not the macro |
