@@ -1,37 +1,34 @@
 # File formats
 
-Everything Relay stores is JSON (and one JPEG per recorded macro) in the data directory, `%APPDATA%\Relay` (or `RELAY_DATA_DIR`). Every file is written atomically: a temporary file, then a rename.
+Everything Relay stores is JSON (plus one JPEG per recorded macro) in the data folder, `%APPDATA%\Relay` or `RELAY_DATA_DIR`. Every file is written atomically. This page is the reference for each file.
 
 ```text
 %APPDATA%\Relay\
-├── macros\<uuid>.rly       one macro per file, portable
-├── macros\.trash\<uuid>.rly
-├── screens\<uuid>.jpg       machine-local: the screen as each recording started
-├── library.json            machine-local: order, stats, triggers, trash
-├── runs.json               machine-local: the run history
-├── settings.json           machine-local: settings, Relay's keys, the first run
-├── window.json             machine-local: player mode, where the windows are, the editor's size and divider
+├── macros\<uuid>.rly         one macro per file          portable
+├── macros\.trash\<uuid>.rly  deleted macros
+├── screens\<uuid>.jpg        the screen as each recording started
+├── library.json              order, run counts, triggers, data files, trash
+├── runs.json                 the run history
+├── settings.json             settings, Relay's keys, the first run
+├── window.json               player mode, window positions, the divider
 └── logs\relay.YYYY-MM-DD.log
 ```
 
-**Portable** files can be copied to another PC. **Machine-local** files describe this PC's use of the macros (run counts, the run history, hotkeys, schedules) and of Relay (its settings and keys, its windows) and are never exported.
+Only `.rly` files are **portable**. Everything else is **machine-local**: how this PC uses the macros and Relay. Exports and imports never carry it; a screenshot is machine-local too, since it can show anything that was on screen.
 
-A folder with none of `settings.json`, `library.json` and `macros\` is a **new install**: the Library starts empty, and nothing is written until there's something to keep. A folder an older Relay used is an upgrade (see [settings.json](#settingsjson)).
-
-**Screenshots** (`screens\<uuid>.jpg`) are taken when a recording starts, with *Screenshot* on: the whole virtual desktop at the macro's `recording.virtual_desktop`, scaled down to at most 3200 px wide, JPEG quality 80, with Relay's own windows left out. The preview draws it at that rect. It's machine-local because it can show anything that was on screen: exports and imports never carry it. A duplicate gets a copy; a trashed macro keeps its screenshot for a restore. A macro without one (recorded before 1.3, imported, or with the setting off) shows the sketch.
-
-- [The .rly macro file](#the-rly-macro-file)
+- [.rly](#rly)
 - [The JSON export](#the-json-export)
 - [Exported programs](#exported-programs)
-- [Versioning and migrations](#versioning-and-migrations)
+- [Versions and migrations](#versions-and-migrations)
 - [library.json](#libraryjson)
 - [runs.json](#runsjson)
 - [settings.json](#settingsjson)
 - [window.json](#windowjson)
+- [Damaged files](#damaged-files)
 
-## The .rly macro file
+## .rly
 
-A `.rly` file is a single-line JSON object. Here's a small one, pretty-printed (from the snapshot test in `format.rs`):
+A single-line JSON object. Pretty-printed (from the snapshot test in `format.rs`):
 
 ```json
 {
@@ -44,26 +41,13 @@ A `.rly` file is a single-line JSON object. Here's a small one, pretty-printed (
   "recording": {
     "os": "windows",
     "virtual_desktop": { "x": 0, "y": 0, "w": 1920, "h": 1080 },
-    "monitors": [
-      {
-        "name": "\\\\.\\DISPLAY1",
-        "rect": { "x": 0, "y": 0, "w": 1920, "h": 1080 },
-        "work": { "x": 0, "y": 0, "w": 1920, "h": 1032 },
-        "dpi": 96,
-        "primary": true
-      }
-    ],
+    "monitors": [{ "name": "\\\\.\\DISPLAY1", "rect": { "x": 0, "y": 0, "w": 1920, "h": 1080 },
+                   "work": { "x": 0, "y": 0, "w": 1920, "h": 1032 }, "dpi": 96, "primary": true }],
     "double_click_ms": 500,
     "double_click_px": 4
   },
-  "playback": {
-    "speed": 1.0,
-    "repeat": { "count": 1 },
-    "humanize": true,
-    "jitter_ms": 40,
-    "stop_on_key": true,
-    "coord_mode": "screen"
-  },
+  "playback": { "speed": 1.0, "repeat": { "count": 1 }, "humanize": true, "jitter_ms": 40,
+                "stop_on_key": true, "coord_mode": "screen" },
   "events": [
     { "type": "move", "t": 0, "x": 960, "y": 540 },
     { "type": "button", "t": 120, "x": 960, "y": 540, "btn": "Left", "down": true, "label": "Save" },
@@ -75,121 +59,67 @@ A `.rly` file is a single-line JSON object. Here's a small one, pretty-printed (
 }
 ```
 
-### Top level
+- **Times** (`t`, `dur`) are milliseconds from the start. **Positions and rects** are physical pixels on the virtual desktop; negative left of or above the primary monitor.
+- **`recording.anchor_window`** (optional: `exe`, `class`, `title`, `rect`) is the window under the first click, for *Window* coordinates.
+- **`repeat`** is `{"count": n}` or `"forever"`. **`coord_mode`** is `"screen"` or `"window"`.
+- **Optional fields are omitted** when empty or zero.
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `format` | `"relay-macro"` | Required. Anything else is *not a Relay macro*. |
-| `version` | integer | `3` if the macro has a `text` event, else `2` if it has a `find_image` event, else `1`. See [migrations](#versioning-and-migrations). |
-| `id` | UUID | Also the file name |
-| `name` | string | |
-| `created_at`, `modified_at` | RFC 3339 UTC | |
-| `recording` | object | Where and how it was recorded |
-| `playback` | object | This macro's playback options |
-| `events` | array | Sorted by `t` |
+| Event `type` | Fields |
+| --- | --- |
+| `move` | `x`, `y` |
+| `button` | `x`, `y`, `btn` (`Left`, `Right`, `Middle`, `X1`, `X2`), `down`, `label`? (on the press) |
+| `wheel` | `x`, `y`, `delta` (120 = one notch up or right), `horizontal`? |
+| `key` | `down`, `key: { code, vk?, scan?, ext? }`, `ch`? (what the press typed). A hand-written file only needs `code`, a [W3C key code](https://www.w3.org/TR/uievents-code/). |
+| `wait` | `dur`, `label`? |
+| `pixel_wait` | `dur`, `x`, `y`, `color` (`"#RRGGBB"`), `tolerance` (per channel, 0–255), `timeout_ms`, `label`? |
+| `find_image` | `dur`, `image` (base64 PNG, ≤ 512 px a side), `click_x`, `click_y` (in the image's pixels), `btn`, `threshold` (50–100), `timeout_ms`, `area`?, `label`? |
+| `text` | `dur`, `text` (a template: [Text steps](../spec/text-steps.md)) |
 
-### `recording`
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `os` | string | `"windows"` |
-| `virtual_desktop` | rect | All monitors' bounding box, physical pixels |
-| `monitors` | array | `name`, `rect`, `work` (without the taskbar), `dpi`, `primary` |
-| `double_click_ms`, `double_click_px` | integers | The system settings when recorded, used to group double clicks |
-| `anchor_window` | object, optional | The top-level window under the first click: `exe`, `class`, `title`, `rect`. Used by *Window* coordinates. |
-
-A rect is `{ "x", "y", "w", "h" }` in physical pixels. `x` and `y` can be negative for monitors left of or above the primary.
-
-### `playback`
-
-| Field | Type | Default | Notes |
-| --- | --- | --- | --- |
-| `speed` | number | `1.0` | The UI offers 0.5, 1, 2 and 4 |
-| `repeat` | `{"count": n}` or `"forever"` | `{"count": 1}` | |
-| `humanize` | bool | `true` | |
-| `jitter_ms` | integer | `40` | ± per step, used when `humanize` is on |
-| `stop_on_key` | bool | `true` | |
-| `coord_mode` | `"screen"` or `"window"` | `"screen"` | |
-
-### `events`
-
-Every event has a `type` and `t`, the time in milliseconds from the start. Optional fields are omitted when empty or zero.
-
-| `type` | Fields | Notes |
-| --- | --- | --- |
-| `move` | `x`, `y` | A cursor sample |
-| `button` | `x`, `y`, `btn`, `down`, `label`? | `btn`: `Left`, `Right`, `Middle`, `X1`, `X2`. The click's label is on the `down` event. |
-| `wheel` | `x`, `y`, `delta`, `horizontal`? | `delta` in wheel units: `120` is one notch up (or right), `-120` one down |
-| `key` | `down`, `key`, `ch`? | `key` is `{ code, vk?, scan?, ext? }` (see below). `ch` is the text the press typed, on `down` events only. |
-| `wait` | `dur`, `label`? | |
-| `pixel_wait` | `dur`, `x`, `y`, `color`, `tolerance`, `timeout_ms`, `label`? | `color` is `"#RRGGBB"`. `tolerance` is per channel, 0–255. |
-| `text` | `dur`, `text` | `text` is a template: `{date}`, `{time}`, `{clipboard}` and `{n}` are filled in when it plays, `{{` and `}}` are braces. It's typed during `dur`; a text that takes longer pushes what follows back. |
-| `find_image` | `dur`, `image`, `click_x`, `click_y`, `btn`, `threshold`, `timeout_ms`, `area`?, `label`? | `image` is a PNG in base64 (at most 512 px a side). `click_x`, `click_y` are where to click, from the image's top-left in its own pixels (they scale with it). `threshold` is the lowest match accepted, 50–100 %. `area` is a rect to look in; without it, all monitors. |
-
-**Keys**: `code` is the W3C [`KeyboardEvent.code`](https://www.w3.org/TR/uievents-code/) of the physical key (`KeyA`, `Digit1`, `ShiftLeft`, `Enter`, `ArrowLeft`, `Numpad5`, `F9`…). `vk` is the Windows virtual-key code, `scan` the hardware scan code (set 1) and `ext` the extended-key flag. Playback prefers `scan`, then `vk`, then a scan code looked up from `code`, then types `ch` as Unicode. A hand-written file only needs `code`.
-
-### Rules a valid file follows
-
-Relay enforces these when loading (by normalizing), so a hand-edited file doesn't need to be perfect:
-
-- Events are sorted by `t`.
-- Every `down` has a matching release later. Releases without a press are dropped, and presses without a release are released at the end.
-- Nothing happens inside a `wait`, `pixel_wait`, `find_image` or `text` (between `t` and `t + dur`). An event inside one, or at its start but listed after it, is moved to its end.
+**Loading normalizes**, so a hand-edited file needn't be perfect: events are sorted, orphan releases dropped, unreleased presses released at the end, and anything inside a wait, check or Text step moved to its end.
 
 ## The JSON export
 
-**Export → JSON events** writes the same object, **pretty-printed**, plus a `steps` array: the derived steps, as the editor shows them. It's for reading and for scripts. For example, count the clicks:
+**Export → JSON events** writes the same object pretty-printed, plus `steps`: the derived steps, as the editor shows them (`items` are indices into `events`). It's for reading and scripts:
 
 ```bash
-jq '[.steps[] | select(.kind == "click")] | length' export-invoice-to-pdf.json
+jq '[.steps[] | select(.kind == "click")] | length' invoice.json
 ```
 
-A step looks like:
-
-```json
-{ "t": 120, "end": 180, "pause": 120, "items": [1, 2], "kind": "click", "x": 960, "y": 540, "btn": "Left", "count": 1, "label": "Save" }
-```
-
-`items` are indices into `events`, and `pause` is the idle time before the step. Importing a `.json` export ignores `steps` and rebuilds them from the events.
+Importing a `.json` ignores `steps` and rebuilds them.
 
 ## Exported programs
 
-A macro exported as a **Standalone program** is the player's exe with the macro appended:
+A **Standalone program** is relay-player's exe with the macro appended:
 
 | Bytes | Content |
 | --- | --- |
-| … | The player (`crates/relay-player`), a normal Windows program |
-| *n* | The macro as a compact `.rly` (UTF-8), exactly as a `.rly` export would write it (v3 with a `text` event, v2 with a `find_image` event), plus, for a macro with a data file, its rows as `"data": { "columns": [...], "rows": [[...], ...] }` |
-| 8 | *n*, as a little-endian u64 |
-| 4 | The bundle version, 1, as a little-endian u32 |
+| … | The player, a normal Windows program |
+| *n* | The macro as a compact `.rly`, plus its data file's rows as `"data": { "columns", "rows" }` if it has one |
+| 8 | *n*, little-endian u64 |
+| 4 | The bundle version, 1, little-endian u32 |
 | 8 | `RELAYRLY` |
 
-Windows loads the program's image and ignores what follows it, so the player runs as it is, and reads the macro from its own file (`format::from_program`, which also returns `data`). Loading it as a macro (`from_rly`, Import) drops `data`, so older Relays import such a program too; the bundle version stays 1. Import recognizes a program by its `MZ` header: without the trailer it's *not a program exported by Relay*, with a newer bundle version it's *saved by a newer Relay*. The player isn't signed, and appending the macro would invalidate a signature anyway, so an exported program can never carry Relay's.
+Windows ignores what follows the image, so the program runs as is and reads the macro from its own file (`format::from_program`). Import recognizes one by its `MZ` header. Loading it as a macro ignores `data`, so older Relays import these too. Appending the macro would break a signature, so exported programs can't be signed.
 
-## Versioning and migrations
+## Versions and migrations
 
-`version` only changes when the event model changes incompatibly. Loading does:
+`version` changes only when the event model does, and a macro is written with the **lowest version that holds it**, so older Relays keep opening it:
 
-1. not JSON, or no `"format": "relay-macro"` → *not a Relay macro*,
-2. `version` newer than this Relay supports → *this macro was saved by a newer Relay (format version N)*,
-3. older → run the migration chain on the raw JSON, one version at a time,
-4. deserialize, then normalize. A Relay document that fails here (a bad value, a missing field, a missing `version`), or text that mentions `"relay-macro"` but isn't valid JSON (a truncated file), is *invalid macro file: …* with the reason.
-
-| Version | Written by | Shape |
+| Version | Since | Adds |
 | --- | --- | --- |
-| **0** | The M0 prototype's export | High-level events: `click` (with `count`), `key` combos like `"Ctrl + A"`, `char`, `wait`, `cond`. No recording metadata. |
-| **1** | Relay 0.2 and later | Low-level presses and releases, as above |
-| **2** | Relay 1.4 and later, for macros with a `find_image` event | Version 1 plus `find_image`. Loading a v1 file as v2 needs no change. A macro without one is still written as v1, so older Relays keep reading it; one with one is refused by them as too new rather than as invalid. |
-| **3** | Relay 1.5 and later, for macros with a `text` event | Version 2 plus `text`, with the same rules: older files need no change, and a macro without a `text` event is written as v2 or v1. |
+| 0 | The M0 prototype | High-level events (`click`, `key` combos, `char`, `cond`), migrated by `migrate_v0` |
+| 1 | 0.2 | Low-level presses and releases |
+| 2 | 1.4 | `find_image` (written only when the macro has one) |
+| 3 | 1.5 | `text` (written only when the macro has one) |
 
-`migrate_v0` expands each v0 event: a `click` with `count: 2` becomes two press/release pairs 120 ms apart, a combo becomes modifier presses around the key, a `char` becomes its US-layout key (with Shift if needed), and a `cond` becomes a `pixel_wait` with tolerance 8 and a 5 s timeout. Missing metadata defaults to a single 1920×1080 monitor.
+Loading: not a `"format": "relay-macro"` object → *not a Relay macro*; a newer version → *saved by a newer Relay*; an older one → migrations, one version at a time, on `serde_json::Value`; then deserialize and normalize.
 
-To change the format:
+Changing the format:
 
-1. Bump `VERSION` in `format.rs`.
-2. Add `migrate_vN` from the previous version, working on `serde_json::Value`.
+1. Bump `VERSION` in `format.rs`, and write the new version only for macros that need it.
+2. Add `migrate_vN` from the previous version, on `serde_json::Value`.
 3. Add a fixture of the old format and snapshot its migration.
-4. Update this page.
+4. Update this page and [Export and import](../spec/export-import.md).
 
 ## library.json
 
@@ -218,157 +148,75 @@ To change the format:
 }
 ```
 
-`data_file`, the macro's [data file](../spec/data-files.md), is only written for a macro that has one. It's an absolute path, read each time the macro plays (`src-tauri/src/data_file.rs`), and kept by duplicates, the trash and restore. Older Relays ignore it.
-
-| Field | Notes |
-| --- | --- |
-| `order` | Library order, top first. Macro files not listed are shown after, newest first. |
-| `entries` | Per-macro stats and triggers. Every field has a default, so partial entries load. |
-| `triggers.hotkey.combo` | Labels joined by `" + "`, modifiers first: `Ctrl`, `Alt`, `Shift`, `Win`. Never one of Relay's keys (see `keys` in [settings.json](#settingsjson)). |
-| `triggers.schedule.schedule.days` | Monday first |
-| `triggers.schedule.schedule.time` | Local `"HH:MM"` |
-| `triggers.interval` | `every` times `unit` (`s`, `min` or `h`), used within 5 s to 24 h. Older Relays ignore it. |
-| `triggers.app_launch.exe` | File name, matched case-insensitively |
-| `triggers.image.image` | A PNG in base64, as in `find_image`, or `null` until one is set |
-| `trash` | Deleted macros and their stats, so *Undo* restores them exactly. `next` is the macro that came right after (`null` at the end); restoring follows it (through other trashed macros) to the first one still in the Library, so the macro returns to the right place even after others were added or restored. Older files have only `position`, used as is. `name` keeps recording names from repeating one that's in the trash. |
-
-Before triggers existed (up to M6), entries had a plain `hotkey` label. It's read as a disabled hotkey trigger.
+- **`order`** is the Library's order. Macro files it doesn't list come after, newest first.
+- **Every entry field has a default**, so partial entries load, and older Relays ignore fields they don't know (`interval`, `data_file`).
+- **Schedules:** `days` is Monday first, `time` local `"HH:MM"`.
+- **`data_file`** is an absolute path, read each time the macro plays, never copied.
+- **`trash.next`** is the macro that came after the deleted one; a restore follows it (through other trashed macros) to put the macro back in place.
 
 ## runs.json
 
-The run history (the Library's **All runs**, and its **Problems**), oldest first. Relay keeps the newest 200 entries (`runlog::MAX_RUNS`).
+The run history, oldest first, the newest 200 kept (`runlog::MAX_RUNS`):
 
 ```json
 {
   "version": 1,
   "entries": [
     {
-      "at": "2026-09-30T07:00:02Z",
-      "macro_id": "3f0c…",
-      "macro_name": "Daily report",
+      "at": "2026-09-30T07:00:02Z", "macro_id": "3f0c…", "macro_name": "Daily report",
       "source": "schedule",
       "outcome": { "type": "finished", "reason": "pixel_timeout" },
-      "duration_ms": 8420,
-      "from_ms": 0,
-      "loops": 1,
-      "speed": 1.0,
-      "humanize": false,
+      "duration_ms": 8420, "from_ms": 0, "loops": 1, "speed": 1.0, "humanize": false,
       "checks": [
-        { "step": 4, "loop_idx": 0, "image": true, "after_ms": 380, "outcome": { "type": "found", "x": 812, "y": 344, "score": 93 } },
         { "step": 7, "loop_idx": 0, "image": false, "after_ms": 5000, "outcome": { "type": "timed_out" } }
       ],
       "checks_dropped": 0,
       "rows": 3
-    },
-    {
-      "at": "2026-09-30T08:00:00Z",
-      "macro_id": "8a21…",
-      "macro_name": "Backup",
-      "source": "schedule",
-      "outcome": { "type": "skipped", "reason": "missed" },
-      "duration_ms": 0, "from_ms": 0, "loops": 0, "speed": 1.0, "humanize": false, "checks": [], "checks_dropped": 0
     }
   ]
 }
 ```
 
-| Field | Notes |
-| --- | --- |
-| `at` | When the run started, or when the skipped trigger fired |
-| `macro_name` | The name at that time: the macro may be renamed or deleted since |
-| `source` | `manual` (Play, in the window or the player, or the play key), `hotkey`, `schedule`, `interval`, `app_launch`, `pixel` or `image` |
-| `outcome` | `finished` with a `FinishReason` (`completed`, `stopped`, `key_pressed`, `killed`, `pixel_timeout`, `error`), or `skipped` with `busy`, `locked`, `missed` (a schedule slept through) or `data_file` (its data file couldn't be played) |
-| `note` | Only on a skip whose reason needs saying: the data file's problem, as the user was told |
-| `duration_ms` | Wall time, pauses included; 0 for a skip |
-| `loops` | Loops played, the last one included even if it didn't finish |
-| `rows` | Only for a run played from a data file: the file's rows, one per loop. Activity names the row a run stopped on. |
-| `checks` | The last 50 pixel checks and Find image steps (`runlog::MAX_CHECKS`), with `checks_dropped` counting earlier ones. `step` is the step's number as the UI shows it (`steps::step_number`: moves don't count; runs logged by Relay 1.5 counted them), `loop_idx` 0-based, `after_ms` excludes pauses. `outcome` is `matched`, `found` (an image's top-left corner and score in percent), `timed_out` or `interrupted` (stopped while waiting). |
-
-A run still going when Relay quits isn't recorded. Paused triggers and deleted macros aren't logged. Like `library.json`, a `runs.json` that exists but can't be read is left alone until Relay restarts, and one that doesn't parse is set aside as `runs.json.bad`. A failed save keeps the entry in memory and tells the user once, until a save succeeds again.
+- **`macro_name`** is the name at the time; the macro may be renamed or gone since.
+- **`source`**: `manual`, `hotkey`, `schedule`, `interval`, `app_launch`, `pixel` or `image`.
+- **`outcome`**: `finished` with a reason (`completed`, `stopped`, `key_pressed`, `killed`, `pixel_timeout`, `error`), or `skipped` with `busy`, `locked`, `missed` or `data_file` (plus a `note`).
+- **`checks`** keeps a run's last 50 pixel checks and Find image steps; `step` is the number the UI shows (moves don't count).
+- **`rows`** is only there for a run from a data file.
 
 ## settings.json
 
-A new install's, as Relay writes it:
+Read field by field: unknown fields are ignored, and a missing one takes its default. What each setting does and its default is [Settings](../spec/settings.md). The fields that need explaining:
 
-```json
-{
-  "capture_moves": true,
-  "capture_keys": true,
-  "countdown": true,
-  "esc_stops_recording": true,
-  "ignore_injected": true,
-  "capture_screen": true,
-  "path_mode": "full",
-  "show_click_labels": true,
-  "preview_background": "screen",
-  "close_to_tray": true,
-  "keep_on_top": "always",
-  "hide_while_recording": true,
-  "hide_while_playing": false,
-  "theme": "system",
-  "glass": null,
-  "spacing": "comfortable",
-  "text_size": 100,
-  "player_size": "compact",
-  "reduce_motion": "system",
-  "sounds": false,
-  "show_moves": false,
-  "keys": {
-    "record": "Ctrl + Shift + F9",
-    "play": "Ctrl + Shift + F10",
-    "player": "Ctrl + Shift + M",
-    "kill": "Ctrl + Alt + Backspace"
-  },
-  "intro": "welcome"
-}
-```
-
-| Field | Values |
+| Field | Notes |
 | --- | --- |
-| `capture_moves`, `capture_keys`, `countdown`, `esc_stops_recording`, `ignore_injected`, `capture_screen` | Settings → Recording |
-| `path_mode` | `"full"` or `"trail"` |
-| `show_click_labels` | The preview's callouts show a selected click's label |
-| `preview_background` | `"screen"` (the screenshot, when the macro has one) or `"sketch"` (the view's *Outline*) |
-| `close_to_tray` | The × and Alt + F4 put Relay in the tray instead of quitting |
-| `keep_on_top` | When the **player** is on top: `"always"`, `"sessions"` (while recording or playing) or `"never"`. The main window never is. |
-| `hide_while_recording`, `hide_while_playing` | The main window steps aside (and the player shows) while recording, or playing |
-| `theme` | `"system"` (Windows' app mode), `"light"` or `"dark"` |
-| `glass` | Frosted glass: `true`, `false`, or `null` for this Windows' default (on for Windows 11, off for Windows 10). Windows' *Transparency effects* off makes Relay solid whatever this says. |
-| `spacing` | `"compact"`, `"comfortable"` or `"large"` |
-| `text_size` | `100`, `125`, `150` or `200` (percent): everything scales, the window too; the player up to 150% |
-| `player_size` | `"compact"` (600 × 64) or `"large"` (760 × 88) |
-| `reduce_motion` | `"system"` (Windows' animation setting) or `"always"` |
-| `sounds` | Short sounds for recording, steps, and a run's end |
-| `show_moves` | The steps list shows cursor moves as rows of their own, instead of folded into the step they lead to |
-| `keys` | Relay's keys, as the UI shows them: `record`, `play` and `player` (each a combo, or `null` for none) and `kill` (a combo, never `null`) |
-| `intro` | What the first run shows when the window next opens: `"welcome"` (the three screens), `"keys"` (the keys screen once, after an upgrade) or `"done"` |
+| `keys` | Relay's keys as the UI shows them: `record`, `play`, `player` (a combo or `null`) and `kill` (never `null`) |
+| `intro` | What the first run shows next: `"welcome"`, `"keys"` (once, after an upgrade) or `"done"` |
+| `glass` | `true`, `false`, or `null` for this Windows' default |
 
-**A new install or an upgrade.** A missing field takes its default, but which default depends on the folder: in a folder an older Relay used (it has `settings.json`, `library.json` or `macros\`), `keys` defaults to the keys Relay had before they could be set (`"F9"`, `"F10"`, `"Ctrl + Shift + M"`, `"Ctrl + Alt + End"`) and `intro` to `"keys"`, so an upgrade keeps its keys and sees the keys screen once. In a new folder, they're the new install's above. Relay's keys are checked when saved: each a usable hotkey, none twice, none a macro's hotkey.
+**A missing value depends on the folder.** In one an older Relay used (it has `settings.json`, `library.json` or `macros\`), `keys` defaults to F9, F10, Ctrl + Shift + M and Ctrl + Alt + End, and `intro` to `"keys"`, so an upgrade keeps the keys its user knows (`Settings::upgraded`). A new folder gets the new install's keys and `"welcome"`.
 
-Unknown fields are ignored. A field with an invalid value (`"keep_on_top": "sometimes"`, `"text_size": 110`, or a value from a newer Relay) takes its default and the others are kept; the original file is set aside as `settings.json.bad`, the recovered settings are saved, and the user is told. *Start with Windows* isn't stored here: it's an entry in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (managed by `tauri-plugin-autostart`) that starts Relay with `--autostart`.
+*Start with Windows* isn't stored here: it's an entry in `HKCU\…\CurrentVersion\Run` that starts Relay with `--autostart`.
 
 ## window.json
 
 ```json
-{
-  "player_mode": false,
-  "anchor": [1280, 1384],
-  "size": [1100, 720],
-  "panes": { "inspector_w": 380 },
-  "player_anchor": [2240, 120]
-}
+{ "player_mode": false, "anchor": [1280, 1384], "size": [1100, 720],
+  "panes": { "inspector_w": 380 }, "player_anchor": [2240, 120] }
 ```
 
-| Field | Notes |
-| --- | --- |
-| `player_mode` | The player stands in for the main window; Relay starts that way. Saved as soon as it changes. |
-| `anchor` | The main window's bottom-center in physical virtual-desktop pixels, or `null` for the default position. Only a drag changes it. |
-| `size` | The main window's size in CSS px if the user resized it (`null`: 944 × 612, at most 80% of the work area); never below 760 × 520 |
-| `panes` | The editor's divider: the inspector's width in CSS px, `null` for the default (340). The UI keeps it inside the window without changing what's saved. |
-| `player_anchor` | The player's bottom-center, once the user dragged it (`null`: centered near the bottom of the primary work area) |
+Only Rust writes it, and every field may be missing (`null`: the default). `anchor` and `player_anchor` are each window's bottom center in physical pixels, moved only by the user's drag. `size` is the main window's size in CSS pixels once the user resized it. `panes.inspector_w` is the editor's divider.
 
-Every field may be missing, and only Rust writes this file. An older Relay's file keeps its anchor and size; its `expanded` (the old compact player) and its three dividers (`preview_w`, `transport_h`, `timeline_h`) are ignored.
+## Damaged files
+
+| File | Can't be parsed | Exists but can't be read (locked) |
+| --- | --- | --- |
+| `library.json` | Set aside as `library.json.bad` | Left alone; the index isn't written for the rest of the run |
+| `runs.json` | Set aside as `runs.json.bad` | Left alone until Relay restarts |
+| `settings.json` | Only the invalid fields reset; the file is set aside as `settings.json.bad` | Left alone |
+| a `.rly` | Skipped, and the user is told | Skipped |
+
+The rule behind all of them: **a file that exists but can't be read is never overwritten.**
 
 ---
 
-<p align="center"><a href="frontend.md">← The frontend</a> · <a href="README.md">Contents</a> · <a href="testing.md">Testing and CI →</a></p>
+<p align="center"><a href="frontend.md">← The frontend</a> · <a href="testing.md">Testing and CI →</a></p>
