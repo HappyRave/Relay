@@ -34,7 +34,7 @@ Relay is a **Windows desktop macro recorder**: it records mouse and keyboard inp
 
 - **Stack:** Rust (edition 2024) + [Tauri 2](https://tauri.app/) + a [Svelte 5](https://svelte.dev/) (runes) and TypeScript UI built with Vite. WebView2 on Windows.
 - **Five crates:** `crates/relay-core` (pure logic, no OS, builds anywhere), `crates/relay-platform` (OS traits plus the Windows backend and a stub for other OSes), `crates/relay-playback` (the engine, shared by the app and the player), `crates/relay-player` (the program a macro is exported as), `src-tauri` (the app: threads, commands, storage, window, tray).
-- **Design:** the m24 redesign, specified in [`docs/design/`](https://github.com/HappyRave/Relay/pull/14) (the UX research panel and the visual redesign): Archivo as a variable font, aluminium and ink with a red kept for recording, playing and danger, rounded corners, frosted glass, Relay's own icons, light and dark themes. The tokens are `src/styles/theme.css`. The original v1 prototype (`Design/Macro Recorder.dc.html`, the *Modernist* system in `Design/_ds/`) is history now.
+- **Design:** the m24 redesign, specified in [`docs/design/`](docs/design/) (the UX research panel and the visual redesign, with its prototype in `Design/redesign/`): Archivo as a variable font, aluminium and ink with a red kept for recording, playing and danger, rounded corners, frosted glass, Relay's own icons, light and dark themes. The tokens are `src/styles/theme.css`. The original v1 prototype (`Design/Macro Recorder.dc.html`, the *Modernist* system in `Design/_ds/`) is history now.
 - **License:** MIT. Repository: https://github.com/HappyRave/Relay (public).
 
 ## Where things stand
@@ -139,11 +139,11 @@ src/                         the Svelte UI
   test/                      fake-core.ts (+ fake-edit.ts, fake-path.ts, fake-core.test.ts), path-cases.json (GENERATED), app.ts, setup.ts
 e2e/                         end-to-end suites (*.e2e.test.mjs), harness.mjs, samples.json (GENERATED), image-window.ps1, github-reporter.mjs, ci-diagnose.mjs
 scripts/                     cdp.mjs (run JS in a running Relay), docs-screenshots.ps1 (regenerates docs/images)
-docs/                        spec/ (the behavior spec), user-guide/, engineering/, images/
+docs/                        spec/ (the behavior spec), user-guide/, engineering/, design/ (the m24 research and redesign), images/
 site/                        the website (Astro + Starlight): src/pages/index.astro (the landing page),
                              scripts/sync-guide.mjs (docs/user-guide → Starlight pages, GENERATED into
                              src/content/docs/guide, git-ignored), src/styles/relay.css, lab/ (the design rounds)
-Design/                      the v1 prototype and design system (history)
+Design/                      the v1 prototype and design system, and redesign/ (the m24 prototype); history
 .github/workflows/           ci.yml, e2e.yml, release.yml, pages.yml (publishes the website)
 ```
 
