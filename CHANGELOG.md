@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v2.0.0: A new look, the player and Show targets
 
 - **A new look:** Relay was redesigned after a [simulated user research panel](docs/design/ux-research-panel.md): rounded corners, frosted glass on Windows 11, Relay's own icons, a light and a dark theme, three spacings, text up to 200%, and less motion on request (**Settings → Appearance**). Red is kept for recording, playing and danger.
 - **A normal window:** Relay's window is resizable and no longer stays on top. It has three places: the **Library**, a **macro** and **Settings**, with **Back** and <kbd>Alt</kbd>+<kbd>←</kbd>. See the [user guide](docs/user-guide/README.md).

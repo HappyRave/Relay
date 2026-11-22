@@ -150,6 +150,7 @@ Relay is a Rust workspace (`relay-core` for the pure logic, `relay-platform` for
 - [x] **1.3**: a redesigned control bar, screenshots under the preview, a zoomable whole-screen preview, a resizable editor
 - [x] **1.4**: mouse moves as steps (retime, smooth or straighten them), Find image (click a button or icon wherever it appears, and run a macro when one appears), a run history, standalone `.exe` export
 - [x] **1.5**: Text steps that fill in the date, the time, the clipboard or the repeat number; data files that drive repeats; AutoHotkey v2 export; stacked messages and a lighter undo history
+- [x] **2.0**: a redesign with a resizable window and the player, a new editor, Library and Activity, Relay's keys as settings, a first run, the *Every…* trigger, Show targets, a behavior spec, a new user guide and a website
 - [ ] **Branching on checks**: when a pixel check or Find image doesn't match, skip, go to another step, retry, or move on to the next data row, instead of stopping
 - [ ] **Remapping macros to a different monitor layout**: docked and undocked, another PC, a VM; *Window* coordinates that follow a resized window too
 - [ ] **Reliable batches**: see which data row failed and resume from it, `--data` for exported programs, a command line to run a macro, a JSON log, exit codes per failure and a screenshot on failure, per-row and per-loop run history

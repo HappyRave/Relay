@@ -846,9 +846,14 @@ mod tests {
             kind: MarkKind::Click { btn: MouseBtn::Left, count: 1 },
         };
         live(&mark, 1.0);
-        std::thread::sleep(std::time::Duration::from_millis(250));
-        let shown = unsafe { FindWindowW(LIVE_CLASS, None) }.ok();
-        assert!(shown.is_some_and(|h| unsafe { IsWindowVisible(h) }.as_bool()), "the mark shows");
+        // The first mark starts Direct2D, which can take a while; the mark lives CLICK_MS.
+        let visible =
+            || unsafe { FindWindowW(LIVE_CLASS, None) }.ok().is_some_and(|h| unsafe { IsWindowVisible(h) }.as_bool());
+        let start = std::time::Instant::now();
+        while !visible() && start.elapsed() < std::time::Duration::from_millis(900) {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(visible(), "the mark shows");
         assert_eq!(screen.pixel(x, y), Some(before));
     }
 
