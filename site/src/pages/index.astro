@@ -2,6 +2,16 @@
 import "@fontsource-variable/archivo/wdth.css";
 import { Image } from "astro:assets";
 import editor from "../content/docs/images/editor.png";
+import countdown from "../content/docs/images/countdown.png";
+import saved from "../content/docs/images/saved.png";
+import editorSteps from "../content/docs/images/editor-steps.png";
+import findImage from "../content/docs/images/find-image-step.png";
+import textStep from "../content/docs/images/text-step.png";
+import dataFile from "../content/docs/images/data-file.png";
+import triggers from "../content/docs/images/triggers-cards.png";
+import playOptions from "../content/docs/images/play-options.png";
+import activity from "../content/docs/images/activity.png";
+import exported from "../content/docs/images/exported.png";
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, "");
 const guide = `${base}/guide/`;
@@ -15,13 +25,72 @@ const steps = [
   ["l", "Wait for", "Save turns blue"],
   ["p", "Click", "Save"],
 ];
-const features = [
-  ["l", "Wait for the screen", "Continue when a pixel turns green or a button appears, at any size."],
-  ["p", "Run on cue", "A hotkey, a weekly schedule, every 10 minutes, when an app starts."],
-  ["k", "Text that changes", "Type today's date, what you copied, or a row from a spreadsheet."],
-  ["p", "Share it as an .exe", "Export a macro as a small program that plays on any PC, without Relay."],
-  ["k", "Stop everything", "Esc or one key stops it. Nothing is ever left pressed."],
-  ["l", "Private", "Relay never connects to the internet. Your macros stay on your PC."],
+const pageTitles: Record<string, string> = {
+  "record/": "Record a macro",
+  "edit-steps/": "Edit the steps",
+  "wait/": "Make a macro wait",
+  "text/": "Type text that changes",
+  "run-automatically/": "Run a macro automatically",
+  "play/": "Play, loop and change speed",
+  "play/#see-where-a-macro-clicks": "See where a macro clicks",
+  "what-ran/": "See what ran and what failed",
+  "scripts/": "Run a macro without Relay",
+};
+const tour = [
+  {
+    glyph: "r", name: "Record", page: "record/", title: "Press a key and work as usual.",
+    text: "Every click, drag, scroll and keystroke is kept with its timing. The player stays out of the way while you work.",
+    items: ["Across all your monitors, at any display scaling", "Clicks can follow their window when it moves", "<kbd>Esc</kbd> stops; Relay's own windows are never recorded"],
+    pics: [{ img: countdown, alt: "The player, about to record" }, { img: saved, alt: "The new macro, saved", narrow: true }],
+  },
+  {
+    glyph: "p", name: "Edit", page: "edit-steps/", title: "Steps you can read, and change.",
+    text: "A recording becomes <b>Click · Save</b>, <b>Keys · Ctrl + S</b>, <b>Type · “invoice_0924”</b>. Mouse moves fold into the click they lead to.",
+    items: ["Select several steps and change them at once", "Trim the pauses, smooth or straighten a mouse path", "Find a step by its text; undo anything"],
+    pics: [{ img: editorSteps, alt: "The steps list: clicks, a wait, keys and typing" }],
+  },
+  {
+    glyph: "l", name: "Wait", page: "wait/", title: "Wait for the screen, not the clock.",
+    text: "A slow app no longer breaks the macro. It waits until a pixel turns the right color, or until a button appears.",
+    items: ["<b>Wait for pixel</b>: pick it with a loupe, set how long to wait", "<b>Find image</b>: snip a button, Relay finds it anywhere, from half to twice its size, and clicks it", "A timeout says which step and why"],
+    pics: [{ img: findImage, alt: "A Find image step: the image, its match and how long to look", narrow: true }],
+  },
+  {
+    glyph: "k", name: "Type", page: "text/", title: "Text that changes every run.",
+    text: "Type <code>Invoice {date} #{n}</code> and Relay fills it in as it plays. Give it a spreadsheet, and it plays once per row.",
+    items: ["<code>{date}</code> <code>{time}</code> <code>{clipboard}</code> <code>{n}</code>, and <code>{col:Name}</code> from a CSV file", "Types the same on any keyboard layout"],
+    pics: [{ img: textStep, alt: "A Text step with placeholders" }, { img: dataFile, alt: "A macro's data file" }],
+  },
+  {
+    glyph: "p", name: "Run on cue", page: "run-automatically/", title: "Six ways to start without you.",
+    text: "A macro can run when you press its key, or when something happens on your PC.",
+    items: ["<b>Hotkey</b>, from any app", "<b>Schedule</b>: Mon–Fri at 09:00; <b>Every…</b> 5 seconds to 24 hours", "<b>App starts</b>, a <b>pixel changes</b>, an <b>image appears</b>"],
+    pics: [{ img: triggers, alt: "A hotkey and a schedule trigger", narrow: true }],
+  },
+  {
+    glyph: "p", name: "Play", page: "play/", title: "Play it your way.",
+    text: "Accurate to about a millisecond, or a little human on purpose.",
+    items: ["0.5× to 4×, once, N times or forever", "Vary timing by a few milliseconds so it doesn't look robotic", "Pause, resume and stop from the player"],
+    pics: [{ img: playOptions, alt: "Play options: repeat, speed, data file, vary timing", narrow: true }],
+  },
+  {
+    glyph: "r", name: "Show targets", isNew: true, page: "play/#see-where-a-macro-clicks", title: "See where it clicks before it does.",
+    text: "A red ring ripples where each click lands, drags draw their path, keys show by the cursor. Or see every target at once, numbered in order.",
+    items: ["Marks let clicks through and never show in screenshots", "On the player, one key"],
+    pics: [],
+  },
+  {
+    glyph: "l", name: "Activity", page: "what-ran/", title: "Know what ran while you were away.",
+    text: "Every run is kept, triggered or not: when, how long, and what stopped it. Problems are counted, and a timeout opens at its step.",
+    items: [],
+    pics: [{ img: activity, alt: "Activity: every run, its trigger, how it ended and how long it took" }],
+  },
+  {
+    glyph: "k", name: "Share", page: "scripts/", title: "Take it anywhere.",
+    text: "Macros are small <code>.rly</code> files: back them up, send them, keep them in Git.",
+    items: ["<b>Standalone program</b>: an <code>.exe</code> that plays it on any PC, without Relay", "<b>AutoHotkey v2</b> script, one block per step", "JSON, for your own tools"],
+    pics: [{ img: exported, alt: "An exported program, playing", narrow: true }],
+  },
 ];
 ---
 <!doctype html>
@@ -89,12 +158,49 @@ const features = [
 
   <section id="features">
     <div class="wrap">
-      <h2>Plays back right. Even when the screen is slow.</h2>
-      <p class="sub">Wait for a pixel or an image instead of guessing. Run it on cue, and stop it any time.</p>
+      <h2>Everything Relay does, in nine stops.</h2>
+      <p class="sub">From the first recording to a macro that runs by itself every morning.</p>
+      {tour.map((c, i) => (
+        <div class="ch">
+          <div>
+            <div class="n"><span class={`glyph ${c.glyph}`}></span>{i + 1} · {c.name}{c.isNew && <span class="new">New</span>}</div>
+            <h3>{c.title}</h3>
+            <p set:html={c.text} />
+            {c.items.length > 0 && <ul>{c.items.map(item => <li set:html={item} />)}</ul>}
+            <a class="more" href={`${guide}${c.page}`}>{pageTitles[c.page]} →</a>
+          </div>
+          <div class={`pic${c.pics.length > 1 && c.pics.every(p => !p.narrow) ? " two" : ""}`}>
+            {c.pics.map(p => (
+              <div class={`shot${p.narrow ? " narrow" : ""}`}><Image src={p.img} alt={p.alt} widths={[p.img.width]} /></div>
+            ))}
+            {c.pics.length === 0 && (
+              <div class="desk" role="img" aria-label="Show targets: a form's clicks numbered and joined in order, the typed text in a caption">
+                <svg viewBox="0 0 520 300" aria-hidden="true">
+                  <rect class="w" x="30" y="34" width="240" height="196" rx="8"/>
+                  <rect class="m" x="42" y="46" width="40" height="20" rx="4"/><text x="51" y="56">File</text>
+                  <rect class="m" x="88" y="46" width="40" height="20" rx="4"/><text x="97" y="56">Edit</text>
+                  <rect class="m" x="134" y="46" width="44" height="20" rx="4"/><text x="142" y="56">View</text>
+                  <text class="lb" x="42" y="86">Invoice number</text><rect class="i" x="42" y="94" width="214" height="24" rx="5"/><text class="mono" x="50" y="106">invoice_2026</text>
+                  <text class="lb" x="42" y="136">Customer</text><rect class="i" x="42" y="144" width="214" height="24" rx="5"/><text class="mono" x="50" y="156">Northwind Ltd.</text>
+                  <rect x="42" y="184" width="58" height="26" rx="5" fill="#2b2b2b"/><text x="56" y="197" fill="#fff">Save</text>
+                  <path d="M62 56 L150 106 L71 197" fill="none" stroke="#e0300f" stroke-width="2" stroke-dasharray="1 6" stroke-linecap="round"/>
+                  <circle cx="62" cy="56" r="4.5" fill="#e0300f"/><circle cx="150" cy="106" r="4.5" fill="#e0300f"/><circle cx="71" cy="197" r="4.5" fill="#e0300f"/>
+                  <circle class="ring" cx="71" cy="197" r="26"/>
+                  <circle cx="50" cy="44" r="8.5" fill="#e0300f"/><text class="badge" x="50" y="44">1</text>
+                  <circle cx="138" cy="94" r="8.5" fill="#e0300f"/><text class="badge" x="138" y="94">2</text>
+                  <circle cx="59" cy="185" r="8.5" fill="#e0300f"/><text class="badge" x="59" y="185">4</text>
+                  <rect x="160" y="116" width="124" height="20" rx="10" fill="#141415"/><text class="cap" x="222" y="126">3 · “invoice_2026”</text>
+                  <rect x="130" y="266" width="260" height="20" rx="10" fill="rgba(20,20,21,.8)"/><text class="cap" x="260" y="276">Invoice · 4 steps · Esc or click to go back</text>
+                </svg>
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
       <div class="grid">
-        {features.map(([kind, title, text]) => (
-          <div class="card"><span class={`glyph ${kind}`}></span><h3>{title}</h3><p>{text}</p></div>
-        ))}
+        <div class="card"><span class="glyph k"></span><h3>Stops when you say</h3><p><kbd>Esc</kbd>, any key, or the kill switch. Nothing is ever left pressed.</p></div>
+        <div class="card"><span class="glyph l"></span><h3>Private</h3><p>Relay never connects to the internet. Your macros stay on your PC.</p></div>
+        <div class="card"><span class="glyph p"></span><h3>Yours to set</h3><p>Light or dark, text up to 200%, your own keys, sounds if you want them.</p></div>
       </div>
     </div>
   </section>
@@ -267,6 +373,7 @@ const features = [
   .glyph::after { content: ""; display: block; }
   .glyph.p { background: var(--blue); } .glyph.p::after { width: 8px; height: 8px; border-radius: 50%; background: #fff; }
   .glyph.k { background: var(--yellow); } .glyph.k::after { width: 7px; height: 7px; background: var(--ink); }
+  .glyph.r { background: var(--red); } .glyph.r::after { width: 8px; height: 8px; border-radius: 50%; background: #fff; }
   .glyph.l { background: var(--green); } .glyph.l::after { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 8px solid var(--ink); }
 
   section { padding: 80px 0; }
@@ -279,6 +386,34 @@ const features = [
   .card { background: var(--bg-2); border-radius: 16px; padding: 22px; box-shadow: 0 0 0 1px var(--line); }
   .card h3 { margin: 12px 0 6px; font-size: 18px; font-weight: 750; }
   .card p { margin: 0; color: var(--text-2); font-size: 15px; }
+  .grid { margin-top: 30px; }
+  code { font-family: ui-monospace, monospace; font-size: 0.88em; background: var(--wash-keys); padding: 0.05em 0.35em; border-radius: 4px; }
+  .ch { display: grid; grid-template-columns: 1fr 1.15fr; gap: 56px; align-items: center; padding: 44px 0; border-top: 1px solid var(--line); }
+  .ch:first-of-type { border-top: 0; padding-top: 10px; }
+  .ch:nth-of-type(even) .pic { order: -1; }
+  .ch .n { font-size: 12px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; font-stretch: 88%; color: var(--text-2); display: flex; gap: 8px; align-items: center; }
+  .ch .new { color: var(--red); }
+  .ch h3 { font-size: 30px; line-height: 1.08; font-weight: 800; font-stretch: 106%; margin: 10px 0; }
+  .ch p { color: var(--text-2); font-size: 17px; margin: 0 0 14px; max-width: 46ch; }
+  .ch p b { color: var(--text); }
+  .ch ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 7px; font-size: 15px; }
+  .ch li { padding-left: 18px; position: relative; }
+  .ch li::before { content: ""; position: absolute; left: 2px; top: 0.55em; width: 6px; height: 6px; border-radius: 2px; background: var(--text); }
+  .ch .more { display: inline-block; margin-top: 16px; font-weight: 650; font-size: 14px; text-underline-offset: 3px; }
+  .pic { display: grid; gap: 14px; justify-items: center; }
+  .pic.two { grid-template-columns: 1fr 1fr; align-items: start; }
+  .pic .shot { width: 100%; border-radius: 12px; }
+  .pic .shot.narrow { max-width: 380px; }
+  .desk { width: 100%; aspect-ratio: 520 / 300; border-radius: 12px; overflow: hidden; background: linear-gradient(160deg, #3a5bd9, #1d2c6b 60%, #121733); box-shadow: var(--shadow-window); }
+  .desk svg { width: 100%; height: 100%; display: block; }
+  .desk .w { fill: #fbfbf9; } .desk .m { fill: #eceae4; } .desk .i { fill: #fff; stroke: #d8d6cf; }
+  .desk text { font: 600 10.5px var(--font); fill: var(--ink); dominant-baseline: central; }
+  .desk text.lb { font-weight: 500; fill: #777; font-size: 9.5px; }
+  .desk text.mono { font: 10px ui-monospace, monospace; }
+  .desk text.cap { fill: var(--paper); font-weight: 700; text-anchor: middle; }
+  .desk text.badge { fill: #fff; font-weight: 800; text-anchor: middle; }
+  .desk .ring { fill: none; stroke: var(--red); stroke-width: 2.4; transform-box: fill-box; transform-origin: center; animation: ring 1.6s var(--ease) infinite; }
+  @keyframes ring { from { opacity: 1; transform: scale(.25); } 70% { opacity: 0; transform: scale(1); } to { opacity: 0; } }
   .band { background: var(--band); color: var(--band-text); border-radius: 24px; padding: 56px; display: grid; grid-template-columns: 1fr auto; gap: 30px; align-items: center; }
   .band p { color: #b3b1ab; margin: 0; font-size: 17px; }
   footer { padding: 40px 0 60px; display: flex; gap: 26px; font-size: 14px; color: var(--text-2); flex-wrap: wrap; }
@@ -291,6 +426,8 @@ const features = [
     h2 { font-size: 32px; }
     .stage { height: 470px; }
     .grid { grid-template-columns: 1fr; }
+    .ch { grid-template-columns: 1fr; gap: 24px; }
+    .ch:nth-of-type(even) .pic { order: 0; }
     .band { grid-template-columns: 1fr; padding: 32px; }
     nav a.hide { display: none; }
     footer .sp { margin-left: 0; width: 100%; }
