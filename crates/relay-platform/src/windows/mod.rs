@@ -5,6 +5,7 @@ mod clipboard;
 mod hook;
 mod inject;
 mod marker;
+mod overlay;
 mod picker;
 mod screen;
 mod text;

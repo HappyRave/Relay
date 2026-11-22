@@ -46,6 +46,7 @@ Rules are numbered SET-n. Cite them in tests and PRs.
 | **SET-15** | **Keep the player on top** | Always | When the [player](windows.md) floats above other windows: **Always**, **While working** (while recording or playing) or **Never**. The main window itself is never on top. |
 | **SET-16** | **Hide the window while recording** | On | The window steps aside while recording and the player shows instead, so Relay never covers what's recorded. Off, the window stays where it is and the player doesn't show. |
 | **SET-17** | **Hide the window while playing** | Off | On, the window steps aside during playback and the player shows; the window comes back when the playback ends. Off, the window stays where it is, behind the user's apps, so the steps can be watched. |
+| **SET-52** | **Show targets** | Off | Marks each click, drag, scroll and key on the screen as a macro plays. The player has a key for it too. See [Show targets](targets.md). |
 | **SET-18** | **Close to the tray** | On | The window's close button and <kbd>Alt</kbd>+<kbd>F4</kbd> hide Relay to the tray, and hotkeys and triggers keep running. Off, they quit Relay. |
 | **SET-19** | **Start with Windows** | Off | Starts Relay hidden in the tray when the user signs in, so triggers run without opening it. See [Start with Windows](windows.md). |
 

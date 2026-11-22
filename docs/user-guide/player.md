@@ -21,6 +21,7 @@ The player shows, left to right:
 - **Play** (**Pause** while playing)
 - **Stop** (a square)
 - the state, the macro's name, and the time or the [data file](glossary.md#data-file) row
+- **Show targets** (a target), which [marks each click on the screen](play.md#see-where-a-macro-clicks)
 - **Open the window**
 
 The state is *READY*, *GET READY*, *REC*, *PLAYING*, *PAUSED* or *DONE ✓*. After an error, it says *STOPPED* until you select **Dismiss**.

@@ -62,6 +62,8 @@ pub enum Cmd {
         id: Uuid,
         speed: f64,
     },
+    /// *Show targets* turned on or off (applies to a playback under way).
+    ShowTargets(bool),
     /// A trigger (or a macro hotkey) wants to run a macro.
     RunMacro {
         id: Uuid,
@@ -318,6 +320,7 @@ impl<R: Runtime> Coordinator<R> {
                     self.engine_cmd(EngineCmd::Speed(speed));
                 }
             }
+            Cmd::ShowTargets(on) => self.engine_cmd(EngineCmd::Marks(on)),
             Cmd::RunMacro { id, source } => self.run_triggered(id, source),
             Cmd::LogSkip { id, source, reason } => {
                 let name = self.app.state::<Mutex<Library>>().lock().get(id).map(|e| e.macro_.name.clone());
@@ -691,7 +694,8 @@ impl<R: Runtime> Coordinator<R> {
             rows: data.as_ref().map(|d| d.rows.len() as u32),
         };
         let seed = (self.platform.now_ms)().to_bits() ^ (m.id.as_u128() as u64);
-        let plan = PlayPlan::for_macro(m, data, from, seed, offset, own);
+        let mut plan = PlayPlan::for_macro(m, data, from, seed, offset, own);
+        plan.show_marks = self.settings().show_targets;
         let duration = plan.duration;
         let engine = engine::spawn(plan, &self.platform, self.emit.clone(), self.tx.clone(), self.generation);
         self.playback =

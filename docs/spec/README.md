@@ -26,6 +26,7 @@ The spec is the reference that the code, the tests and the user guide must agree
 | [Data files](data-files.md) | DATA | A CSV that plays the macro once per row, and when it can't |
 | [The view](view.md) | VIEW | The preview, the timeline and the measurements table |
 | [Playback](playback.md) | PLAY | The controls, the playhead, the play options, the kill switch, how a playback ends |
+| [Show targets](targets.md) | TGT | Marks on the screen where a macro clicks, drags, scrolls and types, live or all at once |
 | [Triggers](triggers.md) | TRIG | Hotkey, schedule, app, pixel and image triggers, pausing them |
 | [Keys](keys.md) | KEY | Relay's four global keys, and every shortcut in its windows |
 | [Library](library.md) | LIB | The Library, Activity and Problems, duplicating, the trash |

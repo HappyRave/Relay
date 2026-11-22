@@ -56,6 +56,7 @@ describe("Settings", () => {
     ["Recording", "Ignore simulated input", "ignore_injected", true],
     ["Window", "Hide the window while recording", "hide_while_recording", true],
     ["Window", "Hide the window while playing", "hide_while_playing", false],
+    ["Window", "Show targets", "show_targets", false],
     ["Window", "Close to the tray", "close_to_tray", true],
     ["Appearance", "Show click labels", "show_click_labels", true],
     ["Sound", "Sounds", "sounds", false],

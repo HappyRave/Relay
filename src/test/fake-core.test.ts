@@ -563,6 +563,20 @@ describe("the busy guard", () => {
   });
 });
 
+describe("show targets, like commands.rs", () => {
+  test("refused during a session, for a missing macro, and for one with nothing to show", async () => {
+    await expect(b.showTargets(A)).resolves.toBeNull();
+    core.emit({ type: "session", mode: "playing", macro_id: A, source: null });
+    await expect(b.showTargets(A)).rejects.toEqual({ code: "busy", message: "Stop the recording or playback first" });
+    core.mode = "idle";
+    await expect(b.showTargets("00000000-0000-0000-0000-000000000099")).rejects.toMatchObject({ code: "not_found" });
+    const steps = (await b.loadMacro(A)).steps.length;
+    for (let i = steps - 1; i >= 0; i--) await edit({ op: "delete_step", index: i });
+    await edit({ op: "insert_wait", at: 0, dur: 500, label: "" });
+    await expect(b.showTargets(A)).rejects.toEqual({ code: "empty", message: "This macro doesn't click, scroll or type anywhere." });
+  });
+});
+
 describe("triggers, like hotkeys.rs", () => {
   const withHotkey = (combo: string, enabled = true) => ({ ...defaultTriggers(), hotkey: { enabled, combo } });
 

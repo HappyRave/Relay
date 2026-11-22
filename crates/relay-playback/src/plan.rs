@@ -34,6 +34,7 @@ impl PlayPlan {
             offset,
             from,
             own,
+            show_marks: false,
             steps: group_steps(&m.events, (&m.recording).into()),
             events: m.events,
         }

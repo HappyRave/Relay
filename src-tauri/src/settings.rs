@@ -247,6 +247,8 @@ pub struct Settings {
     /// The steps list shows cursor moves as rows of their own, instead of
     /// folded into the step they lead to.
     pub show_moves: bool,
+    /// Marks each click, drag, scroll and key on the screen as a macro plays.
+    pub show_targets: bool,
     pub keys: RelayKeys,
     pub intro: Intro,
 }
@@ -275,6 +277,7 @@ impl Default for Settings {
             reduce_motion: ReduceMotion::System,
             sounds: false,
             show_moves: false,
+            show_targets: false,
             keys: RelayKeys::new_default(),
             intro: Intro::Welcome,
         }

@@ -12,6 +12,7 @@ To stop a macro, press <kbd>Esc</kbd>. Read [Every way to stop a macro](stop-a-m
 - [Vary the timing](#vary-the-timing)
 - [Choose whether a key press stops it](#choose-whether-a-key-press-stops-it)
 - [Make clicks follow a moved window](#make-clicks-follow-a-moved-window)
+- [See where a macro clicks](#see-where-a-macro-clicks)
 - [Good to know](#good-to-know)
 - [Not possible yet](#not-possible-yet)
 
@@ -55,6 +56,27 @@ Position 0, 0 is your main monitor's top-left corner. Monitors left of it or abo
 If only the window moved, set **Clicks land** to **Window**. **Window** doesn't help if the window size or display scaling changed. If Relay can't find the window, it shows a message and uses **Screen**.
 
 More detail: [Screen or Window coordinates](../spec/playback.md#screen-or-window-coordinates)
+
+## See where a macro clicks
+
+To see each click, drag, scroll and key as the macro plays:
+
+1. Turn on **Settings → Window → Show targets**, or select the target on the player.
+2. Play the macro.
+
+If it worked, a red ring ripples out where each click lands, and the keys show by the cursor.
+
+To see every target before playing:
+
+1. Open the macro, and select **Show targets** in the top bar.
+2. Press <kbd>Esc</kbd> or click anywhere to go back.
+
+If it worked, Relay steps aside and each target shows with its step number, joined in step order.
+
+> [!TIP]
+> Show targets with **Clicks land: Window** shows where the clicks land now, so you can check the window was found.
+
+More detail: [Show targets](../spec/targets.md)
 
 ## Good to know
 

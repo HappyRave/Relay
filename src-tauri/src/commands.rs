@@ -353,6 +353,42 @@ pub async fn pick_pixel(app: AppHandle, platform: State<'_, Arc<Platform>>) -> R
     Ok(picked.map(|p| PickedPixel { x: p.x, y: p.y, color: p.color, frozen: p.frozen }))
 }
 
+/// Shows every target of macro `id` over the screen, with Relay's windows
+/// out of the way, until a click or Esc (*Show targets* in the editor).
+#[tauri::command]
+pub async fn show_targets(app: AppHandle, platform: State<'_, Arc<Platform>>, id: Uuid) -> Result<()> {
+    when_idle(&app)?;
+    let m = library(&app).lock().get(id).ok_or(IpcError::not_found(id))?.macro_.clone();
+    let platform = platform.inner().clone();
+    let (offset, notice) =
+        relay_playback::plan::window_offset(&m, |exe, class| platform.windows.find_window(exe, class));
+    if let Some(message) = notice {
+        app.state::<Arc<Emitter>>().send(EngineMsg::Notice { message });
+    }
+    let steps = relay_core::steps::group_steps(&m.events, (&m.recording).into());
+    let marks = relay_core::marks::marks(&m.events, &steps, offset);
+    if marks.iter().all(|mark| mark.number.is_none()) {
+        return Err(IpcError { code: "empty", message: "This macro doesn't click, scroll or type anywhere.".into() });
+    }
+    let caption = targets_caption(&m.name, &steps);
+    crate::presence::step_aside(&app, true);
+    let _ = tauri::async_runtime::spawn_blocking(move || {
+        // Windows fades a window out as it hides.
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        platform.screen.show_targets(&marks, &caption);
+    })
+    .await;
+    crate::presence::step_aside(&app, false);
+    Ok(())
+}
+
+/// The still overlay's bar: the macro, how many steps, and how to go back.
+fn targets_caption(name: &str, steps: &[relay_core::Step]) -> String {
+    let n = steps.iter().filter(|s| !matches!(s.kind, relay_core::StepKind::Move { .. })).count();
+    let steps = if n == 1 { "1 step".to_string() } else { format!("{n} steps") };
+    format!("{name} · {steps} · Esc or click to go back")
+}
+
 // — images —
 
 fn image_error(e: ImageError) -> IpcError {
@@ -695,13 +731,17 @@ pub fn key_warning(platform: State<'_, Arc<relay_platform::Platform>>, combo: St
 pub fn update_settings(app: AppHandle, settings: Settings) -> Result<Settings> {
     hotkeys::check_keys(&library(&app).lock(), &settings.keys)
         .map_err(|message| IpcError { code: "hotkey", message })?;
-    let (current, keys_changed) = {
+    let (current, keys_changed, targets_changed) = {
         let s = app.state::<Mutex<SettingsStore>>();
         let mut s = s.lock();
         let keys_changed = s.current.keys != settings.keys;
+        let targets_changed = s.current.show_targets != settings.show_targets;
         report_unsaved(&app, s.set(settings));
-        (s.current.clone(), keys_changed)
+        (s.current.clone(), keys_changed, targets_changed)
     };
+    if targets_changed {
+        app.state::<CoordinatorHandle>().send(Cmd::ShowTargets(current.show_targets));
+    }
     if keys_changed {
         library(&app).lock().set_relay_keys(current.keys.clone());
         hotkeys::refresh(&app);
@@ -748,6 +788,14 @@ mod tests {
         assert_eq!(IpcError::io(std::io::Error::other("disk full")).message, "Couldn't save: disk full");
         let bad = format::from_rly("nope").unwrap_err();
         assert_eq!(IpcError::from(LibraryError::Format(bad)).code, "format");
+    }
+
+    #[test]
+    fn the_targets_bar_names_the_macro_and_counts_steps_without_moves() {
+        let invoice = relay_core::samples::invoice().macro_;
+        let steps = relay_core::steps::group_steps(&invoice.events, (&invoice.recording).into());
+        assert_eq!(targets_caption("Invoice", &steps), "Invoice · 12 steps · Esc or click to go back");
+        assert_eq!(targets_caption("One", &steps[..2]), "One · 1 step · Esc or click to go back", "a move and a click");
     }
 
     #[test]

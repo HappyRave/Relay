@@ -526,6 +526,15 @@ export class FakeCore {
       case "pick_pixel":
         if (this.mode !== "idle") throw BUSY;
         return this.picked;
+      case "show_targets": {
+        check("id", a.id, "string");
+        if (this.mode !== "idle") throw BUSY;
+        const targets = ["click", "drag", "scroll", "keys", "type", "text"];
+        if (!this.entry(a.id as string).view.steps.some((s) => targets.includes(s.kind))) {
+          throw { code: "empty", message: "This macro doesn't click, scroll or type anywhere." } satisfies IpcError;
+        }
+        return null;
+      }
       case "paste_image":
         if (!this.clipboard) throw { code: "image", message: "There's no picture on the clipboard. Copy or snip one first." } satisfies IpcError;
         return this.clipboard;
@@ -1098,6 +1107,7 @@ const SETTINGS: Spec = {
   reduce_motion: optional(oneOf("system", "always")),
   sounds: optional("bool"),
   show_moves: optional("bool"),
+  show_targets: optional("bool"),
   keys: optional({ record: nullable("string"), play: nullable("string"), player: nullable("string"), kill: "string" }),
   intro: optional(oneOf("welcome", "keys", "done")),
 };
