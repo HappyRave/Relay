@@ -134,6 +134,13 @@
       <Leds value={relay.duration ? Math.min(relay.cur, relay.duration) / relay.duration : 0} ticks={clicks} />
     {/if}
   </div>
+  <Key
+    variant={relay.settings.show_targets ? "ink" : "plain"}
+    aria-label="Show targets"
+    aria-pressed={relay.settings.show_targets}
+    title="Show targets: mark each click, drag, scroll and key as it plays"
+    onclick={() => relay.updateSettings({ show_targets: !relay.settings.show_targets })}><Icon name="target" /></Key
+  >
   <Key aria-label="Open the window" aria-keyshortcuts={ariaKeys(keys.player)} title="Open the window{keyHint(keys.player)}" onclick={relay.openWindow}
     ><Icon name="expand" /></Key
   >

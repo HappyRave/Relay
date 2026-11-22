@@ -3,6 +3,7 @@
 //! key map are OS-independent so they can be tested anywhere.
 
 pub mod keymap;
+pub mod overlay;
 pub mod picker;
 pub mod processes;
 pub mod recorder;
@@ -70,6 +71,17 @@ pub trait Screen: Send + Sync {
     /// where the OS can't.
     fn pick(&self) -> Option<picker::Picked> {
         None
+    }
+    /// Shows `mark` of a playing macro for a moment (see [`overlay`]), over
+    /// everything, letting clicks through and out of every capture; returns
+    /// at once. `speed` is the playback's: a path draws as fast as it plays.
+    fn live_mark(&self, mark: &relay_core::marks::Mark, speed: f64) {
+        let _ = (mark, speed);
+    }
+    /// Shows every target of a macro over the screen (see [`overlay`]), with
+    /// `caption` in a bar; blocks until a click or Esc.
+    fn show_targets(&self, marks: &[relay_core::marks::Mark], caption: &str) {
+        let _ = (marks, caption);
     }
 }
 

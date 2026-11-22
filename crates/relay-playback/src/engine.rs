@@ -12,6 +12,7 @@ use crossbeam_channel::{Sender, TryRecvError, unbounded};
 use relay_core::data::DataTable;
 use relay_core::image::{Gray, Match, Rgb8};
 use relay_core::keys::KeyStroke;
+use relay_core::marks::{Mark, MarkKind};
 use relay_core::model::{Event, MouseBtn, Ms, Rect, Repeat, Rgb};
 use relay_core::playback::{PlayClock, plan_times};
 use relay_core::runlog::{CheckLog, CheckOutcome, CheckResult};
@@ -35,6 +36,8 @@ pub type PixelReader = Box<dyn FnMut(i32, i32) -> Option<Rgb> + Send>;
 pub type ImageFinder = Box<dyn FnMut(&Gray, Option<Rect>, f32) -> Option<Match> + Send>;
 /// What a Text step's template types on repeat `n` (from 1), now.
 pub type TextFiller = Box<dyn FnMut(&str, u32) -> String + Send>;
+/// Shows a step's mark on the screen as it plays (*Show targets*), at the playback's speed.
+pub type Marker = Box<dyn FnMut(&Mark, f64) + Send>;
 
 /// What a check waits for.
 enum Check {
@@ -95,6 +98,8 @@ pub struct PlayPlan {
     pub from: Ms,
     /// Relay's windows: Find image steps never look inside them.
     pub own: relay_platform::OwnWindows,
+    /// Show each step's mark on the screen as it plays (*Show targets*).
+    pub show_marks: bool,
 }
 
 /// How late events were injected relative to their deadlines.
@@ -193,6 +198,10 @@ pub struct Engine {
     /// The first injection failure, and whether it was reported.
     injection_error: Option<String>,
     error_reported: bool,
+    marks: Vec<Mark>,
+    /// The next mark to show.
+    mark_idx: usize,
+    marker: Option<Marker>,
 }
 
 impl Engine {
@@ -208,7 +217,12 @@ impl Engine {
         let times = plan_times(&plan.events, &plan.steps, plan.jitter_ms, plan.seed);
         let idx = start_index(&plan.events, from as f64);
         let clock = PlayClock::new(from, now, plan.speed);
+        let marks = relay_core::marks::marks(&plan.events, &plan.steps, plan.offset);
+        let mark_idx = marks.partition_point(|m| m.first < idx);
         Engine {
+            marks,
+            mark_idx,
+            marker: None,
             plan,
             injector,
             pixel,
@@ -301,7 +315,9 @@ impl Engine {
             self.idx += 1;
             if let Event::Text { dur, text, .. } = &self.plan.events[i] {
                 let (at, dur) = (self.times[i], *dur as f64);
-                let chars = (self.fill)(text, self.loop_idx + 1).chars().collect();
+                let filled = (self.fill)(text, self.loop_idx + 1);
+                self.show_marks(i, Some(&filled));
+                let chars = filled.chars().collect();
                 self.clock.seek(at, now);
                 self.clock.pause(now);
                 self.typing = Some(Typing { chars, typed: 0, at, end: at + dur, next: now });
@@ -342,6 +358,7 @@ impl Engine {
                 });
                 return self.poll_pixel(now);
             }
+            self.show_marks(i, None);
             self.dispatch(i);
         }
         let duration = self.plan.duration as f64;
@@ -359,6 +376,7 @@ impl Engine {
                 self.plan.seed ^ self.loop_idx as u64,
             );
             self.idx = 0;
+            self.mark_idx = 0;
             // Carry the overshoot into the next loop, so loops don't drift.
             self.clock.seek((t - duration).min(duration), now);
         }
@@ -511,6 +529,28 @@ impl Engine {
         }
         self.clock.seek(t, now);
         self.idx = start_index(&self.plan.events, t);
+        self.mark_idx = self.marks.partition_point(|m| m.first < self.idx);
+    }
+
+    /// Where *Show targets* draws, or `None` to draw nothing; it can change mid-playback.
+    pub fn set_marker(&mut self, marker: Option<Marker>) {
+        self.marker = marker;
+    }
+
+    /// Shows the marks of the steps that start with event `i`; a Text step's
+    /// shows `typed`, the text filled in.
+    fn show_marks(&mut self, i: usize, typed: Option<&str>) {
+        let speed = self.clock.speed();
+        while let Some(m) = self.marks.get(self.mark_idx).filter(|m| m.first <= i) {
+            self.mark_idx += 1;
+            let Some(show) = self.marker.as_mut().filter(|_| m.first == i) else { continue };
+            match (typed, &m.kind) {
+                (Some(text), MarkKind::Text { .. }) => {
+                    show(&Mark { kind: MarkKind::Text { text: text.into() }, ..m.clone() }, speed)
+                }
+                _ => show(m, speed),
+            }
+        }
     }
 
     pub fn stats(&self) -> Option<TimingStats> {
@@ -590,6 +630,8 @@ pub enum EngineCmd {
     Resume,
     Seek(f64),
     Speed(f64),
+    /// *Show targets* turned on or off.
+    Marks(bool),
     Stop,
 }
 
@@ -681,6 +723,12 @@ pub fn spawn<S: PlaybackSink>(plan: PlayPlan, platform: &Platform, sink: S) -> E
             let _ = wake_tx.send(timer.waker());
             let own = plan.own;
             let (finder_screen, windows) = (screen.clone(), platform_windows);
+            let mark_screen = screen.clone();
+            let marker = move |on: bool| -> Option<Marker> {
+                let screen = mark_screen.clone();
+                on.then(|| Box::new(move |m: &Mark, speed| screen.live_mark(m, speed)) as Marker)
+            };
+            let show_marks = plan.show_marks;
             let pixel: PixelReader = Box::new(move |x, y| screen.pixel(x, y));
             let find: ImageFinder = Box::new(move |image, area, threshold| {
                 // Where Relay's windows are now: they may have moved since playback started.
@@ -693,6 +741,7 @@ pub fn spawn<S: PlaybackSink>(plan: PlayPlan, platform: &Platform, sink: S) -> E
                 relay_core::text::fill(template, n, chrono::Local::now().naive_local(), || clipboard.text(), column)
             });
             let mut engine = Engine::new(plan, make_injector(), pixel, find, fill, now_ms());
+            engine.set_marker(marker(show_marks));
             let mut next_tick = f64::MIN;
             loop {
                 loop {
@@ -702,6 +751,7 @@ pub fn spawn<S: PlaybackSink>(plan: PlayPlan, platform: &Platform, sink: S) -> E
                         Ok(EngineCmd::Resume) => engine.resume(now),
                         Ok(EngineCmd::Seek(t)) => engine.seek(t, now),
                         Ok(EngineCmd::Speed(v)) => engine.set_speed(v, now),
+                        Ok(EngineCmd::Marks(on)) => engine.set_marker(marker(on)),
                         Ok(EngineCmd::Stop) | Err(TryRecvError::Disconnected) => {
                             done.stopped = true;
                             return engine.report(now); // dropping the engine releases input
@@ -810,6 +860,7 @@ mod tests {
             offset: (0, 0),
             from: 0,
             own: [0, 0],
+            show_marks: false,
         }
     }
 
@@ -1091,6 +1142,7 @@ mod tests {
             offset: (0, 0),
             from: 0,
             own: [0, 0],
+            show_marks: false,
         };
         // The fake screen turns red at `turns_red_at` (wall ms), read through a shared clock.
         let now = Arc::new(Mutex::new(0.0));
@@ -1496,5 +1548,60 @@ mod tests {
         assert!(!e.paused());
         e.advance(100.0);
         assert_eq!(rec.take(), ["KeyA down"]);
+    }
+
+    /// Records the marks `e` shows, as "kind@speed".
+    fn marking(e: &mut Engine) -> Arc<Mutex<Vec<String>>> {
+        let shown = Arc::new(Mutex::new(Vec::new()));
+        let log = shown.clone();
+        e.set_marker(Some(Box::new(move |m: &Mark, speed| {
+            let what = match &m.kind {
+                MarkKind::Click { .. } => "click".to_string(),
+                MarkKind::Keys { combo } => combo.join("+"),
+                MarkKind::Text { text } => format!("“{text}”"),
+                other => format!("{other:?}"),
+            };
+            log.lock().unwrap().push(format!("{what}@{speed}"));
+        })));
+        shown
+    }
+
+    #[test]
+    fn each_step_shows_its_mark_as_it_starts_at_the_playback_speed() {
+        let (mut e, rec) = engine(click_at_1000(), Repeat::Count(2), 2.0);
+        let shown = marking(&mut e);
+        e.advance(0.0);
+        assert_eq!(*shown.lock().unwrap(), ["A@2"]);
+        run_out(&mut e, &rec, 0.0);
+        assert_eq!(*shown.lock().unwrap(), ["A@2", "click@2", "A@2", "click@2"], "each loop shows them again");
+    }
+
+    #[test]
+    fn a_text_step_shows_the_text_it_types() {
+        let (mut e, _rec) = engine(vec![text(100, 500, "row {n}")], Repeat::Count(1), 1.0);
+        let shown = marking(&mut e);
+        e.advance(100.0);
+        assert_eq!(*shown.lock().unwrap(), ["“row 1”@1"]);
+    }
+
+    #[test]
+    fn seeking_past_steps_skips_their_marks() {
+        let (mut e, rec) = engine(click_at_1000(), Repeat::Count(1), 1.0);
+        let shown = marking(&mut e);
+        e.seek(900.0, 0.0);
+        run_out(&mut e, &rec, 0.0);
+        assert_eq!(*shown.lock().unwrap(), ["click@1"]);
+    }
+
+    #[test]
+    fn without_a_marker_nothing_shows_and_it_can_change_mid_playback() {
+        let (mut e, rec) = engine(click_at_1000(), Repeat::Count(1), 1.0);
+        let shown = marking(&mut e);
+        e.set_marker(None);
+        e.advance(0.0);
+        assert!(shown.lock().unwrap().is_empty());
+        let shown = marking(&mut e);
+        run_out(&mut e, &rec, 0.0);
+        assert_eq!(*shown.lock().unwrap(), ["click@1"], "the marks after turning it on");
     }
 }

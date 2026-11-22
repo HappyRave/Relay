@@ -92,6 +92,7 @@ pub fn run() {
             commands::restore_macro,
             commands::sample_pixel,
             commands::pick_pixel,
+            commands::show_targets,
             commands::paste_image,
             commands::load_image,
             commands::snip_image,

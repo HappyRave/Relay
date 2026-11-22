@@ -54,4 +54,8 @@ sounds: boolean,
  * The steps list shows cursor moves as rows of their own, instead of
  * folded into the step they lead to.
  */
-show_moves: boolean, keys: RelayKeys, intro: Intro, };
+show_moves: boolean, 
+/**
+ * Marks each click, drag, scroll and key on the screen as a macro plays.
+ */
+show_targets: boolean, keys: RelayKeys, intro: Intro, };

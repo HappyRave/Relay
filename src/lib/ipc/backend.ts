@@ -69,6 +69,8 @@ export interface Backend {
   /** After `delayMs`, the position and color under the cursor. */
   /** Relay steps aside for the picker; the pixel picked, or null if the user cancelled. */
   pickPixel(): Promise<PickedPixel | null>;
+  /** Relay steps aside and every target of macro `id` shows on the screen, until a click or Esc. */
+  showTargets(id: string): Promise<void>;
   /** The picture on the clipboard, for a Find image step (a base64 PNG). */
   pasteImage(): Promise<string>;
   /** Asks for a PNG or JPEG file and reads it. Returns null if cancelled. */
@@ -170,6 +172,7 @@ export const tauriBackend: Backend = {
   holdHotkeys: (on) => invoke("hold_hotkeys", { on }),
   samplePixel: (x, y) => invoke("sample_pixel", { x, y }),
   pickPixel: () => invoke("pick_pixel"),
+  showTargets: (id) => invoke("show_targets", { id }),
   pasteImage: () => invoke("paste_image"),
   chooseImage: async () => {
     const picked = await open({ filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg"] }] });
@@ -411,6 +414,7 @@ export function browserBackend(): Backend {
     holdHotkeys: async () => {},
     samplePixel: async () => null,
     pickPixel: async () => unavailable(),
+    showTargets: async () => unavailable(),
     pasteImage: async () => unavailable(),
     chooseImage: async () => unavailable(),
     snipImage: async () => unavailable(),

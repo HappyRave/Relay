@@ -176,6 +176,8 @@ export class RelayStore {
   toast = $derived<ShownToast | null>(this.toasts.at(-1) ?? null);
   /** The picker is on the screen. */
   picking = $state(false);
+  /** The open macro's targets are on the screen (*Show targets*). */
+  showingTargets = $state(false);
   /**
    * While an image is coming (a snip waits for the user): where from, and
    * what for: a Find image step's index, INSERTING one, or the TRIGGER.
@@ -1278,6 +1280,18 @@ export class RelayStore {
       const { tolerance, timeout_ms } = step;
       return this.edit({ op: "update_pixel_wait", index, x: p.x, y: p.y, color: p.color, tolerance, timeout_ms });
     });
+  };
+
+  /** Relay steps aside and every target of the open macro shows on the screen, until a click or Esc. */
+  showTargets = async () => {
+    const id = this.view?.id;
+    if (!id || this.showingTargets || this.picking || this.mode !== "idle") return;
+    this.showingTargets = true;
+    try {
+      await this.run(this.backend.showTargets(id));
+    } finally {
+      this.showingTargets = false;
+    }
   };
 
   // — playback options —

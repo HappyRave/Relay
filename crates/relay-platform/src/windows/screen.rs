@@ -100,6 +100,14 @@ impl Screen for WinScreen {
         super::picker::pick()
     }
 
+    fn live_mark(&self, mark: &relay_core::marks::Mark, speed: f64) {
+        super::overlay::live(mark, speed);
+    }
+
+    fn show_targets(&self, marks: &[relay_core::marks::Mark], caption: &str) {
+        super::overlay::show_targets(marks, caption);
+    }
+
     /// Leaves `exclude` out with `WDA_EXCLUDEFROMCAPTURE` (Windows 10 2004
     /// and later; on older versions the window shows in the picture) for the
     /// moment of the capture only, so other screenshot tools still see it.

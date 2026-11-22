@@ -106,6 +106,7 @@
         ])}
         {@render toggle("hide_while_recording", "Hide the window while recording", "The player shows instead, so Relay never covers what you record.")}
         {@render toggle("hide_while_playing", "Hide the window while playing", "Off, the window stays where it is, behind your apps, so you can watch the steps.")}
+        {@render toggle("show_targets", "Show targets", "Marks where each click, drag, scroll and key happens while a macro plays.")}
         {@render toggle("close_to_tray", "Close to the tray", "Hotkeys and triggers keep running; quit from the tray icon.")}
         <div class="setting">
           <span class="what"><b id="s-autostart">Start with Windows</b><span>Starts in the tray, so triggers run after you sign in.</span></span>

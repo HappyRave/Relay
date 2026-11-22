@@ -69,6 +69,22 @@ describe("the player's keys", () => {
     expect(button("Play")).toHaveAttribute("title", "Play (F8)");
   });
 
+  test("Show targets turns the setting on and off, even while playing", async () => {
+    render(Player);
+    expect(button("Show targets")).toHaveAttribute("aria-pressed", "false");
+    core.emit({ type: "session", mode: "playing", macro_id: A, source: null });
+    await settle();
+    core.clearCalls();
+    await userEvent.click(button("Show targets"));
+    await settle();
+    expect(core.calls).toEqual([{ cmd: "update_settings", args: { settings: { ...relay.settings, show_targets: true } } }]);
+    expect(button("Show targets")).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(button("Show targets"));
+    await settle();
+    expect(core.calls.at(-1)?.args).toEqual({ settings: { ...relay.settings, show_targets: false } });
+    expect(button("Show targets")).toHaveAttribute("aria-pressed", "false");
+  });
+
   test("the expand key opens the window on the player's macro", async () => {
     render(Player);
     core.clearCalls();

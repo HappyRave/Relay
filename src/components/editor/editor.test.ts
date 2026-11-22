@@ -18,6 +18,28 @@ beforeEach(async () => {
 const button = (name: string) => screen.getByRole("button", { name });
 
 describe("the top bar", () => {
+  test("Show targets shows the open macro's targets, and is off while they show or a session runs", async () => {
+    render(EditorBar);
+    core.hold("show_targets");
+    await userEvent.click(button("Show targets"));
+    expect(core.argsOf("show_targets")).toEqual([{ id: A }]);
+    expect(button("Show targets")).toBeDisabled();
+    core.held[0].resolve(null);
+    await settle();
+    expect(button("Show targets")).toBeEnabled();
+    core.emit({ type: "session", mode: "playing", macro_id: A, source: null });
+    await settle();
+    expect(button("Show targets")).toBeDisabled();
+  });
+
+  test("a macro with nothing to show says so", async () => {
+    render(EditorBar);
+    core.fail("show_targets", "This macro doesn't click, scroll or type anywhere.", "empty");
+    await userEvent.click(button("Show targets"));
+    await settle();
+    expect(relay.toast).toMatchObject({ kind: "error", message: "This macro doesn't click, scroll or type anywhere." });
+  });
+
   test("Back goes to the Library, except during a session", async () => {
     render(EditorBar);
     await userEvent.click(button("Back to the Library"));

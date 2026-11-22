@@ -126,6 +126,13 @@
     {#each summary.chips as c, i (i)}{#if i}<span class="sep" aria-hidden="true">·</span>{/if}<span>{c}</span>{/each}
     {#if summary.keysDontStop}<span class="sep" aria-hidden="true">·</span><span class="warn">keys don't stop it</span>{/if}
   </Chip>
+  <Key
+    size="sm"
+    aria-label="Show targets"
+    title="Show every target on the screen (Esc or a click goes back)"
+    disabled={!relay.view || !idle || relay.showingTargets || relay.picking}
+    onclick={relay.showTargets}><Icon name="target" size={14} /><span class="wide">Show targets</span></Key
+  >
   <span bind:this={more}>
     <Key
       variant="ghost"
