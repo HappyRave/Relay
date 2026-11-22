@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Relay lab: on-screen targets (round T1)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --alu-100: #ecebe6; --alu-200: #e1e0da; --alu-300: #cfcdc6; --alu-400: #a8a6a0; --alu-700: #5c5a55;
+    --ink: #141415; --red: #e0300f; --red-text: #b3210a;
+    --font: "Archivo", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--alu-100); color: var(--ink); font: 14px/1.45 var(--font); }
+  main { max-width: 1180px; margin: 0 auto; padding: 28px 24px 64px; }
+  h1 { font-size: 26px; font-weight: 750; font-stretch: 112%; margin: 0 0 4px; letter-spacing: -0.01em; }
+  h2 { font-size: 18px; font-weight: 700; font-stretch: 108%; margin: 36px 0 4px; }
+  .lede { color: var(--alu-700); max-width: 760px; margin: 0 0 12px; }
+  .legend { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 0; font-size: 12px; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--alu-200); font-size: 12px; font-weight: 600; }
+  .tag.pick { background: var(--ink); color: #fff; }
+  .tag.prop { background: #fff; border: 1px solid var(--alu-300); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(540px, 1fr)); gap: 16px; margin-top: 14px; }
+  .card { background: #f7f7f5; border: 1px solid var(--alu-300); border-radius: 14px; padding: 14px; }
+  .card.is-pick { outline: 2px solid var(--ink); outline-offset: -1px; }
+  .card header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+  .card h3 { margin: 0; font-size: 16px; font-weight: 700; }
+  .card p { margin: 0 0 10px; color: var(--alu-700); font-size: 13px; }
+  .stage { width: 100%; height: auto; display: block; border-radius: 10px; overflow: hidden; }
+  .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+  button { font: 600 12px var(--font); border: 1px solid var(--alu-300); background: #fff; border-radius: 8px; padding: 4px 10px; cursor: pointer; }
+  button[aria-pressed="true"] { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .clock { font-variant-numeric: tabular-nums; color: var(--alu-700); font-size: 12px; margin-left: auto; }
+  .states { display: grid; grid-template-columns: repeat(auto-fill, 260px); gap: 6px; margin-top: 10px; }
+  .states figure { margin: 0; }
+  .states svg { width: 260px; height: 120px; display: block; border-radius: 6px; }
+  .states figcaption { font-size: 11px; color: var(--alu-700); margin-top: 2px; }
+  ol.open li { margin: 6px 0; }
+  .controls { display: grid; grid-template-columns: 1fr; gap: 14px; }
+  .player { width: 600px; height: 64px; border-radius: 14px; background: rgba(244,243,239,.92); border: 1px solid #fff; box-shadow: 0 8px 28px rgba(0,0,0,.18); display: flex; align-items: center; gap: 6px; padding: 0 12px; }
+  .pbtn { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; border: 0; background: transparent; padding: 0; }
+  .pbtn.on { background: var(--ink); }
+  .pbtn.on svg * { stroke: #fff; }
+  .pname { font-weight: 650; font-size: 13px; padding: 0 6px; }
+  .pbar { flex: 1; height: 4px; border-radius: 2px; background: var(--alu-300); position: relative; }
+  .pbar i { position: absolute; inset: 0 60% 0 0; background: var(--red); border-radius: 2px; }
+  .ptime { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--alu-700); }
+  .setrow { width: 600px; display: flex; gap: 16px; align-items: center; background: #fff; border: 1px solid var(--alu-300); border-radius: 12px; padding: 12px 14px; }
+  .setrow b { display: block; font-weight: 650; }
+  .setrow span { color: var(--alu-700); font-size: 13px; }
+  .switch { width: 44px; height: 24px; border-radius: 12px; background: var(--ink); position: relative; flex: none; margin-left: auto; }
+  .switch::after { content: ""; position: absolute; right: 3px; top: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; }
+  .edbar { width: 600px; display: flex; gap: 8px; align-items: center; background: #fff; border: 1px solid var(--alu-300); border-radius: 12px; padding: 8px 10px; }
+  .edbar .b { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--alu-300); border-radius: 8px; padding: 5px 10px; font-weight: 600; font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>On-screen targets: round T1</h1>
+  <p class="lede">m29. Marks that show where a macro clicks, drags, scrolls and types. <b>Live</b> marks show each action as it plays, when <b>Show targets</b> is on. The <b>still overlay</b> shows every target at once, from the editor's <b>Show targets</b> button, with Relay's window stepped aside. Everything here is a <b>proposal</b>; nothing is decided.</p>
+  <div class="legend"><span class="tag pick">Claude's pick</span><span class="tag prop">proposal</span><span class="tag">placeholder</span></div>
+  <p class="lede" style="margin-top:10px">The scene is the same eight steps in each variant: 1 click New, 2 double-click Name, 3 type “invoice_2026”, 4 Ctrl + S, 5 drag report.pdf to Archive, 6 scroll down 3 (near the right edge), 7 right-click Row 2, 8 click Name again (the same spot as step 2). Mouse moves between them draw as trails. Every mark is click-through and left out of screen captures, so pixel checks and Find image never see it.</p>
+
+  <h2>Live marks</h2>
+  <p class="lede">Each mark appears when its action plays and fades on its own. 4× shows how they hold up at speed; the slider scrubs. The scene is scaled to fit; the small tiles under it are at real size.</p>
+  <div class="grid" id="live"></div>
+
+  <h2>Still overlay</h2>
+  <p class="lede">Every target at once, numbered like the steps list (moves aren't numbered). <kbd>Esc</kbd> or a click brings Relay back.</p>
+  <div class="grid" id="still"></div>
+
+  <h2>Controls <span class="tag prop">proposal</span></h2>
+  <p class="lede">C1: where the switch lives. One setting, mirrored on the player; the still overlay is a button in the editor.</p>
+  <div class="controls">
+    <div class="player" aria-label="Player">
+      <button class="pbtn" title="Record"><svg width="18" height="18"><circle cx="9" cy="9" r="6" fill="#e0300f"/></svg></button>
+      <button class="pbtn" title="Pause"><svg width="18" height="18"><path d="M6 4v10M12 4v10" stroke="#141415" stroke-width="2.4" stroke-linecap="round"/></svg></button>
+      <button class="pbtn" title="Stop"><svg width="18" height="18"><rect x="4" y="4" width="10" height="10" rx="2" fill="#141415"/></svg></button>
+      <span class="pname">Invoice export ▾</span>
+      <span class="ptime">0:04</span><div class="pbar"><i></i></div><span class="ptime">0:12</span>
+      <button class="pbtn on" title="Show targets (on)"><svg width="20" height="20" fill="none"><circle cx="10" cy="10" r="6.5" stroke-width="1.8"/><path d="M10 1.5v4M10 14.5v4M1.5 10h4M14.5 10h4" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+      <button class="pbtn" title="More"><svg width="18" height="18"><g fill="#141415"><circle cx="4" cy="9" r="1.6"/><circle cx="9" cy="9" r="1.6"/><circle cx="14" cy="9" r="1.6"/></g></svg></button>
+    </div>
+    <div class="setrow"><div><b>Show targets</b><span>Marks where each click, drag, scroll and key happens while a macro plays.</span></div><div class="switch" role="img" aria-label="On"></div></div>
+    <div class="edbar"><span class="b">Play</span><span class="b">Add ▾</span><span class="b"><svg width="16" height="16" fill="none" stroke="#141415"><circle cx="8" cy="8" r="5" stroke-width="1.6"/><path d="M8 1v3M8 12v3M1 8h3M12 8h3" stroke-width="1.6" stroke-linecap="round"/></svg>Show targets</span><span style="margin-left:auto;color:#5c5a55;font-size:13px">Editor toolbar: the still overlay</span></div>
+  </div>
+
+  <h2>Open questions</h2>
+  <ol class="open">
+    <li>Live marks: which variant? (Claude's pick: <b>T1 Ripple</b>.)</li>
+    <li>Still overlay: which variant? (Claude's pick: <b>O1 Route</b>.)</li>
+    <li>Colour: red, as for playing (all variants but T2), or neutral ink so red stays for danger?</li>
+    <li>Mouse moves: a faint trail in live marks, or nothing (only drags draw)?</li>
+    <li>How long a live mark stays: about 1 s here (T3's captions 2.5 s). Shorter at 4×?</li>
+    <li>Controls C1: the target icon on the player, the setting's name <i>Show targets</i>, and the editor button. Fine?</li>
+  </ol>
+</main>
+
+<script>
+const W = 720, H = 420;
+let EDGE = W;
+const short = (t, n = 26) => t.length > n ? t.slice(0, n - 1) + "…" : t;
+const RED = "#e0300f", INK = "#141415";
+
+// The scene: the eight steps, and when each plays.
+const DRAG = [[90, 245], [150, 195], [275, 200], [335, 250]];
+const STEPS = [
+  { n: 1, k: "click", b: "left", x: 75, y: 72, label: "Click · New" },
+  { n: 2, k: "click", b: "left", dbl: true, x: 205, y: 142, label: "Double-click · Name" },
+  { n: 3, k: "text", x: 205, y: 142, text: "invoice_2026", label: "Type “invoice_2026”" },
+  { n: 4, k: "keys", x: 205, y: 142, keys: ["Ctrl", "S"], label: "Ctrl + S" },
+  { n: 5, k: "drag", x: 90, y: 245, label: "Drag · report.pdf" },
+  { n: 6, k: "scroll", x: 668, y: 300, dir: 1, amt: 3, label: "Scroll down 3" },
+  { n: 7, k: "click", b: "right", x: 560, y: 150, label: "Right-click · Row 2" },
+  { n: 8, k: "click", b: "left", x: 205, y: 142, label: "Click · Name" },
+];
+const DUR = { click: 120, text: 420, keys: 220, drag: 800, scroll: 450 };
+const MOVES = [];
+(function plan() {
+  let t = 700, cur = [360, 400];
+  for (const s of STEPS) {
+    const start = [s.x, s.y];
+    if (cur[0] !== start[0] || cur[1] !== start[1]) MOVES.push({ t: t - 480, d: 480, a: cur, b: start });
+    s.t = t;
+    s.d = s.k === "click" && s.dbl ? 300 : DUR[s.k];
+    cur = s.k === "drag" ? DRAG[3] : start;
+    t += s.d + 700;
+  }
+  STEPS.loop = t + 1400;
+  STEPS.forEach((s, i) => { if (i + 1 < STEPS.length) s.until = STEPS[i + 1].t - s.t; });
+})();
+
+const bez = (p, u) => {
+  const v = 1 - u;
+  return [0, 1].map(i => v * v * v * p[0][i] + 3 * v * v * u * p[1][i] + 3 * v * u * u * p[2][i] + u * u * u * p[3][i]);
+};
+const ease = u => u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2;
+const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
+// A caption gives way to the next step's, so captions on the same spot never overlap.
+const capLife = (s, life) => Math.min(life, s.until ?? Infinity);
+const fade = (age, life, out = 300) => age < 0 || age > life ? 0 : age > life - out ? (life - age) / out : 1;
+const dragD = (u = 1) => { let d = `M${DRAG[0][0]} ${DRAG[0][1]}`; for (let i = 1; i <= 24 * u; i++) { const p = bez(DRAG, i / 24); d += ` L${p[0].toFixed(1)} ${p[1].toFixed(1)}`; } return d; };
+const textW = (s, px = 12) => s.length * px * 0.58;
+
+function cursorAt(t) {
+  for (const m of MOVES) if (t >= m.t && t < m.t + m.d) { const u = ease((t - m.t) / m.d); return [m.a[0] + (m.b[0] - m.a[0]) * u, m.a[1] + (m.b[1] - m.a[1]) * u]; }
+  let p = [360, 400];
+  for (const s of STEPS) {
+    if (t < s.t) break;
+    if (s.k === "drag") p = t < s.t + s.d ? bez(DRAG, ease((t - s.t) / s.d)) : DRAG[3]; else p = [s.x, s.y];
+  }
+  for (const m of MOVES) if (t >= m.t + m.d && m.t + m.d > 0) { /* moves end on the next step's point */ }
+  return p;
+}
+const cursor = ([x, y]) => `<path d="M${x} ${y} l0 16 l4.2 -3.6 l3 6.4 l2.6 -1.2 l-3 -6.2 l5.6 -0.4 z" fill="#fff" stroke="#000" stroke-width="1.1" stroke-linejoin="round"/>`;
+
+// A caption: keycaps or quoted text in a dark pill near the point, flipped left at the edge.
+function pill(x, y, s, op, opt = {}) {
+  const parts = s.k === "keys" ? s.keys : null;
+  const txt = s.k === "text" ? `“${short(s.text.slice(0, Math.max(0, opt.chars ?? s.text.length)), 22)}”` : "";
+  const w = parts ? parts.reduce((a, k) => a + textW(k) + 16, 0) + (parts.length - 1) * 4 + 12 : textW(txt) + 20;
+  let px = x + 18, py = y + 16;
+  if (px + w > EDGE - 8) px = x - 18 - w;
+  let g = `<g opacity="${op}"><rect x="${px}" y="${py}" width="${w}" height="26" rx="8" fill="rgba(20,20,21,.88)" stroke="rgba(255,255,255,.55)"/>`;
+  if (parts) {
+    let kx = px + 6;
+    parts.forEach((k, i) => { const kw = textW(k) + 16; g += `<rect x="${kx}" y="${py + 4}" width="${kw}" height="18" rx="4" fill="#2e2e31" stroke="#5a5a5e"/><text x="${kx + kw / 2}" y="${py + 17}" fill="#fff" font-size="12" font-weight="600" text-anchor="middle">${k}</text>`; kx += kw + 4; });
+  } else g += `<text x="${px + 10}" y="${py + 17.5}" fill="#fff" font-size="12">${txt}</text>`;
+  return g + "</g>";
+}
+const halo = (el, w) => el.replace("STROKE", `stroke="#fff" stroke-width="${w + 2.5}" stroke-opacity=".9"`) + el.replace("STROKE", `stroke="${RED}" stroke-width="${w}"`);
+const arrowHead = (p, q, col, op) => { const a = Math.atan2(q[1] - p[1], q[0] - p[0]), L = 11; const l = [q[0] - L * Math.cos(a - 0.45), q[1] - L * Math.sin(a - 0.45)], r = [q[0] - L * Math.cos(a + 0.45), q[1] - L * Math.sin(a + 0.45)]; return `<path d="M${l} L${q} L${r}" fill="none" stroke="#fff" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" opacity="${op}"/><path d="M${l} L${q} L${r}" fill="none" stroke="${col}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity="${op}"/>`; };
+
+// ---- Live variants: each draws one step at an age (ms since it began).
+const LIVE = [
+  {
+    id: "T1", name: "Ripple", pick: true,
+    note: "A red ring ripples out from a dot on the exact pixel. Double clicks ripple twice; right clicks ripple as a rounded square. Keys and text show as a pill by the cursor. Small and quick, so it holds up at 4×.",
+    move: (m, age) => { const op = 0.4 * fade(age, m.d + 600, 600); if (!op) return ""; const u = ease(clamp(age / m.d)); return `<line x1="${m.a[0]}" y1="${m.a[1]}" x2="${m.a[0] + (m.b[0] - m.a[0]) * u}" y2="${m.a[1] + (m.b[1] - m.a[1]) * u}" stroke="${RED}" stroke-width="1.6" stroke-dasharray="2 4" stroke-linecap="round" opacity="${op}"/>`; },
+    click(s, age) {
+      const op = fade(age, 1000, 350); if (!op) return "";
+      let g = `<g opacity="${op}">`;
+      for (const d of s.dbl ? [0, 170] : [0]) {
+        const a = age - d; if (a < 0) continue;
+        const r = 6 + 20 * ease(clamp(a / 650)), o = 1 - clamp(a / 750);
+        g += s.b === "right"
+          ? `<g opacity="${o}">${halo(`<rect x="${s.x - r}" y="${s.y - r}" width="${2 * r}" height="${2 * r}" rx="${r * 0.35}" fill="none" STROKE/>`, 2.5)}</g>`
+          : `<g opacity="${o}">${halo(`<circle cx="${s.x}" cy="${s.y}" r="${r}" fill="none" STROKE/>`, 2.5)}</g>`;
+      }
+      return g + `<circle cx="${s.x}" cy="${s.y}" r="4.2" fill="${RED}" stroke="#fff" stroke-width="1.6"/></g>`;
+    },
+    drag(s, age) { const op = fade(age, s.d + 900, 400); if (!op) return ""; const u = clamp(age / s.d); return `<g opacity="${op}">${halo(`<path d="${dragD(ease(u))}" fill="none" stroke-linecap="round" STROKE/>`, 3)}<circle cx="${DRAG[0][0]}" cy="${DRAG[0][1]}" r="4.2" fill="${RED}" stroke="#fff" stroke-width="1.6"/>${u >= 1 ? arrowHead(bez(DRAG, 0.92), DRAG[3], RED, 1) : ""}</g>`; },
+    scroll(s, age) { const op = fade(age, 1100, 350); if (!op) return ""; const off = (age / 120) % 1 * 6 * s.dir; let g = `<g opacity="${op}"><circle cx="${s.x}" cy="${s.y}" r="4.2" fill="${RED}" stroke="#fff" stroke-width="1.6"/>`; for (let i = 0; i < 3; i++) { const y = s.y + 12 + i * 7 + off, x = s.x; g += halo(`<path d="M${x - 6} ${y} l6 ${5 * s.dir} l6 ${-5 * s.dir}" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="${1 - i * 0.25}" STROKE/>`, 2.4); } return g + "</g>"; },
+    keys: (s, age) => pill(s.x, s.y, s, fade(age, capLife(s, 1100), 250)),
+    text: (s, age) => pill(s.x, s.y, s, fade(age, capLife(s, s.d + 900), 250), { chars: Math.ceil(s.text.length * clamp(age / s.d)) }),
+  },
+  {
+    id: "T2", name: "Reticle",
+    note: "A crosshair in ink, with a white edge, on the exact pixel, plus a tag with the step number and what it does. No motion; it just appears, holds and fades. Precise and calm, and keeps red for danger.",
+    move: () => "",
+    tag(x, y, s, op, extra = "") {
+      const label = short(s.label), lab = `${s.n}  ${label}`; const w = textW(lab) + 18; let px = x + 16, py = y - 30; if (px + w > EDGE - 8) px = x - 16 - w; if (py < 6) py = y + 14;
+      return `<g opacity="${op}"><rect x="${px}" y="${py}" width="${w}" height="22" rx="6" fill="#fff" stroke="${INK}" stroke-width="1.2"/><text x="${px + 9}" y="${py + 15}" font-size="12" fill="${INK}"><tspan font-weight="700">${s.n}</tspan>  ${label}</text></g>${extra}`;
+    },
+    ret(x, y, op, dbl, right) {
+      const r = right ? `<rect x="${x - 10}" y="${y - 10}" width="20" height="20" rx="4" fill="none" STROKE/>` : `<circle cx="${x}" cy="${y}" r="10" fill="none" STROKE/>`;
+      const lines = `<path d="M${x} ${y - 17}v10M${x} ${y + 7}v10M${x - 17} ${y}h10M${x + 7} ${y}h10" fill="none" STROKE/>`;
+      const k = el => el.replace("STROKE", `stroke="#fff" stroke-width="4"`) + el.replace("STROKE", `stroke="${INK}" stroke-width="1.8"`);
+      return `<g opacity="${op}">${k(r)}${dbl ? k(`<circle cx="${x}" cy="${y}" r="14" fill="none" STROKE/>`) : ""}${k(lines)}<circle cx="${x}" cy="${y}" r="1.6" fill="${INK}"/></g>`;
+    },
+    click(s, age) { const op = fade(age, 1300, 400); return op ? this.ret(s.x, s.y, op, s.dbl, s.b === "right") + this.tag(s.x, s.y, s, op) : ""; },
+    drag(s, age) { const op = fade(age, s.d + 1100, 400); if (!op) return ""; const u = clamp(age / s.d); return `<g opacity="${op}"><path d="${dragD(ease(u))}" fill="none" stroke="#fff" stroke-width="4.5"/><path d="${dragD(ease(u))}" fill="none" stroke="${INK}" stroke-width="2" stroke-dasharray="5 4"/></g>` + this.ret(DRAG[0][0], DRAG[0][1], op) + (u >= 1 ? this.ret(DRAG[3][0], DRAG[3][1], op) : "") + this.tag(DRAG[0][0], DRAG[0][1], s, op); },
+    scroll(s, age) { const op = fade(age, 1300, 400); return op ? this.ret(s.x, s.y, op) + this.tag(s.x, s.y, { ...s, label: "Scroll ↓ 3" }, op) : ""; },
+    keys(s, age) { const op = fade(age, capLife(s, 1300), 250); return op ? this.tag(s.x, s.y + 40, s, op) : ""; },
+    text(s, age) { const op = fade(age, capLife(s, s.d + 1100), 250); return op ? this.tag(s.x, s.y + 40, s, op) : ""; },
+  },
+  {
+    id: "T3", name: "Screencast",
+    note: "Like a screen recorder: a soft red disc presses in where the mouse acts, and what happens is spelled out in a bar at the bottom of the screen, the last three actions stacked. Words never cover the app; the bar is big enough to read from across a room.",
+    move: () => "",
+    disc(x, y, age, right, life = 900) {
+      const op = fade(age, life, 350); if (!op) return "";
+      const r = 20 - 6 * ease(clamp(age / 140)) + 4 * clamp((age - 140) / 500);
+      const fill = right ? `<path d="M${x} ${y - r} A${r} ${r} 0 0 1 ${x} ${y + r} Z" fill="${RED}" opacity=".45"/>` : "";
+      return `<g opacity="${op}"><circle cx="${x}" cy="${y}" r="${r}" fill="${RED}" fill-opacity=".22" stroke="${RED}" stroke-opacity=".7" stroke-width="1.5"/>${fill}</g>`;
+    },
+    click(s, age) { return this.disc(s.x, s.y, age, s.b === "right") + (s.dbl ? this.disc(s.x, s.y, age - 170, false) : ""); },
+    drag(s, age) { const op = fade(age, s.d + 700, 400); if (!op) return ""; const u = clamp(age / s.d), p = bez(DRAG, ease(u)); return `<path d="${dragD(ease(u))}" fill="none" stroke="${RED}" stroke-opacity=".3" stroke-width="10" stroke-linecap="round" opacity="${op}"/><circle cx="${p[0]}" cy="${p[1]}" r="14" fill="${RED}" fill-opacity=".22" stroke="${RED}" stroke-opacity=".7" stroke-width="1.5" opacity="${op}"/>`; },
+    scroll(s, age) { return this.disc(s.x, s.y, age, false, 1000); },
+    keys: () => "", text: () => "",
+    hud(t) {
+      const shown = STEPS.filter(s => t >= s.t && t < s.t + 2500).slice(-3);
+      if (!shown.length) return "";
+      const rows = shown.map((s, i) => { const age = t - s.t, op = fade(age, 2500, 500) * (i === shown.length - 1 ? 1 : 0.55); return { s, op }; });
+      const w = 300, h = rows.length * 30 + 14, x = (W - w) / 2, y = H - h - 14;
+      let g = `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="12" fill="rgba(20,20,21,.86)" stroke="rgba(255,255,255,.5)"/>`;
+      rows.forEach(({ s, op }, i) => { g += `<text x="${x + 16}" y="${y + 28 + i * 30}" fill="#fff" font-size="16" font-weight="${i === rows.length - 1 ? 650 : 450}" opacity="${op}"><tspan fill="#ff6a4d" font-weight="700">${s.n}</tspan>  ${s.label}</text>`; });
+      return g;
+    },
+  },
+  {
+    id: "T4", name: "Step pins",
+    note: "Each action drops a pin: a red number on the exact pixel's stem, and the step's own words from the steps list beside it. The same pins make the still overlay, so the two read as one thing. The most telling, and the busiest.",
+    move: () => "",
+    pin(x, y, s, op, label = s.label) {
+      label = short(label);
+      const w = textW(label) + 18; let bx = x + 14, by = y - 42; const flip = bx + 24 + w > EDGE - 8; if (flip) bx = x - 14 - 24 - w; if (by < 6) by = y + 20;
+      const cx = flip ? bx + w + 12 : bx + 12, cy = by + 12;
+      return `<g opacity="${op}"><line x1="${x}" y1="${y}" x2="${cx}" y2="${cy}" stroke="#fff" stroke-width="4"/><line x1="${x}" y1="${y}" x2="${cx}" y2="${cy}" stroke="${RED}" stroke-width="2"/><circle cx="${x}" cy="${y}" r="3.2" fill="${RED}" stroke="#fff" stroke-width="1.4"/>
+        <rect x="${flip ? bx : bx + 18}" y="${by + 1}" width="${w}" height="22" rx="6" fill="rgba(20,20,21,.88)" stroke="rgba(255,255,255,.5)"/><text x="${flip ? bx + 9 : bx + 27}" y="${by + 16.5}" fill="#fff" font-size="12">${label}</text>
+        <circle cx="${cx}" cy="${cy}" r="12" fill="${RED}" stroke="#fff" stroke-width="2"/><text x="${cx}" y="${cy + 4.5}" fill="#fff" font-size="12.5" font-weight="700" text-anchor="middle">${s.n}</text></g>`;
+    },
+    click(s, age) { const op = fade(age, capLife(s, 1400), 250) * clamp(age / 120); return op ? this.pin(s.x, s.y, s, op) : ""; },
+    drag(s, age) { const op = fade(age, s.d + 1200, 400); if (!op) return ""; const u = clamp(age / s.d); return `<g opacity="${op}">${halo(`<path d="${dragD(ease(u))}" fill="none" stroke-linecap="round" STROKE/>`, 2.5)}${u >= 1 ? arrowHead(bez(DRAG, 0.92), DRAG[3], RED, 1) : ""}</g>` + this.pin(DRAG[0][0], DRAG[0][1], s, op); },
+    scroll(s, age) { const op = fade(age, 1400, 400); return op ? this.pin(s.x, s.y, s, op, "Scroll ↓ 3") : ""; },
+    keys(s, age) { const op = fade(age, capLife(s, 1400), 250); return op ? this.pin(s.x, s.y + 1, s, op) : ""; },
+    text(s, age) { const op = fade(age, capLife(s, s.d + 1200), 250); return op ? this.pin(s.x, s.y + 1, s, op) : ""; },
+  },
+];
+
+// ---- Still overlays: every step at once.
+function groups() {
+  const g = new Map();
+  for (const s of STEPS) { const k = `${s.x},${s.y}`; if (!g.has(k)) g.set(k, []); g.get(k).push(s); }
+  return [...g.values()];
+}
+const STILL = [
+  {
+    id: "O1", name: "Route", pick: true,
+    note: "A numbered dot on each target, joined in order by a faint dashed route; drags are solid red with an arrow. Keys and text hang as small tags under the spot where the cursor was. Steps on the same spot share a dot (2 · 3 · 4 · 8); right clicks have an ink number. Reads as a path through the macro.",
+    draw() {
+      let g = "";
+      let prev = [STEPS[0].x, STEPS[0].y];
+      for (const s of STEPS) { const a = [s.x, s.y]; if (a[0] !== prev[0] || a[1] !== prev[1]) g += `<line x1="${prev[0]}" y1="${prev[1]}" x2="${a[0]}" y2="${a[1]}" stroke="#fff" stroke-width="3.5" opacity=".7"/><line x1="${prev[0]}" y1="${prev[1]}" x2="${a[0]}" y2="${a[1]}" stroke="${INK}" stroke-width="1.4" stroke-dasharray="3 4" opacity=".8"/>`; prev = s.k === "drag" ? DRAG[3] : a; }
+      g += halo(`<path d="${dragD()}" fill="none" stroke-linecap="round" STROKE/>`, 3) + arrowHead(bez(DRAG, 0.92), DRAG[3], RED, 1);
+      for (const grp of groups()) {
+        const { x, y } = grp[0];
+        const mouse = grp.filter(s => s.k !== "keys" && s.k !== "text");
+        g += `<circle cx="${x}" cy="${y}" r="3.4" fill="${RED}" stroke="#fff" stroke-width="1.4"/>`;
+        let bx = x + 8, by = y - 26;
+        if (bx + mouse.length * 22 > EDGE - 8) bx = x - 8 - mouse.length * 22;
+        mouse.forEach((s, i) => { const cx = bx + 11 + i * 22, cy = by + 11; g += `<circle cx="${cx}" cy="${cy}" r="10.5" fill="${s.b === "right" ? INK : RED}" stroke="#fff" stroke-width="2"/><text x="${cx}" y="${cy + 4.2}" fill="#fff" font-size="11.5" font-weight="700" text-anchor="middle">${s.n}</text>`; });
+        const tags = grp.filter(s => s.k === "keys" || s.k === "text");
+        tags.forEach((s, i) => { const lab = `${s.n}  ${s.k === "keys" ? s.keys.join(" + ") : "“" + short(s.text, 20) + "”"}`, w = textW(lab, 11) + 14, tx = x - w / 2, ty = y + 12 + i * 22; g += `<rect x="${tx}" y="${ty}" width="${w}" height="19" rx="5" fill="rgba(20,20,21,.88)" stroke="rgba(255,255,255,.5)"/><text x="${tx + 7}" y="${ty + 13.5}" fill="#fff" font-size="11"><tspan font-weight="700">${s.n}</tspan>  ${lab.slice(String(s.n).length + 2)}</text>`; });
+        if (grp[0].k === "scroll") for (let i = 0; i < 3; i++) g += halo(`<path d="M${x - 6} ${y + 12 + i * 7} l6 5 l6 -5" fill="none" stroke-linecap="round" STROKE/>`, 2.2);
+      }
+      return g;
+    },
+  },
+  {
+    id: "O2", name: "Labels",
+    note: "T4's pins, all at once: every target carries its number and its words from the steps list. Steps on the same spot stack into one pin with a list. Nothing to decode, but on a busy macro it covers the app.",
+    draw() {
+      const pin = LIVE[3];
+      let g = halo(`<path d="${dragD()}" fill="none" stroke-linecap="round" STROKE/>`, 2.5) + arrowHead(bez(DRAG, 0.92), DRAG[3], RED, 1);
+      for (const grp of groups()) {
+        if (grp.length === 1) { const s = grp[0]; g += pin.pin(s.x, s.y, s, 1, s.k === "scroll" ? "Scroll ↓ 3" : s.label); continue; }
+        const { x, y } = grp[0]; const lines = grp.map(s => `${s.n}  ${short(s.label)}`); const w = Math.max(...lines.map(l => textW(l))) + 20, h = lines.length * 18 + 10;
+        const bx = x + 16, by = y - h - 8;
+        g += `<line x1="${x}" y1="${y}" x2="${bx + 4}" y2="${by + h - 4}" stroke="#fff" stroke-width="4"/><line x1="${x}" y1="${y}" x2="${bx + 4}" y2="${by + h - 4}" stroke="${RED}" stroke-width="2"/><circle cx="${x}" cy="${y}" r="3.2" fill="${RED}" stroke="#fff" stroke-width="1.4"/><rect x="${bx}" y="${by}" width="${w}" height="${h}" rx="7" fill="rgba(20,20,21,.9)" stroke="rgba(255,255,255,.5)"/>`;
+        lines.forEach((l, i) => { const s = grp[i]; g += `<text x="${bx + 10}" y="${by + 19 + i * 18}" fill="#fff" font-size="12"><tspan fill="#ff6a4d" font-weight="700">${s.n}</tspan>  ${s.label}</text>`; });
+      }
+      return g;
+    },
+  },
+];
+
+// ---- The scene behind the marks.
+const SCENE = `
+<defs><linearGradient id="wall" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7d8a96"/><stop offset=".55" stop-color="#55606c"/><stop offset="1" stop-color="#9c8f7f"/></linearGradient></defs>
+<rect width="${W}" height="${H}" fill="url(#wall)"/>
+<g font-family="Segoe UI, system-ui, sans-serif">
+<rect x="20" y="20" width="400" height="300" rx="8" fill="#f7f7f5" stroke="#bbb"/><rect x="20" y="20" width="400" height="32" rx="8" fill="#ececea"/><rect x="20" y="44" width="400" height="8" fill="#ececea"/>
+<text x="34" y="41" font-size="12" fill="#333">Invoices: Ledger</text>
+<rect x="52" y="60" width="46" height="24" rx="4" fill="#e0300f"/><text x="75" y="76" font-size="12" fill="#fff" text-anchor="middle">New</text>
+<rect x="106" y="60" width="46" height="24" rx="4" fill="#fff" stroke="#bbb"/><text x="129" y="76" font-size="12" fill="#333" text-anchor="middle">Save</text>
+<text x="52" y="146" font-size="12" fill="#333">Name</text><rect x="110" y="128" width="250" height="28" rx="4" fill="#fff" stroke="#999"/>
+<rect x="76" y="222" width="28" height="36" rx="3" fill="#fff" stroke="#888"/><path d="M96 222v8h8" fill="none" stroke="#888"/><text x="90" y="274" font-size="11" fill="#333" text-anchor="middle">report.pdf</text>
+<path d="M314 236h14l4 4h22v26h-40z" fill="#e8c46a" stroke="#b8963d"/><text x="335" y="282" font-size="11" fill="#333" text-anchor="middle">Archive</text>
+<rect x="440" y="60" width="260" height="330" rx="8" fill="#1f2023" stroke="#000"/><text x="454" y="82" font-size="12" fill="#ddd">Files</text>
+${[0, 1, 2, 3, 4, 5, 6, 7].map(i => `<rect x="448" y="${108 + i * 30}" width="244" height="26" rx="4" fill="${i === 1 ? "#2f3136" : "#25262a"}"/><text x="460" y="${125 + i * 30}" font-size="12" fill="#bbb">Row ${i + 1}</text>`).join("")}
+</g>`;
+const svg = (inner, vb = `0 0 ${W} ${H}`) => `<svg class="stage" viewBox="${vb}" xmlns="http://www.w3.org/2000/svg" font-family="Archivo, system-ui, sans-serif">${inner}</svg>`;
+
+// ---- Live cards.
+const liveHost = document.getElementById("live");
+for (const v of LIVE) {
+  const card = document.createElement("section");
+  card.className = "card" + (v.pick ? " is-pick" : "");
+  card.innerHTML = `<header><h3>${v.id} ${v.name}</h3>${v.pick ? '<span class="tag pick">Claude\'s pick</span>' : '<span class="tag prop">proposal</span>'}</header><p>${v.note}</p>
+    ${svg(SCENE + '<g class="marks"></g>')}
+    <div class="row"><button data-speed="1" aria-pressed="true">1×</button><button data-speed="4" aria-pressed="false">4×</button><button data-pause aria-pressed="false">Pause</button><input type="range" min="0" max="${STEPS.loop}" value="0" aria-label="Scrub" style="flex:1"><span class="clock"></span></div>
+    <div class="states"></div>`;
+  liveHost.append(card);
+  const marks = card.querySelector(".marks"), clock = card.querySelector(".clock");
+  let speed = 1, paused = false, t = 0, last = performance.now();
+  card.querySelectorAll("[data-speed]").forEach(b => b.onclick = () => { speed = +b.dataset.speed; card.querySelectorAll("[data-speed]").forEach(o => o.setAttribute("aria-pressed", o === b)); });
+  const pauseBtn = card.querySelector("[data-pause]"), scrub = card.querySelector("input");
+  const setPaused = p => { paused = p; pauseBtn.setAttribute("aria-pressed", p); pauseBtn.textContent = p ? "Resume" : "Pause"; };
+  pauseBtn.onclick = () => setPaused(!paused);
+  scrub.oninput = () => { setPaused(true); t = +scrub.value; };
+  const frame = now => {
+    if (!paused) { t = (t + (now - last) * speed) % STEPS.loop; scrub.value = t; }
+    last = now;
+    let g = MOVES.map(m => v.move(m, t - m.t)).join("");
+    for (const s of STEPS) g += v[s.k](s, t - s.t);
+    if (v.hud) g += v.hud(t);
+    g += cursor(cursorAt(t));
+    marks.innerHTML = g;
+    const cur = STEPS.filter(s => t >= s.t).pop();
+    clock.textContent = cur ? `step ${cur.n}: ${cur.label}` : "starting";
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+
+  // States: one click on each kind of background, a right click, and a long text.
+  const tiles = [
+    ["light", "#f7f7f5", { k: "click", b: "left", x: 30, y: 66, n: 1, label: "Click · New" }, 200],
+    ["dark", "#1f2023", { k: "click", b: "left", dbl: true, x: 30, y: 66, n: 2, label: "Double-click · Name" }, 260],
+    ["on red", RED, { k: "click", b: "left", x: 30, y: 66, n: 1, label: "Click · New" }, 200],
+    ["right click", "url(#busy)", { k: "click", b: "right", x: 30, y: 66, n: 7, label: "Right-click · Row 2" }, 200],
+    ["long text", "#f7f7f5", { k: "text", x: 14, y: 14, n: 3, d: 400, text: "Quarterly report for Northwind, March", label: "Type “Quarterly report for Northwind, March”" }, 900],
+  ];
+  card.querySelector(".states").innerHTML = tiles.map(([cap, bg, s, age]) => {
+    EDGE = 260;
+    let m = v[s.k] ? v[s.k](s, age) : "";
+    EDGE = W;
+    if (v.hud) m += `<rect x="40" y="88" width="196" height="26" rx="8" fill="rgba(20,20,21,.86)" stroke="rgba(255,255,255,.5)"/><text x="50" y="106" fill="#fff" font-size="13" font-weight="650"><tspan fill="#ff6a4d">${s.n}</tspan>  ${short(s.label, 24)}</text>`;
+    return `<figure><svg viewBox="0 0 260 120"xmlns="http://www.w3.org/2000/svg" font-family="Archivo, system-ui, sans-serif"><defs><linearGradient id="busy"><stop offset="0" stop-color="#3a6ea5"/><stop offset=".5" stop-color="#e9d8a6"/><stop offset="1" stop-color="#2d5a27"/></linearGradient></defs><rect width="260" height="120" fill="${bg}"/>${m}</svg><figcaption>${cap}</figcaption></figure>`;
+  }).join("");
+}
+
+// ---- Still cards.
+const stillHost = document.getElementById("still");
+for (const v of STILL) {
+  const card = document.createElement("section");
+  card.className = "card" + (v.pick ? " is-pick" : "");
+  card.innerHTML = `<header><h3>${v.id} ${v.name}</h3>${v.pick ? '<span class="tag pick">Claude\'s pick</span>' : '<span class="tag prop">proposal</span>'}</header><p>${v.note}</p>${svg(SCENE + `<rect width="${W}" height="${H}" fill="rgba(20,20,21,.12)"/>` + v.draw() + `<g><rect x="${W / 2 - 150}" y="${H - 40}" width="300" height="28" rx="9" fill="rgba(20,20,21,.88)" stroke="rgba(255,255,255,.5)"/><text x="${W / 2}" y="${H - 21.5}" fill="#fff" font-size="12.5" text-anchor="middle">Invoice export · 8 steps · <tspan font-weight="700">Esc</tspan> or click to go back</text></g>`)}`;
+  stillHost.append(card);
+}
+</script>
+</body>
+</html>
