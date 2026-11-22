@@ -37,6 +37,7 @@ More detail: [Settings: keys](../spec/settings.md#keys)
 | **Keep the player on top** | Keeps the [player](glossary.md#player) in front: **Always** (default), **While working** or **Never**. **While working** means while Relay records or plays. |
 | **Hide the window while recording** | Shows only the player while you record. On by default. |
 | **Hide the window while playing** | Shows only the player while a macro plays. Off by default. |
+| **Show targets** | Marks each click, drag, scroll and key on the screen as a macro plays. Off by default. Read [See where a macro clicks](play.md#see-where-a-macro-clicks). |
 | **Close to the tray** | Keeps Relay running in the [tray](glossary.md#tray) when you close the window. Triggers still work. On by default. |
 | **Start with Windows** | Starts Relay in the tray when you sign in. Off by default. |
 

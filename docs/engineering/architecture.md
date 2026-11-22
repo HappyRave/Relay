@@ -62,6 +62,7 @@ flowchart LR
 | `relay-recorder` | While recording | Raw input → events; progress 10 times a second; the hook watchdog |
 | `relay-engine` | While playing | Injects events on time, waits on pixel checks and images, ticks 30 times a second. High priority. |
 | `relay-stop-keys` | While playing | Forwards Esc and stop keys from the hook to the coordinator |
+| `relay-targets` | From the first live mark | Draws and fades *Show targets*' live marks (see [Show targets](platform.md#show-targets)) |
 | `relay-schedule`, `relay-interval`, `relay-app-launch`, `relay-pixel-trigger`, `relay-image-trigger` | Always | Poll their triggers and send `Cmd::RunMacro` when one fires |
 | Tauri main thread | Always | Both windows, the tray, global hotkeys, the quick commands (those that write macros, settings or exports run off it) |
 

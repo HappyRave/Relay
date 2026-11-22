@@ -77,6 +77,7 @@ Rules are numbered WIN-n. Cite them in tests and PRs.
   | **WIN-26d** | **■** | Stop (<kbd>Esc</kbd>) |
   | **WIN-26e** | The screen | The state, the macro's name, the time, and a bar of lights for the progress, with a red light for each click |
   | **WIN-26f** | The macro's name | A menu to switch to another macro, each with its hotkey if it has one. Off while something runs. |
+  | **WIN-26h** | The **target** | Turns [Show targets](targets.md) on or off, even while a macro plays. Filled in while it's on. |
   | **WIN-26g** | **Open the window** (the last button) | Opens the window on the player's macro |
 
 - **WIN-27** The player's screen shows one of these states:

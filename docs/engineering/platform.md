@@ -8,6 +8,7 @@
 - [The precision timer](#the-precision-timer)
 - [Screen and captures](#screen-and-captures)
 - [The picker](#the-picker)
+- [Show targets](#show-targets)
 - [Keys and characters](#keys-and-characters)
 - [The recorder](#the-recorder)
 - [Other backends](#other-backends)
@@ -87,6 +88,15 @@ Creating it raises the thread to `THREAD_PRIORITY_HIGHEST` and opts the process 
 `Screen::pick` blocks until the user picks a pixel or cancels. [`picker.rs`](../../crates/relay-platform/src/picker.rs) has the testable part: the keys (`pick_key`) and where the loupe and help bar go (`loupe_rect`, `help_rect`). [`windows/picker.rs`](../../crates/relay-platform/src/windows/picker.rs) draws three layered windows: the catcher, the loupe and the help bar.
 
 The picker **never takes the focus**: every window is `WS_EX_NOACTIVATE` and answers `MA_NOACTIVATE`, and its keys come through its own keyboard hook, which swallows only the picker's keys. A menu open in the app underneath stays open. Freezing copies the screen without `CAPTUREBLT`, which leaves layered windows out, so the picker never shows up in its own loupe.
+
+## Show targets
+
+The marks ([spec](../spec/targets.md)) come from `relay_core::marks`, which turns steps into marks with the *Window* offset applied. [`overlay.rs`](../../crates/relay-platform/src/overlay.rs) has the testable part: sizes, timings, ripples, a path drawn part way, and where captions and number badges go. [`windows/overlay.rs`](../../crates/relay-platform/src/windows/overlay.rs) draws them with Direct2D into a bitmap and shows it with `UpdateLayeredWindow` (per-pixel alpha, so marks are smooth and fade).
+
+- `Screen::live_mark` returns at once: one `relay-targets` thread owns every live mark, each a small window sized to what it draws, and animates them on a 15 ms thread timer until each has faded. The engine calls it as a step's first event plays (`Engine::set_marker`), so drawing never delays input.
+- `Screen::show_targets` blocks like the picker: one window over the virtual desktop, a keyboard hook for <kbd>Esc</kbd>, and a faint wash so a click anywhere lands on it (a layered window's fully transparent pixels let clicks through).
+- Every mark window is `WS_EX_TRANSPARENT` (live ones), `WS_EX_NOACTIVATE`, and `WDA_EXCLUDEFROMCAPTURE`, set before it shows: pixel checks, Find image and the triggers read the screen without them. A Windows test checks a mark shows and isn't in `Screen::pixel`.
+- Screenshots can't show marks, so `cargo test -p relay-platform draws_the_marks -- --ignored` renders them to `target/targets-look.png` for a look.
 
 ## Keys and characters
 

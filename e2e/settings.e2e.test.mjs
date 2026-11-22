@@ -61,6 +61,20 @@ describe("settings and windows", () => {
     await until(() => settings().hide_while_playing === false, { what: "off" });
   });
 
+  test("Window: Show targets is saved, off by default, and the player's target turns it back off (SET-52, WIN-26h)", async () => {
+    await section("Window");
+    await page.click("Show targets", { role: "switch" });
+    await until(() => settings().show_targets === true, { what: "on" });
+    await page.invoke("set_player_mode", { on: true });
+    try {
+      await until(async () => (await app.player?.run(() => document.querySelector('[aria-label="Show targets"]')?.getAttribute("aria-pressed"))) === "true", { what: "pressed in the player" });
+      await app.player.click("Show targets");
+      await until(() => settings().show_targets === false, { what: "off from the player" });
+    } finally {
+      await page.invoke("set_player_mode", { on: false });
+    }
+  });
+
   test("Appearance: theme, spacing, mouse path and reduce motion are saved, and the page follows", async () => {
     await section("Appearance");
     const attr = (name) => page.run((name) => document.documentElement.getAttribute(name), name);
