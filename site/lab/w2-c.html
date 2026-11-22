@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>W2·C Jobs</title>
+<link rel="stylesheet" href="w2.css">
+<style>
+  .jobs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .job { background: var(--bg-2); border-radius: 18px; padding: 22px; box-shadow: 0 0 0 1px var(--line); display: flex; flex-direction: column; }
+  .job.wide { grid-column: span 2; display: grid; grid-template-columns: 1fr 1.1fr; gap: 22px; align-items: center; }
+  .job .q { font-size: 12px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; font-stretch: 88%; color: var(--text-2); margin-bottom: 8px; }
+  .job h3 { font-size: 22px; line-height: 1.12; font-weight: 800; margin: 0 0 14px; }
+  .steps { background: var(--bg); border-radius: 12px; padding: 6px; box-shadow: inset 0 0 0 1px var(--line); margin-bottom: 14px; }
+  .row { display: flex; align-items: center; gap: 9px; height: 31px; padding: 0 8px; border-radius: 7px; font-size: 13.5px; white-space: nowrap; overflow: hidden; }
+  .row b { font-weight: 700; } .row span:last-child { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; }
+  .row.p { background: var(--wash-pointer); } .row.k { background: var(--wash-keys); } .row.l { background: var(--wash-logic); }
+  .row + .row { margin-top: 3px; }
+  .trig { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 650; margin-bottom: 10px; }
+  .trig span { background: var(--ink); color: var(--paper); border-radius: 999px; padding: 3px 10px; }
+  .uses { margin-top: auto; display: flex; flex-wrap: wrap; gap: 6px; }
+  .uses a { font-size: 12.5px; font-weight: 650; text-decoration: none; color: var(--text); padding: 4px 9px; border-radius: 6px; box-shadow: var(--shadow-key); background: var(--bg-2); }
+  .every { margin-top: 56px; display: grid; grid-template-columns: 220px 1fr; gap: 30px; }
+  .every h3 { font-size: 22px; font-weight: 800; margin: 0; }
+  .every dl { margin: 0; display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 36px; }
+  .every div { display: grid; grid-template-columns: 110px 1fr; gap: 12px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 14.5px; }
+  .every dt { font-weight: 750; } .every dd { margin: 0; color: var(--text-2); }
+  @media (max-width: 900px) {
+    .jobs { grid-template-columns: 1fr; }
+    .job.wide { grid-column: auto; grid-template-columns: 1fr; }
+    .every { grid-template-columns: 1fr; }
+    .every dl { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="ctx">↑ The hero and “Every click becomes a step you can read” stay as they are</div>
+
+<section id="features">
+  <div class="wrap">
+    <h2>What will you hand it?</h2>
+    <p class="sub">Seven chores people give Relay, and the steps that do them.</p>
+
+    <div class="jobs">
+      <div class="job">
+        <div class="q">Data entry</div>
+        <h3>Fill in 200 forms from a spreadsheet</h3>
+        <div class="steps">
+          <div class="row p"><span class="glyph p"></span><b>Click</b><span>· Customer</span></div>
+          <div class="row k"><span class="glyph k"></span><b>Type</b><span>· “{col:Name}”</span></div>
+          <div class="row k"><span class="glyph k"></span><b>Type</b><span>· “{col:Amount}”</span></div>
+          <div class="row p"><span class="glyph p"></span><b>Click</b><span>· Save</span></div>
+        </div>
+        <div class="uses"><a href="#">Data files</a><a href="#">Text steps</a></div>
+      </div>
+
+      <div class="job">
+        <div class="q">Slow apps</div>
+        <h3>Click OK the moment the dialog appears</h3>
+        <div class="steps">
+          <div class="row p"><span class="glyph p"></span><b>Click</b><span>· Export</span></div>
+          <div class="row l"><span class="glyph l"></span><b>Find</b><span>· OK button · ≤ 30 s</span></div>
+          <div class="row k"><span class="glyph k"></span><b>Keys</b><span>· Ctrl + W</span></div>
+        </div>
+        <div class="uses"><a href="#">Find image</a><a href="#">Wait for pixel</a></div>
+      </div>
+
+      <div class="job">
+        <div class="q">Every morning</div>
+        <h3>Open your tools before you sit down</h3>
+        <div class="trig"><span>Mon–Fri at 08:55</span></div>
+        <div class="steps">
+          <div class="row p"><span class="glyph p"></span><b>Double click</b><span>· Outlook</span></div>
+          <div class="row l"><span class="glyph l"></span><b>Wait for</b><span>· Inbox loaded</span></div>
+          <div class="row p"><span class="glyph p"></span><b>Click</b><span>· Teams</span></div>
+        </div>
+        <div class="uses"><a href="#">Schedule</a><a href="#">Activity</a></div>
+      </div>
+
+      <div class="job wide">
+        <div>
+          <div class="q">Before you trust it</div>
+          <h3>See exactly where it will click</h3>
+          <p style="color:var(--text-2); margin:0 0 14px">Show targets marks every click, drag and keystroke on the real screen, numbered in order. While it plays, a red ring ripples where each click lands. <b style="color:var(--red)">New</b></p>
+          <div class="uses"><a href="#">Show targets</a><a href="#">Window-relative clicks</a></div>
+        </div>
+        <div class="desk" style="width:100%; aspect-ratio: 520/300"><svg viewBox="0 0 520 300" role="img" aria-label="Show targets: a form's clicks numbered and joined in order"><use href="#targets"/></svg></div>
+      </div>
+
+      <div class="job">
+        <div class="q">Something changed</div>
+        <h3>Act when a status turns red</h3>
+        <div class="trig"><span>When pixel 1248, 680 turns red</span></div>
+        <div class="steps">
+          <div class="row p"><span class="glyph p"></span><b>Click</b><span>· Restart</span></div>
+          <div class="row k"><span class="glyph k"></span><b>Type</b><span>· “Restarted {time}”</span></div>
+        </div>
+        <div class="uses"><a href="#">Pixel trigger</a><a href="#">Every…</a></div>
+      </div>
+
+      <div class="job">
+        <div class="q">For a colleague</div>
+        <h3>Send it as a program, not a how-to</h3>
+        <div class="shot" style="margin-bottom:14px"><img src="../../docs/images/exported.png" alt="An exported program, playing"></div>
+        <p style="color:var(--text-2); margin:0 0 14px; font-size:15px">One <code>.exe</code>: it plays the macro on any PC, without Relay. Or an AutoHotkey v2 script.</p>
+        <div class="uses"><a href="#">Export</a></div>
+      </div>
+
+      <div class="job">
+        <div class="q">Repetitive clicks</div>
+        <h3>Do it 50 times, a little human each time</h3>
+        <div class="trig"><span>×50 · 2× · ±40 ms</span></div>
+        <div class="steps">
+          <div class="row p"><span class="glyph p"></span><b>Click</b><span>· Next</span></div>
+          <div class="row k"><span class="glyph k"></span><b>Type</b><span>· “Batch #{n}”</span></div>
+          <div class="row k"><span class="glyph k"></span><b>Keys</b><span>· Enter</span></div>
+        </div>
+        <div class="uses"><a href="#">Repeat and speed</a><a href="#">Vary timing</a></div>
+      </div>
+
+      <div class="job">
+        <div class="q">One key</div>
+        <h3>Sign off an email in any app</h3>
+        <div class="trig"><span>Ctrl + Shift + S</span></div>
+        <div class="steps">
+          <div class="row k"><span class="glyph k"></span><b>Text</b><span>· “Best regards, Sam”</span></div>
+          <div class="row k"><span class="glyph k"></span><b>Text</b><span>· “Sent {date}”</span></div>
+        </div>
+        <div class="uses"><a href="#">Hotkey</a><a href="#">Text steps</a></div>
+      </div>
+    </div>
+
+    <div class="every">
+      <h3>And everything else</h3>
+      <dl>
+        <div><dt>Record</dt><dd>Clicks, drags, scrolls, keys; every monitor, any scaling</dd></div>
+        <div><dt>Edit</dt><dd>Several steps at once, trim pauses, smooth paths, undo</dd></div>
+        <div><dt>Wait</dt><dd>For a pixel's color, or an image at 0.5× to 2× its size</dd></div>
+        <div><dt>Text</dt><dd><code>{date}</code> <code>{time}</code> <code>{clipboard}</code> <code>{n}</code> <code>{col:…}</code>, any layout</dd></div>
+        <div><dt>Triggers</dt><dd>Hotkey, schedule, every 5 s–24 h, app starts, pixel, image</dd></div>
+        <div><dt>Playback</dt><dd>0.5×–4×, loops, ±ms timing, about 1 ms accurate</dd></div>
+        <div><dt>Safety</dt><dd><kbd>Esc</kbd>, any key or a kill switch; nothing left pressed</dd></div>
+        <div><dt>Files</dt><dd><code>.rly</code>, JSON, <code>.exe</code>, AutoHotkey v2; trash and restore</dd></div>
+        <div><dt>Activity</dt><dd>The last 200 runs, problems counted</dd></div>
+        <div><dt>Privacy</dt><dd>Never connects to the internet</dd></div>
+      </dl>
+    </div>
+  </div>
+</section>
+
+<div class="ctx">↓ The download band and the footer stay as they are</div>
+<svg width="0" height="0" style="position:absolute"><defs><g id="targets">
+  <rect class="w" x="30" y="34" width="240" height="196" rx="8"/>
+  <rect class="m" x="42" y="46" width="40" height="20" rx="4"/><text x="51" y="56">File</text>
+  <rect class="m" x="88" y="46" width="40" height="20" rx="4"/><text x="97" y="56">Edit</text>
+  <rect class="m" x="134" y="46" width="44" height="20" rx="4"/><text x="142" y="56">View</text>
+  <text class="lb" x="42" y="86">Invoice number</text><rect class="i" x="42" y="94" width="214" height="24" rx="5"/><text class="mono" x="50" y="106">invoice_2026</text>
+  <text class="lb" x="42" y="136">Customer</text><rect class="i" x="42" y="144" width="214" height="24" rx="5"/><text class="mono" x="50" y="156">Northwind Ltd.</text>
+  <rect x="42" y="184" width="58" height="26" rx="5" fill="#2b2b2b"/><text x="56" y="197" style="fill:#fff">Save</text>
+  <path d="M62 56 L150 106 L71 197" fill="none" stroke="#e0300f" stroke-width="2" stroke-dasharray="1 6" stroke-linecap="round"/>
+  <circle cx="62" cy="56" r="4.5" fill="#e0300f"/><circle cx="150" cy="106" r="4.5" fill="#e0300f"/><circle cx="71" cy="197" r="4.5" fill="#e0300f"/>
+  <circle class="mk-ring" cx="71" cy="197" r="26"/>
+  <circle cx="50" cy="44" r="8.5" fill="#e0300f"/><text class="mk-badge" x="50" y="44">1</text>
+  <circle cx="138" cy="94" r="8.5" fill="#e0300f"/><text class="mk-badge" x="138" y="94">2</text>
+  <circle cx="59" cy="185" r="8.5" fill="#e0300f"/><text class="mk-badge" x="59" y="185">4</text>
+  <rect x="160" y="116" width="124" height="20" rx="10" fill="#141415"/><text class="cap" x="222" y="126">3 · “invoice_2026”</text>
+  <rect x="130" y="266" width="260" height="20" rx="10" fill="rgba(20,20,21,.8)"/><text class="cap" x="260" y="276">Invoice · 4 steps · Esc or click to go back</text>
+</g></defs></svg>
+</body>
+</html>

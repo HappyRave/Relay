@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>W2·D Spec sheet</title>
+<link rel="stylesheet" href="w2.css">
+<style>
+  .plate { background: linear-gradient(180deg, #f7f6f2, #e6e5df); border-radius: 22px; box-shadow: var(--shadow-window); padding: 34px 38px 26px; position: relative; }
+  .plate::before, .plate::after { content: ""; position: absolute; top: 14px; width: 9px; height: 9px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fff, #a8a6a0); box-shadow: 0 0 0 1px var(--line-strong); }
+  .plate::before { left: 14px; } .plate::after { right: 14px; }
+  .head { display: flex; align-items: baseline; gap: 16px; border-bottom: 2px solid var(--ink); padding-bottom: 12px; margin-bottom: 6px; }
+  .head b { font-size: 22px; font-weight: 850; font-stretch: 115%; letter-spacing: .02em; }
+  .head span { color: var(--text-2); font-size: 14px; }
+  .head .lcd { margin-left: auto; background: var(--lcd); color: #9ff0b8; font: 700 13px ui-monospace, monospace; padding: 5px 10px; border-radius: 6px; letter-spacing: .05em; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 44px; }
+  .grp { padding: 16px 0 6px; break-inside: avoid; }
+  .grp h3 { margin: 0 0 6px; font-size: 12px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; font-stretch: 88%; display: flex; gap: 8px; align-items: center; }
+  .grp table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+  .grp td { padding: 6px 0; border-top: 1px solid var(--line); vertical-align: top; }
+  .grp td:first-child { color: var(--text-2); width: 42%; padding-right: 14px; }
+  .grp td:last-child { font-weight: 650; }
+  .num { font-variant-numeric: tabular-nums; }
+  .new { color: var(--red); font-size: 11px; font-weight: 800; letter-spacing: .06em; margin-left: 6px; }
+  .foot { display: flex; gap: 20px; flex-wrap: wrap; border-top: 2px solid var(--ink); margin-top: 18px; padding-top: 12px; font-size: 13px; color: var(--text-2); }
+  .foot b { color: var(--text); }
+  .strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 26px; }
+  .strip .shot img { width: 100%; }
+  .strip figcaption { font-size: 13px; color: var(--text-2); margin-top: 6px; }
+  .strip figure { margin: 0; }
+  @media (max-width: 900px) {
+    .plate { padding: 24px 18px; }
+    .cols { grid-template-columns: 1fr; }
+    .head { flex-wrap: wrap; } .head .lcd { margin-left: 0; }
+    .strip { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="ctx">↑ The hero and “Every click becomes a step you can read” stay as they are</div>
+
+<section id="features">
+  <div class="wrap">
+    <h2>The full spec.</h2>
+    <p class="sub">Everything Relay 2.0 does, on one plate.</p>
+
+    <div class="plate">
+      <div class="head"><b>RELAY</b><span>Macro recorder for Windows 10 and 11</span><span class="lcd">v2.0.0</span></div>
+      <div class="cols">
+        <div>
+          <div class="grp"><h3><span class="glyph r"></span>Record</h3><table>
+            <tr><td>Captures</td><td>Clicks, double clicks, drags, scrolls, keys, typed text</td></tr>
+            <tr><td>Screens</td><td>Every monitor, any display scaling</td></tr>
+            <tr><td>Positions</td><td>Screen, or relative to the window</td></tr>
+            <tr><td>Start, stop</td><td><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>F9</kbd>, <kbd>Esc</kbd></td></tr>
+          </table></div>
+          <div class="grp"><h3><span class="glyph p"></span>Edit</h3><table>
+            <tr><td>Steps</td><td>Click, Drag, Scroll, Keys, Type, Wait, Wait for pixel, Find image, Text</td></tr>
+            <tr><td>At once</td><td>Select several, change or delete them in one go</td></tr>
+            <tr><td>Mouse paths</td><td>Smooth, straighten, fold into their click</td></tr>
+            <tr><td>History</td><td>Undo and redo every edit; a trash to restore</td></tr>
+          </table></div>
+          <div class="grp"><h3><span class="glyph l"></span>Wait for the screen</h3><table>
+            <tr><td>Pixel</td><td>A color, picked with a loupe, with a time limit</td></tr>
+            <tr><td>Image</td><td class="num">Found anywhere, at 0.5× to 2× its size, then clicked</td></tr>
+          </table></div>
+          <div class="grp"><h3><span class="glyph k"></span>Text</h3><table>
+            <tr><td>Placeholders</td><td><code>{date}</code> <code>{time}</code> <code>{clipboard}</code> <code>{n}</code> <code>{col:Name}</code></td></tr>
+            <tr><td>Data files</td><td>CSV: plays once per row</td></tr>
+            <tr><td>Layouts</td><td>Types the same on any keyboard layout</td></tr>
+          </table></div>
+        </div>
+        <div>
+          <div class="grp"><h3><span class="glyph p"></span>Triggers</h3><table>
+            <tr><td>Hotkey</td><td>From any app</td></tr>
+            <tr><td>Schedule</td><td>Days of the week and a time</td></tr>
+            <tr><td>Every…</td><td class="num">5 seconds to 24 hours</td></tr>
+            <tr><td>Watches</td><td>An app starting, a pixel changing, an image appearing</td></tr>
+          </table></div>
+          <div class="grp"><h3><span class="glyph p"></span>Playback</h3><table>
+            <tr><td>Speed</td><td class="num">0.5×, 1×, 2×, 4×</td></tr>
+            <tr><td>Repeat</td><td>Once, N times, forever, or once per data row</td></tr>
+            <tr><td>Timing</td><td class="num">About 1 ms accurate; varied by ± ms on request</td></tr>
+            <tr><td>Show targets<span class="new">NEW</span></td><td>Marks where each click lands; every target at once</td></tr>
+          </table></div>
+          <div class="grp"><h3><span class="glyph r"></span>Safety</h3><table>
+            <tr><td>Stop</td><td><kbd>Esc</kbd>, any key, or the kill switch</td></tr>
+            <tr><td>Keys</td><td>Nothing is ever left pressed</td></tr>
+            <tr><td>Activity</td><td class="num">The last 200 runs, problems counted</td></tr>
+          </table></div>
+          <div class="grp"><h3><span class="glyph k"></span>Files</h3><table>
+            <tr><td>Macros</td><td><code>.rly</code> (JSON), import and export</td></tr>
+            <tr><td>Export as</td><td>Standalone <code>.exe</code>, AutoHotkey v2 script</td></tr>
+          </table></div>
+        </div>
+      </div>
+      <div class="foot"><span><b>Network</b> none, ever</span><span><b>Look</b> light, dark, text to 200%</span><span><b>Install</b> per user, no admin; or portable</span><span><b>License</b> MIT</span></div>
+    </div>
+
+    <div class="strip">
+      <figure><div class="shot"><img src="../../docs/images/find-image-step.png" alt=""></div><figcaption>Find image</figcaption></figure>
+      <figure><div class="shot"><img src="../../docs/images/text-step.png" alt=""></div><figcaption>Text with placeholders</figcaption></figure>
+      <figure><div class="shot"><img src="../../docs/images/triggers-cards.png" alt=""></div><figcaption>Triggers</figcaption></figure>
+      <figure><div class="shot"><img src="../../docs/images/play-options.png" alt=""></div><figcaption>Play options</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<div class="ctx">↓ The download band and the footer stay as they are</div>
+</body>
+</html>

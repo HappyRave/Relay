@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>W2·A Tour</title>
+<link rel="stylesheet" href="w2.css">
+<style>
+  .ch { display: grid; grid-template-columns: 1fr 1.15fr; gap: 56px; align-items: center; padding: 44px 0; border-top: 1px solid var(--line); }
+  .ch:first-of-type { border-top: 0; }
+  .ch:nth-of-type(even) .pic { order: -1; }
+  .ch .n { font-size: 12px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; font-stretch: 88%; color: var(--text-2); display: flex; gap: 8px; align-items: center; }
+  .ch h3 { font-size: 30px; line-height: 1.08; font-weight: 800; font-stretch: 106%; margin: 10px 0 10px; }
+  .ch p { color: var(--text-2); font-size: 17px; margin: 0 0 14px; max-width: 46ch; }
+  .ch ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 7px; font-size: 15px; }
+  .ch li { padding-left: 18px; position: relative; }
+  .ch li::before { content: ""; position: absolute; left: 2px; top: 0.55em; width: 6px; height: 6px; border-radius: 2px; background: var(--ink); }
+  .ch a.more { display: inline-block; margin-top: 14px; font-weight: 650; font-size: 14px; color: var(--text); }
+  .pic { display: grid; gap: 14px; justify-items: center; }
+  .pic.two { grid-template-columns: 1fr 1fr; align-items: start; }
+  .pic .shot { width: 100%; }
+  .pic .narrow { max-width: 380px; }
+  .safe { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 30px; }
+  .safe div { background: var(--bg-2); border-radius: 14px; padding: 18px 20px; box-shadow: 0 0 0 1px var(--line); font-size: 15px; color: var(--text-2); }
+  .safe b { display: block; color: var(--text); font-size: 16px; margin-bottom: 4px; }
+  @media (max-width: 900px) {
+    .ch { grid-template-columns: 1fr; gap: 24px; }
+    .ch:nth-of-type(even) .pic { order: 0; }
+    .safe { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="ctx">↑ The hero and “Every click becomes a step you can read” stay as they are</div>
+
+<section id="features">
+  <div class="wrap">
+    <h2>Everything Relay does, in nine stops.</h2>
+    <p class="sub">From the first recording to a macro that runs by itself every morning.</p>
+
+    <div class="ch">
+      <div>
+        <div class="n"><span class="glyph r"></span>1 · Record</div>
+        <h3>Press a key and work as usual.</h3>
+        <p>Every click, drag, scroll and keystroke is kept with its timing. The player stays out of the way while you work.</p>
+        <ul>
+          <li>Across all your monitors, at any display scaling</li>
+          <li>Clicks can follow their window when it moves</li>
+          <li><kbd>Esc</kbd> stops; Relay's own windows are never recorded</li>
+        </ul>
+      </div>
+      <div class="pic"><div class="shot"><img src="../../docs/images/countdown.png" alt="The player, about to record"></div><div class="shot narrow"><img src="../../docs/images/saved.png" alt="Saved"></div></div>
+    </div>
+
+    <div class="ch">
+      <div>
+        <div class="n"><span class="glyph p"></span>2 · Edit</div>
+        <h3>Steps you can read, and change.</h3>
+        <p>A recording becomes <b>Click · Save</b>, <b>Keys · Ctrl + S</b>, <b>Type · “invoice_0924”</b>. Mouse moves fold into the click they lead to.</p>
+        <ul>
+          <li>Select several steps and change them at once</li>
+          <li>Trim the pauses, smooth or straighten a mouse path</li>
+          <li>Find a step by its text; undo anything</li>
+        </ul>
+      </div>
+      <div class="pic"><div class="shot"><img src="../../docs/images/editor-steps.png" alt="The steps list"></div></div>
+    </div>
+
+    <div class="ch">
+      <div>
+        <div class="n"><span class="glyph l"></span>3 · Wait</div>
+        <h3>Wait for the screen, not the clock.</h3>
+        <p>A slow app no longer breaks the macro. It waits until a pixel turns the right color, or until a button appears.</p>
+        <ul>
+          <li><b>Wait for pixel</b>: pick it with a loupe, set how long to wait</li>
+          <li><b>Find image</b>: snip a button, Relay finds it anywhere, from half to twice its size, and clicks it</li>
+          <li>A timeout says which step and why</li>
+        </ul>
+      </div>
+      <div class="pic"><div class="shot narrow"><img src="../../docs/images/find-image-step.png" alt="A Find image step"></div></div>
+    </div>
+
+    <div class="ch">
+      <div>
+        <div class="n"><span class="glyph k"></span>4 · Type</div>
+        <h3>Text that changes every run.</h3>
+        <p>Type <code>Invoice {date} #{n}</code> and Relay fills it in as it plays. Give it a spreadsheet, and it plays once per row.</p>
+        <ul>
+          <li><code>{date}</code> <code>{time}</code> <code>{clipboard}</code> <code>{n}</code>, and <code>{col:Name}</code> from a CSV file</li>
+          <li>Types the same on any keyboard layout</li>
+        </ul>
+      </div>
+      <div class="pic two"><div class="shot"><img src="../../docs/images/text-step.png" alt="A Text step"></div><div class="shot"><img src="../../docs/images/data-file.png" alt="A data file"></div></div>
+    </div>
+
+    <div class="ch">
+      <div>
+        <div class="n"><span class="glyph p"></span>5 · Run on cue</div>
+        <h3>Six ways to start without you.</h3>
+        <p>A macro can run when you press its key, or when something happens on your PC.</p>
+        <ul>
+          <li><b>Hotkey</b>, from any app</li>
+          <li><b>Schedule</b>: Mon–Fri at 09:00; <b>Every…</b> 5 seconds to 24 hours</li>
+          <li><b>App starts</b>, a <b>pixel changes</b>, an <b>image appears</b></li>
+        </ul>
+      </div>
+      <div class="pic"><div class="shot narrow"><img src="../../docs/images/triggers-cards.png" alt="Hotkey and schedule triggers"></div></div>
+    </div>
+
+    <div class="ch">
+      <div>
+        <div class="n"><span class="glyph p"></span>6 · Play</div>
+        <h3>Play it your way.</h3>
+        <p>Accurate to about a millisecond, or a little human on purpose.</p>
+        <ul>
+          <li>0.5× to 4×, once, N times or forever</li>
+          <li>Vary timing by a few milliseconds so it doesn't look robotic</li>
+          <li>Pause, resume and stop from the player</li>
+        </ul>
+      </div>
+      <div class="pic"><div class="shot narrow"><img src="../../docs/images/play-options.png" alt="Play options"></div></div>
+    </div>
+
+    <div class="ch">
+      <div>
+        <div class="n"><span class="glyph r"></span>7 · Show targets <span style="color:var(--red)">New</span></div>
+        <h3>See where it clicks before it does.</h3>
+        <p>A red ring ripples where each click lands, drags draw their path, keys show by the cursor. Or see every target at once, numbered in order.</p>
+        <ul>
+          <li>Marks let clicks through and never show in screenshots</li>
+          <li>On the player, one key</li>
+        </ul>
+      </div>
+      <div class="pic">
+        <div class="desk" style="width:100%; aspect-ratio: 520/300"><svg viewBox="0 0 520 300" role="img" aria-label="Show targets: a form's three clicks numbered and joined in order, the typed text in a caption"><use href="#targets"/></svg></div>
+      </div>
+    </div>
+
+    <div class="ch">
+      <div>
+        <div class="n"><span class="glyph l"></span>8 · Activity</div>
+        <h3>Know what ran while you were away.</h3>
+        <p>Every run is kept, triggered or not: when, how long, and what stopped it. Problems are counted, and a timeout opens at its step.</p>
+      </div>
+      <div class="pic"><div class="shot"><img src="../../docs/images/activity.png" alt="Activity"></div></div>
+    </div>
+
+    <div class="ch">
+      <div>
+        <div class="n"><span class="glyph k"></span>9 · Share</div>
+        <h3>Take it anywhere.</h3>
+        <p>Macros are small <code>.rly</code> files: back them up, send them, keep them in Git.</p>
+        <ul>
+          <li><b>Standalone program</b>: an <code>.exe</code> that plays it on any PC, without Relay</li>
+          <li><b>AutoHotkey v2</b> script, one block per step</li>
+          <li>JSON, for your own tools</li>
+        </ul>
+      </div>
+      <div class="pic"><div class="shot narrow"><img src="../../docs/images/exported.png" alt="An exported program, playing"></div></div>
+    </div>
+
+    <div class="safe">
+      <div><b>Stops when you say</b><kbd>Esc</kbd>, any key, or the kill switch. Nothing is ever left pressed.</div>
+      <div><b>Private</b>Relay never connects to the internet. Your macros stay on your PC.</div>
+      <div><b>Yours to set</b>Light or dark, text up to 200%, your own keys, sounds if you want them.</div>
+    </div>
+  </div>
+</section>
+
+<div class="ctx">↓ The download band and the footer stay as they are</div>
+<svg width="0" height="0" style="position:absolute"><defs><g id="targets">
+  <rect class="w" x="30" y="34" width="240" height="196" rx="8"/>
+  <rect class="m" x="42" y="46" width="40" height="20" rx="4"/><text x="51" y="56">File</text>
+  <rect class="m" x="88" y="46" width="40" height="20" rx="4"/><text x="97" y="56">Edit</text>
+  <rect class="m" x="134" y="46" width="44" height="20" rx="4"/><text x="142" y="56">View</text>
+  <text class="lb" x="42" y="86">Invoice number</text><rect class="i" x="42" y="94" width="214" height="24" rx="5"/><text class="mono" x="50" y="106">invoice_2026</text>
+  <text class="lb" x="42" y="136">Customer</text><rect class="i" x="42" y="144" width="214" height="24" rx="5"/><text class="mono" x="50" y="156">Northwind Ltd.</text>
+  <rect x="42" y="184" width="58" height="26" rx="5" fill="#2b2b2b"/><text x="56" y="197" style="fill:#fff">Save</text>
+  <path d="M62 56 L150 106 L71 197" fill="none" stroke="#e0300f" stroke-width="2" stroke-dasharray="1 6" stroke-linecap="round"/>
+  <circle cx="62" cy="56" r="4.5" fill="#e0300f"/><circle cx="150" cy="106" r="4.5" fill="#e0300f"/><circle cx="71" cy="197" r="4.5" fill="#e0300f"/>
+  <circle class="mk-ring" cx="71" cy="197" r="26"/>
+  <circle cx="50" cy="44" r="8.5" fill="#e0300f"/><text class="mk-badge" x="50" y="44">1</text>
+  <circle cx="138" cy="94" r="8.5" fill="#e0300f"/><text class="mk-badge" x="138" y="94">2</text>
+  <circle cx="59" cy="185" r="8.5" fill="#e0300f"/><text class="mk-badge" x="59" y="185">4</text>
+  <rect x="160" y="116" width="124" height="20" rx="10" fill="#141415"/><text class="cap" x="222" y="126">3 · “invoice_2026”</text>
+  <rect x="130" y="266" width="260" height="20" rx="10" fill="rgba(20,20,21,.8)"/><text class="cap" x="260" y="276">Invoice · 4 steps · Esc or click to go back</text>
+</g></defs></svg>
+</body>
+</html>
