@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>W1·A Live desk · Relay</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  body { background: var(--plate-2); }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 28px; }
+  nav { display: flex; align-items: center; gap: 22px; height: 68px; font-weight: 600; font-size: 15px; }
+  nav .brand { display: flex; align-items: center; gap: 10px; font-size: 19px; font-weight: 800; font-stretch: 110%; text-decoration: none; margin-right: auto; }
+  nav a:not(.brand):not(.dl) { text-decoration: none; color: var(--text-2); }
+  nav .dl { height: 38px; font-size: 14px; padding: 0 16px; }
+
+  .hero { display: grid; grid-template-columns: 0.9fr 1.1fr; gap: 48px; align-items: center; padding: 48px 0 80px; }
+  h1 { font-size: 64px; line-height: 0.98; margin: 0 0 22px; font-weight: 820; font-stretch: 112%; letter-spacing: -0.02em; }
+  h1 em { font-style: normal; color: var(--red); }
+  .lede { font-size: 20px; color: var(--text-2); margin: 0 0 30px; max-width: 30ch; }
+  .ctas { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  .meta { margin-top: 16px; font-size: 13px; color: var(--text-2); }
+
+  /* The stage: a desk with an app being recorded, the player, and the steps appearing. */
+  .stage { position: relative; height: 470px; border-radius: 20px; overflow: hidden;
+    background: radial-gradient(120% 90% at 20% 0%, #3a5bd9 0%, #1d2c6b 45%, #121733 100%); box-shadow: var(--shadow-window); }
+  .app { position: absolute; left: 28px; top: 96px; width: 280px; height: 300px; background: #fbfbf9; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,.35); padding: 14px; font-size: 13px; color: var(--ink); }
+  .app .bar { display: flex; gap: 6px; margin-bottom: 14px; }
+  .app .bar b { padding: 4px 10px; border-radius: 5px; background: #eceae4; font-weight: 600; }
+  .app .bar b.hit { background: var(--blue-soft); }
+  .app label { display: block; font-size: 11px; color: #777; margin: 10px 0 4px; }
+  .app .input { height: 30px; border: 1px solid #d8d6cf; border-radius: 6px; padding: 6px 8px; font-family: ui-monospace, monospace; }
+  .app .save { margin-top: 18px; display: inline-block; padding: 7px 16px; border-radius: 6px; background: #2b2b2b; color: #fff; font-weight: 600; }
+  .app .save.hit { background: var(--blue); }
+
+  .player { position: absolute; left: 50%; transform: translateX(-50%); top: 18px; width: 420px; height: 46px; border-radius: 12px; display: flex; align-items: center; gap: 6px; padding: 5px; background: rgba(244,243,239,.82); backdrop-filter: blur(18px); box-shadow: 0 8px 30px rgba(0,0,0,.3); }
+  .player .k { width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; background: var(--paper); box-shadow: var(--shadow-key); }
+  .player .k.rec { background: var(--red); }
+  .player .k.rec::after { content: ""; width: 12px; height: 12px; border-radius: 50%; background: #fff; }
+  .player .k.stop::after { content: ""; width: 10px; height: 10px; background: var(--ink); }
+  .lcd { flex: 1; height: 36px; border-radius: 8px; background: var(--lcd); color: var(--paper); display: flex; align-items: center; gap: 8px; padding: 0 10px; font-size: 12px; font-weight: 700; }
+  .lcd .tag { background: var(--red); padding: 2px 6px; border-radius: 3px; font-size: 11px; letter-spacing: .06em; }
+  .lcd .t { margin-left: auto; font-variant-numeric: tabular-nums; color: #cfcdc6; }
+
+  .steps { position: absolute; right: 22px; top: 150px; width: 262px; border-radius: 12px; background: rgba(244,243,239,.92); box-shadow: 0 10px 40px rgba(0,0,0,.3); padding: 10px; }
+  .steps .caps { padding: 4px 6px 8px; display: flex; justify-content: space-between; }
+  .row { display: flex; align-items: center; gap: 9px; height: 34px; padding: 0 6px; border-radius: 7px; font-size: 13.5px; color: var(--ink);
+    opacity: 0; transform: translateY(8px); transition: opacity 300ms var(--ease), transform 400ms var(--spring); }
+  .row.on { opacity: 1; transform: none; }
+  .row.p.on { background: var(--wash-pointer); }
+  .row.k.on { background: var(--wash-keys); }
+  .row.l.on { background: var(--wash-logic); }
+  .row b { font-weight: 700; }
+  .row span { color: var(--alu-700); }
+
+  .cursor { position: absolute; width: 22px; height: 22px; left: 0; top: 0; transition: transform 700ms var(--ease); pointer-events: none; z-index: 5; }
+  .cursor svg { filter: drop-shadow(0 2px 3px rgba(0,0,0,.4)); }
+  .ripple { position: absolute; width: 34px; height: 34px; border: 2px solid var(--blue-line); border-radius: 50%; margin: -17px; opacity: 0; pointer-events: none; z-index: 4; }
+  .ripple.go { animation: rip 500ms var(--ease); }
+  @keyframes rip { from { opacity: 1; transform: scale(.3); } to { opacity: 0; transform: scale(1.4); } }
+
+  section { padding: 80px 0; }
+  h2 { font-size: 40px; line-height: 1.05; font-weight: 800; font-stretch: 108%; letter-spacing: -0.015em; margin: 0 0 14px; }
+  .sub { color: var(--text-2); font-size: 18px; max-width: 56ch; margin: 0 0 40px; }
+  .shot { border-radius: 14px; overflow: hidden; box-shadow: var(--shadow-window); background: var(--plate); }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .card { background: var(--plate); border-radius: var(--r-xl); padding: 22px; box-shadow: 0 0 0 1px var(--line); }
+  .card h3 { margin: 12px 0 6px; font-size: 18px; font-weight: 750; }
+  .card p { margin: 0; color: var(--text-2); font-size: 15px; }
+  .band { background: var(--ink); color: var(--paper); border-radius: 24px; padding: 56px; display: grid; grid-template-columns: 1fr auto; gap: 30px; align-items: center; }
+  .band h2 { color: var(--paper); }
+  .band p { color: #b3b1ab; margin: 0; font-size: 17px; }
+  footer { padding: 40px 0 60px; display: flex; gap: 26px; font-size: 14px; color: var(--text-2); flex-wrap: wrap; }
+  footer a { text-decoration: none; }
+  footer .sp { margin-left: auto; }
+
+  @media (max-width: 860px) {
+    .hero { grid-template-columns: 1fr; padding-top: 20px; }
+    h1 { font-size: 44px; }
+    .stage { height: 420px; }
+    .app { left: 14px; top: 76px; width: 230px; }
+    .steps { right: 12px; top: 200px; width: 210px; }
+    .player { width: calc(100% - 24px); }
+    .grid { grid-template-columns: 1fr; }
+    .band { grid-template-columns: 1fr; padding: 32px; }
+    nav a.hide { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav>
+    <a class="brand" href="#"><span class="logo"><i></i></span>Relay</a>
+    <a class="hide" href="#">Features</a>
+    <a class="hide" href="#">Guide</a>
+    <a class="hide" href="#">GitHub</a>
+    <a class="dl" href="#">Download</a>
+  </nav>
+
+  <div class="hero">
+    <div>
+      <h1>Do it once.<br>Relay does it <em>again.</em></h1>
+      <p class="lede">Record what you do on your PC. Edit it as readable steps. Play it back on a key, a schedule, or when something appears on screen.</p>
+      <div class="ctas">
+        <a class="dl" href="#">Download for Windows <small>v1.5 · 2 MB</small></a>
+        <a class="ghost" href="#">Read the guide</a>
+      </div>
+      <p class="meta">Free and open source · Windows 10 and 11 · Nothing leaves your PC</p>
+    </div>
+
+    <div class="stage" id="stage" aria-label="Relay recording a task: three clicks, typing and a wait become steps">
+      <div class="player"><div class="k rec"></div><div class="k stop"></div><div class="lcd"><span class="tag">REC</span>Recording 1<span class="t" id="t">00:00</span></div></div>
+      <div class="app">
+        <div class="bar"><b id="m-file">File</b><b>Edit</b><b>View</b></div>
+        <label>Invoice number</label>
+        <div class="input" id="inp"></div>
+        <label>Customer</label>
+        <div class="input">Northwind Ltd.</div>
+        <div class="save" id="save">Save</div>
+      </div>
+      <div class="steps">
+        <div class="caps"><span>Steps</span><span id="n">0</span></div>
+        <div class="row p" data-i="0"><span class="glyph p"></span><b>Click</b><span>· File</span></div>
+        <div class="row p" data-i="1"><span class="glyph p"></span><b>Click</b><span>· Invoice number</span></div>
+        <div class="row k" data-i="2"><span class="glyph k"></span><b>Type</b><span>· “invoice_2026”</span></div>
+        <div class="row k" data-i="3"><span class="glyph k"></span><b>Keys</b><span>· Ctrl + S</span></div>
+        <div class="row l" data-i="4"><span class="glyph l"></span><b>Wait for</b><span>· Save turns blue</span></div>
+        <div class="row p" data-i="5"><span class="glyph p"></span><b>Click</b><span>· Save</span></div>
+      </div>
+      <div class="cursor" id="cur"><svg viewBox="0 0 24 24" width="22" height="22"><path d="M3 2l7 19 2.5-8L21 10z" fill="#fff" stroke="#141415" stroke-width="1.5" stroke-linejoin="round"/></svg></div>
+      <div class="ripple" id="rip"></div>
+    </div>
+  </div>
+</div>
+
+<section style="background: var(--plate)">
+  <div class="wrap">
+    <h2>Every click becomes a step you can read.</h2>
+    <p class="sub">No code. Relay turns a recording into steps like <b>Click · Save</b> and <b>Ctrl + S</b>. Rename them, add waits, trim the pauses, undo anything.</p>
+    <div class="shot"><img src="../../docs/images/editor.png" alt="The Relay editor"></div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Plays back right. Even when the screen is slow.</h2>
+    <p class="sub">Wait for a pixel or an image instead of guessing. Run it on cue, and stop it any time.</p>
+    <div class="grid">
+      <div class="card"><span class="glyph l"></span><h3>Wait for the screen</h3><p>Continue when a pixel turns green or a button appears, at any size.</p></div>
+      <div class="card"><span class="glyph p"></span><h3>Run on cue</h3><p>A hotkey, a weekly schedule, every 10 minutes, when an app starts.</p></div>
+      <div class="card"><span class="glyph k"></span><h3>Text that changes</h3><p>Type today's date, what you copied, or a row from a spreadsheet.</p></div>
+      <div class="card"><span class="glyph p"></span><h3>Share it as an .exe</h3><p>Export a macro as a small program that plays on any PC, without Relay.</p></div>
+      <div class="card"><span class="glyph k"></span><h3>Stop everything</h3><p>Esc or one key stops it. Nothing is ever left pressed.</p></div>
+      <div class="card"><span class="glyph l"></span><h3>Private</h3><p>Relay never connects to the internet. Your macros stay on your PC.</p></div>
+    </div>
+  </div>
+</section>
+
+<div class="wrap">
+  <div class="band">
+    <div><h2>Your first macro takes a minute.</h2><p>Download, press <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>F9</kbd>, do the task, press <kbd>Esc</kbd>.</p></div>
+    <a class="dl" href="#">Download for Windows</a>
+  </div>
+  <footer><a href="#">User guide</a><a href="#">FAQ</a><a href="#">Changelog</a><a href="#">GitHub</a><span class="sp">MIT license · Made with Rust and Tauri</span></footer>
+</div>
+
+<script>
+  const stage = document.getElementById("stage"), cur = document.getElementById("cur"), rip = document.getElementById("rip");
+  const rows = [...document.querySelectorAll(".row")], n = document.getElementById("n"), t = document.getElementById("t");
+  const inp = document.getElementById("inp"), file = document.getElementById("m-file"), save = document.getElementById("save");
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const at = el => { const s = stage.getBoundingClientRect(), r = el.getBoundingClientRect(); return [r.left - s.left + r.width / 2, r.top - s.top + r.height / 2]; };
+  const move = async el => { const [x, y] = at(el); cur.style.transform = `translate(${x - 3}px, ${y - 2}px)`; await sleep(750); return [x, y]; };
+  const click = async (el, i) => { const [x, y] = await move(el); rip.style.left = x + "px"; rip.style.top = y + "px"; rip.classList.remove("go"); void rip.offsetWidth; rip.classList.add("go"); el.classList.add("hit"); show(i); await sleep(350); };
+  const show = i => { rows[i].classList.add("on"); n.textContent = i + 1; };
+  let s0 = Date.now();
+  setInterval(() => { const s = Math.floor((Date.now() - s0) / 1000); t.textContent = "00:" + String(s % 60).padStart(2, "0"); }, 250);
+  async function loop() {
+    for (;;) {
+      s0 = Date.now(); rows.forEach(r => r.classList.remove("on")); [file, save].forEach(e => e.classList.remove("hit")); inp.textContent = ""; n.textContent = 0;
+      cur.style.transform = "translate(420px, 400px)"; await sleep(900);
+      await click(file, 0); file.classList.remove("hit");
+      await click(inp, 1);
+      for (const ch of "invoice_2026") { inp.textContent += ch; await sleep(70); }
+      show(2); await sleep(500); show(3); await sleep(700);
+      show(4); await sleep(900); save.classList.add("hit");
+      await click(save, 5); await sleep(2600);
+    }
+  }
+  loop();
+</script>
+</body>
+</html>

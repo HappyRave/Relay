@@ -8,6 +8,7 @@ const SOURCES: Record<RunSource, string> = {
   manual: "Play",
   hotkey: "Hotkey",
   schedule: "Schedule",
+  interval: "Interval",
   app_launch: "App launch",
   pixel: "Pixel trigger",
   image: "Image trigger",
@@ -15,11 +16,28 @@ const SOURCES: Record<RunSource, string> = {
 
 export const sourceLabel = (s: RunSource) => SOURCES[s];
 
+const STARTED_BY: Record<Exclude<RunSource, "manual">, string> = {
+  hotkey: "its hotkey",
+  schedule: "its schedule",
+  interval: "its interval",
+  app_launch: "its app trigger",
+  pixel: "its pixel trigger",
+  image: "its image trigger",
+};
+
+/** What the window says while a trigger's run plays: "Running “X”, started by its schedule". */
+export const runningText = (name: string, s: Exclude<RunSource, "manual">) => `Running “${name}”, started by ${STARTED_BY[s]}`;
+
 /** "Completed", "Stopped by a key", "Skipped: Relay was busy"… */
 export function outcomeLabel(e: RunEntry): string {
   const o = e.outcome;
   if (o.type === "skipped") {
-    return { busy: "Skipped: Relay was busy", locked: "Skipped: screen locked", missed: "Skipped: PC was asleep" }[o.reason];
+    return {
+      busy: "Skipped: Relay was busy",
+      locked: "Skipped: screen locked",
+      missed: "Skipped: PC was asleep",
+      data_file: "Skipped: data file",
+    }[o.reason];
   }
   switch (o.reason) {
     case "completed":
@@ -57,8 +75,11 @@ export function fmtRunTime(iso: string, now = new Date()): string {
   return `${short}, ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-/** "Step 4 · Pixel check matched after 1.2 s", with its loop when the run had several. */
-export function checkLabel(c: CheckResult, loops: number): string {
+/**
+ * "Step 4 · Pixel check matched after 1.2 s", with its loop when the run had
+ * several, or its row when it played from a data file (`rows`).
+ */
+export function checkLabel(c: CheckResult, loops: number, rows?: number): string {
   const after = fmtDuration(c.after_ms);
   const o = c.outcome;
   let what: string;
@@ -77,12 +98,13 @@ export function checkLabel(c: CheckResult, loops: number): string {
       interrupted: `Stopped during the pixel check (${after})`,
     }[o.type];
   }
-  return `${loops > 1 ? `Loop ${c.loop_idx + 1} · ` : ""}Step ${c.step} · ${what}`;
+  const where = rows ? `Row ${c.loop_idx + 1} of ${rows} · ` : loops > 1 ? `Loop ${c.loop_idx + 1} · ` : "";
+  return `${where}Step ${c.step} · ${what}`;
 }
 
-/** The run's settings worth mentioning: "From 00:03.20 · 2× speed · Humanized". */
+/** The run's settings worth mentioning: "From 00:03.20 · 2× speed · Humanized"; for a skip, why, if it says. */
 export function runSettings(e: RunEntry): string {
-  if (e.outcome.type === "skipped") return "";
+  if (e.outcome.type === "skipped") return e.note ?? "";
   const parts: string[] = [];
   if (e.from_ms > 0) parts.push(`From ${fmtTime(e.from_ms)}`);
   if (e.speed !== 1) parts.push(`${e.speed}× speed`);

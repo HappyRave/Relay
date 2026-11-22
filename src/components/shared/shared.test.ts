@@ -1,8 +1,7 @@
-// Controls shared by the compact player and the expanded widget.
+// Pieces shared by the window and the player: the messages, and the grip.
 import { beforeEach, describe, expect, test } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/svelte";
+import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
-import RecPlayButtons from "./RecPlayButtons.svelte";
 import Toast from "./Toast.svelte";
 import Grip from "./Grip.svelte";
 import { core, freshStore, settle } from "../../test/app";
@@ -15,61 +14,29 @@ beforeEach(async () => {
   relay = await freshStore();
 });
 
-describe("Record and Play", () => {
-  test("Record sends toggle_record; Play sends toggle_play", async () => {
-    render(RecPlayButtons, { variant: "strip" });
-    await userEvent.click(screen.getByRole("button", { name: "Record" }));
-    await userEvent.click(screen.getByRole("button", { name: "Play" }));
-    expect(core.calls).toEqual([
-      { cmd: "toggle_record", args: {} },
-      { cmd: "toggle_play", args: { from: 0 } },
-    ]);
-  });
-
-  test("while recording, Record becomes Stop recording", async () => {
-    render(RecPlayButtons, { variant: "bar" });
-    core.emit({ type: "session", mode: "recording", macro_id: null });
-    await settle();
-    const stop = screen.getByRole("button", { name: "Stop recording" });
-    expect(stop).toHaveAttribute("title", "Stop recording (F9)");
-    await userEvent.click(stop);
-    expect(core.commands()).toEqual(["toggle_record"]);
-  });
-
-  test("while playing, Play becomes Pause", async () => {
-    render(RecPlayButtons, { variant: "bar" });
-    core.emit({ type: "session", mode: "playing", macro_id: core.ids[0] });
-    await settle();
-    await userEvent.click(screen.getByRole("button", { name: "Pause" }));
-    expect(core.commands()).toEqual(["toggle_play"]);
-    core.emit({ type: "session", mode: "paused", macro_id: core.ids[0] });
-    await settle();
-    expect(screen.getByRole("button", { name: "Play" })).toBeInTheDocument();
-  });
-
-  test("Record is off while playing, Play while recording", async () => {
-    render(RecPlayButtons, { variant: "strip" });
-    core.emit({ type: "session", mode: "paused", macro_id: core.ids[0] });
-    await settle();
-    expect(screen.getByRole("button", { name: "Record" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Play" })).toBeEnabled();
-    core.emit({ type: "session", mode: "countdown", macro_id: null });
-    await settle();
-    expect(screen.getByRole("button", { name: "Stop recording" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Play" })).toBeDisabled();
-  });
-
-  test("the hotkeys are in the tooltips", () => {
-    render(RecPlayButtons, { variant: "strip" });
-    expect(screen.getByRole("button", { name: "Record" })).toHaveAttribute("title", "Record (F9)");
-    expect(screen.getByRole("button", { name: "Play" })).toHaveAttribute("title", "Play / pause (F10)");
-  });
-});
-
 describe("Toast", () => {
   test("nothing when there is no message", () => {
     const { container } = render(Toast);
     expect(container.querySelector(".toast")).toBeNull();
+  });
+
+  test("a run a trigger started says so first, with Stop; one from Play doesn't", async () => {
+    render(Toast);
+    const D = "00000000-0000-0000-0000-000000000002";
+    core.emit({ type: "session", mode: "playing", macro_id: D, source: "schedule" });
+    core.emit({ type: "notice", message: "Triggers are paused" });
+    await settle();
+    const [run, notice] = screen.getAllByRole("status");
+    expect(run).toHaveTextContent("Running “Fill weekly timesheet”, started by its schedule");
+    expect(notice).toHaveTextContent("Triggers are paused");
+    await userEvent.click(within(run).getByRole("button", { name: "Stop" }));
+    expect(core.commands()).toEqual(["stop_session"]);
+    core.emit({ type: "session", mode: "idle", macro_id: D, source: null });
+    await settle();
+    expect(screen.queryByText(/Running/)).toBeNull();
+    core.emit({ type: "session", mode: "playing", macro_id: D, source: "manual" });
+    await settle();
+    expect(screen.queryByText(/Running/)).toBeNull();
   });
 
   test("errors are alerts", async () => {
@@ -86,6 +53,23 @@ describe("Toast", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Imported 2 macros");
     await userEvent.click(screen.getByRole("button", { name: "Dismiss" }));
     expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  test("several stack, newest at the bottom, the newest three shown, each dismissed on its own", async () => {
+    const { container } = render(Toast);
+    const shown = () => [...container.querySelectorAll(".toast .message")].map((m) => m.textContent);
+    for (const message of ["Couldn't read library.json", "Couldn't register the Play hotkey", "Couldn't read settings.json"]) {
+      core.emit({ type: "error", message });
+    }
+    relay.notify("Imported 2 macros");
+    await settle();
+    expect(shown()).toEqual(["Couldn't register the Play hotkey", "Couldn't read settings.json", "Imported 2 macros"]);
+    await userEvent.click(screen.getAllByRole("button", { name: "Dismiss" })[1]);
+    expect(shown()).toEqual(["Couldn't read library.json", "Couldn't register the Play hotkey", "Imported 2 macros"]);
+    core.emit({ type: "error", message: "Couldn't read library.json" });
+    await settle();
+    expect(shown()).toEqual(["Couldn't register the Play hotkey", "Imported 2 macros", "Couldn't read library.json"]);
+    expect(relay.toasts).toHaveLength(3); // the same message again moves, it doesn't show twice
   });
 
   test("the action button runs the action (Undo)", async () => {

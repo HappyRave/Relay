@@ -1,5 +1,5 @@
 //! Looking for an image on the real screen: a 1:1 capture of the area,
-//! searched by `relay_core::image`. What shows of Relay's own window is
+//! searched by `relay_core::image`. What shows of Relay's own windows is
 //! painted over in the capture first, so the pictures it shows (a step's, the
 //! trigger's) are never found, and nor is anything behind it, which a click
 //! would miss anyway. Windows in front of it (a dialog over the widget) stay.
@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 
 use relay_core::image::{self, FindOpts, Gray, Match};
 use relay_core::model::Rect;
-use relay_platform::{Screen, Snapshot, WindowQuery};
+use relay_platform::{OwnWindows, Screen, Snapshot, WindowQuery};
 
 /// The part of `a` inside `b`, if any.
 fn intersect(a: Rect, b: Rect) -> Option<Rect> {
@@ -17,18 +17,32 @@ fn intersect(a: Rect, b: Rect) -> Option<Rect> {
     (r > x && bottom > y).then_some(Rect { x, y, w: r - x, h: bottom - y })
 }
 
-/// What of Relay's window shows: its frame, minus the windows in front of it.
+/// What of Relay's windows shows: each one's frame, minus the windows in front of it.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Hidden {
-    pub rect: Option<Rect>,
+    pub windows: Vec<Shown>,
+}
+
+/// A window's frame, minus the windows in front of it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Shown {
+    pub rect: Rect,
     pub except: Vec<Rect>,
 }
 
 impl Hidden {
-    /// Relay's window `hwnd`, as it is on screen now.
-    pub fn of(windows: &dyn WindowQuery, hwnd: isize) -> Hidden {
-        let rect = windows.shown_rect(hwnd);
-        Hidden { rect, except: if rect.is_some() { windows.covering(hwnd) } else { Vec::new() } }
+    /// Relay's windows, as they are on screen now.
+    pub fn of(windows: &dyn WindowQuery, own: OwnWindows) -> Hidden {
+        let shown = |&hwnd: &isize| {
+            let rect = (hwnd != 0).then(|| windows.shown_rect(hwnd)).flatten()?;
+            Some(Shown { rect, except: windows.covering(hwnd) })
+        };
+        Hidden { windows: own.iter().filter_map(shown).collect() }
+    }
+
+    /// One window's frame, nothing in front of it.
+    pub fn one(rect: Rect) -> Hidden {
+        Hidden { windows: vec![Shown { rect, except: Vec::new() }] }
     }
 }
 
@@ -37,12 +51,13 @@ impl Hidden {
 fn grab(screen: &dyn Screen, area: Option<Rect>, hide: &Hidden) -> Option<(Rect, Snapshot)> {
     let desktop = screen.virtual_desktop();
     let area = intersect(area.unwrap_or(desktop), desktop)?;
-    let mut snap = screen.capture(area, area.w as u32, 0)?;
-    if let Some(h) = hide.rect.and_then(|h| intersect(h, area)) {
+    let mut snap = screen.capture(area, area.w as u32, [0, 0])?;
+    for shown in &hide.windows {
+        let Some(h) = intersect(shown.rect, area) else { continue };
         for y in h.y..h.y + h.h {
             let row = (y - area.y) as usize * snap.w as usize;
             for x in h.x..h.x + h.w {
-                if !hide.except.iter().any(|e| e.contains(x, y)) {
+                if !shown.except.iter().any(|e| e.contains(x, y)) {
                     let i = (row + (x - area.x) as usize) * 3;
                     snap.rgb[i..i + 3].fill(128);
                 }
@@ -197,8 +212,8 @@ mod tests {
         fn pixel(&self, _: i32, _: i32) -> Option<Rgb> {
             None
         }
-        fn capture(&self, area: Rect, max_w: u32, exclude: isize) -> Option<Snapshot> {
-            assert_eq!((max_w, exclude), (area.w as u32, 0), "1:1, nothing left out by the OS");
+        fn capture(&self, area: Rect, max_w: u32, exclude: OwnWindows) -> Option<Snapshot> {
+            assert_eq!((max_w, exclude), (area.w as u32, [0, 0]), "1:1, nothing left out by the OS");
             self.captures.lock().unwrap().push(area);
             let (p, shown) = (patch(), *self.shown.lock().unwrap());
             let mut rgb = Vec::new();
@@ -235,13 +250,22 @@ mod tests {
         let s = screen(true);
         // Relay's window over part of the patch, and reaching off the desktop.
         let over = Rect { x: -45, y: 20, w: 500, h: 30 };
-        let hide = Hidden { rect: Some(over), except: Vec::new() };
+        let hide = Hidden::one(over);
         assert!(best_on_screen(&s, &patch(), None, 0.85, &hide).is_none_or(|m| m.score < 0.85));
-        let beside = Hidden { rect: Some(Rect { x: 0, y: 0, w: 100, h: 100 }), except: Vec::new() };
+        let beside = Hidden::one(Rect { x: 0, y: 0, w: 100, h: 100 });
         assert!(find_on_screen(&s, &patch(), None, 0.85, &beside).is_some(), "only what's under it");
         // A window in front of Relay's (the patch's) is seen.
-        let in_front = Hidden { rect: Some(over), except: vec![Rect { x: -50, y: 35, w: 30, h: 30 }] };
+        let in_front =
+            Hidden { windows: vec![Shown { rect: over, except: vec![Rect { x: -50, y: 35, w: 30, h: 30 }] }] };
         assert!(find_on_screen(&s, &patch(), None, 0.85, &in_front).is_some(), "a window over Relay's");
+        // Either of Relay's windows hides what's under it: here the player, beside the main window.
+        let both = Hidden {
+            windows: vec![
+                Shown { rect: Rect { x: 0, y: 0, w: 100, h: 100 }, except: vec![] },
+                Shown { rect: over, except: vec![] },
+            ],
+        };
+        assert!(best_on_screen(&s, &patch(), None, 0.85, &both).is_none_or(|m| m.score < 0.85));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { RunEntry } from "./ipc/bindings/RunEntry";
 import type { CheckResult } from "./ipc/bindings/CheckResult";
-import { checkLabel, failed, fmtDuration, fmtRunTime, outcomeLabel, runSettings, sourceLabel } from "./runs";
+import { checkLabel, failed, fmtDuration, fmtRunTime, outcomeLabel, runningText, runSettings, sourceLabel } from "./runs";
 
 const entry = (over: Partial<RunEntry> = {}): RunEntry => ({
   at: "2026-09-24T09:12:00Z",
@@ -30,13 +30,25 @@ const check = (over: Partial<CheckResult> = {}): CheckResult => ({
 
 describe("run history labels", () => {
   it("names every source", () => {
-    expect(["manual", "hotkey", "schedule", "app_launch", "pixel", "image"].map((s) => sourceLabel(s as never))).toEqual([
+    expect(["manual", "hotkey", "schedule", "interval", "app_launch", "pixel", "image"].map((s) => sourceLabel(s as never))).toEqual([
       "Play",
       "Hotkey",
       "Schedule",
+      "Interval",
       "App launch",
       "Pixel trigger",
       "Image trigger",
+    ]);
+  });
+
+  it("says what a trigger started", () => {
+    expect(runningText("Fill weekly timesheet", "schedule")).toBe("Running “Fill weekly timesheet”, started by its schedule");
+    expect(["hotkey", "interval", "app_launch", "pixel", "image"].map((s) => runningText("X", s as never))).toEqual([
+      "Running “X”, started by its hotkey",
+      "Running “X”, started by its interval",
+      "Running “X”, started by its app trigger",
+      "Running “X”, started by its pixel trigger",
+      "Running “X”, started by its image trigger",
     ]);
   });
 
@@ -54,6 +66,7 @@ describe("run history labels", () => {
     expect(skipped("busy")).toBe("Skipped: Relay was busy");
     expect(skipped("locked")).toBe("Skipped: screen locked");
     expect(skipped("missed")).toBe("Skipped: PC was asleep");
+    expect(skipped("data_file")).toBe("Skipped: data file");
   });
 
   it("marks skips and failures, not completed or stopped runs", () => {
@@ -80,6 +93,7 @@ describe("run history labels", () => {
   it("describes each check, with its loop when there were several", () => {
     expect(checkLabel(check(), 1)).toBe("Step 4 · Pixel check matched after 1.2 s");
     expect(checkLabel(check({ loop_idx: 1 }), 3)).toBe("Loop 2 · Step 4 · Pixel check matched after 1.2 s");
+    expect(checkLabel(check({ loop_idx: 111 }), 112, 200)).toBe("Row 112 of 200 · Step 4 · Pixel check matched after 1.2 s");
     expect(checkLabel(check({ after_ms: 5000, outcome: { type: "timed_out" } }), 1)).toBe(
       "Step 4 · Pixel check timed out after 5.0 s",
     );
@@ -96,5 +110,7 @@ describe("run history labels", () => {
     expect(runSettings(entry())).toBe("");
     expect(runSettings(entry({ from_ms: 3200, speed: 2, humanize: true }))).toBe("From 00:03.20 · 2× speed · Humanized");
     expect(runSettings(entry({ outcome: { type: "skipped", reason: "busy" }, humanize: true }))).toBe("");
+    const note = "customers.csv has no column “Total”.";
+    expect(runSettings(entry({ outcome: { type: "skipped", reason: "data_file" }, note }))).toBe(note);
   });
 });

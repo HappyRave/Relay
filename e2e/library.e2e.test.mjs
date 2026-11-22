@@ -1,6 +1,5 @@
-// The library against the real app: the first run, renaming, duplicating,
-// deleting and restoring, importing and exporting, and what's on disk
-// after a restart.
+// The library against the real app: renaming, duplicating, deleting and
+// restoring, importing and exporting, and what's on disk after a restart.
 import { after, afterEach, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
@@ -23,35 +22,30 @@ describe("library", () => {
     });
   const id = () => page.store("view.id");
 
-  test("the first run seeds the design's four samples, with their hotkeys off", async () => {
+  test("macros in a folder without library.json load, in the Library's table", async () => {
     assert.deepEqual(await names(), ["Export invoice to PDF", "Fill weekly timesheet", "Batch rename photos", "Open standup tools"]);
-    assert.equal(app.macroFiles().length, 4);
-    const index = app.json("library.json");
-    assert.equal(index.order.length, 4);
-    for (const e of Object.values(index.entries)) assert.equal(e.triggers?.hotkey?.enabled ?? false, false);
-    // Not in the Library's hotkey column; the Triggers tab has the combo, switched off.
-    await page.tab("Library");
-    assert.doesNotMatch(await page.text(".list"), /Ctrl \+ Alt/);
-    await page.tab("Triggers");
-    await until(async () => /Ctrl \+ Alt \+ 1/.test((await page.text(".list")) ?? ""), { what: "the hotkey in the Triggers tab" });
-    assert.equal(await page.run(() => document.querySelector('[aria-label="Hotkey trigger"]').getAttribute("aria-checked")), "false");
+    await page.go("library");
+    // Sorted by name.
+    const rows = await page.run(() => [...document.querySelectorAll('table[aria-label="Macros"] .mname b')].map((b) => b.textContent.trim()));
+    assert.deepEqual(rows, [...(await names())].sort());
   });
 
-  test("renaming in the header is saved to the macro's file", async () => {
+  test("renaming in the editor's top bar is saved to the macro's file", async () => {
     const macro = await id();
+    await page.open(macro);
     await page.fill('input[aria-label="Macro name"]', "Invoice → PDF (renamed)");
     await until(() => app.macro(macro).name === "Invoice → PDF (renamed)", { what: "the rename on disk" });
     assert.equal((await names())[0], "Invoice → PDF (renamed)");
   });
 
   test("Duplicate makes a copy right after it, in its own file", async () => {
-    await page.tab("Library");
+    await page.go("library");
     await page.rowAction("Duplicate", "Fill weekly timesheet");
     await until(async () => (await page.store("view.name")) === "Fill weekly timesheet (copy)", { what: "the copy to open" });
     const list = await names();
     assert.equal(list.length, 5);
     assert.equal(list[2], "Fill weekly timesheet (copy)");
-    assert.equal(await page.store("tab"), "library");
+    assert.equal(await page.store("place"), "library");
     const copy = await id();
     assert.equal(app.macro(copy).name, "Fill weekly timesheet (copy)");
     assert.deepEqual(app.macro(copy).events, app.macro(await page.store("library.1.id")).events);
@@ -59,7 +53,7 @@ describe("library", () => {
   });
 
   test("Delete moves it to the trash folder; Undo brings it back where it was", async () => {
-    await page.tab("Library");
+    await page.go("library");
     const victim = (await page.run(() => window.__relay.library[2])).id;
     await page.rowAction("Delete", "Fill weekly timesheet (copy)");
     await until(async () => (await page.store("toast.message"))?.startsWith("Moved"), { what: "the delete" });
@@ -77,8 +71,8 @@ describe("library", () => {
   });
 
   test("deleting the open macro opens its neighbour", async () => {
-    await page.run(() => window.__relay.loadMacro(window.__relay.library[2].id));
-    await page.tab("Library"); // opening it switched to Steps
+    await page.open(await page.run(() => window.__relay.library[2].id));
+    await page.go("library");
 
     await page.rowAction("Delete", "Fill weekly timesheet (copy)");
     await until(async () => (await page.store("view.name")) === "Batch rename photos", { what: "the neighbour" });
@@ -133,12 +127,14 @@ describe("library", () => {
     );
     mkdirSync(app.path("screens"), { recursive: true });
     writeFileSync(app.path("screens", `${macro}.jpg`), jpeg);
+    await page.run(() => window.__relay.loadMacro(window.__relay.library[1].id));
     await page.open(macro); // opening it (again) fetches it
-    await until(() => page.run(() => !!document.querySelector("svg image.shot")), { what: "the screenshot in the preview" });
+    await page.run(() => (window.__relay.viewOpen = true));
+    await until(() => page.run(() => !!document.querySelector(".view svg image")), { what: "the screenshot in the preview" });
     // The page may show it (the CSP allows blob: images) and it's the file's picture.
     const size = await page.run(async () => {
       const url = window.__relay.screenUrl;
-      if (document.querySelector("svg image.shot").getAttribute("href") !== url) return "another picture";
+      if (document.querySelector(".view svg image").getAttribute("href") !== url) return "another picture";
       const img = new Image();
       img.src = url;
       await img.decode();
@@ -146,13 +142,13 @@ describe("library", () => {
     });
     assert.deepEqual(size, [8, 4]);
 
-    await page.click("Sketch", { role: "radio", within: ".bar" });
-    await until(() => page.run(() => !document.querySelector("svg image.shot")), { what: "the sketch" });
+    await page.click("Outline", { role: "radio", within: ".view" });
+    await until(() => page.run(() => !document.querySelector(".view svg image")), { what: "the outline" });
     await until(() => app.exists("settings.json") && app.json("settings.json").preview_background === "sketch", {
       what: "the choice saved",
     });
-    await page.click("Screen", { role: "radio", within: ".bar" });
-    await until(() => page.run(() => !!document.querySelector("svg image.shot")), { what: "the screenshot again" });
+    await page.click("Screen", { role: "radio", within: ".view" });
+    await until(() => page.run(() => !!document.querySelector(".view svg image")), { what: "the screenshot again" });
 
     const copy = await page.invoke("duplicate_macro", { id: macro });
     assert.deepEqual(readFileSync(app.path("screens", `${copy}.jpg`)), jpeg);
@@ -165,7 +161,7 @@ describe("library", () => {
     assert.ok(!existsSync(app.path("screens", `${back}.jpg`)), "an imported macro has none");
     await page.open(back);
     await until(() => page.run(() => window.__relay.screenUrl === null), { what: "no screenshot" });
-    assert.equal(await page.disabled("Screen", { role: "radio", within: ".bar" }), true);
+    assert.equal(await page.disabled("Screen", { role: "radio", within: ".view" }), true);
   });
 
   test("export as .rly and as .json: both import again unchanged", async () => {
@@ -197,8 +193,11 @@ describe("library", () => {
     assert.ok(script.startsWith(`; ${name}, exported from Relay.\n`), script.slice(0, 200));
     assert.ok(script.includes("#Requires AutoHotkey v2.0\n"));
     await page.open(macro);
-    const steps = (await page.store("view.steps")).length;
-    assert.equal(script.match(/\n {4}; \d+\. /g).length, steps);
+    const kinds = (await page.store("view.steps")).map((s) => s.kind);
+    const steps = kinds.filter((k) => k !== "move").length;
+    assert.equal(script.match(/\n {4}; /g).length, kinds.length, "a block per step, moves too");
+    assert.equal(script.match(/\n {4}; \d+\. /g).length, steps, "moves aren't numbered");
+    assert.equal(script.match(/\n {4}; Move (before|after) step \d+\n/g).length, kinds.length - steps, "they go by the step they lead to");
     assert.ok(script.includes(`\n    ; ${steps}. `), "numbered like the steps list");
   });
 

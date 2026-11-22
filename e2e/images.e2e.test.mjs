@@ -89,6 +89,7 @@ describe("images", () => {
     await hide();
 
     // The same picture in Relay's page, 1:1: on screen, but not found.
+    await page.invoke("plugin:window|set_focus", { label: "main" });
     const pos = await page.invoke("plugin:window|inner_position", { label: "main" });
     const at = await page.run((src) => {
       const img = document.createElement("img");
@@ -109,10 +110,11 @@ describe("images", () => {
 
   test("the trigger's own thumbnail is never found, on any monitor", async () => {
     const { triggers } = await page.invoke("get_triggers", { id: target });
-    await page.run((id) => window.__relay.loadMacro(id), target);
+    await page.open(target);
     await page.invoke("set_triggers", { id: target, triggers: { ...triggers, image: { enabled: false, image, threshold: 85, area: null } } });
-    await page.run(() => window.__relay.loadTriggers());
-    await page.tab("Triggers");
+    await page.run(() => window.__relay.loadTriggers().then(() => true));
+    await page.inspector("macro", "triggers");
+    await page.invoke("plugin:window|set_focus", { label: "main" });
     const home = await page.invoke("plugin:window|outer_position", { label: "main" });
     try {
       for (const m of await page.invoke("plugin:window|available_monitors", {})) {
@@ -121,7 +123,7 @@ describe("images", () => {
         await until(
           () =>
             page.run(() => {
-              const el = document.querySelector(".thumb");
+              const el = document.querySelector('.inspector img[alt="What to watch for"]');
               el?.scrollIntoView({ block: "center" });
               return el && el.complete && el.getBoundingClientRect().width * devicePixelRatio >= 60 ? true : null;
             }),

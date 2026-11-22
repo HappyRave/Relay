@@ -89,6 +89,8 @@ mod tests {
             humanize: false,
             checks: vec![],
             checks_dropped: 0,
+            note: None,
+            rows: None,
         }
     }
 

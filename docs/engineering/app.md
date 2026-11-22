@@ -1,304 +1,138 @@
 # The app (src-tauri)
 
-`src-tauri` is the binary crate `relay`. It wires `relay-core` and `relay-platform` into a running app: threads, state, persistence, the window, the tray and the commands the UI calls.
+`src-tauri` is the `relay` binary. It wires the other crates into a running app: the coordinator and its threads, the files, the commands the UI calls, Relay's keys, the triggers, the two windows and the tray.
 
-- [Startup](#startup)
-- [Managed state](#managed-state)
+- [Startup and shared state](#startup-and-shared-state)
 - [The coordinator](#the-coordinator)
 - [The playback engine](#the-playback-engine)
-- [The recorder thread and the hook watchdog](#the-recorder-thread-and-the-hook-watchdog)
-- [Global hotkeys](#global-hotkeys)
+- [Recording and the watchdog](#recording-and-the-watchdog)
+- [Hotkeys](#hotkeys)
 - [Triggers](#triggers)
-- [The library and storage](#the-library-and-storage)
-- [Settings](#settings)
-- [The window](#the-window)
-- [The tray](#the-tray)
+- [Files](#files)
+- [Windows](#windows)
 - [Logging and panics](#logging-and-panics)
 
-| File | Lines | Role |
-| --- | ---: | --- |
-| [`lib.rs`](../../src-tauri/src/lib.rs) | 126 | Plugins, managed state, setup, window events |
-| [`coordinator.rs`](../../src-tauri/src/coordinator.rs) | 583 | The session thread |
-| [`engine.rs`](../../src-tauri/src/engine.rs) | 52 | The app's side of playback: the engine (in `relay-playback`) reports to the UI and the coordinator |
-| [`rec_thread.rs`](../../src-tauri/src/rec_thread.rs) | 166 | The recorder thread and the hook watchdog |
-| [`hotkeys.rs`](../../src-tauri/src/hotkeys.rs) | 247 | Global and macro hotkeys |
-| [`triggers.rs`](../../src-tauri/src/triggers.rs) | 165 | Schedule, app-launch and pixel threads |
-| [`commands.rs`](../../src-tauri/src/commands.rs) | 419 | Tauri commands (file-writing ones run off the main thread) |
-| [`history.rs`](../../src-tauri/src/history.rs) | 150 | Undo and redo of macro edits |
-| [`ipc.rs`](../../src-tauri/src/ipc.rs) | 89 | `EngineMsg` and the `Emitter` |
-| [`library.rs`](../../src-tauri/src/library.rs) | 487 | Macros on disk, trash, import |
-| [`run_history.rs`](../../src-tauri/src/run_history.rs) | 151 | `runs.json`, the run history |
-| [`settings.rs`](../../src-tauri/src/settings.rs) | 121 | `settings.json` |
-| [`storage.rs`](../../src-tauri/src/storage.rs) | 55 | Data directory, atomic writes |
-| [`window_ctl.rs`](../../src-tauri/src/window_ctl.rs) | 277 | Placement, zoom, frame, focus |
-| [`tray.rs`](../../src-tauri/src/tray.rs) | 103 | Tray icon and menu |
-| [`logging.rs`](../../src-tauri/src/logging.rs) | 38 | Rolling logs, panic hook |
+## Startup and shared state
 
-## Startup
+[`lib.rs`](../../src-tauri/src/lib.rs) registers the plugins (single instance, global shortcut, dialog, autostart), then `setup` opens settings, the library and the run history, spawns the coordinator and the trigger threads, and only then builds both windows (`"create": false` in `tauri.conf.json`). This order means a window's first commands always find the state they read. The windows start hidden and `presence` shows them once they're placed, so they never jump. With `--autostart`, Relay stays in the tray.
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant M as main()
-    participant T as Tauri builder
-    participant S as setup()
-    participant W as Window
-    M->>T: plugins: single-instance, global-shortcut, autostart, dialog
-    T->>T: manage Hotkeys, TriggerState, SessionMode, EditHistory
-    T->>S: setup
-    S->>S: data_dir() (RELAY_DATA_DIR or %APPDATA%\Relay)
-    S->>S: logging::init, Library::open (seeds samples on first run), SettingsStore::open
-    S->>S: Emitter, platform(), coordinator::spawn, triggers::spawn
-    S->>W: apply_modernist_frame, place at saved anchor
-    alt not --autostart
-        S->>W: show()
-    end
-    S->>S: window autosave thread, tray::create
-    Note over M,W: on exit: the coordinator stops the session first
-```
+Settings open before the library, because they tell a folder an older Relay used (which keeps the old keys, see [Settings](#settings)) by the files in it, and opening the library can change those. The library then gets Relay's keys (`set_relay_keys`), so no macro hotkey takes one.
 
-- **Single instance**: a second launch calls `tray::show` on the first instance and exits.
-- **The window starts hidden** (`"visible": false` in `tauri.conf.json`) and is shown only after it's been sized and placed, so it never jumps. Launched with `--autostart` (by the Windows *Run* key), it stays in the tray.
-- **Closing**: `CloseRequested` is intercepted to hide the window when *Close to tray* is on (`window_ctl::close_or_hide`, shared with the × button).
-- **Quitting**: on `RunEvent::Exit` (the tray's Quit, the × with *Close to tray* off, Windows shutting down), the coordinator gets `Cmd::Shutdown` and stops what's running, releasing held keys and saving a recording in progress, before the process ends (up to 3 s).
+Shared state is in Tauri's `app.manage`: the library, settings and run history behind `parking_lot` mutexes (which don't poison), the `Emitter`, the coordinator's `Sender<Cmd>`, the shared `SessionMode`, the hotkeys, the edit history, the window and presence state.
 
-## Managed state
+> [!IMPORTANT]
+> **Never hold a lock while calling into the main thread.** Window, tray and hotkey calls block until the main thread runs them, and the main thread may be waiting for that lock.
 
-Tauri's `app.manage` holds everything shared. Commands get it with `State<'_, T>` (or `AppHandle::state` in the `async` ones), threads through `AppHandle::state`. Locks are `parking_lot`'s, which don't poison: a panic on one thread can't make every other thread's `lock()` panic too.
-
-| State | Type | Used by |
-| --- | --- | --- |
-| Library | `Mutex<Library>` | Commands, coordinator, triggers, hotkeys |
-| Settings | `Mutex<SettingsStore>` | Commands, coordinator |
-| Emitter | `Arc<Emitter>` | Everything that talks to the UI |
-| Platform | `Arc<Platform>` | Commands (pixels, processes), coordinator, triggers |
-| Coordinator | `CoordinatorHandle` (a `Sender<Cmd>`) | Commands, hotkeys, tray, triggers |
-| Session mode | `SessionMode` (`RwLock<Mode>`, updated as soon as a transition is decided) | Commands that must refuse while busy |
-| Hotkeys | `Hotkeys` (the wanted set, registered macro hotkeys, their errors) | Hotkey handler, coordinator, `set_triggers` |
-| Trigger pause | `TriggerState` (`AtomicBool`) | Triggers, coordinator, tray |
-| Edit history | `EditHistory` | `edit_macro`, `undo_edit`, and every command that returns a `MacroView` |
-| Window | `WindowState` | Window commands and events |
-
-Locks are held briefly. The rule that matters: **nothing holds a lock while it calls into the main thread** (window, tray and hotkey calls block until the main thread runs them), because the main thread may need that lock.
+On quit (`RunEvent::Exit`), the coordinator gets `Cmd::Shutdown` and stops what's running, releasing held keys and saving a recording in progress, for up to 3 s.
 
 ## The coordinator
 
-[`coordinator.rs`](../../src-tauri/src/coordinator.rs) is a thread that loops over `Receiver<Cmd>`:
+[`coordinator.rs`](../../src-tauri/src/coordinator.rs) is a thread looping over `Receiver<Cmd>`. Every input goes through [`session::step`](core.md#the-session-state-machine), and the coordinator performs the effects in order. It owns:
 
-```rust
-pub enum Cmd {
-    Input(Input),                 // ToggleRecord, TogglePlay{from}, Stop(reason), Kill, …
-    HotkeyPlay,                   // F10: play from the last idle playhead
-    Escape, StopKey,              // from the hook during a session
-    EngineDone { generation, reason, timing },  // playback `generation` ended on its own
-    Select(Uuid), Seek(f64),
-    Speed { id, speed },          // applies if `id` is the macro playing
-    RunMacro { id, source },      // a trigger or macro hotkey
-    SetTriggersPaused(bool),
-    HookLost,                     // from the watchdog
-    Shutdown(Sender<()>),         // Relay is quitting
-}
-```
+- **The session mode.** Every change goes through `set_mode`, which also updates the `SessionMode` commands read, even after a panic.
+- **The current macro**, the one the play key and the player play. `set_current` emits `Current` to both windows, so they always show the same macro. A triggered run doesn't announce its macro (`before_trigger` remembers the current one and puts it back), so a trigger never switches what the user has open.
+- **The play key's playhead** (`idle_playhead`). The play key is handled in Rust, so Rust mirrors where the UI's playhead lands after each run (`playhead_after`): 0 after a stop or error, the end after a complete run, the check's time after a timeout.
+- **Playback generations.** Each playback gets a number, and `EngineDone` carries it. A late message from a stopped playback is ignored. `Finished` is sent once, by the coordinator, however the playback ended.
 
-Every `Input` goes through `session::step`, and the coordinator performs the returned effects in order (see [the state machine](core.md#the-session-state-machine)).
+The pure decisions are pulled out and unit-tested: `admit` (whether a trigger runs), `playhead_after`, `is_current`, `counts_as_run` (only `Completed` counts).
 
-The loop waits on the channel; while a recording countdown runs, it waits with a 50 ms timeout instead, and each wake reports the time left or, at zero, feeds `CountdownDone`. Each command runs under `catch_unwind`: a bug in one ends the session cleanly (with an error for the user) instead of killing the thread every later session needs.
+Each command runs under `catch_unwind`, so a bug ends the session cleanly instead of killing the thread. The coordinator is generic over Tauri's `Runtime`, which lets a unit test run the real thread on the mock runtime and check that a panic mid-countdown leaves it idle.
 
-A few effects in detail:
-
-**StartRecording**
-1. Start the hook in `HookMode::Record { own_window, skip_vks: [F9], esc_stops }` (`esc_stops` from the *Esc stops recording* setting), with a bounded channel of 8,192 events.
-2. Read the double-click settings, create a `Recorder`, and spawn the recorder thread.
-3. If the hook fails, report the error and queue `Input::Stop` so the transition in progress completes first.
-
-**StopRecording**
-1. Drop the hook, `finish()` the recorder thread, and get the events (a recorder that panicked reports an error instead).
-2. If meaningful, build `RecordingMeta` (OS, virtual desktop, monitors, double-click settings, and the **anchor window** under the first click), name it *Recording N*, `insert_front` into the library (which keeps it in memory even if writing the file fails, and says so), and emit `Saved` and `LibraryChanged`.
-
-**StartPlayback { from }**, in small steps (`start_playback` calls one helper per step):
-1. Load the current macro. None? Report *Select a macro to play* and finish with `Error`.
-2. **Hand the focus back** (`hand_focus_back`): if Relay is the foreground window (the play button was clicked), `restore_previous` activates the app the user was in. If Windows will block input to it (`input_blocked`), emit a `Notice`.
-3. **Window coordinates** (`window_offset`): see below.
-   Find the anchor window by exe and class, and use how far it moved as the offset. Missing? Emit a `Notice` and use screen coordinates.
-4. **Click-through** (`click_through_if_needed`): if any click (after the offset) lands inside the widget, make the window ignore the cursor for this playback.
-5. **Stop keys** (`watch_for_stop_keys`): a hook in `HookMode::Watch { stop_on_key, pass_vks: [F10] }`; a small thread forwards `Escape` and `StopKey` to the coordinator.
-6. Build a `PlayPlan` and spawn the engine with the next **generation** number.
-
-**Playback generations.** Every playback gets a number, and the engine's `EngineDone` carries it. A message from a playback that was already stopped (it can be queued behind a Stop and a new Play) is ignored, so it can't end the next one. `Finished` is sent once, by the coordinator, with the timing the engine returns, whether playback completed or was stopped.
-
-**EmitMode(mode)** updates the tray tooltip, *Keep on top* and `WS_EX_NOACTIVATE` on the window (set during sessions, so clicking the widget doesn't steal the focus), and emits `Session`.
-
-Runs are counted (`runs += 1`, `last_run = now`) only when the engine reports `Completed` (`counts_as_run`).
-
-**The F10 playhead.** F10 is handled in Rust, so the coordinator keeps its own `idle_playhead`, set the way the UI moves its playhead (`playhead_after(reason, duration, timed_out_at)`): back to 0 after a stop, the kill switch, a key press or an error; the end after a complete run (so F10 starts over); the check's time after a pixel timeout (`EngineDone.timed_out_at`). Seeks during playback move it too.
-
-**Triggers** go through `admit(paused, macro_exists, mode, desktop_available)`: ignored while paused or for a deleted macro, skipped with a notice while busy, skipped silently when the screen is locked.
-
-**Every mode change** goes through `set_mode`, which also updates the shared `SessionMode` the commands read, including when a command panicked, so `delete_macro` and edits never stay refused as "busy".
+**Starting a playback** is a chain of small helpers in `start_playback`: load the macro; read its data file (`data_file::for_playing`, which may refuse the run); hand the focus back to the app the user was in (`restore_previous`, with a notice if it runs as administrator); apply the window offset; show the player (`presence::update`) and make it click-through if the macro clicks under it; start the stop-key hook; then spawn the engine with the next generation.
 
 ## The playback engine
 
-The engine lives in [`relay-playback`](../../crates/relay-playback/src/engine.rs), shared with the [exported player](architecture.md#the-exported-player). It separates the **decision** from the **thread**:
+The engine is in [`relay-playback`](../../crates/relay-playback/src/engine.rs), shared with the exported player. It splits the decision from the thread:
 
-- `Engine` is plain logic. `advance(now)` injects everything due at `now` and returns `Some(reason)` when done. It takes wall times as arguments and gets its injector, pixel reader and image finder as boxed traits, so tests drive it with a fake clock, a recording injector and a fake screen.
-- `spawn` runs it on the `relay-engine` thread with the platform timer, reporting ticks, notices and its end to a `PlaybackSink`. The thread returns the run report when it ends; when it ends on its own (or panics) a guard calls `done`, with `Error` for a panic. Dropping the `EngineHandle` stops the thread.
-- The app's sink, in [`src-tauri/src/engine.rs`](../../src-tauri/src/engine.rs), turns ticks and notices into `EngineMsg`s and the end into `EngineDone` for the coordinator, with the playback's generation, so the session never stays stuck in *Playing*.
+- **`Engine::advance(now)`** injects everything due and returns `Some(reason)` when done. Its injector is a trait and its pixel reader, image finder and text filler are closures, so tests drive it with a fake clock, a recording injector and a fake screen.
+- **`spawn`** runs it on `relay-engine` with the platform timer, reporting to a `PlaybackSink`. A guard reports the end even on a panic. Dropping the handle stops it.
+- **The app's sink** ([`engine.rs`](../../src-tauri/src/engine.rs)) turns ticks and notices into `EngineMsg`s and the end into `EngineDone`.
 
-```mermaid
-flowchart TD
-    L["loop"] --> C["drain EngineCmd: Pause · Resume · Seek · Speed · Stop"]
-    C -- Stop --> X["return (Drop releases input)"]
-    C --> A["advance(now)"]
-    A --> T{"tick due (33 ms)<br/>or finished?"}
-    T -- yes --> PT["emit PlayTick"]
-    T --> F{"finished?"}
-    PT --> F
-    F -- yes --> FIN["return timing<br/>(the guard sends EngineDone{generation, reason, timing})"]
-    F -- no --> W["timer.wait_until(min(next deadline, next tick))"]
-    W --> L
-```
+What to know about `advance`:
 
-What `advance` does:
+- **Held input is tracked** (`keys_down`, `buttons_down`) and released newest first on stop, seek, loop end, timeout and `Drop`.
+- **Waits pause the clock.** A pixel check or Find image seeks to its step, pauses, and polls (30 ms, 250 ms); a match resumes at the step's end. Time paused by the user doesn't count toward the timeout.
+- **Text steps freeze the playhead** at their start while typing, then resume from where typing got to, so what follows keeps its time unless the text runs past the step.
+- **Lateness goes into a fixed histogram**, so an endless loop measures its timing in constant memory.
+- **The first injection error** (usually UIPI) is reported once; playback continues.
 
-- Converts `now` to macro time with the `PlayClock` and dispatches every event whose planned time (from `plan_times`, with humanize) has passed. Each dispatch records its **lateness** (now − deadline) for the timing stats.
-- **Move / Button / Wheel**: move to the position (+ the window offset) first, then press, release or scroll.
-- **Key**: inject by scan code, virtual key, code or text (see [Injection](platform.md#injection)).
-- **Tracks held input**: `keys_down` and `buttons_down`. `release_all` releases them newest first, and is called on stop, seek, loop end, pixel timeout and in `Drop`.
-- **PixelWait**: seeks the clock to the check and **pauses** it, then polls the pixel every 30 ms. On a match, it seeks to the end of the `IF` block and resumes. After `timeout_ms`, it finishes with `PixelTimeout` and remembers the step number for the notice. Time paused by the user doesn't count toward the timeout.
-- **FindImage**: the same, looking for the image every 250 ms with [`finder::find_on_screen`](../../crates/relay-playback/src/finder.rs) (a 1:1 capture of its area, moved by the window offset, or of the whole desktop, with what shows of Relay's window at that moment painted over: not the windows in front of it). When found, it moves to the match plus the click point times the match's scale, presses and releases the button, and resumes at the end of the `FIND` block. The last poll is at the timeout, so it ends on time. A timeout finishes with `PixelTimeout` too (the playhead rule is the same); `timeout_notice` says *Image not found at step N* instead.
-- **Text**: fills in the template with the `TextFiller` (the loop number, `chrono::Local::now()` and the clipboard, read on the engine thread), seeks the clock to the step and **pauses** it, then types a character every `CHAR_MS` / speed with `Injector::text`. Once it's typed, it resumes from where typing got to in the step (`t + characters × 10 ms`), so what follows keeps its time, or from the step's end if the text ran over it, which pushes what follows back. A pause stops the typing; a seek leaves it. Each character is a press and a release, so nothing stays held.
-- **End of the macro**: release everything, then either finish (`Completed`) or start the next loop with a fresh humanize seed, carrying the overshoot into it.
+## Recording and the watchdog
 
-`TimingStats { events, p50_ms, p99_ms, max_ms }` is logged and sent with `Finished`. Lateness goes into a fixed histogram (10 µs buckets up to 20 ms, plus the exact maximum), so an endless loop measures in constant memory.
+[`rec_thread.rs`](../../src-tauri/src/rec_thread.rs) drains the hook into the `Recorder` and, every 100 ms, sends `RecProgress` (only the new cursor samples; the steps only when something other than the cursor changed, which keeps long recordings cheap) and runs the **hook watchdog**.
 
-The first injection error (usually UIPI) is reported once as a `Notice`. Playback continues, since later events may go to another window.
+Windows removes a slow hook without telling anyone. The tell is a cursor that moves while no mouse events arrive for a second. The hook beats `MousePulse` on every mouse event it sees, even filtered ones, so ignored simulated input doesn't look like silence. On an alarm, the coordinator reinstalls the hook with the same config and sender: the recording goes on with a small gap, and the user gets a notice.
 
-## The recorder thread and the hook watchdog
+## Hotkeys
 
-[`rec_thread.rs`](../../src-tauri/src/rec_thread.rs) drains the hook channel into the `Recorder` and, every 100 ms:
+[`hotkeys.rs`](../../src-tauri/src/hotkeys.rs) uses `tauri-plugin-global-shortcut` (`RegisterHotKey`), which fires even when an elevated window has the focus and never sees other keys.
 
-- sends `RecProgress { elapsed_ms, desktop, moves, steps }`. `moves` holds only the cursor samples since the last message. `steps` is re-grouped and included only when something other than the cursor path changed, which keeps long recordings cheap.
-- runs the **hook watchdog**.
-
-Windows removes a low-level hook it considers too slow **without any notification**. The tell is a cursor that moves while no mouse events arrive:
-
-```rust
-// HookWatchdog::check(now, cursor): true when the hook looks dead
-moved && now - last_event > 1000 ms && now - last_alarm > 5000 ms
-```
-
-Mouse events the hook filters out (injected input, with *Ignore simulated input* on) would look like silence, so the hook beats a `MousePulse` (an atomic timestamp in `HookConfig`) on every mouse event it sees, filtered or not, and the watchdog counts that as a sign of life.
-
-On an alarm, the coordinator stops the old hook and starts a new one with the **same config and the same sender**, so the recorder keeps going with a small gap, and the user gets a notice.
-
-`Esc` arrives on the same channel as `RawKind::Escape` and is forwarded to the coordinator as `Cmd::Escape`.
-
-## Global hotkeys
-
-[`hotkeys.rs`](../../src-tauri/src/hotkeys.rs) uses `tauri-plugin-global-shortcut`, which is `RegisterHotKey` on Windows. Unlike a low-level hook, it fires even when an elevated window is focused, and it never sees keys it isn't registered for.
-
-**Which hotkeys are registered depends on the session**, so Relay only takes keys it needs right now:
-
-| Set | Registered |
-| --- | --- |
-| `Idle` | F9, F10, Ctrl+Shift+M, Ctrl+Alt+End, and every enabled macro hotkey |
-| `Recording` | F9, Ctrl+Alt+End |
-| `Playing` | F10, Ctrl+Alt+End |
-
-**Registration runs on the main thread, one refresh at a time.** The plugin hands every (un)register call to the main thread anyway, and a thread that waited for that while holding a lock the main thread needed would deadlock. So:
-
-- The coordinator only records the wanted set (`set_active`) and posts a refresh (`run_on_main_thread`), without waiting.
-- `refresh` re-registers after macro hotkeys change (delete, restore, import); `refresh_and_wait` does the same and waits, from `set_triggers`, so the hotkey errors it returns are current.
-- A refresh reads the *latest* wanted set when it runs, so refreshes from anywhere, in any order, end in the right state. It snapshots the triggers first, registers without holding any lock, and only then stores what it registered and why others failed: a duplicate combo (*used by another macro*) or a registration failure, which means another app owns it (*taken by another app*). `TriggerStatus.hotkey_error` shows the reason in the UI.
-
-`parse_combo("Ctrl + Alt + 1")` turns the UI's labels into a `Shortcut`, requiring a modifier unless the key is F1–F24. `conflict()` refuses Relay's own combos and those of other enabled macros **before** saving.
+- **Relay's keys are settings** (`RelayKeys`). The handler compares a press with the keys as they are now (`action_for`), so a change applies at the next refresh.
+- **Only the keys the session needs are registered:** idle, all of Relay's keys and every enabled macro hotkey; recording, the record key and the kill switch; playing, the play key and the kill switch.
+- **Registration runs only on the main thread.** The coordinator records the wanted set (`set_active`) and posts a refresh without waiting. A refresh reads the latest wanted set when it runs, so refreshes from anywhere, in any order, end in the right state. `refresh_and_wait` is for `set_triggers`, whose answer must include current hotkey errors.
+- **While a key field listens**, `hold_hotkeys(true)` unregisters everything, so a combination Relay uses can reach the field.
+- **The rules** (`check_key`, `conflict`): a key must parse, can't be used twice, and can't be a macro's hotkey; the kill switch can't be none. They're refused before anything is saved, with Rust's message, which the fake core repeats word for word. The rules are [Keys](../spec/keys.md).
 
 ## Triggers
 
-[`triggers.rs`](../../src-tauri/src/triggers.rs) runs four threads. Each polls every macro's triggers through `Library::all_triggers`, an `Arc` the library rebuilds when triggers change, so polling doesn't copy anything and changes apply without restarting anything.
+[`triggers.rs`](../../src-tauri/src/triggers.rs) runs one thread per kind. Each polls every macro's triggers through `Library::all_triggers`, an `Arc` the library rebuilds when triggers change, so polling copies nothing and changes apply without restarts.
 
-| Thread | Period | Logic |
+| Thread | Polls | Decides with |
 | --- | --- | --- |
-| `relay-schedule` | 5 s | For each enabled schedule, compute `next_run` from the **previous tick's time**. If it's ≤ now, fire it, unless it's more than 2 minutes late (the PC slept), in which case log and skip. Comparing wall-clock times each tick survives sleep and clock changes. |
-| `relay-app-launch` | 2 s | One `ProcessWatcher`. A `ProcessLaunchEdge` per (macro, exe). On a launch edge, a short-lived thread sleeps `delay_ms`, then fires. |
-| `relay-pixel-trigger` | 250 ms | A `PixelEdge` per macro, reset when the watched position changes. Samples `Screen::pixel` and fires on the edge. A read that fails (locked screen, UAC) is no sample at all, so it can't re-arm the edge. |
-| `relay-image-trigger` | 500 ms | Only while an image trigger is on. An `ImageWatch` keeps a `PixelEdge` and the decoded picture per macro, reset when the image (by hash), match or area changes. A [`finder::Looker`](../../crates/relay-playback/src/finder.rs) captures each area once per round, however many triggers look there, and remembers each search's answer with the frame's fingerprint, so an unchanged screen isn't searched again. A capture that fails is no sample. |
+| `relay-schedule` | 5 s | `next_run` from the previous tick's time, so sleep and clock changes are safe; `ScheduleWatch::tick` skips a run more than 2 min late, and `take_missed` hands it over for the run history |
+| `relay-interval` | 1 s | `IntervalWatch`: counts restart while Relay is busy, so an interval never meets a session |
+| `relay-app-launch` | 2 s | `LaunchWatch` with a `ProcessLaunchEdge` per program; a delayed run re-checks its trigger when the delay ends |
+| `relay-pixel-trigger` | 250 ms | `PixelWatch` with a `PixelEdge`; a failed read is no sample, so it can't re-arm |
+| `relay-image-trigger` | 500 ms | `ImageWatch`; a `finder::Looker` captures each area once per round and skips a search when the frame hasn't changed |
 
-`fire()` sends `Cmd::RunMacro`; the coordinator decides. It:
+The watches are pure and tested; the threads only sleep and call them. A firing sends `Cmd::RunMacro`, and the coordinator's `admit` decides. Saving triggers waits up to 1 s for the app watcher's baseline, so a program started right after counts as a launch.
 
-1. ignores it if triggers are paused,
-2. emits *Skipped "…": Relay was busy* if not idle,
-3. logs and skips if `input_desktop_available()` is false (lock screen, UAC),
-4. otherwise selects the macro and feeds `Input::Trigger(source)`, which plays from 0.
+## Files
 
-The kill switch's `PauseTriggers` effect sets `TriggerState`, unchecks the tray's *Triggers active* item and emits `TriggersPaused`.
+The data folder is `%APPDATA%\Relay`, or `RELAY_DATA_DIR`. [`storage::write_atomic`](../../src-tauri/src/storage.rs) writes a temporary file and renames it over the target, so a crash never leaves half a file. What's in each file is [File formats](file-formats.md).
 
-## The library and storage
+### The library
 
-[`library.rs`](../../src-tauri/src/library.rs) keeps every macro in memory (`Vec<Entry>`, in Library order) and mirrors changes to disk immediately:
+[`library.rs`](../../src-tauri/src/library.rs) keeps every macro in memory, in Library order, and writes each change at once: the `.rly` file, then `library.json` (order, triggers, run counts, trash). Deleted macros move to `macros/.trash/` with enough in `library.json` to restore them in place.
 
-| Operation | Disk effect |
-| --- | --- |
-| `insert_front`, `save` | Write `macros/<id>.rly`, then `library.json`. The entry's cached step count and length are refreshed. |
-| `save_stats` | `library.json` only (a run was counted) |
-| `duplicate` | New id, unique name "… (copy)", no triggers, the same data file, inserted after the original |
-| `trash` | Move the file to `macros/.trash/` (or write it there from memory if its file was never saved), remember the macro that came after it, its name and stats in `library.json` |
-| `restore` | Move it back before the macro that came after it (following the chain through other trashed macros), with its stats and triggers. If its enabled hotkey now belongs to another macro, it comes back with the hotkey off and the user is told. |
-| `import` | Many at once: new id if the id is already in the library or the trash, unique name (a trailing number counts on: "Report 2" → "Report 3"), inserted at the top in order, one index write. If writing one fails, the ones before it are kept. |
-| `set_triggers`, `set_data_file` | `library.json` |
+Two guarantees, both tested:
 
-`Library::open` loads every `.rly` in `macros/` (skipping broken files), orders them by `library.json` (files it doesn't list go last, newest first), and attaches stats and triggers. A `library.json` that isn't valid JSON is renamed `library.json.bad`. One that exists but can't be *read* (locked by another program, say) is left alone: nothing is seeded, and the index isn't written for the rest of the run, so it's never overwritten with an empty one; saves report that instead. Every problem found at startup is shown to the user, not just logged. With no index and no files, it **seeds the four samples**, with their design hotkeys present but disabled.
+- **A failed save never loses data.** The change stays in memory, the command still returns the new state, and the user gets an error (`report_unsaved`). An unsaved trash is retried with the next save, or at quit.
+- **An unreadable file is never overwritten.** An invalid `library.json` is set aside as `.bad`; one that can't be *read* (locked) stops index writes for the run, so it's never replaced by an empty one.
 
-A macro's data file is a path in its `Entry` (`data_file`), never a copy. [`data_file.rs`](../../src-tauri/src/data_file.rs) reads it when it's needed: `for_playing` (the coordinator's `start_playback`, for manual and triggered runs alike, and `export_macro` for a program) returns its rows or the message to show, and `info` is what the Settings tab shows. A playback it refuses goes the way of *Select a macro to play*: an `error` message, then `PlaybackFinished(Error)`, so nothing is counted or added to the run history.
+A data file is a path in `library.json`, never a copy. [`data_file.rs`](../../src-tauri/src/data_file.rs) reads it each time the macro plays or exports, and `relay_core::data::check` decides whether it can.
 
-[`storage.rs`](../../src-tauri/src/storage.rs): the data directory is `%APPDATA%\Relay`, or `RELAY_DATA_DIR` if set. `write_atomic` writes a uniquely named temporary file in the same folder and renames it over the target, so a crash never leaves a half-written file and two writers never share a temporary one.
+### Undo
 
-**When a save fails**, the change is kept in memory and the user gets an error saying it wasn't saved; the command still returns the new state, so the UI shows what Relay actually holds. That holds for edits, triggers, duplicating, deleting and restoring.
+[`history.rs`](../../src-tauri/src/history.rs) keeps, per macro, up to 100 undo and redo entries, in memory only. Each entry is the name and a [`Splice`](../../crates/relay-core/src/splice.rs): the run of events the edit replaced and the time shift after it. That's a few events where a copy of the macro would be thousands. A `Batch` is one entry, and renames less than 2 s apart merge. Every `MacroView` carries `can_undo` and `can_redo`.
 
-## Undo history
+### Settings
 
-[`history.rs`](../../src-tauri/src/history.rs): `EditHistory` keeps, per macro id, an undo and a redo stack of snapshots (the `name` and `events`, the only things edits change), up to 100 deep, in memory only.
+[`settings.rs`](../../src-tauri/src/settings.rs) reads `settings.json` field by field: an invalid value resets only that field, and the file is set aside as `.bad`. A missing value means something different in a folder an older Relay used (`Settings::upgraded`: F9 and F10, the keys screen once) than in a new one (`Settings::default`). `update_settings` checks the keys, saves, applies what changed (hotkeys, look, text size, player) and sends `Settings` to both windows.
 
-- `edit_macro` (refused while a session runs) clones the macro, applies the `EditOp`, and on success records the snapshot and clears the redo stack, unless the edit changed nothing. Renames less than 2 s apart are one entry, since the UI saves the name as it's typed.
-- `undo_edit(id, redo)` swaps the current state with the top of one stack, pushes it on the other, and saves the `.rly`.
-- `view_of(macro, history)` fills `MacroView.can_undo` and `can_redo`, so every view the UI gets knows whether its buttons are enabled.
+## Windows
 
-Playback options and triggers aren't edits and bypass the history.
+### Which window shows
 
-## Settings
+[`presence::shown(presence, session, settings)`](../../src-tauri/src/presence.rs) is a pure function, and the only place that decides whether the main window and the player show. It takes what the user chose (player mode, in the tray, stepped aside for the picker), the session, and the *Hide the window while…* settings. `update` applies the result; the player is always shown with `SW_SHOWNOACTIVATE`, so it never takes the keyboard.
 
-[`settings.rs`](../../src-tauri/src/settings.rs): `settings.json` is read field by field, so missing, unknown or invalid fields fall back to defaults without losing the others, and older files keep loading. A file with an invalid value is set aside as `settings.json.bad` and the user is told. `update_settings` replaces the whole struct and saves atomically. Recording settings are read when a recording starts, so changes apply to the next one.
+Beside the main window, the player goes in the first corner clear of the window and of the macro's clicks (`free_corner`); otherwise at its own anchor, which a drag moves.
 
-## The window
+### Placement and the look
 
-[`window_ctl.rs`](../../src-tauri/src/window_ctl.rs) positions the widget from Rust, since only Rust knows the monitors' physical geometry.
+[`window_ctl.rs`](../../src-tauri/src/window_ctl.rs) places the main window from Rust, since only Rust knows the monitors' physical geometry. The window's anchor is its bottom center; placing it picks the monitor (`choose_monitor`), zooms the page to fit a small work area and to the *Text size* setting, and clamps it inside the work area. Only the user moves the anchor, by dragging or resizing the window. `layout` and `choose_monitor` are pure and tested.
 
-- **The anchor** is the widget's **bottom-center** in physical pixels, saved in `window.json`. Placing a widget of a given CSS size means: find the monitor whose bounds contain the anchor (or the nearest one, if its monitor is gone), compute the zoom, size the window, center it horizontally on the anchor with its bottom on the anchor, and clamp it inside that monitor's work area with a 16 px margin on every side. Clamping never changes the saved anchor: only the user dragging the widget does, so switching sizes near an edge doesn't drift. The default anchor is centered, 24 px above the bottom of the primary work area.
-- **Zoom**: the editor is 944 × 612 CSS px by default. On a work area too small for that (at the monitor's scale), `webview.set_zoom` scales it down to fit, clamped to 40–100%.
-- **Who owns the size**: the compact player sizes the window to itself (the UI measures it and calls `fit_window(width, height, false)`); the editor fills the window, whose size is Rust's: the user's (`window.json`'s `size`, never below `MIN_EXPANDED` = 760 × 520, and made to fit the work area by `fit_work`) or the default. The UI then calls `fit_window(0, 0, true)`, whose size is ignored. The bottom-center stays put either way, so the widget grows upward.
-- **Resizing**: the window is `resizable`, and tao hit-tests the edges of an undecorated window (with `shadow: true`, the invisible borders and a top strip). `place` and `rescale` make only the editor resizable, with `set_min_size(MIN_EXPANDED × zoom × scale)` (the minimum is cleared first for the compact player). `WindowEvent::Resized` goes to `on_resized`, which records a size only while the user resizes: the window's subclass sets `RESIZING` on `WM_SIZING` and clears it on `WM_EXITSIZEMOVE`, so Relay's own `SetWindowPos` and the move loop's resize after a scale change don't count. The CSS size is `resized_css` (the client size over zoom × scale, rounded), and the anchor moves to the new bottom-center; both are saved half a second after the resize stops. A resize that crosses onto a monitor with another scale never holds a size (`WM_SIZING` clears `HELD_SIZE`, and `rescale` doesn't hold one while `RESIZING`).
-- **Panes**: the dividers (`panes`: the preview's width, the button row's and the timeline's heights, `null` for the default) are the UI's; `save_panes` writes them to `window.json` (sanitized: what isn't a size is dropped), and `window_prefs` returns them at startup. `reset_layout` clears `size` and `panes` and places the editor at the default size.
-- **Moves** are tracked in `WindowEvent::Moved` and saved half a second after dragging stops. `ScaleFactorChanged` (dragged onto a monitor with another scale, or the scaling changed) re-sizes it with `rescale`, **after** the event: tao applies Windows' suggested rect once the handlers return, which would overwrite a size set inside them (and `run_on_main_thread` runs a task inline on the main thread, so the task is posted from another thread). `rescale` sizes the widget for the monitor the window is actually on, the one Windows took the new scale from, which isn't always the one holding the anchor (monitors of different heights). During a drag (`GUI_INMOVESIZE`) it keeps the top-left corner, so the widget stays under the cursor; otherwise it lays the widget out at the anchor as usual. Windows' move loop keeps re-applying the size it suggested (often a pixel or two off) on every mouse move, so after a scale change mid-drag the window **holds** `rescale`'s size: a subclass of the window (`watch_move_size`) substitutes it in `WM_WINDOWPOSCHANGING` until the drop, or until the next `WM_DPICHANGED` lets the window system's rect for that scale through. A watcher thread waits for the drop, releases the size and runs `rescale` once more, which also keeps the widget inside the work area.
-- **Frame**: on Windows 11, `DWMWA_WINDOW_CORNER_PREFERENCE = DONOTROUND` and `DWMWA_BORDER_COLOR = NONE`, so the window has the design's square corners and its own 2 px ink border.
-- **Focus**: `WS_EX_NOACTIVATE` during sessions, and `set_ignore_cursor_events` for click-through (see the coordinator).
-- **Keep on top**: `apply_on_top` sets always-on-top from the `keep_on_top` setting (`always`, `sessions`, `never`) and whether a session is running. It's applied at startup, on every `EmitMode`, and when the setting changes.
+The hard part is Windows' move loop on monitors with different scales: it keeps re-applying its own suggested size during a drag. A window subclass (`watch_move_size`) holds Relay's size until the drop. Read the code's comments before changing it.
 
-## The tray
-
-[`tray.rs`](../../src-tauri/src/tray.rs): left-click toggles the window. The menu has *Show / hide Relay*, *Record*, *Stop*, the *Triggers active* check item, *Open macros folder* and *Quit Relay*. The tooltip follows the session mode (*Relay — recording (F9 to stop)*).
-
-## The embedded player
-
-[`build.rs`](../../src-tauri/build.rs) builds the [player](architecture.md#the-exported-player) (`cargo build -p relay-player --release`) into `target/player` and copies it to `OUT_DIR`; `commands.rs` embeds it with `include_bytes!` as `PLAYER`, and `export_macro` with `format: "exe"` writes `format::bundle(PLAYER, macro)`. The first build takes a minute or two longer; later ones rebuild the player only when a crate it uses changes. Set `RELAY_PLAYER_EXE` to a prebuilt player to skip the nested build.
+[`look.rs`](../../src-tauri/src/look.rs) frosts both windows with Acrylic when the *Frosted glass* setting is on (by default on Windows 11, off on Windows 10) and Windows' transparency effects are on, and sets the frame's theme; the page draws its own ground over the glass. [`tray.rs`](../../src-tauri/src/tray.rs) is the tray icon and menu.
 
 ## Logging and panics
 
-[`logging.rs`](../../src-tauri/src/logging.rs) sets up `tracing` with a daily rolling file in `logs/` (`relay.YYYY-MM-DD.log`, 7 kept), non-blocking, at INFO level. A panic hook logs the thread name and message before the default hook runs.
+[`logging.rs`](../../src-tauri/src/logging.rs): a daily rolling file in `logs/` (7 kept), non-blocking, and a panic hook that logs the thread and message. Logs say **what happened, never what was typed**.
 
-Log lines record **what happened** (session transitions, recordings saved with their event counts, triggers fired or skipped, playback timing, errors), **never what was typed**. Keep it that way when adding logs.
+Release builds keep `panic = "unwind"` on purpose: a panic on the engine thread unwinds through `Engine`'s `Drop`, which releases every held key and button.
 
-The release profile uses `panic = "unwind"` (the default, deliberately not `abort`): a panic on the engine thread unwinds through `Engine`'s `Drop`, which releases every held key and button.
+The player that relay.exe embeds for exports is built by [`build.rs`](../../src-tauri/build.rs) (see [The exported player](architecture.md#the-exported-player)).
 
 ---
 
-<p align="center"><a href="platform.md">← relay-platform</a> · <a href="README.md">Contents</a> · <a href="ipc.md">IPC →</a></p>
+<p align="center"><a href="platform.md">← relay-platform</a> · <a href="ipc.md">IPC →</a></p>

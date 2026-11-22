@@ -181,7 +181,9 @@ pub fn check(events: &[Event], table: Option<&DataTable>, file: &str) -> Result<
     let used = columns_used(events);
     let Some(table) = table else {
         return match used.first() {
-            Some(name) => Err(format!("A Text step types {{col:{name}}}: choose a data file in Settings → Playback.")),
+            Some(name) => {
+                Err(format!("A Text step types {{col:{name}}}: choose a data file in the macro's play options."))
+            }
             None => Ok(()),
         };
     };
@@ -296,7 +298,7 @@ mod tests {
         assert_eq!(check(&typing(&["{col:CUSTOMER}"]), Some(&t), "data.csv"), Ok(()));
         assert_eq!(
             check(&typing(&["{col:Customer}"]), None, ""),
-            Err("A Text step types {col:Customer}: choose a data file in Settings → Playback.".into())
+            Err("A Text step types {col:Customer}: choose a data file in the macro's play options.".into())
         );
         assert_eq!(
             check(&typing(&["{col:Customer} {col:Total}"]), Some(&t), "data.csv"),

@@ -17,6 +17,7 @@ pub mod playback;
 pub mod runlog;
 pub mod schedule;
 pub mod session;
+pub mod splice;
 pub mod steps;
 pub mod text;
 pub mod timeline;

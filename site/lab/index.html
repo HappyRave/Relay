@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Relay website lab · Round W1</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  body { background: #e8e7e2; }
+  .wrap { max-width: 1500px; margin: 0 auto; padding: 30px 28px 80px; }
+  h1 { font-size: 34px; font-weight: 820; font-stretch: 110%; margin: 0 0 6px; }
+  .intro { color: var(--text-2); max-width: 90ch; margin: 0 0 10px; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; margin: 0 0 30px; }
+  .legend span { padding: 3px 10px; border-radius: 999px; background: var(--plate); box-shadow: 0 0 0 1px var(--line); }
+  .v { background: var(--plate); border-radius: 20px; padding: 22px; margin: 0 0 26px; box-shadow: 0 0 0 1px var(--line); }
+  .v.pick { box-shadow: 0 0 0 3px var(--red); }
+  .vh { display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; margin-bottom: 4px; }
+  .vh h2 { margin: 0; font-size: 24px; font-weight: 800; }
+  .vh .lbl { font-weight: 800; background: var(--ink); color: var(--paper); padding: 2px 9px; border-radius: 6px; font-size: 15px; }
+  .badge { background: var(--red); color: #fff; font-weight: 700; font-size: 12px; padding: 3px 9px; border-radius: 999px; letter-spacing: .03em; }
+  .vh a { margin-left: auto; font-size: 14px; font-weight: 650; }
+  .idea { color: var(--text-2); margin: 0 0 14px; max-width: 110ch; }
+  .why { font-size: 14.5px; margin: -6px 0 14px; }
+  .frames { display: grid; grid-template-columns: 1fr 300px; gap: 20px; align-items: start; }
+  .fr { border-radius: 12px; overflow: hidden; box-shadow: 0 0 0 1px var(--line-strong); background: #fff; }
+  .fr .cap { font-size: 12px; font-weight: 700; color: var(--text-2); padding: 6px 10px; background: var(--plate-2); border-bottom: 1px solid var(--line); }
+  .desk { height: 680px; position: relative; overflow: hidden; }
+  .desk iframe { width: 1440px; height: 1020px; border: 0; transform: scale(var(--s)); transform-origin: 0 0; position: absolute; }
+  .mob iframe { width: 390px; height: 820px; border: 0; transform: scale(.7692); transform-origin: 0 0; }
+  .mob .box { width: 300px; height: 631px; overflow: hidden; }
+  .qs { background: var(--ink); color: var(--paper); border-radius: 20px; padding: 26px 30px; }
+  .qs h2 { margin: 0 0 12px; font-size: 22px; }
+  .qs ol { margin: 0; padding-left: 22px; line-height: 1.7; }
+  .qs b { color: #fff; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Relay's website: round W1</h1>
+  <div class="qs" style="background: var(--green); color: var(--ink); margin-bottom: 18px"><h2 style="margin:0 0 6px">Decided, 2026-11-21</h2>The maintainer chose <b style="color:var(--ink)">W1·A Live desk</b> for the landing page and <b style="color:var(--ink)">W1·G1 Three columns</b> for the guide: "A and G1". Then decided the same day: the headline "Do it once. Relay does it again."; light and dark themes, following the system; links into the spec go to GitHub; the site is at happyrave.github.io/Relay. Still a proposal: the rest of A's copy.</div>
+  <p class="intro">Four landing pages (A–D) and two guide pages (G1, G2). Each is a different idea, built from the app's own tokens: aluminium and ink, red only for record and download, Archivo, the step glyphs (blue pointer, yellow keys, green logic). The frames are live: scroll inside them, and try the interactive heroes. Each opens full size from its link.</p>
+  <div class="legend"><span>All copy and numbers: <b>proposal</b></span><span>Download sizes in D: <b>placeholder</b></span><span>Red ring: <b>Claude's pick</b></span><span>Nothing here is decided</span></div>
+
+  <div class="v">
+    <div class="vh"><span class="lbl">W1·A</span><h2>Live desk</h2><a href="w1-a.html" target="_blank">Open full page ↗</a></div>
+    <p class="idea">The hero is Relay at work: a cursor fills a form in a little app while the player records and the steps appear one by one. Then the editor, a feature grid, and a dark download band. Easy to grasp in five seconds; the most conventional of the four.</p>
+    <div class="frames"><div class="fr"><div class="cap">Desktop 1440</div><div class="desk"><iframe src="w1-a.html" loading="lazy" title="A desktop"></iframe></div></div><div class="fr mob"><div class="cap">Phone 390</div><div class="box"><iframe src="w1-a.html" loading="lazy" title="A phone"></iframe></div></div></div>
+  </div>
+
+  <div class="v">
+    <div class="vh"><span class="lbl">W1·B</span><h2>Instrument</h2><a href="w1-b.html" target="_blank">Open full page ↗</a></div>
+    <p class="idea">The page is Relay's hardware: an aluminium device with an LCD and three big keys you can press (click, or <kbd>R</kbd>, <kbd>P</kbd>, <kbd>Esc</kbd>). Record lights the LEDs red where it clicks; Play runs them. Features are modules on a dark panel, each with an LCD caption. The boldest and most playful, and the furthest from a docs site.</p>
+    <div class="frames"><div class="fr"><div class="cap">Desktop 1440</div><div class="desk"><iframe src="w1-b.html" loading="lazy" title="B desktop"></iframe></div></div><div class="fr mob"><div class="cap">Phone 390</div><div class="box"><iframe src="w1-b.html" loading="lazy" title="B phone"></iframe></div></div></div>
+  </div>
+
+  <div class="v pick">
+    <div class="vh"><span class="lbl">W1·C</span><h2>The page is a macro</h2><span class="badge">Claude's pick</span><a href="w1-c.html" target="_blank">Open full page ↗</a></div>
+    <p class="idea">Scrolling plays the page. A steps list on the left (Record, Edit, Wait for, Trigger, Play) lights the step you're on; a timeline docked at the bottom moves its red playhead as you scroll, with Download always one click away. Each step is a section with a real screenshot. On a phone, the list folds away and the timeline stays.</p>
+    <p class="why"><b>Why:</b> it explains Relay by being Relay: the steps and the playhead are the product's own ideas, so the page teaches the editor before anyone downloads it. And it's the most memorable without being a gimmick.</p>
+    <div class="frames"><div class="fr"><div class="cap">Desktop 1440 (scroll inside)</div><div class="desk"><iframe src="w1-c.html" loading="lazy" title="C desktop"></iframe></div></div><div class="fr mob"><div class="cap">Phone 390</div><div class="box"><iframe src="w1-c.html" loading="lazy" title="C phone"></iframe></div></div></div>
+  </div>
+
+  <div class="v">
+    <div class="vh"><span class="lbl">W1·D</span><h2>Quiet tool</h2><a href="w1-d.html" target="_blank">Open full page ↗</a></div>
+    <p class="idea">Calm and dense, like a good developer tool's site: one line, Download, the editor screenshot, six features, then the guide's tasks and the two downloads side by side. No animation. The fastest to the point, and the least "beautiful".</p>
+    <div class="frames"><div class="fr"><div class="cap">Desktop 1440</div><div class="desk"><iframe src="w1-d.html" loading="lazy" title="D desktop"></iframe></div></div><div class="fr mob"><div class="cap">Phone 390</div><div class="box"><iframe src="w1-d.html" loading="lazy" title="D phone"></iframe></div></div></div>
+  </div>
+
+  <div class="v pick">
+    <div class="vh"><span class="lbl">W1·G1</span><h2>Guide: three columns</h2><span class="badge">Claude's pick</span><a href="w1-g1.html" target="_blank">Open full page ↗</a></div>
+    <p class="idea">The classic docs layout: the guide's sections on the left, the page in the middle, <i>On this page</i> on the right, search on top. The guide's own parts get Relay's style: numbered steps as ink keys, <i>If it worked</i> in logic green, warnings in keys yellow.</p>
+    <p class="why"><b>Why:</b> it's what Starlight gives out of the box (sidebar, search, table of contents, dark mode), so we only restyle it. Readers already know how to use it.</p>
+    <div class="frames"><div class="fr"><div class="cap">Desktop 1440</div><div class="desk"><iframe src="w1-g1.html" loading="lazy" title="G1 desktop"></iframe></div></div><div class="fr mob"><div class="cap">Phone 390</div><div class="box"><iframe src="w1-g1.html" loading="lazy" title="G1 phone"></iframe></div></div></div>
+  </div>
+
+  <div class="v">
+    <div class="vh"><span class="lbl">W1·G2</span><h2>Guide: task card</h2><a href="w1-g2.html" target="_blank">Open full page ↗</a></div>
+    <p class="idea">One task per card, centred: the reading time, the steps drawn like Relay's steps list, <i>If it worked</i>, and the rest folded into sections you open. A menu replaces the sidebar. Closest to the m25 guide's "short task page" idea, and more custom work.</p>
+    <div class="frames"><div class="fr"><div class="cap">Desktop 1440</div><div class="desk"><iframe src="w1-g2.html" loading="lazy" title="G2 desktop"></iframe></div></div><div class="fr mob"><div class="cap">Phone 390</div><div class="box"><iframe src="w1-g2.html" loading="lazy" title="G2 phone"></iframe></div></div></div>
+  </div>
+
+  <div class="qs">
+    <h2>Open questions</h2>
+    <ol>
+      <li><b>Which landing page</b>, or which parts of several (B's pressable keys in C's hero, say)?</li>
+      <li><b>Light, dark, or both?</b> A, C, D and the guides are light; B is dark. The app has both themes, so the site could follow the system.</li>
+      <li><b>Which guide layout:</b> G1 (Starlight's, restyled) or G2 (custom task cards)?</li>
+      <li><b>The headline.</b> Proposals: "Do it once. Relay does it again." (A), "Record. Edit. Play." (B), "Show your PC a task once." (C), the README's line (D).</li>
+      <li><b>Domain:</b> <code>happyrave.github.io/Relay</code>, or a domain of its own later?</li>
+    </ol>
+  </div>
+</div>
+<script>
+  const fit = () => document.querySelectorAll(".desk").forEach(d => d.style.setProperty("--s", d.clientWidth / 1440));
+  addEventListener("resize", fit); fit();
+</script>
+</body>
+</html>

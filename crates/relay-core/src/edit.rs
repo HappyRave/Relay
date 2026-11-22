@@ -119,6 +119,12 @@ pub enum EditOp {
     MakeEditable {
         index: u32,
     },
+    /// Several edits as one (one undo), applied in order: each op's indices
+    /// are of the steps as the ops before it left them. If one fails,
+    /// none is applied.
+    Batch {
+        ops: Vec<EditOp>,
+    },
 }
 
 #[derive(Debug, Error, PartialEq)]
@@ -132,6 +138,14 @@ pub enum EditError {
 }
 
 pub fn apply(m: &mut Macro, op: EditOp) -> Result<(), EditError> {
+    if let EditOp::Batch { ops } = op {
+        let mut next = m.clone();
+        for op in ops {
+            apply(&mut next, op)?;
+        }
+        *m = next;
+        return Ok(());
+    }
     // Every edit but a rename addresses or respects steps.
     let steps =
         if matches!(op, EditOp::Rename { .. }) { Vec::new() } else { group_steps(&m.events, (&m.recording).into()) };
@@ -341,6 +355,8 @@ pub fn apply(m: &mut Macro, op: EditOp) -> Result<(), EditError> {
         EditOp::SmoothMove { index } => reshape(m, get(index)?, index, path::smooth)?,
 
         EditOp::StraightenMove { index } => reshape(m, get(index)?, index, path::straighten)?,
+
+        EditOp::Batch { .. } => unreachable!("applied above"),
     }
     if saturated {
         normalize(&mut m.events);
@@ -627,6 +643,28 @@ mod tests {
         assert!(matches!(ev[2], Event::Button { x: 5, y: 5, down: false, .. }), "{ev:?}");
         let steps = group_steps(&ev, (&RecordingMeta::single_1080p()).into());
         assert!(matches!(steps[0].kind, StepKind::Click { .. }), "still a click, not a drag");
+    }
+
+    #[test]
+    fn a_batch_applies_its_edits_in_order_or_none_of_them() {
+        let mut m = mac([click(0), click(1000), click(2000), click(3000)].concat());
+        let ops = vec![
+            EditOp::SetLabel { index: 1, label: "second".into() },
+            // Deleting from the end keeps the earlier indices.
+            EditOp::DeleteStep { index: 3 },
+            EditOp::DeleteStep { index: 0 },
+        ];
+        apply(&mut m, EditOp::Batch { ops }).unwrap();
+        let steps = group_steps(&m.events, (&m.recording).into());
+        assert_eq!(steps.len(), 2);
+        assert_eq!(steps[0].t, 1000);
+        assert!(matches!(&m.events[0], Event::Button { label, .. } if label == "second"));
+        check_invariants(&m.events).unwrap();
+
+        let before = m.clone();
+        let ops = vec![EditOp::DeleteStep { index: 0 }, EditOp::DeleteStep { index: 5 }];
+        assert_eq!(apply(&mut m, EditOp::Batch { ops }), Err(EditError::NoSuchStep(5)));
+        assert_eq!(m, before, "a failed batch changes nothing");
     }
 
     #[test]

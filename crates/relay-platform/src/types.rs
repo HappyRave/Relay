@@ -40,15 +40,73 @@ pub enum RawKind {
     Escape,
     /// Another key was pressed during playback with "stop on key press" (swallowed).
     StopKey,
-    /// Ctrl + Alt + End was pressed while watching with `report_kill_switch`
+    /// The kill switch was pressed while watching with `report_kill_switch`
     /// (passed through, so a registered hotkey still gets it).
     KillSwitch,
+}
+
+/// A key and the modifiers held with it, as the hooks see them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KeyChord {
+    pub vk: u16,
+    pub ctrl: bool,
+    pub alt: bool,
+    pub shift: bool,
+    pub win: bool,
+}
+
+impl KeyChord {
+    /// Ctrl + Alt + End, the kill switch of older Relays and of exported programs.
+    pub const CTRL_ALT_END: KeyChord =
+        KeyChord { vk: crate::keymap::VK_END, ctrl: true, alt: true, shift: false, win: false };
+
+    /// The chord for a combo as the UI shows it ("Ctrl + Alt + Backspace"), or
+    /// `None` if a part isn't a modifier or a key with a virtual key.
+    pub fn parse(combo: &str) -> Option<KeyChord> {
+        let parts = relay_core::keys::split_combo(combo)?;
+        let (key, mods) = parts.split_last()?;
+        let mut chord =
+            KeyChord { vk: crate::keymap::vk_for_code(&relay_core::keys::code_for_label(key))?, ..Self::NONE };
+        for m in mods {
+            match *m {
+                "Ctrl" => chord.ctrl = true,
+                "Alt" => chord.alt = true,
+                "Shift" => chord.shift = true,
+                "Win" => chord.win = true,
+                _ => return None,
+            }
+        }
+        Some(chord)
+    }
+
+    const NONE: KeyChord = KeyChord { vk: 0, ctrl: false, alt: false, shift: false, win: false };
+
+    /// Whether `vk` with these modifiers held is this chord: its key, and at
+    /// least its modifiers.
+    pub fn pressed(&self, vk: u16, ctrl: bool, alt: bool, shift: bool, win: bool) -> bool {
+        vk == self.vk && (ctrl || !self.ctrl) && (alt || !self.alt) && (shift || !self.shift) && (win || !self.win)
+    }
+
+    /// [`pressed`](Self::pressed), with the modifiers from the keys `held`.
+    pub fn pressed_with(&self, vk: u16, held: &HeldKeys) -> bool {
+        use crate::keymap::{is_alt_vk, is_ctrl_vk};
+        let any = |f: fn(u16) -> bool| held.iter().any(|&k| f(k));
+        self.pressed(
+            vk,
+            any(is_ctrl_vk),
+            any(is_alt_vk),
+            any(|k| matches!(k, 0x10 | 0xA0 | 0xA1)),
+            any(|k| matches!(k, 0x5B | 0x5C)),
+        )
+    }
 }
 
 /// What a hook session does, fixed for its lifetime.
 #[derive(Debug, Clone)]
 pub struct HookConfig {
     pub mode: HookMode,
+    /// Always let through to its hotkey, never recorded or taken for a stop key.
+    pub kill_switch: KeyChord,
     /// Ignore input injected by other programs (Relay's own is always ignored).
     pub ignore_injected: bool,
     /// Beats on every mouse event the hook sees while recording, including
@@ -73,23 +131,33 @@ impl MousePulse {
     }
 }
 
+/// Relay's own windows, 0 where there's none: the app's main window and its
+/// player (an exported program has only one).
+pub type OwnWindows = [isize; 2];
+
+/// Whether `hwnd` is one of Relay's windows.
+pub fn is_own(own: &OwnWindows, hwnd: isize) -> bool {
+    hwnd != 0 && own.contains(&hwnd)
+}
+
 #[derive(Debug, Clone)]
 pub enum HookMode {
     /// Report input for a recording.
     Record {
-        /// Relay's window: clicks and scrolls on it, and keys typed while it
-        /// is in front, are UI, not macro input (0 when there is none).
-        own_window: isize,
-        /// Virtual keys passed through but not recorded (the control hotkeys).
-        skip_vks: Vec<u16>,
+        /// Relay's windows: clicks and scrolls on them, and keys typed while
+        /// one is in front, are UI, not macro input.
+        own: OwnWindows,
+        /// Keys passed through but not recorded (Relay's own hotkeys), each
+        /// with its modifiers: the same key without them is recorded.
+        skip: Vec<KeyChord>,
         /// Swallow Esc and report [`RawKind::Escape`] instead of recording it.
         esc_stops: bool,
     },
     /// Playback: report Esc (swallowed) and, with `stop_on_key`, any other key
-    /// but modifiers and `pass_vks` (swallowed too). Nothing is recorded.
+    /// but modifiers and `pass` (swallowed too). Nothing is recorded.
     Watch {
         stop_on_key: bool,
-        pass_vks: Vec<u16>,
+        pass: Vec<KeyChord>,
         /// Also report the kill switch, for a program that can't register it
         /// as a hotkey (Relay has).
         report_kill_switch: bool,

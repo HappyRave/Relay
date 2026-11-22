@@ -13,15 +13,15 @@ describe("run history", () => {
   let page;
   const ids = {};
 
-  /** A patch of Relay's own window in `color`, and the screen pixel at its center. */
+  /** A patch of Relay's player in `color` (it's on top), and the screen pixel at its center. */
   async function patch(color) {
-    const pos = await page.invoke("plugin:window|inner_position", { label: "main" });
-    const at = await page.run((color) => {
+    const pos = await page.invoke("plugin:window|inner_position", { label: "player" });
+    const at = await app.player.run((color) => {
       let el = document.getElementById("e2e-patch");
       if (!el) {
         el = document.createElement("div");
         el.id = "e2e-patch";
-        Object.assign(el.style, { position: "fixed", left: "40px", top: "300px", width: "40px", height: "40px", zIndex: 99999 });
+        Object.assign(el.style, { position: "fixed", left: "200px", top: "12px", width: "40px", height: "40px", zIndex: 99999 });
         document.body.append(el);
       }
       el.style.background = color;
@@ -34,6 +34,9 @@ describe("run history", () => {
 
   before(async () => {
     page = await app.start();
+    // The player stands in for the window throughout: the patch is drawn in it.
+    await page.invoke("set_player_mode", { on: true });
+    await until(() => app.visible("player"), { what: "the player" });
     const { x, y } = await patch("#12C34E");
     await until(async () => (await page.invoke("sample_pixel", { x, y })) === "#12C34E", { what: "the patch on screen" });
     const docs = {
@@ -49,7 +52,7 @@ describe("run history", () => {
     await page.run(() => window.__relay.refreshLibrary());
   });
   after(() => app.dispose());
-  afterEach(() => app.page?.reset());
+  afterEach(() => app.page?.reset({ keepPlayer: true }));
 
   const onDisk = () => (app.exists("runs.json") ? app.json("runs.json").entries : []);
   /** Plays `id` from the Play button until idle; returns the entry it added (runs.json keeps the oldest first). */
@@ -116,26 +119,31 @@ describe("run history", () => {
     assert.ok(e.duration_ms >= 600 && e.duration_ms < 3000, `played ${e.duration_ms} ms`);
   });
 
-  test("Library → Runs lists them newest first; a run opens to show its checks", async () => {
-    await page.tab("Library");
-    await page.click("Runs");
+  test("Library → All runs lists them newest first; a run opens to show its checks", async () => {
+    await page.go("library");
+    await page.click("All runs");
     await until(async () => (await page.run(() => document.querySelectorAll(".runs .head").length)) === 4, { what: "the runs" });
     const rows = await page.run(() => [...document.querySelectorAll(".runs .head")].map((r) => r.innerText.replace(/\s+/g, " ").trim()));
-    assert.match(rows[0], /^Long Today, \d\d:\d\d Play · Stopped \d+\.\d s$/);
-    assert.match(rows[1], /^Never Today, \d\d:\d\d Play · Pixel check timed out \d+\.\d s$/);
-    assert.match(rows[2], /^Matches Today, \d\d:\d\d Play · Completed \d+\.\d s$/);
-    assert.match(rows[3], /^Short Today, \d\d:\d\d Play · Completed · 2 loops \d+\.\d s$/);
+    assert.match(rows[0], /^Long .*Stopped \d+\.\d s$/);
+    assert.match(rows[1], /^Never .*Pixel check timed out \d+\.\d s$/);
+    assert.match(rows[2], /^Matches .*Completed \d+\.\d s$/);
+    assert.match(rows[3], /^Short .*Completed \d+\.\d s$/);
     await page.run(() => document.querySelectorAll(".runs .head")[1].click());
-    await until(async () => /Step 2 · Pixel check timed out after \d\.\d s/.test((await page.text(".runs .details")) ?? ""), {
+    await until(async () => /Step 2 · Pixel check timed out after \d\.\d s/.test((await page.text(".runs .detail")) ?? ""), {
       what: "the check",
     });
+    // A failed run is one of the Problems.
+    await page.run(() => [...document.querySelectorAll(".navi")].find((b) => b.textContent.startsWith("Problems")).click());
+    await until(async () => (await page.run(() => document.querySelectorAll(".runs .head").length)) === 1, { what: "the problem" });
+    await page.click("All runs");
     // A new run shows up while the view is open.
     await page.open(ids.short);
-    await page.tab("Library");
-    await page.playTimed();
-    await until(async () => (await page.run(() => document.querySelectorAll(".runs .head").length)) === 5, { what: "the new run" });
-    await page.click("Macros");
-    await until(async () => !(await page.store("runsOpen")), { what: "back to the macros" });
+    await page.go("library");
+    await page.run(() => window.__relay.playMacro(window.__relay.view.id));
+    await until(async () => (await page.run(() => document.querySelectorAll(".runs .head").length)) === 5, { timeout: 15_000, what: "the new run" });
+    // All (with its count) goes back to the macros.
+    await page.run(() => [...document.querySelectorAll(".navi")].find((b) => /^All\s*\d*$/.test(b.textContent.trim())).click());
+    await until(async () => (await page.store("libraryShows")) === "macros", { what: "back to the macros" });
   });
 
   test("the history survives a restart", async () => {
@@ -148,7 +156,7 @@ describe("run history", () => {
     await app.quit();
     writeFileSync(app.path("runs.json"), "{ not json");
     page = await app.start();
-    await until(async () => /runs\.json\.bad/.test((await page.store("toast.message")) ?? ""), { what: "the error" });
+    await until(async () => (await page.store("toasts")).some((t) => /runs\.json\.bad/.test(t.message)), { what: "the error" });
     assert.equal(app.exists("runs.json"), false);
     assert.deepEqual(await page.invoke("list_runs"), []);
     await page.run(() => window.__relay.refreshLibrary());

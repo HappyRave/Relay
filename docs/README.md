@@ -16,18 +16,22 @@ There are two guides. Pick the one you need.
 
 How to install Relay and automate your work with it.
 
-1. [Getting started](user-guide/01-getting-started.md)
-2. [Recording](user-guide/02-recording.md)
-3. [Editing steps](user-guide/03-editing.md)
-4. [Playing back](user-guide/04-playback.md)
-5. [Pixel checks](user-guide/05-pixel-checks.md)
-6. [Find image](user-guide/06-find-image.md)
-7. [Triggers](user-guide/07-triggers.md)
-8. [Library, export and import](user-guide/08-library.md)
-9. [Settings, tray and window](user-guide/09-settings.md)
-10. [Troubleshooting and FAQ](user-guide/10-troubleshooting.md)
+1. [Get started](user-guide/getting-started.md)
+2. [Record a macro](user-guide/record.md)
+3. [Stop a macro](user-guide/stop-a-macro.md)
+4. [Edit the steps](user-guide/edit-steps.md)
+5. [Make a macro wait](user-guide/wait.md)
+6. [Click a picture wherever it is](user-guide/find-image.md)
+7. [Type text that changes](user-guide/text.md)
+8. [Fill in a form from a spreadsheet](user-guide/spreadsheet.md)
+9. [Play, loop and change speed](user-guide/play.md)
+10. [Run a macro automatically](user-guide/run-automatically.md)
+11. [See what ran and what failed](user-guide/what-ran.md)
+12. [Find, share and back up macros](user-guide/library.md)
+13. [Run a macro without Relay](user-guide/scripts.md)
+14. [Fix a problem](user-guide/troubleshooting.md)
 
-⌨️ [Keyboard shortcuts](user-guide/keyboard-shortcuts.md)
+⌨️ [Relay's keys and shortcuts](user-guide/keys.md)
 
 </td>
 <td width="50%" valign="top">
@@ -44,6 +48,8 @@ How Relay works inside, for contributors.
 6. [The frontend](engineering/frontend.md)
 7. [File formats](engineering/file-formats.md)
 8. [Testing and CI](engineering/testing.md)
+
+📐 [Behavior spec](spec/README.md): every rule Relay follows, numbered
 
 🤝 [Contributing](../CONTRIBUTING.md)
 

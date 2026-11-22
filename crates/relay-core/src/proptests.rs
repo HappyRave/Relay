@@ -11,6 +11,7 @@ use crate::edit::{EditError, EditOp, MAX_DUR, apply, check_invariants};
 use crate::keys::KeyStroke;
 use crate::model::{Event, ImagePng, Macro, MouseBtn, Ms, RecordingMeta, Rgb};
 use crate::playback::plan_times;
+use crate::splice::Splice;
 use crate::steps::{GroupOptions, Step, StepKind, group_steps};
 use crate::text;
 use crate::timeline::duration;
@@ -271,6 +272,7 @@ fn expected(op: &EditOp, steps: &[Step]) -> Result<(), EditError> {
             template(text)
         }
         EditOp::MakeEditable { index } => only(*index, |k| matches!(k, StepKind::Type { .. })),
+        EditOp::Batch { .. } => unreachable!("batches have a property of their own"),
         EditOp::Rename { .. }
         | EditOp::InsertWait { .. }
         | EditOp::InsertPixelWait { .. }
@@ -519,6 +521,49 @@ proptest! {
                 prop_assert_eq!(&m.events, &before, "a failed edit changes nothing");
             }
         }
+    }
+
+    #[test]
+    fn every_edit_undoes_and_redoes_from_its_splice((events, ops) in macro_and_edits()) {
+        let mut m = Macro::new("p", RecordingMeta::single_1080p(), events);
+        let mut history = Vec::new();
+        for op in ops {
+            let before = m.events.clone();
+            if apply(&mut m, op).is_ok() {
+                history.push((Splice::between(&before, &m.events), before, m.events.clone()));
+            }
+        }
+        // Undo all of them, newest first, then redo them all.
+        let mut redo = Vec::new();
+        for (splice, before, after) in history.into_iter().rev() {
+            prop_assert_eq!(&m.events, &after);
+            redo.push((splice.revert(&mut m.events), after));
+            prop_assert_eq!(&m.events, &before);
+        }
+        for (splice, after) in redo.into_iter().rev() {
+            splice.revert(&mut m.events);
+            prop_assert_eq!(&m.events, &after);
+        }
+    }
+
+    #[test]
+    fn a_batch_is_its_edits_in_order_and_undoes_in_one((events, ops) in macro_and_edits()) {
+        let start = Macro::new("p", RecordingMeta::single_1080p(), events);
+        let mut one_by_one = start.clone();
+        let all_ok = ops.iter().all(|op| apply(&mut one_by_one, op.clone()).is_ok());
+        let mut batched = start.clone();
+        let result = apply(&mut batched, EditOp::Batch { ops });
+        prop_assert_eq!(result.is_ok(), all_ok);
+        if all_ok {
+            prop_assert_eq!(&batched.events, &one_by_one.events);
+            prop_assert_eq!(&batched.name, &one_by_one.name);
+        } else {
+            prop_assert_eq!(&batched, &start, "a failed batch changes nothing");
+        }
+        prop_assert_eq!(check_invariants(&batched.events), Ok(()));
+        let mut undone = batched.events.clone();
+        Splice::between(&start.events, &batched.events).revert(&mut undone);
+        prop_assert_eq!(&undone, &start.events);
     }
 
     #[test]

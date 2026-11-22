@@ -1,0 +1,58 @@
+name: Website
+
+# Builds the website (site/: the landing page, and the user guide synced from
+# docs/user-guide) and publishes it to GitHub Pages at happyrave.github.io/Relay.
+# Runs when main changes what the site shows, or by hand from Actions → Website.
+on:
+  push:
+    branches: [main]
+    paths: [site/**, docs/user-guide/**, docs/images/**, .github/workflows/pages.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; a newer one waits rather than cancelling a deploy halfway.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            site/package-lock.json
+      - uses: actions/configure-pages@v6
+      # The build also reads the app's tsconfig.json at the repo root, which extends
+      # a package of the app's: install those too, as CI's quick job does.
+      - name: npm ci (the app)
+        working-directory: .
+        run: npm ci
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

@@ -1,12 +1,17 @@
 <script lang="ts">
   // The prototype's demo desktop, used when the UI runs in a plain browser
-  // (`npm run dev`). In Tauri the window contains only the widget.
-  import Widget from "../Widget.svelte";
+  // (`npm run dev`): the window on it, or the player in player mode. In Tauri
+  // each is a window of its own.
+  import AppWindow from "../window/AppWindow.svelte";
+  import Player from "../player/Player.svelte";
   import { devDesktop } from "../../lib/dev/devDesktop.svelte";
+  import { relay } from "../../lib/state/relay.svelte";
 
   let vw = $state(window.innerWidth);
   let vh = $state(window.innerHeight);
-  let size = $state({ w: 944, h: 612 });
+  const size = $derived(
+    !relay.playerMode ? { w: 944, h: 612 } : relay.settings.player_size === "large" ? { w: 760, h: 88 } : { w: 600, h: 64 },
+  );
   let now = $state(new Date());
 
   $effect(() => {
@@ -30,7 +35,7 @@
   <div class="hint">
     <div class="kicker">Try it</div>
     <div>
-      A preview of Relay's UI with the design's sample macros. <b>F10</b> plays a macro back, <b>Esc</b> stops.
+      A preview of Relay's UI with the design's sample macros. <b>{relay.settings.keys.play}</b> plays a macro back, <b>Esc</b> stops.
       Recording and step edits run in the app (<b>npm run tauri dev</b>).
     </div>
   </div>
@@ -44,10 +49,8 @@
     class="host"
     style:bottom="{bottom}px"
     style:transform="translate(calc(-50% + {devDesktop.dx}px), {devDesktop.dy}px) scale({scale})"
-    style:--widget-w="944px"
-    style:--widget-h="612px"
   >
-    <Widget onresize={(w, h) => (size = { w, h })} />
+    {#if relay.playerMode}<Player />{:else}<div class="window"><AppWindow /></div>{/if}
   </div>
 </div>
 
@@ -55,9 +58,12 @@
   .desktop {
     position: fixed;
     inset: 0;
-    background-color: var(--color-neutral-300);
-    background-image: linear-gradient(var(--color-neutral-400) 1px, transparent 1px),
-      linear-gradient(90deg, var(--color-neutral-400) 1px, transparent 1px);
+    color: var(--text);
+    font-family: var(--font);
+    background-color: var(--alu-300);
+    background-image:
+      linear-gradient(var(--alu-400) 1px, transparent 1px),
+      linear-gradient(90deg, var(--alu-400) 1px, transparent 1px);
     background-size: 96px 96px;
   }
   .hint {
@@ -72,22 +78,21 @@
     line-height: 1.45;
   }
   .kicker {
-    font-size: 11px;
-    letter-spacing: 0.1em;
+    font-size: 12px;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: var(--color-accent-700);
-    font-weight: 600;
+    color: var(--red-text);
+    font-weight: 700;
   }
   .wordmark {
     position: absolute;
     left: 28px;
     bottom: 48px;
-    font-family: var(--font-heading);
     font-weight: 800;
     font-size: clamp(80px, 16vw, 220px);
     line-height: 0.8;
     letter-spacing: -0.05em;
-    color: var(--color-neutral-400);
+    color: var(--alu-400);
   }
   .taskbar {
     position: absolute;
@@ -95,8 +100,10 @@
     right: 0;
     bottom: 0;
     height: 40px;
-    background: var(--color-bg);
-    border-top: 2px solid var(--color-divider);
+    background: var(--glass);
+    -webkit-backdrop-filter: blur(28px);
+    backdrop-filter: blur(28px);
+    border-top: 1px solid var(--line);
     display: flex;
     align-items: center;
     gap: 16px;
@@ -110,7 +117,8 @@
   .start span {
     width: 8px;
     height: 8px;
-    background: var(--color-text);
+    border-radius: 1px;
+    background: var(--blue);
   }
   .app {
     height: 40px;
@@ -118,14 +126,15 @@
     align-items: center;
     gap: 8px;
     padding: 0 10px;
-    border-bottom: 3px solid var(--color-accent);
+    box-shadow: inset 0 -3px 0 var(--blue-line);
     font-size: 13px;
     font-weight: 600;
   }
   .mark {
     width: 12px;
     height: 12px;
-    background: var(--color-accent);
+    border-radius: 3px;
+    background: var(--red);
   }
   .clock {
     margin-left: auto;
@@ -136,10 +145,13 @@
     position: absolute;
     left: 50%;
     transform-origin: 50% 100%;
-    box-shadow: var(--shadow-lg);
     line-height: 0;
   }
-  .host :global(.widget) {
-    line-height: 1.55;
+  .host > :global(*) {
+    line-height: 1.4;
+  }
+  .window {
+    width: 944px;
+    height: 612px;
   }
 </style>

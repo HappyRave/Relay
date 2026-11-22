@@ -18,7 +18,9 @@ export type StepOf<K extends Step["kind"]> = Extract<Step, { kind: K }>;
 export type { Mode } from "./ipc/bindings/Mode";
 export type { Settings } from "./ipc/bindings/Settings";
 
-export type Tab = "steps" | "library" | "triggers" | "settings";
+/** The editor's side panel. */
+/** Where the window is: the Library, a macro, or Relay's settings. */
+export type Place = "library" | "macro" | "settings";
 /** Where a Find image step's image comes from: Windows' snip, the clipboard, or a file. */
 export type ImageSource = "snip" | "paste" | "file";
 export type ExportFormat = "rly" | "json" | "exe" | "ahk";

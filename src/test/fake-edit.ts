@@ -246,6 +246,14 @@ export function applyEdit(v: MacroView, op: EditOp) {
   const wrongKind = (index: number) => rejected(`step ${index} can't be edited this way`);
 
   switch (op.op) {
+    case "batch": {
+      // In order, on a copy: if one fails, none is applied.
+      const next = structuredClone(v);
+      for (const o of op.ops) applyEdit(next, o);
+      Object.assign(v, next);
+      return;
+    }
+
     case "rename":
       v.name = op.name;
       return;

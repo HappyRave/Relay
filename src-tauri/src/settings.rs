@@ -29,7 +29,7 @@ pub enum PreviewBackground {
     Sketch,
 }
 
-/// When the widget floats above other windows.
+/// When the player floats above other windows (the window itself never does).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
@@ -41,13 +41,170 @@ pub enum KeepOnTop {
 }
 
 impl KeepOnTop {
-    /// Whether the widget should be on top, given whether a session is running.
+    /// Whether the player should be on top, given whether a session is running.
     pub fn on_top(self, session: bool) -> bool {
         match self {
             KeepOnTop::Always => true,
             KeepOnTop::Sessions => session,
             KeepOnTop::Never => false,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum Theme {
+    /// Light or dark, as Windows' app mode.
+    System,
+    Light,
+    Dark,
+}
+
+/// How much room controls take.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum Spacing {
+    Compact,
+    Comfortable,
+    Large,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum PlayerSize {
+    Compact,
+    Large,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum ReduceMotion {
+    /// As Windows' *Animation effects*.
+    System,
+    Always,
+}
+
+/// Relay's own keys, as the UI shows them ("Ctrl + Shift + F9"). `None`
+/// leaves the job to the buttons; the kill switch can't be turned off.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct RelayKeys {
+    pub record: Option<String>,
+    pub play: Option<String>,
+    pub player: Option<String>,
+    pub kill: String,
+}
+
+impl RelayKeys {
+    /// A new install's: other apps keep F9 and F10, and the kill switch is on
+    /// every keyboard, types nothing, and works over Remote Desktop.
+    pub fn new_default() -> Self {
+        RelayKeys {
+            record: Some("Ctrl + Shift + F9".into()),
+            play: Some("Ctrl + Shift + F10".into()),
+            player: Some("Ctrl + Shift + M".into()),
+            kill: "Ctrl + Alt + Backspace".into(),
+        }
+    }
+
+    /// The keys Relay had before they could be set, kept for those who used them.
+    pub fn legacy() -> Self {
+        RelayKeys {
+            record: Some("F9".into()),
+            play: Some("F10".into()),
+            player: Some("Ctrl + Shift + M".into()),
+            kill: "Ctrl + Alt + End".into(),
+        }
+    }
+
+    pub fn get(&self, key: RelayKey) -> Option<&str> {
+        match key {
+            RelayKey::Record => self.record.as_deref(),
+            RelayKey::Play => self.play.as_deref(),
+            RelayKey::Player => self.player.as_deref(),
+            RelayKey::Kill => Some(&self.kill),
+        }
+    }
+
+    /// The same keys with `key` set to `combo` (the kill switch stays if `combo` is `None`).
+    pub fn with(&self, key: RelayKey, combo: Option<String>) -> Self {
+        let mut keys = self.clone();
+        match key {
+            RelayKey::Record => keys.record = combo,
+            RelayKey::Play => keys.play = combo,
+            RelayKey::Player => keys.player = combo,
+            RelayKey::Kill => keys.kill = combo.unwrap_or(keys.kill),
+        }
+        keys
+    }
+}
+
+/// One of Relay's own keys.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum RelayKey {
+    Record,
+    Play,
+    Player,
+    Kill,
+}
+
+impl RelayKey {
+    pub const ALL: [RelayKey; 4] = [RelayKey::Record, RelayKey::Play, RelayKey::Player, RelayKey::Kill];
+
+    /// Its name in Settings → Keys.
+    pub fn name(self) -> &'static str {
+        match self {
+            RelayKey::Record => "Record",
+            RelayKey::Play => "Play / pause",
+            RelayKey::Player => "Show the player",
+            RelayKey::Kill => "Stop everything",
+        }
+    }
+}
+
+/// What the first run shows when the window next opens.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum Intro {
+    /// A new install: what Relay does, its keys, a first recording.
+    Welcome,
+    /// An upgrade: the keys screen once, with the keys kept from before.
+    Keys,
+    Done,
+}
+
+/// Relay's text size, in percent: everything scales with it, the window too.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(try_from = "u16", into = "u16")]
+#[ts(export, type = "100 | 125 | 150 | 200")]
+pub struct TextSize(u16);
+
+impl TextSize {
+    pub const SIZES: [u16; 4] = [100, 125, 150, 200];
+
+    /// The zoom it adds (1.5 for 150%).
+    pub fn zoom(self) -> f64 {
+        f64::from(self.0) / 100.0
+    }
+}
+
+impl TryFrom<u16> for TextSize {
+    type Error = String;
+    fn try_from(v: u16) -> Result<Self, String> {
+        Self::SIZES.contains(&v).then_some(TextSize(v)).ok_or_else(|| format!("{v}% isn't a text size"))
+    }
+}
+
+impl From<TextSize> for u16 {
+    fn from(t: TextSize) -> u16 {
+        t.0
     }
 }
 
@@ -73,6 +230,25 @@ pub struct Settings {
     /// The close button (and Alt+F4) hides Relay to the tray instead of quitting.
     pub close_to_tray: bool,
     pub keep_on_top: KeepOnTop,
+    /// The window hides while recording, and the player shows instead.
+    pub hide_while_recording: bool,
+    /// The window hides while playing; off, it stays where it is, not on top.
+    pub hide_while_playing: bool,
+    pub theme: Theme,
+    /// Frosted glass behind the window; `None` follows the default for this
+    /// Windows (on for Windows 11, off for Windows 10).
+    pub glass: Option<bool>,
+    pub spacing: Spacing,
+    pub text_size: TextSize,
+    pub player_size: PlayerSize,
+    pub reduce_motion: ReduceMotion,
+    /// Short sounds when recording starts and stops, and when a macro finishes or fails.
+    pub sounds: bool,
+    /// The steps list shows cursor moves as rows of their own, instead of
+    /// folded into the step they lead to.
+    pub show_moves: bool,
+    pub keys: RelayKeys,
+    pub intro: Intro,
 }
 
 impl Default for Settings {
@@ -89,7 +265,27 @@ impl Default for Settings {
             preview_background: PreviewBackground::Screen,
             close_to_tray: true,
             keep_on_top: KeepOnTop::Always,
+            hide_while_recording: true,
+            hide_while_playing: false,
+            theme: Theme::System,
+            glass: None,
+            spacing: Spacing::Comfortable,
+            text_size: TextSize(100),
+            player_size: PlayerSize::Compact,
+            reduce_motion: ReduceMotion::System,
+            sounds: false,
+            show_moves: false,
+            keys: RelayKeys::new_default(),
+            intro: Intro::Welcome,
         }
+    }
+}
+
+impl Settings {
+    /// What someone who used an older Relay starts with: everything they had
+    /// set, the keys they knew, and the keys screen once.
+    pub fn upgraded() -> Self {
+        Settings { keys: RelayKeys::legacy(), intro: Intro::Keys, ..Settings::default() }
     }
 }
 
@@ -102,9 +298,13 @@ pub struct SettingsStore {
 }
 
 impl SettingsStore {
-    /// Loads the settings in `dir`, with anything wrong with the file.
+    /// Loads the settings in `dir`, with anything wrong with the file. A
+    /// folder an older Relay used (it has macros) starts from
+    /// [`Settings::upgraded`], even without settings.json; a new one from the defaults.
     pub fn open(dir: &Path) -> (Self, Vec<String>) {
         let path = dir.join("settings.json");
+        let used = path.exists() || dir.join("library.json").exists() || dir.join("macros").exists();
+        let base = if used { Settings::upgraded() } else { Settings::default() };
         let mut problems = Vec::new();
         let mut unreadable = false;
         let current = match std::fs::read_to_string(&path) {
@@ -119,14 +319,14 @@ impl SettingsStore {
                 }
                 current
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Settings::default(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => base,
             Err(e) => {
                 unreadable = true;
                 problems.push(format!(
                     "{} couldn't be read ({e}). Relay uses the default settings until it restarts,                      and leaves the file as it is.",
                     path.display()
                 ));
-                Settings::default()
+                base
             }
         };
         (SettingsStore { path, current, unreadable }, problems)
@@ -147,16 +347,17 @@ fn to_json(s: &Settings) -> String {
 }
 
 /// Reads settings.json field by field: a value that doesn't fit its setting
-/// takes the default and the others are kept. Returns what was wrong, if anything.
+/// takes the default and the others are kept (an older Relay's file, without
+/// the keys, keeps the keys it had). Returns what was wrong, if anything.
 fn parse(text: &str) -> (Settings, Option<String>) {
     use serde_json::{Map, Value};
-    let reset = |why: String| (Settings::default(), Some(format!("{why}; every setting is back to its default")));
+    let reset = |why: String| (Settings::upgraded(), Some(format!("{why}; every setting is back to its default")));
     let file: Map<String, Value> = match serde_json::from_str(text) {
         Ok(Value::Object(file)) => file,
         Ok(_) => return reset("isn't a settings file".into()),
         Err(e) => return reset(format!("couldn't be read ({e})")),
     };
-    let Ok(Value::Object(mut merged)) = serde_json::to_value(Settings::default()) else {
+    let Ok(Value::Object(mut merged)) = serde_json::to_value(Settings::upgraded()) else {
         unreachable!("settings serialize to an object")
     };
     let mut bad = Vec::new();
@@ -215,7 +416,7 @@ mod tests {
         let path = dir.path().join("settings.json");
         std::fs::create_dir(&path).unwrap();
         let (mut s, problems) = SettingsStore::open(dir.path());
-        assert_eq!(s.current, Settings::default());
+        assert_eq!(s.current, Settings::upgraded(), "someone had settings: they keep their keys");
         assert_eq!(problems.len(), 1);
         assert!(problems[0].contains("couldn't be read"), "{}", problems[0]);
         let changed = Settings { countdown: false, ..Settings::default() };
@@ -231,7 +432,7 @@ mod tests {
         let text = r#"{"countdown":false,"keep_on_top":"sometimes","path_mode":"trail","capture_keys":"no"}"#;
         std::fs::write(dir.path().join("settings.json"), text).unwrap();
         let (s, problems) = open(dir.path());
-        let kept = Settings { countdown: false, path_mode: PathMode::Trail, ..Settings::default() };
+        let kept = Settings { countdown: false, path_mode: PathMode::Trail, ..Settings::upgraded() };
         assert_eq!(s, kept, "the valid ones are kept");
         assert_eq!(problems.len(), 1);
         let p = &problems[0];
@@ -248,11 +449,63 @@ mod tests {
         for text in ["{ not json", "[1, 2]"] {
             std::fs::write(dir.path().join("settings.json"), text).unwrap();
             let (s, problems) = open(dir.path());
-            assert_eq!(s, Settings::default());
+            assert_eq!(s, Settings::upgraded());
             assert_eq!(problems.len(), 1);
             assert!(problems[0].contains("every setting is back to its default"), "{}", problems[0]);
             assert_eq!(std::fs::read_to_string(dir.path().join("settings.json.bad")).unwrap(), text);
         }
+    }
+
+    #[test]
+    fn a_new_install_gets_the_new_keys_and_the_whole_first_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let (s, _) = open(dir.path());
+        assert_eq!(s.keys, RelayKeys::new_default());
+        assert_eq!(s.keys.record.as_deref(), Some("Ctrl + Shift + F9"));
+        assert_eq!(s.keys.kill, "Ctrl + Alt + Backspace");
+        assert_eq!(s.intro, Intro::Welcome);
+    }
+
+    #[test]
+    fn an_upgrade_keeps_its_keys_and_sees_the_keys_screen_once() {
+        // Settings from an older Relay: no keys in them.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("settings.json"), r#"{"countdown":false}"#).unwrap();
+        let (s, _) = open(dir.path());
+        assert_eq!((s.keys, s.intro, s.countdown), (RelayKeys::legacy(), Intro::Keys, false));
+        // No settings.json, but macros: an older Relay too.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("library.json"), "{}").unwrap();
+        assert_eq!(open(dir.path()).0, Settings::upgraded());
+        assert_eq!(Settings::upgraded().keys.record.as_deref(), Some("F9"));
+        // Once seen, it stays seen.
+        let dir = tempfile::tempdir().unwrap();
+        let (mut store, _) = SettingsStore::open(dir.path());
+        store.set(Settings { intro: Intro::Done, ..store.current.clone() }).unwrap();
+        assert_eq!(open(dir.path()).0.intro, Intro::Done);
+    }
+
+    #[test]
+    fn keys_are_changed_one_at_a_time_and_stop_everything_stays() {
+        let keys = RelayKeys::new_default();
+        assert_eq!(keys.with(RelayKey::Record, None).record, None);
+        assert_eq!(keys.with(RelayKey::Play, Some("F8".into())).get(RelayKey::Play), Some("F8"));
+        assert_eq!(keys.with(RelayKey::Kill, None).kill, "Ctrl + Alt + Backspace");
+        assert_eq!(RelayKey::ALL.map(RelayKey::name), ["Record", "Play / pause", "Show the player", "Stop everything"]);
+    }
+
+    #[test]
+    fn text_sizes_are_the_four_offered() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("settings.json"), r#"{"text_size":150,"theme":"dark","glass":false}"#).unwrap();
+        let (s, problems) = open(dir.path());
+        assert_eq!((s.text_size.zoom(), s.theme, s.glass), (1.5, Theme::Dark, Some(false)));
+        assert!(problems.is_empty(), "{problems:?}");
+        std::fs::write(dir.path().join("settings.json"), r#"{"text_size":140,"spacing":"large"}"#).unwrap();
+        let (s, problems) = open(dir.path());
+        assert_eq!((s.text_size, s.spacing), (TextSize(100), Spacing::Large), "only the bad one resets");
+        assert!(problems[0].contains("“text_size”"), "{problems:?}");
+        assert_eq!(serde_json::to_value(TextSize(125)).unwrap(), 125);
     }
 
     #[test]
