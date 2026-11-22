@@ -155,7 +155,7 @@ Relay is a Rust workspace (`relay-core` for the pure logic, `relay-platform` for
 - [ ] **Reliable batches**: see which data row failed and resume from it, `--data` for exported programs, a command line to run a macro, a JSON log, exit codes per failure and a screenshot on failure, per-row and per-loop run history
 - [ ] **Editing**: insert a click or a key press by hand, copy, paste and reorder steps, an undo history that survives a restart
 - [ ] **Hotkeys and defaults**: toggle or hold-to-run macro hotkeys, defaults for new recordings (Vary timing, Stop on key, Clicks land)
-- [ ] **More triggers**: every N minutes, monthly, catching up on a schedule missed while asleep
+- [ ] **More triggers**: monthly, catching up on a schedule missed while asleep
 - [ ] **Secrets**: a placeholder for a password kept in Windows' credential store, never in the macro or an export
 - [ ] **For sharing and review**: a diff-friendly `.rly` (an event per line, pictures beside it), triggers in exports
 - [ ] Code signing
