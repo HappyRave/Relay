@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Relay website lab · Round W1</title>
+<title>Relay website lab · Rounds W1 and W2</title>
 <link rel="stylesheet" href="shared.css">
 <style>
   body { background: #e8e7e2; }
@@ -36,7 +36,46 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>Relay's website: round W1</h1>
+  <h1>Relay's website: round W2, what Relay can do</h1>
+  <p class="intro">The brief, 2026-11-22: "show more about relay, more about its capabilities". Today the landing page shows six feature cards; these four variants replace that section, between the editor screenshot and the download band (the striped bars mark what stays). They cover what 2.0 adds: Show targets, <i>Every…</i>, Activity, Text and data files, AutoHotkey export. Screenshots are the guide's own (<code>docs/images</code>); Show targets is drawn, since screenshots can't show its marks.</p>
+  <div class="legend"><span>All copy: <b>proposal</b></span><span>Jobs in C and their steps: <b>proposal</b> (made-up examples)</span><span>Red ring: <b>Claude's pick</b></span><span>Nothing here is decided</span></div>
+
+  <div class="v">
+    <div class="vh"><span class="lbl">W2·A</span><h2>Tour</h2><a href="w2-a.html" target="_blank">Open full page ↗</a></div>
+    <p class="idea">Nine stops, one per capability, alternating text and a real screenshot: Record, Edit, Wait, Type, Run on cue, Play, Show targets, Activity, Share. Then three small cards (stops, private, yours to set). Complete and easy to scan, and long: about nine screens.</p>
+    <div class="frames"><div class="fr"><div class="cap">Desktop 1440 (scroll inside)</div><div class="desk"><iframe src="w2-a.html" loading="lazy" title="W2 A desktop"></iframe></div></div><div class="fr mob"><div class="cap">Phone 390</div><div class="box"><iframe src="w2-a.html" loading="lazy" title="W2 A phone"></iframe></div></div></div>
+  </div>
+
+  <div class="v">
+    <div class="vh"><span class="lbl">W2·B</span><h2>Switchboard</h2><a href="w2-b.html" target="_blank">Open full page ↗</a></div>
+    <p class="idea">One screen tall: eight capabilities as tabs on the left, one panel on the right with its screenshot and three lines. It plays through them on its own, a red bar filling under the current tab like the player's progress; a click holds it. The same content as A in a seventh of the height, but half of it hides behind tabs.</p>
+    <div class="frames"><div class="fr"><div class="cap">Desktop 1440</div><div class="desk"><iframe src="w2-b.html" loading="lazy" title="W2 B desktop"></iframe></div></div><div class="fr mob"><div class="cap">Phone 390</div><div class="box"><iframe src="w2-b.html" loading="lazy" title="W2 B phone"></iframe></div></div></div>
+  </div>
+
+  <div class="v pick">
+    <div class="vh"><span class="lbl">W2·C</span><h2>Jobs</h2><span class="badge">Claude's pick</span><a href="w2-c.html" target="_blank">Open full page ↗</a></div>
+    <p class="idea">Capabilities shown as chores people hand Relay: fill 200 forms from a spreadsheet, click OK when the dialog appears, open your tools every morning, act when a status turns red, send a colleague a program, do it 50 times, sign off an email with one key. Each card is a few real-looking steps and what it uses; Show targets gets a wide card. Then <i>And everything else</i>, a dense two-column list so nothing is missing.</p>
+    <p class="why"><b>Why:</b> people come with a chore, not a feature name, and a steps list shows how Relay thinks in one look, like the hero already does. The closing list keeps it as complete as A or D.</p>
+    <div class="frames"><div class="fr"><div class="cap">Desktop 1440 (scroll inside)</div><div class="desk"><iframe src="w2-c.html" loading="lazy" title="W2 C desktop"></iframe></div></div><div class="fr mob"><div class="cap">Phone 390</div><div class="box"><iframe src="w2-c.html" loading="lazy" title="W2 C phone"></iframe></div></div></div>
+  </div>
+
+  <div class="v">
+    <div class="vh"><span class="lbl">W2·D</span><h2>Spec sheet</h2><a href="w2-d.html" target="_blank">Open full page ↗</a></div>
+    <p class="idea">Every capability on one aluminium plate, like a hardware spec sheet: Record, Edit, Wait, Text, Triggers, Playback, Safety, Files, with the numbers (0.5×–4×, every 5 s–24 h, images at 0.5×–2×, 200 runs). A strip of four screenshots under it. The densest and most "instrument", the least friendly for a first-time visitor.</p>
+    <div class="frames"><div class="fr"><div class="cap">Desktop 1440 (scroll inside)</div><div class="desk"><iframe src="w2-d.html" loading="lazy" title="W2 D desktop"></iframe></div></div><div class="fr mob"><div class="cap">Phone 390</div><div class="box"><iframe src="w2-d.html" loading="lazy" title="W2 D phone"></iframe></div></div></div>
+  </div>
+
+  <div class="qs" style="margin-bottom:60px">
+    <h2>Open questions</h2>
+    <ol>
+      <li><b>Which variant</b>, or a mix (C's jobs with D's plate in place of its closing list, say)?</li>
+      <li><b>The six feature cards</b>: replaced by the new section (as drawn), or kept above it?</li>
+      <li><b>The jobs in C:</b> are these the chores you want to lead with, or do you have real ones from users?</li>
+      <li><b>Show targets in the hero?</b> The hero animation could end with the marks of what it just recorded.</li>
+    </ol>
+  </div>
+
+  <h1 style="margin-top:40px">Round W1</h1>
   <div class="qs" style="background: var(--green); color: var(--ink); margin-bottom: 18px"><h2 style="margin:0 0 6px">Decided, 2026-11-21</h2>The maintainer chose <b style="color:var(--ink)">W1·A Live desk</b> for the landing page and <b style="color:var(--ink)">W1·G1 Three columns</b> for the guide: "A and G1". Then decided the same day: the headline "Do it once. Relay does it again."; light and dark themes, following the system; links into the spec go to GitHub; the site is at happyrave.github.io/Relay. Still a proposal: the rest of A's copy.</div>
   <p class="intro">Four landing pages (A–D) and two guide pages (G1, G2). Each is a different idea, built from the app's own tokens: aluminium and ink, red only for record and download, Archivo, the step glyphs (blue pointer, yellow keys, green logic). The frames are live: scroll inside them, and try the interactive heroes. Each opens full size from its link.</p>
   <div class="legend"><span>All copy and numbers: <b>proposal</b></span><span>Download sizes in D: <b>placeholder</b></span><span>Red ring: <b>Claude's pick</b></span><span>Nothing here is decided</span></div>
